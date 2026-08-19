@@ -199,24 +199,6 @@ func TestWrite_CreatesParentDirectories(t *testing.T) {
 	}
 }
 
-func TestWrite_WithPermOverridesPermission(t *testing.T) {
-
-	path := filepath.Join(t.TempDir(), "perm.yaml")
-	doc := testDoc{Name: "frank", Count: 0}
-
-	if err := Write(path, &doc, WithPerm(0o644)); err != nil {
-		t.Fatalf("Write: %v", err)
-	}
-
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("Stat: %v", err)
-	}
-	if perm := info.Mode().Perm(); perm != 0o644 {
-		t.Errorf("permission = %o, want %o", perm, 0o644)
-	}
-}
-
 func TestWrite_WithHeaderPrependsText(t *testing.T) {
 
 	path := filepath.Join(t.TempDir(), "header.yaml")

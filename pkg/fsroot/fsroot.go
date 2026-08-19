@@ -45,6 +45,30 @@ var errTempPatternSeparator = fmt.Errorf("temporary name pattern contains a path
 // maxTempAttempts bounds the collision retries in [createTempIn] and [mkdirTempIn], matching [os.CreateTemp].
 const maxTempAttempts = 10000
 
+// Permission-class masks for the three classes a Unix mode names.
+//
+// Go supplies no symbol for these. [fs.ModePerm] covers all nine bits at once, and syscall's S_IRWXU, S_IRWXG
+// and S_IRWXO are unix-only, so they cannot appear in code that also builds for windows.
+//
+// They exist because the two rules that matter are one character apart as literals — `perm&0o007` excludes
+// only other, `perm&0o077` excludes group as well — and that is how this package's enforcement gate and its own
+// documentation came to disagree about which one it implements. Named, the rules stop resembling each other:
+// `perm&PermOther == 0` and `perm&(PermGroup|PermOther) == 0` cannot be misread for one another.
+//
+// Migrating the existing call sites onto these, and ruling which of the two the enforcement gate should mean,
+// is tracked separately.
+const (
+
+	// PermOwner masks the owner's read, write, and execute bits.
+	PermOwner os.FileMode = 0o700
+
+	// PermGroup masks the group's read, write, and execute bits.
+	PermGroup os.FileMode = 0o070
+
+	// PermOther masks other's — the world's — read, write, and execute bits.
+	PermOther os.FileMode = 0o007
+)
+
 // Dir provides scoped filesystem operations. All path arguments are [Path] values created through [Dir.NewPath].
 //
 // Three concrete implementations provide different access modes:
