@@ -52,7 +52,7 @@ func newTriadRW(t *testing.T) triadEnv {
 
 	t.Helper()
 
-	return newTriad(t, fsroot.ModeWritableUnconfined, t.TempDir())
+	return newTriad(t, fsroot.ModeConfined, t.TempDir())
 }
 
 func newTriadConfined(t *testing.T) triadEnv {

@@ -241,9 +241,17 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 
 	receiverRegistry := op.ReceiverRegistry()
 
-	// The test context writes through an unconfined root over the same tree: scripts under test address absolute
-	// paths, which a confined root refuses by design. The workspace above owns the tree's lifetime either way.
-	root := fsroot.OpenWritableUnconfined(tmpDir)
+	// The test context writes through a confined root over the workspace tree, which owns its lifetime.
+	//
+	// This was unconfined, justified by scripts under test addressing absolute paths. Traced 2026-08-19 and
+	// untrue: an absolute path *inside* the anchor is fine, since [fsroot.Path] derives its root-relative half
+	// from it. The fixture paths that genuinely sit outside — "/some/dir/file.txt" for file.name and
+	// file.parent, and the "/tmp/fake.*" arguments to archive and encryption — are pure string operations or
+	// plan-shape fixtures that never execute against a real file.
+	root, err := fsroot.OpenConfined(tmpDir)
+	if err != nil {
+		return nil, fmt.Errorf("confine the workspace tree: %w", err)
+	}
 	defer iox.Close(&err, root)
 
 	hostSpec, err := platform.Detect()
@@ -264,7 +272,7 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 	spec := op.NewRuntimeEnvironmentSpec("devlore-test").
 		WithStatus(cli.UI()).
 		WithModules(receiverRegistry.Modules()...).
-		WithRoot(tmpDir, fsroot.ModeWritableUnconfined).
+		WithRoot(tmpDir, fsroot.ModeConfined).
 		WithPlatform(hostPlatform).
 		WithApplication(app)
 

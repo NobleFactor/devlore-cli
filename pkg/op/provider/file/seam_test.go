@@ -20,7 +20,7 @@ func TestCompensateFileMutation_UnknownKind_Errors(t *testing.T) {
 
 	dir := t.TempDir()
 	p := testProvider(t, dir)
-	resource := testFileResource(t, []byte("x"))
+	resource := testFileResource(t, t.TempDir(), []byte("x"))
 
 	receipt := NewReceipt(NewReceiptSpec(resource, MutationKind("bogus")))
 

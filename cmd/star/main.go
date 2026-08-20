@@ -24,7 +24,6 @@ import (
 	"github.com/spf13/cobra/doc"
 
 	_ "github.com/NobleFactor/devlore-cli/cmd/star/inventory"
-	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/inventory"
 )
 
@@ -365,8 +364,13 @@ func installStarExtensions(prefix string) []string {
 
 	// The hook owns the root for the length of its work: it receives a prefix string, because the hook
 	// contract is a path (#405, phase 2b — the contract itself is the campaign's LAST item).
-	prefixRoot := fsroot.OpenWritableUnconfined(prefix)
-	//nolint:errcheck // diagnose-ignored-error: an unconfined root holds no handle, so Close cannot fail; see docs/architecture/2.8-eventing-infrastructure.md
+	prefixRoot, err := cli.OpenTree(prefix)
+	if err != nil {
+		cli.Warn("Failed to open the install prefix: %v", err)
+		return nil
+	}
+
+	//nolint:errcheck // diagnose-ignored-error: best-effort hook, and the extensions are already copied; see docs/architecture/2.8-eventing-infrastructure.md
 	defer prefixRoot.Close()
 
 	targetExtDir := prefixRoot.NewPath("share", "star", "extensions")

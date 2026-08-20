@@ -64,9 +64,13 @@ Examples:
 			}
 
 			if install {
-				// The command owns the root: --path lets the operator name any directory, and
-				// writable-unconfined because it need not exist yet (#405, phase 2b).
-				manRoot := fsroot.OpenWritableUnconfined(installPath)
+				// The command owns the root: --path lets the operator name any directory, and OpenTree
+				// because it need not exist yet (#405, phase 2b). An operator naming a relative path is
+				// refused rather than resolved against the working directory.
+				manRoot, err := OpenTree(installPath)
+				if err != nil {
+					return err
+				}
 				defer iox.Close(&err, manRoot)
 
 				return installManPages(rootCmd, h, manRoot)

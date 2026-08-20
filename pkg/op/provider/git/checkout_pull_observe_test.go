@@ -36,7 +36,7 @@ func newNarratingProvider(t *testing.T, dryRun bool) (*Provider, *bytes.Buffer) 
 
 	runtimeEnvironment, err := op.NewRuntimeEnvironment(context.Background(),
 		op.NewRuntimeEnvironmentSpec("test").
-			WithRoot(t.TempDir(), fsroot.ModeWritableUnconfined).
+			WithRoot(t.TempDir(), fsroot.ModeConfined).
 			WithApplication(&application.Application{Name: "test", Flags: map[string]any{"dry_run": dryRun}}).
 			WithStatus(status.NewNarrator("test", captureSink)))
 	if err != nil {

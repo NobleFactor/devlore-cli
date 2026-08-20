@@ -218,9 +218,11 @@ func runSelfInstall(rootCmd *cobra.Command, prefix string, info SelfInstallInfo,
 	// only tree here whose anchor is an operator-supplied argument rather than an XDG accessor, so it is
 	// opened once at the top rather than derived from a package accessor further down.
 	//
-	// Writable-unconfined because the prefix need not exist yet — a first install creates it — and a confined
-	// root requires its anchor to exist.
-	prefixRoot := fsroot.OpenWritableUnconfined(prefix)
+	// OpenTree because the prefix need not exist yet — a first install creates it — and opening is a query.
+	prefixRoot, err := OpenTree(prefix)
+	if err != nil {
+		return err
+	}
 	defer iox.Close(&err, prefixRoot)
 
 	// 1. Install binary.
@@ -459,7 +461,10 @@ func printInstallSummary(toolName, prefix string, installed, installedShells []s
 func runSelfUninstall(prefix string, info SelfInstallInfo) (err error) {
 
 	// One root for the whole uninstall, matching runSelfInstall (#405, phase 2b).
-	prefixRoot := fsroot.OpenWritableUnconfined(prefix)
+	prefixRoot, err := OpenTree(prefix)
+	if err != nil {
+		return err
+	}
 	defer iox.Close(&err, prefixRoot)
 
 	m, err := readManifest(prefix, info.Name)
@@ -543,8 +548,12 @@ func runSelfUninstall(prefix string, info SelfInstallInfo) (err error) {
 func removeDevloreConfig(toolName string) {
 
 	// The uninstall path owns the config tree for the length of this removal (#405, phase 2b).
-	configRoot := fsroot.OpenWritableUnconfined(devlore.ConfigHome())
-	//nolint:errcheck // diagnose-ignored-error: an unconfined root holds no handle, so Close cannot fail; see docs/architecture/2.8-eventing-infrastructure.md
+	configRoot, err := OpenTree(devlore.ConfigHome())
+	if err != nil {
+		return // nothing to remove from a tree that cannot be opened
+	}
+
+	//nolint:errcheck // diagnose-ignored-error: best-effort removal, and the entries are already gone; see docs/architecture/2.8-eventing-infrastructure.md
 	defer configRoot.Close()
 
 	toolConfig := configRoot.NewPath("config.d", toolName+".yaml")
@@ -558,8 +567,12 @@ func removeDevloreConfig(toolName string) {
 // removeDevloreCache removes the tool's cache directory.
 func removeDevloreCache(toolName string) {
 
-	cacheRoot := fsroot.OpenWritableUnconfined(devlore.CacheHome())
-	//nolint:errcheck // diagnose-ignored-error: an unconfined root holds no handle, so Close cannot fail; see docs/architecture/2.8-eventing-infrastructure.md
+	cacheRoot, err := OpenTree(devlore.CacheHome())
+	if err != nil {
+		return // nothing to remove from a tree that cannot be opened
+	}
+
+	//nolint:errcheck // diagnose-ignored-error: best-effort removal, and the entries are already gone; see docs/architecture/2.8-eventing-infrastructure.md
 	defer cacheRoot.Close()
 
 	cacheDir := cacheRoot.NewPath(toolName)
@@ -925,8 +938,11 @@ func initDevloreConfig(info SelfInstallInfo) (paths []string, err error) {
 		return nil, nil
 	}
 
-	// One root for the config tree; writable-unconfined because it may not exist yet (#405, phase 2b).
-	configRoot := fsroot.OpenWritableUnconfined(devlore.ConfigHome())
+	// One root for the config tree; OpenTree because it may not exist yet (#405, phase 2b).
+	configRoot, err := OpenTree(devlore.ConfigHome())
+	if err != nil {
+		return nil, err
+	}
 	defer iox.Close(&err, configRoot)
 
 	// NewPath(".") is the root's own directory, so the 0750 is applied by the root that anchors it and
@@ -962,7 +978,10 @@ func initDevloreConfig(info SelfInstallInfo) (paths []string, err error) {
 // initDevloreCache creates the unified devlore cache structure.
 func initDevloreCache(toolName string) (path string, err error) {
 
-	cacheRoot := fsroot.OpenWritableUnconfined(devlore.CacheHome())
+	cacheRoot, err := OpenTree(devlore.CacheHome())
+	if err != nil {
+		return "", err
+	}
 	defer iox.Close(&err, cacheRoot)
 
 	cacheDir := cacheRoot.NewPath(toolName)
@@ -981,7 +1000,10 @@ func initDevloreCache(toolName string) (path string, err error) {
 // conversion is deliberately shallow so that move stays a move.
 func initWritLayers() (created []string, err error) {
 
-	layersRoot := fsroot.OpenWritableUnconfined(devlore.WritLayersDir())
+	layersRoot, err := OpenTree(devlore.WritLayersDir())
+	if err != nil {
+		return nil, err
+	}
 	defer iox.Close(&err, layersRoot)
 
 	for _, layer := range []string{"base", "team", "personal"} {
