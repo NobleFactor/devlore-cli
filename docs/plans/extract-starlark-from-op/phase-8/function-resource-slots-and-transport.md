@@ -9,6 +9,14 @@ updated: 2026-06-07
 
 # Function-resource slots + content-resource transport
 
+> **Superseded in part, 2026-08-20** ([resource-construction](../../resource-construction.md), feature
+> [#581](https://github.com/NobleFactor/devlore-cli/issues/581)): step 3's scoping of graph-document
+> transport to content-addressed resources — with references left to "recreate from slot URIs" — was too
+> narrow; this Goal's own "including on another host" requires the ledger. The graph document now carries a
+> mandatory catalog section: every entry as pending intent, content entries additionally carrying their
+> packed bytes. The content-transport mechanism this plan landed is unchanged; only the exclusion of
+> reference entries is withdrawn.
+
 ## Goal
 
 Let a planned action receive a Starlark function as an argument (e.g. `plan.file.walk_tree(fn=collector)`), execute it

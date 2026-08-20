@@ -110,7 +110,7 @@ What survives — and matters — from the four-phase picture:
 1. **Verify is the truth gate.** A verification step's recorded result (e.g. "port 80 responsive") is what
    distinguishes this model from traditional configuration management: the record captures verified facts, not just
    "success." Observations — point-in-time resource facts (`file.observe`, `git.observe`) — ride the trace as
-   results ([4](4-resource-management.md) §6.1).
+   results ([4](4-resource-management.md) §3, observations).
 2. **Every completed step can be undone.** The classical (A, C, S) tuple maps onto the landed compensable-action
    contract: forward method, `Compensate<Name>` companion, and the **receipt** as S — captured per dispatch, pushed
    on the recovery stack, unwound LIFO on failure ([2.2](2.2-phase-execution.md) owns the contract in full).

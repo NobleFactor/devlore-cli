@@ -98,7 +98,7 @@ Windows known-failures.
 
 ## Phases
 
-### Phase 0 — design integration (docs only) — status: pending
+### Phase 0 — design integration (docs only) — status: complete 2026-08-20
 
 1. `docs/architecture/4-resource-management.md`: new §"The catalog travels with the graph" — the serialized
    ledger (every addressing; entries as pending intent; content entries additionally carry packed bytes),

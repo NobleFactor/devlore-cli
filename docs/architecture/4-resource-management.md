@@ -1,11 +1,13 @@
 # Resource Management: URI-Based Resource Tracking
 
-> **Status:** rewritten 2026-07-22 (phase-8 step 51, slice 3) onto the landed `pkg/op` model. The migration-era
-> bookkeeping (per-method signature-migration tables, the string-parameter "today" snapshots, `Tombstone` recovery,
-> the constructor-registry coercion chain) is replaced; the landed catalog model — states, the behavior matrix
-> (ruled 2026-07-14), shadowing, observations — is the body; the **declared-output-spec proposal is preserved as an
-> explicitly unimplemented appendix** (verified 2026-07-22: no `OutputSpec`, no `*Planned` companions in the tree).
-> Companion: [`4-resource-management.status.md`](4-resource-management.status.md).
+> **Status:** rewritten 2026-07-22 (phase-8 step 51, slice 3) onto the landed `pkg/op` model; **revised
+> 2026-08-20 onto the resource-construction rulings** ([plan](../plans/resource-construction.md), feature
+> [#581](https://github.com/NobleFactor/devlore-cli/issues/581)): the catalog is input intent and travels with
+> the graph (§5), plan-space paths follow the git model, identity is root-relative, and **the
+> declared-output-spec proposal is rejected** — products are runtime facts, so the former Appendix A is
+> removed rather than preserved (§9 item 8). Implementation is staged in
+> [#582–#587](https://github.com/NobleFactor/devlore-cli/issues/581); until those land, the tree carries the
+> pre-ruling behavior. Companion: [`4-resource-management.status.md`](4-resource-management.status.md).
 
 This document describes resource management in `pkg/op`: how providers track external state through typed resource
 handles, how the catalog resolves URI-based identity across the execution graph, and how recovery unifies under
@@ -28,19 +30,26 @@ plan.file.write_text(destination_path="/etc/foo", content="v2", chmod=0o644)
 result = plan.file.read_text(resource="/etc/foo")   # must read v2, not the original
 ```
 
-Without identity, the write and the read are unordered — a silent race decided by scheduling. The fix is to track
-**identity**: typed resources with URIs, a catalog that maps each URI to its current version, and **shadowing** that
-turns same-URI production into implicit dependency edges (or plan-time conflicts).
+Without identity, the write and the read are unordered — a silent race decided by scheduling. Identity is
+tracked with typed resources and a catalog that maps each URI to its current version — but **ordering comes
+from promises, not from URI matching** (ruled 2026-08-20): the read that must follow the write consumes the
+write's invocation output, which is the edge. Two operations that merely spell the same string share one
+catalog identity and gain no edge from it; the plan's judgment scenario 1 (delete-then-copy,
+[resource-construction.md](../plans/resource-construction.md)) is the deliberate counterexample, where the
+ordering-dependent contradiction is exactly why plan time cannot adjudicate it. What identity buys is intent
+(§5), deduplication, observation (the trace), and runtime versioning (§4) — not edge inference.
 
 ## 2. Architectural Summary
 
 The architecture separates **intent** (planning) from **reality** (execution). A graph is planned once and can be
 executed on many machines:
 
-- **Plan time** — pure, no I/O: values convert to typed resources ([2.1](2.1-typed-slots.md)'s conversion cascade),
-  URIs are claimed in the catalog, shadowing records who produces what.
-- **Execution time** — the executor's pre-flight resolve pass verifies existence against the target and the catalog
-  applies state transitions; dispatch results transition claims to reality.
+- **Plan time** — pure, no I/O: a resource-typed parameter's string value mints a **pending** entry (no
+  existence check); a promise value records the promise and nothing else; a **product is a runtime fact**
+  with no plan-time presence (§5). String-typed parameters stay plain values.
+- **Execution time** — the executor's pre-flight resolve pass verifies every pending rel under the run's
+  root and applies state transitions; dispatch results — products included — become catalog facts on the
+  per-run clone, recorded by the trace.
 
 **`Resource`** (`pkg/op/resource.go`) — an interface sealed by an unexported method; only types embedding
 `ResourceBase` implement it. The base carries identity (`uri`, catalog `id`, `producerID` — empty for discovered,
@@ -124,26 +133,104 @@ record** instead: an observe action's observation is that node's result, carried
 the trace; resume re-observes rather than reconstructs. Identity comes from the observed resource by back-link
 (`op.ObservationBase`); an observation mints no URI and hashes no content.
 
-## 4. Shadowing — Implicit Edges and Plan-Time Conflicts
+## 4. Shadowing — Runtime Versioning
 
-When planning produces a resource at a URI, the catalog records the claim; when a later unit references the same
-URI, `Resolve` returns the canonical (possibly shadowed) entry and the producer link makes the ordering explicit:
+**Revised 2026-08-20.** Shadowing is a **runtime** mechanism: when execution produces a resource at an
+occupied URI, the run-clone's ledger appends a new generation and repoints the namespace — the prior
+generation survives as history. It is how the trace records "this file was version N, and the run made it
+version N+1."
 
-```
-Step 1: plan.file.write_text(destination_path="/etc/foo", ...)
-  └─ the write's target resource is cataloged with producerID = the write node
-Step 2: plan.file.read_text(resource="/etc/foo")
-  └─ the string converts to a typed resource; Resolve returns the cataloged entry;
-     the read depends on the write — order guaranteed, no explicit promise needed
-```
+What shadowing is **not**, under the intent ruling: a plan-time mechanism. Products have no plan-time
+presence (§5), so planning never records who produces what, never claims an output URI, and never derives an
+ordering edge from URI coincidence — ordering is the promise's job (§1). The former model — output claims at
+plan time with implicit same-URI edges and plan-time producer conflicts — is superseded; its residue is
+exactly what judgment scenario 1 pins as a runtime story, not a plan error.
 
-Two units *producing* the same URI is a **plan conflict** surfaced at claim time (this is also the cross-kind rule:
-the same URI claimed as two different kinds errors at the earliest claim — [3.5.4](3.5.4-file-provider.md)). For
-gather, uniqueness of items is the plan author's contract: same-resource production across iterations is a plan
-conflict, same-path modification is a race — both by design; fix the plan
-([2.3](2.3-orchestration-primitives.md)).
+Two units producing the same URI therefore surface at **run time**, as generations in the ledger — legal
+versioning when the plan ordered them, and an ordering-dependent race when it did not. For gather, uniqueness
+of items remains the plan author's contract: same-path modification across concurrent iterations is a race by
+design; fix the plan ([2.3](2.3-orchestration-primitives.md)). The cross-kind rule stays at claim time for
+**inputs**: the same URI claimed as two different kinds errors at the earliest claim
+([3.5.4](3.5.4-file-provider.md)).
 
-## 5. Recovery — Receipts and the Recovery Site
+### 4.1 Freshness — the two-path reconciler
+
+`Resolve` on a cache hit runs a two-path reconciler with a shared change-detection front end (landed; the
+step-48 capture feeds its recorded side). Every resource exposes the pair: **`Etag`** — cheap, suggestive
+(file: a stat tuple; content-addressed types: the URI itself) — and **`Digest`** — the honest content hash,
+computed only when the Etag mismatch demands it:
+
+| URI match? | Etag match? | Digest match? | Action |
+|---|---|---|---|
+| no | — | — | first sighting: intern, return new |
+| yes | yes | *(skipped)* | cache hit: return existing — the cheapest path |
+| yes | no | yes | **touch drift**: refresh the Etag, return existing, no shadow |
+| yes | no | no | real content change — branch on `Addressing()` |
+
+- **`AddressingLocation`** (file, git, appnet, pkg, service): identity is the location, bytes are mutable —
+  a real change **shadows** (append the generation, repoint).
+- **`AddressingContent`** (mem, function, json, yaml): identity *is* the digest, so URI-match +
+  digest-mismatch is impossible by construction — treat it as **corruption** and error; content types never
+  accumulate a shadow chain.
+- **`AddressingUnknown`** is a tripwire, not a default: no announced resource may return it, and the
+  catalog's branch panics if one does — no implicit "location is the default" bias.
+
+Not a push model: divergence is detected when consumers ask, never asynchronously. Touch drift is the
+classification that makes relocation safe — judgment scenario 2 (copy the tree, reconcile at the new root)
+resolves every entry through exactly this row.
+
+## 5. The Catalog Travels with the Graph
+
+Ruled 2026-08-20 ([plan](../plans/resource-construction.md), feature
+[#581](https://github.com/NobleFactor/devlore-cli/issues/581)): **the graph's resource catalog represents
+input intent — it is, in effect, what must exist when the graph runs.**
+
+### 5.1 Plan-time claiming — inputs only, pending only
+
+- A **resource-typed parameter with a string value** mints a **pending** entry through the catalog. No
+  existence check, no I/O — pending, never resolved; the executor's pre-flight owns transitions (§3).
+- A **resource-typed parameter with a promise value** records the promise binding. **No catalog entry** —
+  identity arrives when the producer runs.
+- A **product** — a method's returned resource — is a **runtime fact**. No plan-time entry, no output
+  declaration of any kind (the declared-output-spec proposal is rejected — §9 item 8).
+- **String-typed parameters** (`destination_path`, `mode`, `user`, …) stay plain values.
+
+### 5.2 Plan-space paths — the git model
+
+Plan-authored paths are a small portable language: a **leading slash anchors at the fsroot** (as in
+`.gitignore`), so `/foo/bar` ≡ `foo/bar`, both naming rel `foo/bar`. Machine-absoluteness is
+**inexpressible in a plan** — it arises only from the run's root choice: a home-scope graph binds to the
+account running it (`/Users/a`, `/home/b`, `C:\Users\c` — same graph, different accounts); a system-scope
+graph binds to the host (`%SystemDrive%\` on Windows, `/` on unix). Volume and drive-letter spellings, and
+rels that escape (`../`), are plan-time refusals — the latter is intent confinement can never satisfy.
+
+### 5.3 Identity is rel; the fsroot binds at run
+
+Resource identity is the **slash-canonical root-relative path** — the `fsroot.Path` serialization doctrine
+(`rel` is the half that serializes) applied to the catalog. The fsroot is a **run parameter**, unknown until
+execution. Activation (pre-flight's Pending → Active) is a *state and binding* event, never an identity
+event: afterward the identity is the same rel it was as pending, and the `SourcePath` is the fully bound
+triad — `Rel()` the identity verbatim, `Root()` the run's fsroot, `Abs()` derived, OS-native, carrying all
+I/O and never serialized. Identity lives in the rel; location lives in the Path; activation joins them
+without letting them trade places.
+
+### 5.4 The serialized section — mandatory, even when empty
+
+Every graph document carries a `resources` section: one row per current-generation entry, as intent —
+`{id, uri, state: pending}` (all pending by construction: no producers, no Etag/Digest — those are trace
+material). Content-addressed entries additionally carry their packed bytes (the content transport, step 25).
+The section is present even when empty. **A document without it does not load, and a graph without a catalog
+fails pre-flight hard** (`ReasonPreflightFailed`, before any dispatch). `schema_version` stays 1: pre-ruling
+documents simply fail to load and are rewritten by re-planning.
+
+### 5.5 Graph = intent; trace = observation
+
+The graph document never records observation. The trace's ledger snapshot (step 48) records what the run
+saw: activations with captured content identity, products, transitions, compensations. Pre-flight in one
+sentence: **every pending rel must exist under the run's root.** The judgment scenarios that pin this split
+live in the plan's "Judgment scenarios" section.
+
+## 6. Recovery — Receipts and the Recovery Site
 
 The pre-`op` `Tombstone` family is gone (phase-8 steps 40/42): the undo record is the **receipt**
 ([2.2](2.2-phase-execution.md)), and file mutation flows through the unified receipt with `MutationKind`,
@@ -155,7 +242,7 @@ boundary, and the recovery-digest tamper check ([3.5.4](3.5.4-file-provider.md))
 the recovery key. Providers archive before destructive mutation; compensation restores — and the recorded
 `recoveryDigest` detects tampering of the recovery store between forward action and compensation.
 
-## 6. The Platform Provider — Data, Not Actions
+## 7. The Platform Provider — Data, Not Actions
 
 The platform provider (`pkg/op/provider/platform/`) is the Starlark surface for the runtime environment's
 `op.Platform` — the serializable capability + Composite package-manager router of
@@ -163,7 +250,7 @@ The platform provider (`pkg/op/provider/platform/`) is the Starlark surface for 
 reads resolve at execution time against the target's platform — the mechanism by which one graph targets many
 machines. The graph carries only serialized target identity; managers re-attach at run time, never serialize.
 
-## 7. Provider Lifecycle
+## 8. Provider Lifecycle
 
 Every provider embeds `op.ProviderBase` and is constructed against the `*op.RuntimeEnvironment` by the constructor
 its announcement registers (`op.AnnounceProvider(type, role, constructor, metadata)` — see
@@ -171,7 +258,7 @@ its announcement registers (`op.AnnounceProvider(type, role, constructor, metada
 follows the lifetime of its runtime environment — per run in a graph, per session in a script. Environment access
 is uniform: `p.RuntimeEnvironment()` for the root, catalog, platform, recovery site, narrator.
 
-## 8. Resolved Decisions
+## 9. Resolved Decisions
 
 1. **Sealed interface** — `Resource` sealed via the unexported base accessor; catalog stores interface values.
 2. **URI canonicalization** — applied at construction, pure.
@@ -181,8 +268,17 @@ is uniform: `p.RuntimeEnvironment()` for the root, catalog, platform, recovery s
 6. **Coercion vs. resolution** — plan time converts and claims (pure); execution time verifies and transitions
    (the pre-flight pass) — required because a graph is planned once and executed on many machines.
 7. **Observations** — results, never catalog members (§3).
+8. **Products are runtime facts** (ruled 2026-08-20) — no plan-time entry, no output declaration; the
+   declared-output-spec proposal (the former Appendix A) is **rejected**, and plan-time output shadowing
+   with it. Ordering is the promise's job.
+9. **The catalog travels with the graph** (ruled 2026-08-20) — mandatory serialized section, present even
+   empty; absence is a hard load error and a hard pre-flight failure; `schema_version` stays 1 (§5.4).
+10. **Identity is rel; the fsroot binds at run** (ruled 2026-08-20) — git-model plan-space paths; activation
+    never changes identity (§5.2–5.3).
+11. **Graph = intent; trace = observation** (ruled 2026-08-20) — the document records pending intent only;
+    the step-48 snapshot records what the run saw (§5.5).
 
-## 9. Open Questions
+## 10. Open Questions
 
 1. **Remote execution transport** — the graph is portable, and `op.Platform` carries target identity, but the
    pre-flight pass needs a filesystem abstraction for remote targets ([1-system-model.md](1-system-model.md) §6.2
@@ -190,33 +286,3 @@ is uniform: `p.RuntimeEnvironment()` for the root, catalog, platform, recovery s
 2. **Per-type existence rollout** — the staged step-22 rollout: which resource type's `Resolve`/`Exists` lands
    next.
 
----
-
-## Appendix A — Proposed: Declared Output Specs *(design only — not implemented)*
-
-> **Verified 2026-07-22:** no `OutputSpec` type, no `KnownAtExecution` sentinel, and no `*Planned` companion
-> methods exist in the tree. The landed alternative is the planner + conversion path: plan-time target resources
-> are built by the conversion cascade (`TargetConverter.CanConvertFrom` — [2.1](2.1-typed-slots.md)) and cataloged
-> at claim time; monadic outputs (e.g. `pkg.install`'s manager-dependent purl) shadow post-dispatch. This appendix
-> preserves the proposal and its prior-art grounding for a future charter.
-
-**The proposal.** Every resource-producing method declares a pure sibling — `X` / `XPlanned` — computing the output
-resource's identity from the input slot values; the framework calls it at plan time, and the forward method calls
-the same function at execution time (one source of identity truth). Outputs whose identity depends on runtime
-values return a `KnownAtExecution` sentinel (Terraform's "known after apply", temporally framed): the planner skips
-plan-time shadowing and the executor shadows the real result post-dispatch. A companion triplet — forward, planned,
-compensate — placed adjacently in source, wired by codegen from the naming convention with six static checks (no
-annotations, no struct tags).
-
-**Claimed benefits:** one identity-construction function shared by planner and method; trivially testable pure
-specs; dry-run by calling the spec instead of the method; rehydration of pending entries from recorded slots;
-plan-time conflict detection for every applicative output; implicit edges via URI matching; speculative
-skip-if-unchanged.
-
-**Prior art:** Bazel's analysis-phase `ctx.actions.declare_file` (declared outputs; hard phase separation; explicit
-input/output lists rather than URI-matched implicit edges); Terraform's `PlanResourceChange` and the
-`(known after apply)` marker; Nix's deterministic output paths; Mokhov, Mitchell, Peyton Jones, *Build Systems à la
-Carte* (ICFP 2018) — the applicative-vs-monadic task split (our default applicative; the sentinel is the monadic
-exit). Where the proposal deliberately diverges from Bazel: the spec is reusable by the forward method (Bazel's
-`declare_file` is analysis-only); edges are discovered from shared URIs rather than declared; purity is by
-convention (Go) rather than interpreter-enforced (Starlark).
