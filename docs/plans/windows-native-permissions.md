@@ -984,9 +984,15 @@ read an unmoved 28 after phase 3 as a failed migration.**
         `document_windows_test.go` DACL read-backs prove protection and the 0o644 boundary, in
         phase 2's shape. The windows leg moves **6 → 4**: `TestWrite_JSONCreatesFileWith0o600`,
         `TestWrite_YAMLCreatesFileWith0o600`.
-- [ ] **3.4 — the writ deploy/sops output path** ([#433](https://github.com/NobleFactor/devlore-cli/issues/433)) — behind `TestExecute_SopsChains`, and the one
+- [x] **3.4 — the writ deploy/sops output path** ([#433](https://github.com/NobleFactor/devlore-cli/issues/433)) — behind `TestExecute_SopsChains`, and the one
       that writes **decrypted plaintext**, which makes it the second-most security-relevant site in
-      the campaign after the private key.
+      the campaign after the private key. **Resolved 2026-08-20: production was already correct** —
+      `DecryptSopsFile` writes through the session root (encryption/provider.go), the deploy
+      environment is confined, and `enforceSecretFloor` refuses non-private modes. What remained was
+      the test asserting `Mode().Perm()`, which reports 0666 on Windows regardless; it now asserts
+      the portable fact via a build-tagged `assertPrivateFile` pair — 0600 mode bits on unix, a
+      protected DACL on Windows — so the runner *verifies* the production DACL rather than assuming
+      it. The windows leg moves **4 → 3**.
 - [ ] Exit gate: every restrictive-perm write in these areas flows through a root; a **DACL
       read-back test** proves the private key is protected on Windows, in the shape phase 2's
       `_windows_test.go` established. The 28 does **not** move here.
