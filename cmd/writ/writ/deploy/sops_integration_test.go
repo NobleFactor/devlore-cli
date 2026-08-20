@@ -22,8 +22,10 @@ import (
 
 // TestExecute_SopsChains deploys the two encrypted pipelines end to end — the plain decrypt
 // (`secret.yaml.sops` → decrypted `secret.yaml`) and the decrypt+render chain
-// (`note.yaml.template.sops` → decrypted, rendered `note.yaml`) — asserting content and the 0600 secret mode.
-// The ambient age identity comes from SOPS_AGE_KEY, per the sealed config-free decryption model.
+// (`note.yaml.template.sops` → decrypted, rendered `note.yaml`) — asserting content and that both outputs are
+// private in the platform's own terms: 0600 mode bits on unix, a protected DACL on Windows
+// (assertPrivateFile, the portable-fact pair). The ambient age identity comes from SOPS_AGE_KEY, per the
+// sealed config-free decryption model.
 func TestExecute_SopsChains(t *testing.T) {
 
 	root := t.TempDir()
@@ -73,13 +75,7 @@ func TestExecute_SopsChains(t *testing.T) {
 	if !strings.Contains(string(decrypted), "credential: hello world") {
 		t.Errorf("decrypted secret = %q, want the plaintext credential", decrypted)
 	}
-	info, err := os.Stat(filepath.Join(targetRoot, "secret.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if info.Mode().Perm() != 0o600 {
-		t.Errorf("secret mode = %v, want 0600", info.Mode().Perm())
-	}
+	assertPrivateFile(t, filepath.Join(targetRoot, "secret.yaml"))
 
 	// The decrypt+render chain: decrypted, rendered, 0600.
 	note, err := os.ReadFile(filepath.Join(targetRoot, "note.yaml"))
@@ -89,13 +85,7 @@ func TestExecute_SopsChains(t *testing.T) {
 	if !strings.Contains(string(note), "greeting: hi Darwin") {
 		t.Errorf("rendered note = %q, want the rendered greeting", note)
 	}
-	noteInfo, err := os.Stat(filepath.Join(targetRoot, "note.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if noteInfo.Mode().Perm() != 0o600 {
-		t.Errorf("note mode = %v, want 0600", noteInfo.Mode().Perm())
-	}
+	assertPrivateFile(t, filepath.Join(targetRoot, "note.yaml"))
 }
 
 // sopsEncrypt generates an age identity and encrypts plainYAML with SOPS, returning the encrypted bytes and
