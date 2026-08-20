@@ -2,7 +2,15 @@
 
 **Architecture document:** [4-resource-management.md](4-resource-management.md)
 
-**State:** rewritten 2026-07-22 (phase-8 step 51, slice 3). The migration-era body — string-parameter "today"
+**State:** rewritten 2026-07-22 (phase-8 step 51, slice 3); **revised 2026-08-20 onto the
+resource-construction rulings** ([plan](../plans/resource-construction.md), feature #581): §5 "The Catalog
+Travels with the Graph" added (intent-only claiming, git-model plan-space paths, rel identity with run-bound
+fsroot, mandatory serialized section with hard pre-flight, graph=intent/trace=observation); §4 rewritten to
+runtime-only shadowing with the two-path reconciler as §4.1 (absorbed from the retired
+catalog-reconciler-logic sketch); §1/§2 corrected — ordering is the promise's job, never URI matching;
+**Appendix A deleted as rejected** (products are runtime facts). The DESIGN is current; the TREE still
+carries pre-ruling behavior until #583–#586 land — the two red judgment pins
+(`catalog_contract_test.go`, `test_graph_catalog_contract.star`) measure that gap. The migration-era body — string-parameter "today"
 snapshots, per-method signature-migration tables, `Tombstone` recovery, the `RegisterConstructor` /
 `coerceSlotValue` coercion chain, the phase-by-phase bookkeeping — is replaced by the landed model: the catalog
 surface (tree-verified method by method), the `ResourceState` machine and behavior matrix (the 2026-07-14 rulings,
@@ -21,7 +29,7 @@ post-dispatch shadowing for monadic outputs) is named beside it.
 | `ResourceState` machine + behavior matrix + `VerifyExistence` pre-flight | Landed (steps 22/41; per-type rollout staged — `file` proven) |
 | Observations as results, never catalog members | Landed (ruled 2026-07-14; step 22) |
 | Receipts + recovery site (Tombstones retired) | Landed (steps 40/42; [3.5.4](3.5.4-file-provider.md)) |
-| Declared output specs (Appendix A) | **Not implemented** — preserved as design |
+| Declared output specs (former Appendix A) | **Rejected 2026-08-20** — removed; products are runtime facts |
 | Document rewrite onto the landed model | Complete 2026-07-22 (step 51 slice 3) |
 
 ## Document Discrepancies
@@ -31,7 +39,10 @@ proposal explicitly.
 
 ## Outstanding Work
 
-1. The staged per-type `Resolve`/`Exists` rollout (step 22's ledger).
-2. Remote-execution filesystem abstraction (open question §9.1).
+1. The resource-construction implementation, #583–#586: serialize + enforce the catalog section; rel
+   identity + authoring migration; plan-time claiming; run time consumes the catalog. The design in §5 leads
+   the tree until they land.
+2. The staged per-type `Resolve`/`Exists` rollout (step 22's ledger).
+3. Remote-execution filesystem abstraction (open question §10.1).
 Remaining step-51 slices are tracked in
 [step 51](../plans/extract-starlark-from-op/phase-8/steps/51-documentation-debt.md).
