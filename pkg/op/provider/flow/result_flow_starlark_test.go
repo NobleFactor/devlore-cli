@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/application"
-	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/starlarkbridge"
 	"go.starlark.net/starlark"
@@ -53,7 +52,7 @@ func TestSubgraphBoundAction_FlowsLeafResult_Starlark(t *testing.T) {
 
 	spec := op.NewRuntimeEnvironmentSpec("test").
 		WithApplication(&application.Application{Name: "test"}).
-		WithRoot(root, fsroot.ModeConfined)
+		WithRoot(root)
 
 	environment, err := op.NewRuntimeEnvironment(context.Background(), spec)
 	if err != nil {

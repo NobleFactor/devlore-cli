@@ -14,7 +14,6 @@ import (
 	"go.starlark.net/starlark"
 
 	"github.com/NobleFactor/devlore-cli/pkg/application"
-	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )
@@ -75,7 +74,7 @@ func plannedEnvironmentAt(t *testing.T, rootPath string) *op.RuntimeEnvironment 
 	t.Helper()
 
 	environment, err := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
-		WithRoot(rootPath, fsroot.ModeConfined).
+		WithRoot(rootPath).
 		WithApplication(&application.Application{Name: "test"}))
 	if err != nil {
 		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
@@ -325,7 +324,7 @@ func TestProvider_Spec_DefaultsFromPlanningEnvironment(t *testing.T) {
 	tmp := t.TempDir()
 
 	environment, err := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("planner").
-		WithRoot(tmp, fsroot.ModeConfined).
+		WithRoot(tmp).
 		WithApplication(&application.Application{Name: "planner", Flags: map[string]any{"dry-run": true}}))
 	if err != nil {
 		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
@@ -353,9 +352,6 @@ func TestProvider_Spec_DefaultsFromPlanningEnvironment(t *testing.T) {
 	if spec.RootPath != environment.Root().Name() {
 		t.Fatalf("spec.RootPath = %q, want the planning environment's root path %q",
 			spec.RootPath, environment.Root().Name())
-	}
-	if spec.RootMode != fsroot.ModeConfined {
-		t.Errorf("spec.RootMode = %v, want fsroot.ModeConfined", spec.RootMode)
 	}
 }
 

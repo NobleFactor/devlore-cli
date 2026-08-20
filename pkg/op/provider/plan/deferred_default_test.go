@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/application"
-	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/plan"
@@ -35,7 +34,7 @@ func TestPlannedDeferredDefault_ResolvesAtDispatch(t *testing.T) {
 
 	spec := func() *op.RuntimeEnvironmentSpec {
 		return op.NewRuntimeEnvironmentSpec("test").
-			WithRoot(tmp, fsroot.ModeConfined).
+			WithRoot(tmp).
 			WithApplication(&application.Application{Name: "test"})
 	}
 

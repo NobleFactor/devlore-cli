@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/application"
-	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/starlarkbridge"
 
@@ -51,7 +50,7 @@ plan.run(loaded, plan.spec())
 
 	environment, err := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
 		WithApplication(&application.Application{Name: "test"}).
-		WithRoot(root, fsroot.ModeConfined))
+		WithRoot(root))
 	if err != nil {
 		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
 	}

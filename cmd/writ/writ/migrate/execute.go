@@ -11,7 +11,6 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
 	"github.com/NobleFactor/devlore-cli/pkg/document"
-	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )
@@ -72,7 +71,7 @@ func Execute(ctx context.Context, graph *op.Graph, analysis *MigrationAnalysis) 
 		analysis.System, len(graph.Nodes()), len(renameNodes))
 
 	executor := op.NewGraphExecutor(graph, op.NewRuntimeEnvironmentSpec("writ").WithStatus(cli.UI()).
-		WithRoot(analysis.SourceRoot, fsroot.ModeConfined))
+		WithRoot(analysis.SourceRoot))
 
 	if _, err := executor.Run(ctx, nil); err != nil {
 		return executor.Trace(), fmt.Errorf("migration run: %w", err)

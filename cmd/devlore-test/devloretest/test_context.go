@@ -841,7 +841,7 @@ func (tc *TestContext) buildSpec() (*op.RuntimeEnvironmentSpec, error) {
 
 	return op.NewRuntimeEnvironmentSpec(programName).
 		WithStatus(cli.UI()).
-		WithRoot(tc.tmpDir, fsroot.ModeConfined).
+		WithRoot(tc.tmpDir).
 		WithPlatform(hostPlatform).
 		WithApplication(app), nil
 }

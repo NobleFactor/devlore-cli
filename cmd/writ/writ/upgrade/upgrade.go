@@ -38,7 +38,6 @@ import (
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/tree"
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
-	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/encryption"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
@@ -559,7 +558,7 @@ func upgradeSpec(root string, dryRun bool) *op.RuntimeEnvironmentSpec {
 
 	return op.NewRuntimeEnvironmentSpec("writ").
 		WithStatus(cli.UI()).
-		WithRoot(root, fsroot.ModeConfined).
+		WithRoot(root).
 		WithApplication(&application.Application{
 			Name: "writ",
 			// The regeneration set is classification-cleared (missing / stale / force-approved), so the runs

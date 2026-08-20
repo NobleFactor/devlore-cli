@@ -16,7 +16,6 @@ import (
 	"github.com/NobleFactor/devlore-cli/cmd/star/provider/commands"
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
-	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/starlarkbridge"
 	"github.com/spf13/cobra"
@@ -83,7 +82,7 @@ func NewApplication(rootCmd *cobra.Command) *Application {
 	spec := op.NewRuntimeEnvironmentSpec("star").
 		WithApplication(app).
 		WithModules(registry.Modules()...).
-		WithRoot(wd, fsroot.ModeConfined)
+		WithRoot(wd)
 
 	runtimeEnvironment, err := op.NewRuntimeEnvironment(context.Background(), spec)
 	assert.NoError("op.NewRuntimeEnvironment", err)

@@ -434,8 +434,8 @@ func (p *Provider) SaveDefinition(graph *op.Graph, path string) (err error) {
 // the host that invoked [op.Plan] passed its own [application.Application] and root anchor. Net effect:
 // `plan.spec()` with no arguments produces a spec equivalent to the planning runtime environment's.
 //
-// The spec carries no live [fsroot.Dir] — only the resolved `rootPath` anchor and [fsroot.ModeConfined]; each
-// [Provider.Run]'s executor mints (and closes) its own Root from them (issue #393). The resolved anchor is probed
+// The spec carries no live [fsroot.Dir] — only the resolved `rootPath` anchor; each
+// [Provider.Run]'s executor mints (and closes) its own Root from it (issue #393). The resolved anchor is probed
 // here via [fsroot.OpenConfined] and released immediately, so a bad root path still fails at the `plan.spec` call
 // site rather than at run time. The returned spec's [op.ReceiverRegistry] is a freshly-built one from the announced
 // providers — independent of the planning runtime environment's registry.
@@ -485,7 +485,7 @@ func (p *Provider) Spec(programName, rootPath string, flags map[string]any) (*op
 	}
 
 	return op.NewRuntimeEnvironmentSpec(programName).
-		WithRoot(rootPath, fsroot.ModeConfined).
+		WithRoot(rootPath).
 		WithPlatform(runtimeEnvironment.Platform).
 		WithApplication(&application.Application{
 			Name:      programName,

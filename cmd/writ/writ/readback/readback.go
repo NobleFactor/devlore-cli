@@ -27,7 +27,6 @@ import (
 	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
-	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/encryption"
@@ -519,7 +518,7 @@ func loadGraph(environment *op.RuntimeEnvironment, checksum string) (*op.Graph, 
 func loadingEnvironment(ctx context.Context) (*op.RuntimeEnvironment, error) {
 
 	return op.NewRuntimeEnvironment(ctx, op.NewRuntimeEnvironmentSpec("writ").
-		WithRoot(string(filepath.Separator), fsroot.ModeConfined).
+		WithRoot(string(filepath.Separator)).
 		WithApplication(&application.Application{Name: "writ"}))
 }
 

@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/application"
-	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/flow"
@@ -32,7 +31,7 @@ func TestGatherFailureUnwind_ViaPublicAPI(t *testing.T) {
 	tmp := t.TempDir()
 
 	environment, err := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
-		WithRoot(tmp, fsroot.ModeConfined).
+		WithRoot(tmp).
 		WithApplication(&application.Application{Name: "test"}))
 	if err != nil {
 		t.Fatalf("op.NewRuntimeEnvironment: %v", err)

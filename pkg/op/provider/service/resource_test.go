@@ -13,7 +13,6 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/application"
-	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -30,7 +29,7 @@ func newTestRuntimeEnvironment(t *testing.T) *op.RuntimeEnvironment {
 
 	runtimeEnvironment, err := op.NewRuntimeEnvironment(context.Background(),
 		op.NewRuntimeEnvironmentSpec("test").
-			WithRoot(t.TempDir(), fsroot.ModeConfined).
+			WithRoot(t.TempDir()).
 			WithApplication(&application.Application{Name: "test"}))
 	if err != nil {
 		t.Fatalf("op.NewRuntimeEnvironment: %v", err)

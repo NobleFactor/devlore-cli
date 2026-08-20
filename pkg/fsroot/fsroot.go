@@ -107,35 +107,6 @@ type Dir interface {
 	WriteFile(p Path, data []byte, perm os.FileMode) error
 }
 
-// Mode selects which [Dir] implementation [Open] constructs.
-//
-// One implementation remains, so the only value is [ModeConfined] — the zero value. The type
-// survives solely because op.RuntimeEnvironmentSpec.WithRoot still carries a Mode parameter; it is
-// deleted with that parameter in #568 step 5.
-type Mode int
-
-// ModeConfined selects the OS-enforced confined implementation ([OpenConfined]). The zero value.
-const ModeConfined Mode = 0
-
-// Open opens a [Dir] at dir in the given [Mode].
-//
-// With [ModeConfined] the only mode, this is [OpenConfined] behind a mode assertion. It is deleted
-// together with [Mode] in #568 step 5.
-//
-// Parameters:
-//   - `dir`: the directory to anchor the root at.
-//   - `mode`: the [Mode] selecting the implementation.
-//
-// Returns:
-//   - `Dir`: the constructed root.
-//   - `error`: any error from [OpenConfined].
-func Open(dir string, mode Mode) (Dir, error) {
-
-	assert.True("fsroot.Open: mode is ModeConfined", mode == ModeConfined)
-
-	return OpenConfined(dir)
-}
-
 // OpenScratch opens a confined [Dir] at a newly created temporary directory that removes itself.
 //
 // Scratch is not an escape from confinement — it is its own confined tree with a self-destroying

@@ -134,9 +134,6 @@ type RuntimeEnvironment struct {
 	// what licenses [RuntimeEnvironment.Root] to assert rather than return an error.
 	rootPath string
 
-	// rootMode selects which [fsroot.Dir] implementation is minted at rootPath.
-	rootMode fsroot.Mode
-
 	// root is the session's filesystem root, minted on first use and released by Close.
 	//
 	// Allocation is lazy so a planning-only session that never touches the filesystem holds no handle at all.
@@ -175,7 +172,7 @@ type RuntimeEnvironment struct {
 //
 // It defaults the absent optionals (Status → [status.Narrator] over [sink.Stderr], Result → [result.Pipeline] writing
 // JSON to [sink.Stdout], a fresh [ResourceCatalog], the detected [platform.Platform], the registry's module set),
-// mints the environment's [fsroot.Dir] via [fsroot.Open] when [RuntimeEnvironmentSpec.RootPath] is non-empty, and
+// mints the environment's [fsroot.Dir] via [fsroot.OpenConfined] when [RuntimeEnvironmentSpec.RootPath] is non-empty, and
 // wires the [RecoverySite] when a Root was minted. The environment owns the minted Root — a spec never carries a
 // live handle (issue #393) — and [RuntimeEnvironment.Close] releases it.
 //
@@ -185,7 +182,7 @@ type RuntimeEnvironment struct {
 //
 // Returns:
 //   - `*RuntimeEnvironment`: the constructed runtime environment; nil when the mint fails.
-//   - `error`: non-nil when [fsroot.Open] fails at the spec's anchor path and mode.
+//   - `error`: non-nil when [fsroot.OpenConfined] fails at the spec's anchor path.
 func NewRuntimeEnvironment(ctx context.Context, spec *RuntimeEnvironmentSpec) (*RuntimeEnvironment, error) {
 
 	assert.NonZero("spec", spec)
@@ -226,7 +223,7 @@ func NewRuntimeEnvironment(ctx context.Context, spec *RuntimeEnvironmentSpec) (*
 	// Preflight, not allocation: both anchors are proved usable here and released again, so a bad anchor is
 	// refused before dispatch rather than killing a run halfway through — and so the accessors may assert.
 	if spec.RootPath != "" {
-		if err := probeRootAnchor(spec.RootPath, spec.RootMode); err != nil {
+		if err := probeRootAnchor(spec.RootPath); err != nil {
 			return nil, fmt.Errorf("op.NewRuntimeEnvironment: %w", err)
 		}
 	}
@@ -242,7 +239,6 @@ func NewRuntimeEnvironment(ctx context.Context, spec *RuntimeEnvironmentSpec) (*
 		Platform:         platformCapability,
 		ResourceCatalog:  resourceCatalog,
 		rootPath:         spec.RootPath,
-		rootMode:         spec.RootMode,
 		Status:           statusNarrator,
 		Result:           resultPipeline,
 		variableResolver: NewVariableResolver(spec.Application),
@@ -336,7 +332,7 @@ func (re *RuntimeEnvironment) Root() fsroot.Dir {
 	}
 
 	re.rootOnce.Do(func() {
-		minted, err := fsroot.Open(re.rootPath, re.rootMode)
+		minted, err := fsroot.OpenConfined(re.rootPath)
 		assert.NoError("op.RuntimeEnvironment.Root: mint root after successful preflight", err)
 		re.root = minted
 	})
@@ -841,7 +837,7 @@ func NewRuntimeEnvironmentConfig() *RuntimeEnvironmentConfig {
 //
 //	cfg := op.NewRuntimeEnvironmentSpec("lore").
 //	    WithModules(op.ReceiverRegistry().ModuleByName("file"), op.ReceiverRegistry().ModuleByName("json")).
-//	    WithRoot(wd, fsroot.ModeConfined).
+//	    WithRoot(wd).
 //	    WithApplication(app)
 type RuntimeEnvironmentSpec struct {
 
@@ -879,14 +875,9 @@ type RuntimeEnvironmentSpec struct {
 	// RootPath is the anchor directory the constructed runtime environment's [fsroot.Dir] is minted at.
 	//
 	// Empty means no root: the environment's Root stays nil and no [RecoverySite] is wired. The spec carries only
-	// this serializable anchor plus [RuntimeEnvironmentSpec.RootMode] — never a live handle; [NewRuntimeEnvironment]
-	// mints and [RuntimeEnvironment.Close] releases (issue #393).
+	// this serializable anchor — never a live handle; [NewRuntimeEnvironment] mints and
+	// [RuntimeEnvironment.Close] releases (issue #393).
 	RootPath string
-
-	// RootMode selects the [fsroot.Dir] implementation minted at [RuntimeEnvironmentSpec.RootPath].
-	//
-	// The zero value is [fsroot.ModeConfined].
-	RootMode fsroot.Mode
 
 	// Status is the user-facing side-channel narrator.
 	//
@@ -988,21 +979,19 @@ func (c *RuntimeEnvironmentSpec) WithResult(pipeline *result.Pipeline) *RuntimeE
 	return c
 }
 
-// WithRoot sets the anchor path and access mode the constructed runtime environment mints its [fsroot.Dir] from.
+// WithRoot sets the anchor path the constructed runtime environment mints its [fsroot.Dir] from.
 //
-// The spec never carries a live Root: [NewRuntimeEnvironment] mints from these values and
+// The spec never carries a live Root: [NewRuntimeEnvironment] mints from this value and
 // [RuntimeEnvironment.Close] releases what it minted (issue #393).
 //
 // Parameters:
 //   - `path`: the anchor directory; empty means the constructed environment gets no root.
-//   - `mode`: the [fsroot.Mode] selecting the implementation to mint.
 //
 // Returns:
 //   - `*RuntimeEnvironmentSpec`: the config for method chaining.
-func (c *RuntimeEnvironmentSpec) WithRoot(path string, mode fsroot.Mode) *RuntimeEnvironmentSpec {
+func (c *RuntimeEnvironmentSpec) WithRoot(path string) *RuntimeEnvironmentSpec {
 
 	c.RootPath = path
-	c.RootMode = mode
 	return c
 }
 
@@ -1031,13 +1020,12 @@ func (c *RuntimeEnvironmentSpec) WithStatus(narrator *status.Narrator) *RuntimeE
 //
 // Parameters:
 //   - `path`: the anchor directory.
-//   - `mode`: the [fsroot.Mode] the session will mint with.
 //
 // Returns:
-//   - `error`: a wrapped error when the anchor cannot be opened in the requested mode.
-func probeRootAnchor(path string, mode fsroot.Mode) error {
+//   - `error`: a wrapped error when the anchor cannot be opened.
+func probeRootAnchor(path string) error {
 
-	probe, err := fsroot.Open(path, mode)
+	probe, err := fsroot.OpenConfined(path)
 	if err != nil {
 		return fmt.Errorf("open root %s: %w", path, err)
 	}
