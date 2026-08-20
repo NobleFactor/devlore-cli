@@ -398,11 +398,11 @@ func extractEntry(
 		}
 		return product, receipt, nil
 	case entrySymlink:
-		// §10 ruling 1a: contained targets only; the link lands verbatim so the on-disk content — and the
-		// SymbolicLink digest, which hashes the literal target — stays faithful to the archive.
-		if guardErr := containedLinkTarget(entry.Name, entry.Linkname); guardErr != nil {
-			return nil, nil, guardErr
-		}
+		// The link lands verbatim so the on-disk content — and the SymbolicLink digest, which hashes the
+		// literal target — stays faithful to the archive (§10 ruling 1a). The target itself is not judged:
+		// the kernel restricts following, not making, and a follow through a confined root refuses an
+		// escaping target at use. The hand-rolled guard that once judged it here was a second implementation
+		// of that rule, broken on Windows, and 4.5-fsroot-variants.md §4 retired it (#556).
 		product, receipt, err := fileProvider.Link(activationRecord, entry.Linkname, target, true)
 		if err != nil {
 			return nil, nil, fmt.Errorf("archive: link %q: %w", target, err)
@@ -959,35 +959,6 @@ func containedTarget(prefix, name string) (string, error) {
 	}
 
 	return lexical, nil
-}
-
-// containedLinkTarget judges a symlink entry's target under §10 ruling 1a: relative and non-escaping only.
-//
-// The target is entry-directory-relative by tar convention, so containment is judged from the entry's own
-// directory. An absolute target, or one that climbs above the extraction prefix after cleaning, is a hard error
-// naming the entry — deploy-domain archives whose links point outside their own tree are suspect input. The link's
-// own location was already judged by [containedTarget]; the target is judged lexically (it may legally dangle, so
-// there is nothing on disk to resolve).
-//
-// Parameters:
-//   - `entryName`: the symlink entry's archived path.
-//   - `linkname`: the literal archived target.
-//
-// Returns:
-//   - `error`: non-nil when the target is absolute or escapes the extraction prefix.
-func containedLinkTarget(entryName, linkname string) error {
-
-	if filepath.IsAbs(linkname) {
-		return fmt.Errorf("archive: entry %q: symlink target %q is absolute", entryName, linkname)
-	}
-
-	resolved := filepath.Clean(filepath.Join(filepath.Dir(filepath.Clean(entryName)), linkname))
-
-	if resolved == ".." || strings.HasPrefix(resolved, ".."+string(filepath.Separator)) {
-		return fmt.Errorf("archive: entry %q: symlink target %q escapes the extraction prefix", entryName, linkname)
-	}
-
-	return nil
 }
 
 // tarTypeflagName names a tar typeflag for the unsupported-entry diagnostics (§10 ruling 1c).

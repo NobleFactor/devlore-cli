@@ -9,6 +9,7 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/base64"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -19,6 +20,7 @@ import (
 	"github.com/ulikunitz/xz"
 
 	"github.com/NobleFactor/devlore-cli/pkg/application"
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gen" // registers file.Provider so Instance + the compensator index resolve
@@ -551,9 +553,11 @@ func TestExtract_TarSymlink(t *testing.T) {
 	}
 }
 
-// TestExtract_SymlinkTargetEscapes pins ruling 1a's containment: an escaping or absolute link target is a hard
-// error naming the entry.
-func TestExtract_SymlinkTargetEscapes(t *testing.T) {
+// TestExtract_EscapingSymlinkTargetLandsVerbatim pins the kernel posture (4.5 §4, #556): the kernel restricts
+// following, not making, so an escaping or absolute target extracts exactly as authored — and the containment
+// lives at the follow, where a confined root refuses the escape. The hand-rolled guard this test used to pin
+// was a second implementation of that rule, broken on Windows, and is deleted.
+func TestExtract_EscapingSymlinkTargetLandsVerbatim(t *testing.T) {
 	tmp := t.TempDir()
 
 	for name, header := range map[string]tar.Header{
@@ -570,9 +574,35 @@ func TestExtract_SymlinkTargetEscapes(t *testing.T) {
 		archivePath := filepath.Join(caseDir, name+".tar.gz")
 		createTarGzHeaders(t, archivePath, []tar.Header{header}, nil)
 
-		err := extractIntoExpectingError(t, caseDir, archivePath)
-		if err == nil || !strings.Contains(err.Error(), "symlink target") {
-			t.Errorf("%s target = %v; want the symlink-target refusal", name, err)
+		_, prefix, products, _ := extractInto(t, caseDir, archivePath)
+		if len(products) != 1 {
+			t.Fatalf("%s: products = %d, want 1", name, len(products))
+		}
+
+		linkPath := filepath.Join(prefix, "link")
+		info, err := os.Lstat(linkPath)
+		if err != nil || info.Mode()&os.ModeSymlink == 0 {
+			t.Fatalf("%s: Lstat(link) mode = %v (err %v); want a symlink", name, info, err)
+		}
+
+		// Compared in canonical slash form: Windows reads a link back with native separators, and the
+		// on-disk content is the authored path modulo that rendering.
+		target, err := os.Readlink(linkPath)
+		if err != nil || filepath.ToSlash(target) != header.Linkname {
+			t.Errorf("%s: link target = %q (err %v), want the verbatim %q", name, target, err, header.Linkname)
+		}
+
+		// The containment: a follow through a confined root refuses the escape. Stat follows the terminal
+		// link, and the refusal must not read as a missing file.
+		root, err := fsroot.OpenConfined(prefix)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, statErr := root.Stat(root.NewPath("link")); statErr == nil || errors.Is(statErr, os.ErrNotExist) {
+			t.Errorf("%s: confined Stat through the link = %v; want the kernel's escape refusal", name, statErr)
+		}
+		if err := root.Close(); err != nil {
+			t.Fatal(err)
 		}
 	}
 }

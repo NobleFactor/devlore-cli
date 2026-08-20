@@ -275,7 +275,9 @@ func (p *Provider) Link(
 // existingLinkMatches reports whether the symlink at `linkPath` already stores the canonical name.
 //
 // The default path stores a relativized target (see [Provider.symlink]); the absolutized read is what
-// matches the canonical stored name. Verbatim links compare the raw stored target.
+// matches the canonical stored name. Verbatim links compare the stored target in canonical slash form —
+// Windows reads a link back with native separators, so a raw compare against the authored target never
+// matches there and every re-run would replace an already-correct link (#556).
 //
 // Parameters:
 //   - `linkPath`: the symlink's absolute path.
@@ -286,11 +288,12 @@ func (p *Provider) Link(
 //   - `bool`: true when the existing link already matches.
 func (p *Provider) existingLinkMatches(linkPath, storedName string, verbatim bool) bool {
 
-	existing, readErr := p.rawReadLink(linkPath)
-	if !verbatim {
-		existing, readErr = p.readLink(linkPath)
+	if verbatim {
+		existing, readErr := p.rawReadLink(linkPath)
+		return readErr == nil && filepath.ToSlash(existing) == filepath.ToSlash(storedName)
 	}
 
+	existing, readErr := p.readLink(linkPath)
 	return readErr == nil && existing == storedName
 }
 

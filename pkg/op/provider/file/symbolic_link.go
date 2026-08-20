@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"path/filepath"
 	"reflect"
 
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
@@ -87,12 +88,15 @@ func DiscoverSymbolicLink(runtimeEnvironment *op.RuntimeEnvironment, value any) 
 
 // region State management
 
-// Digest returns the honest content hash of the link itself: sha256 of the literal readlink target, never following.
+// Digest returns the honest content hash of the link itself: sha256 of its target in canonical slash form,
+// never following.
 //
 // A symbolic link IS a tiny file whose content is a path — hashing that content is the honest digest (step 23,
-// ruling 5a). The target is taken verbatim from readlink (no cleaning, no absolutization): the link's content is
-// what it is. A dangling link digests normally, and no cycle is possible because nothing is followed. The entry
-// itself must be a symbolic link — any other observed kind errors with a kind mismatch (ruling 5e).
+// ruling 5a). The target is taken from readlink with no cleaning and no absolutization — only separator
+// canonicalization to slash form, because Windows reads a created link back with native separators and equal
+// logical targets must digest equally on every platform (the same rule [fsroot.Path]'s Rel follows for document
+// bytes; #556). A dangling link digests normally, and no cycle is possible because nothing is followed. The
+// entry itself must be a symbolic link — any other observed kind errors with a kind mismatch (ruling 5e).
 //
 // Returns:
 //   - `op.Digest`: sha256 algorithm with 32 raw bytes — the hash of the literal target path.
@@ -115,7 +119,7 @@ func (r *SymbolicLink) Digest() (op.Digest, error) {
 		return op.Digest{}, fmt.Errorf("file.SymbolicLink: digest readlink %s: %w", r.SourcePath.Abs(), err)
 	}
 
-	sum := sha256.Sum256([]byte(target))
+	sum := sha256.Sum256([]byte(filepath.ToSlash(target)))
 	return op.Digest{Algorithm: "sha256", Bytes: sum[:]}, nil
 }
 
@@ -218,6 +222,32 @@ func (*SymbolicLink) ConvertFrom(value any) (any, error) {
 	}
 
 	return &SymbolicLink{Resource: Resource{SourcePath: fsroot.NewPath("", str)}}, nil
+}
+
+// Resolve rebinds the source path to the execution fsroot and verifies the link itself exists.
+//
+// Shadows [Resource.Resolve], whose existence check goes through [fsroot.Dir]'s Stat and therefore FOLLOWS the
+// link — an escaping or absolute target would turn the check into the kernel's containment refusal even though
+// the link itself landed exactly as asked (#556). The link is the resource, not its referent (ruling 5b), so the
+// check here is lstat: a dangling or escaping target is a legal on-disk state, and any follow is judged by the
+// kernel at use.
+//
+// Returns:
+//   - `error`: any lstat error other than not-exist.
+func (r *SymbolicLink) Resolve() error {
+
+	root := r.RuntimeEnvironment().Root()
+
+	r.SourcePath = root.NewPath(r.SourcePath.Abs())
+
+	if _, err := root.Lstat(r.SourcePath); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("file.SymbolicLink: resolve lstat %s: %w", r.SourcePath.Abs(), err)
+	}
+
+	return nil
 }
 
 // UnmarshalJSON populates the receiver from a JSON-encoded string (a file path or file URI).
