@@ -85,16 +85,27 @@ func Load() (*Config, error) {
 
 // Save writes configuration to the config file. API keys are stored in the native keystore, not the config file.
 //
+// Opens the devlore config tree itself: this package sits at the CLI layer (it already fronts for the
+// commands), so per #405 phase 3 it owns its purpose-named root and the library writes below it — the
+// credentials file fallback and the document write — receive it.
+//
 // Parameters:
 //   - cfg: configuration to persist
 //
 // Returns:
-//   - error: credential storage or file write error
+//   - error: root open, credential storage, or file write error
 func Save(cfg *Config) error {
+
+	configRoot, err := cli.OpenTree(devlore.ConfigHome())
+	if err != nil {
+		return err
+	}
+	//nolint:errcheck // diagnose-ignored-error: the write's own error is what the caller acts on; a close failure after a successful write has nothing left to protect
+	defer configRoot.Close()
 
 	// Store API key in keystore (not config file)
 	if cfg.Model.APIKey != "" && cfg.Model.Provider != "" && cfg.Model.Provider != "ollama" {
-		if err := credentials.Set(cfg.Model.Provider, cfg.Model.APIKey); err != nil {
+		if err := credentials.Set(configRoot, cfg.Model.Provider, cfg.Model.APIKey); err != nil {
 			cli.Warn("could not store API key in keystore: %v", err)
 		}
 	}
@@ -103,7 +114,7 @@ func Save(cfg *Config) error {
 	fileCfg := *cfg
 	fileCfg.Model.APIKey = ""
 
-	return document.WriteFile(Path(), &fileCfg)
+	return document.WriteFile(configRoot, configRoot.NewPath("config.yaml"), &fileCfg)
 }
 
 // applyEnvOverrides applies environment variable overrides to the config.

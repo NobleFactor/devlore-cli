@@ -7,7 +7,26 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
+	"github.com/NobleFactor/devlore-cli/pkg/xdg"
 )
+
+// testConfigRoot opens a config-tree root at the XDG config home the test just isolated, creating the devlore
+// directory production's tree-opener would have made.
+func testConfigRoot(t *testing.T) fsroot.Dir {
+	t.Helper()
+	dir := xdg.ConfigPath("devlore")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	root, err := fsroot.OpenConfined(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+	return root
+}
 
 func TestCredentialsRoundTrip(t *testing.T) {
 	// Use a temporary credentials directory for testing
@@ -18,7 +37,7 @@ func TestCredentialsRoundTrip(t *testing.T) {
 	secret := "test-secret-value-12345"
 
 	// Set credential (will use file fallback if no keychain)
-	err := Set(key, secret)
+	err := Set(testConfigRoot(t), key, secret)
 	if err != nil {
 		t.Fatalf("Set failed: %v", err)
 	}
@@ -34,7 +53,7 @@ func TestCredentialsRoundTrip(t *testing.T) {
 	}
 
 	// Delete credential
-	err = Delete(key)
+	err = Delete(testConfigRoot(t), key)
 	if err != nil {
 		t.Fatalf("Delete failed: %v", err)
 	}
@@ -63,7 +82,7 @@ func TestDeleteNonexistent(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", tmpDir)
 
 	// Deleting a nonexistent key should not error
-	err := Delete("nonexistent/key")
+	err := Delete(testConfigRoot(t), "nonexistent/key")
 	if err != nil {
 		t.Errorf("Delete of nonexistent key should not error: %v", err)
 	}
@@ -77,13 +96,13 @@ func TestSetOverwrite(t *testing.T) {
 	key := "test/overwrite"
 
 	// Set initial value
-	err := Set(key, "initial")
+	err := Set(testConfigRoot(t), key, "initial")
 	if err != nil {
 		t.Fatalf("Set initial failed: %v", err)
 	}
 
 	// Overwrite
-	err = Set(key, "updated")
+	err = Set(testConfigRoot(t), key, "updated")
 	if err != nil {
 		t.Fatalf("Set update failed: %v", err)
 	}
@@ -98,7 +117,7 @@ func TestSetOverwrite(t *testing.T) {
 	}
 
 	// Cleanup
-	_ = Delete(key)
+	_ = Delete(testConfigRoot(t), key)
 }
 
 func TestCredentialsFilePath(t *testing.T) {
@@ -107,7 +126,7 @@ func TestCredentialsFilePath(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", tmpDir)
 
 	key := "test/filepath"
-	err := Set(key, "value")
+	err := Set(testConfigRoot(t), key, "value")
 	if err != nil {
 		t.Fatalf("Set failed: %v", err)
 	}
@@ -121,7 +140,7 @@ func TestCredentialsFilePath(t *testing.T) {
 	}
 
 	// Cleanup
-	_ = Delete(key)
+	_ = Delete(testConfigRoot(t), key)
 }
 
 func TestMultipleKeys(t *testing.T) {
@@ -137,7 +156,7 @@ func TestMultipleKeys(t *testing.T) {
 
 	// Set all keys
 	for k, v := range keys {
-		if err := Set(k, v); err != nil {
+		if err := Set(testConfigRoot(t), k, v); err != nil {
 			t.Fatalf("Set %q failed: %v", k, err)
 		}
 	}
@@ -156,6 +175,6 @@ func TestMultipleKeys(t *testing.T) {
 
 	// Cleanup
 	for k := range keys {
-		_ = Delete(k)
+		_ = Delete(testConfigRoot(t), k)
 	}
 }

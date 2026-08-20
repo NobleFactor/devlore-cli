@@ -13,6 +13,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/document"
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/git"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/plan"
@@ -99,7 +100,12 @@ func gitCloneResumeThenFail(t *testing.T, format string) {
 	}
 
 	tracePath := filepath.Join(tmp, "trace."+format)
-	if writeErr := document.WriteFile(tracePath, executor.Trace()); writeErr != nil {
+	docRoot, docRootErr := fsroot.OpenConfined(tmp)
+	if docRootErr != nil {
+		t.Fatalf("fsroot.OpenConfined: %v", docRootErr)
+	}
+	t.Cleanup(func() { _ = docRoot.Close() })
+	if writeErr := document.WriteFile(docRoot, docRoot.NewPath(tracePath), executor.Trace()); writeErr != nil {
 		t.Fatalf("document.WriteFile(trace): %v", writeErr)
 	}
 	reloaded, err := document.ReadFile[op.Trace](tracePath)

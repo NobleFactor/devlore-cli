@@ -13,6 +13,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/document"
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/plan"
@@ -254,7 +255,12 @@ func saveAndReload(t *testing.T, tmp string, trace *op.Trace) *op.Trace {
 	t.Helper()
 
 	tracePath := filepath.Join(tmp, "trace.json")
-	if err := document.WriteFile(tracePath, trace); err != nil {
+	docRoot, docRootErr := fsroot.OpenConfined(tmp)
+	if docRootErr != nil {
+		t.Fatalf("fsroot.OpenConfined: %v", docRootErr)
+	}
+	t.Cleanup(func() { _ = docRoot.Close() })
+	if err := document.WriteFile(docRoot, docRoot.NewPath(tracePath), trace); err != nil {
 		t.Fatalf("document.WriteFile(trace): %v", err)
 	}
 	reloaded, err := document.ReadFile[op.Trace](tracePath)

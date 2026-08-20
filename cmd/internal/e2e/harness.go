@@ -39,9 +39,9 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"path/filepath"
 	"time"
 
+	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
 	"github.com/NobleFactor/devlore-cli/cmd/internal/config"
 	"github.com/NobleFactor/devlore-cli/cmd/internal/model"
 	"github.com/NobleFactor/devlore-cli/pkg/document"
@@ -192,31 +192,38 @@ type TestReport struct {
 
 // WriteReport writes the test report to a directory as JSON, YAML, and markdown summary.
 //
+// Opens the output tree itself, created on first use (#558; #405 phase 3): the harness sits at the CLI layer,
+// so it owns its purpose-named root, and every report write — the two documents and the raw summary — flows
+// through it.
+//
 // Parameters:
 //   - outDir: directory to write results.json, results.yaml, and summary.md
 //
 // Returns:
-//   - error: marshal, directory creation, or write error
+//   - error: root open, marshal, or write error
 func (r *TestReport) WriteReport(outDir string) error {
 
+	outRoot, err := cli.OpenTree(outDir)
+	if err != nil {
+		return err
+	}
+	//nolint:errcheck // diagnose-ignored-error: the writes' own errors are what the caller acts on; a close failure after them has nothing left to protect
+	defer outRoot.Close()
+
 	// Write JSON report
-	if err := document.WriteFile(filepath.Join(outDir, "results.json"), r); err != nil {
+	if err := document.WriteFile(outRoot, outRoot.NewPath("results.json"), r); err != nil {
 		return err
 	}
 
 	// Write YAML report
-	if err := document.WriteFile(filepath.Join(outDir, "results.yaml"), r); err != nil {
+	if err := document.WriteFile(outRoot, outRoot.NewPath("results.yaml"), r); err != nil {
 		return err
 	}
 
 	// Write summary markdown
-	summaryPath := filepath.Join(outDir, "summary.md")
 	summary := r.GenerateSummary()
-	if err := os.MkdirAll(filepath.Dir(summaryPath), 0o750); err != nil {
-		return fmt.Errorf("create directory %s: %w", filepath.Dir(summaryPath), err)
-	}
-	if err := os.WriteFile(summaryPath, []byte(summary), 0o600); err != nil {
-		return fmt.Errorf("write %s: %w", summaryPath, err)
+	if err := outRoot.WriteFile(outRoot.NewPath("summary.md"), []byte(summary), 0o600); err != nil {
+		return fmt.Errorf("write summary.md: %w", err)
 	}
 
 	return nil

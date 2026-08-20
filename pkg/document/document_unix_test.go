@@ -7,7 +7,6 @@ package document
 
 import (
 	"os"
-	"path/filepath"
 	"testing"
 )
 
@@ -20,14 +19,15 @@ import (
 // than an evasion; every other case moved to a portable fact instead (issue #435).
 func TestWrite_WithPermOverridesPermission(t *testing.T) {
 
-	path := filepath.Join(t.TempDir(), "perm.yaml")
+	root := testRoot(t)
+	p := root.NewPath("perm.yaml")
 	doc := testDoc{Name: "frank", Count: 0}
 
-	if err := WriteFile(path, &doc, WithPerm(0o644)); err != nil {
-		t.Fatalf("Write: %v", err)
+	if err := WriteFile(root, p, &doc, WithPerm(0o644)); err != nil {
+		t.Fatalf("WriteFile: %v", err)
 	}
 
-	info, err := os.Stat(path)
+	info, err := os.Stat(p.Abs())
 	if err != nil {
 		t.Fatalf("Stat: %v", err)
 	}
