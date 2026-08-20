@@ -207,6 +207,40 @@ Every phase: `make check`, `make vet` under GOOS windows and linux, `gofmt -l`, 
 set diffed name-for-name against the baseline (3 at `84b416f8`), with the byte-count guard. Phase 2 is the
 only phase expected to move the count; any other movement is a defect in the phase that caused it.
 
+## Judgment scenarios
+
+The scenarios the feature is judged by. Each is authored as a prediction before implementation and graduates
+to a devlore-test case; the implementation is correct when the harness observes exactly the prediction. The
+first is recorded here (2026-08-20); more accrete as they are set.
+
+### Scenario 1 — delete, then copy, the same named resource
+
+**Setup.** Plan a graph of two operations against the same named regular file resource, rel `data.txt`:
+first `file.delete(data.txt)`, then `file.copy(source = data.txt, destination_path = copy.txt)` — the source
+authored as the same string in both, no promise between the nodes. The file exists under the run's root when
+the run starts. Run the graph.
+
+**Expected graph catalog — exactly one entry.** `{id, uri: data.txt, state: pending}`. The same string in
+both operations dedups to one canonical identity — the catalog mediating. `copy.txt` is **absent**: a
+string-typed parameter naming a product, which is a runtime fact. The whole intent: *"`data.txt` must exist
+under the run's root."*
+
+**Expected outcome — pre-flight passes; the run fails at the copy node.** Pre-flight verifies the one
+pending rel under the root (Pending → Active, Etag/Digest captured) — intent was satisfied at the starting
+line, which is all pre-flight claims. Delete dispatches: file removed, entry Gone, receipt taken. Copy
+dispatches: source gone → node failure → run fails; the delete's receipt compensates and `data.txt` is
+restored. The failure is the model working correctly: the plan encoded self-contradictory intent, and the
+intent model deliberately does not simulate lifecycle at plan time. (As planned there is no data edge
+between the nodes, so the contradiction is ordering-dependent — reversed order succeeds — which is exactly
+why plan time cannot adjudicate it.)
+
+**Expected trace catalog — the observed story.** `data.txt`: pending → Active at pre-flight (with captured
+Etag + Digest) → Gone after the delete, with the compensation in the receipt journal. `copy.txt`: **no
+product entry** — the copy never produced; the trace records the node's failure, not a resource.
+
+**The sentence the scenario proves:** the graph says what must be true; the trace says what happened; the
+gap between them is the run's story.
+
 ## Open questions — all ruled 2026-08-20
 
 1. ~~Which string parameters are output-naming?~~ — **RULED: none.** Products are runtime-created; nothing
