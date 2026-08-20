@@ -198,6 +198,10 @@ func setupExtension(t *testing.T, testDir string) (*Application, error) {
 	// Create runtime (Root picks up current working directory)
 	r := NewApplication(&cobra.Command{Use: "star"})
 
+	// The Application owns a confined root on the directory above — a real OS handle. Close it, or
+	// Windows cannot remove the temp tree this test stands in.
+	t.Cleanup(func() { _ = r.Close() })
+
 	// Load extensions from the project's star/extensions directory
 	extDir := filepath.Join(projectRoot, "cmd", "star", "extensions")
 	if err := r.LoadExtensionsFrom(extDir); err != nil {

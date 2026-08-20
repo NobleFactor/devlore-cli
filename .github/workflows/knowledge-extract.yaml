@@ -33,14 +33,6 @@ jobs:
         with:
           path: devlore-cli
 
-      - name: Checkout devlore-registry
-        uses: actions/checkout@v4
-        with:
-          repository: NobleFactor/devlore-registry
-          token: ${{ steps.app-token.outputs.token }}
-          ref: ${{ github.event_name == 'pull_request' && github.base_ref || github.ref_name }}
-          path: devlore-registry
-
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
@@ -51,29 +43,40 @@ jobs:
         working-directory: devlore-cli
         run: make star
 
+      # Checked out INSIDE the cli tree, and only after the build: star's session root is confined to
+      # the directory it runs in, so the target must live inside that tree — and a nested foreign repo
+      # must not exist yet while make generates. Accommodating a genuinely cross-root target is #571.
+      - name: Checkout devlore-registry
+        uses: actions/checkout@v4
+        with:
+          repository: NobleFactor/devlore-registry
+          token: ${{ steps.app-token.outputs.token }}
+          ref: ${{ github.event_name == 'pull_request' && github.base_ref || github.ref_name }}
+          path: devlore-cli/devlore-registry
+
       - name: Build knowledge base
         working-directory: devlore-cli
         run: |
           ./build/star devlore knowledge extract \
             --domain all \
             --source ${{ github.workspace }}/devlore-cli \
-            --target ${{ github.workspace }}/devlore-registry
+            --target ${{ github.workspace }}/devlore-cli/devlore-registry
 
       - name: Validate package schemas
         working-directory: devlore-cli
         run: |
           ./build/star devlore package validate \
-            --target=${{ github.workspace }}/devlore-registry
+            --target=${{ github.workspace }}/devlore-cli/devlore-registry
 
       - name: Validate knowledge schemas
         working-directory: devlore-cli
         run: |
           ./build/star devlore knowledge validate \
-            --target=${{ github.workspace }}/devlore-registry
+            --target=${{ github.workspace }}/devlore-cli/devlore-registry
 
       - name: Report knowledge changes (PR only)
         if: github.event_name == 'pull_request'
-        working-directory: devlore-registry
+        working-directory: devlore-cli/devlore-registry
         run: |
           if git diff --quiet; then
             echo "No knowledge changes detected"
@@ -86,7 +89,7 @@ jobs:
 
       - name: Create PR to devlore-registry (push only)
         if: github.event_name == 'push'
-        working-directory: devlore-registry
+        working-directory: devlore-cli/devlore-registry
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
