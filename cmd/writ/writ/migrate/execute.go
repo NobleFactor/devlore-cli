@@ -11,6 +11,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
 	"github.com/NobleFactor/devlore-cli/pkg/document"
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )
@@ -125,8 +126,16 @@ func WriteMigratedMarker(sourceRoot string, graph *op.Graph, analysis *Migration
 		System:    string(analysis.System),
 		Renames:   renames,
 	}
-	markerPath := filepath.Join(sourceRoot, ".writ-migrated")
-	return document.WriteFile(markerPath, &marker)
+
+	// The migration source tree exists — the migration just ran in it — so opening is a query (#558).
+	root, err := fsroot.OpenConfined(sourceRoot)
+	if err != nil {
+		return err
+	}
+	//nolint:errcheck // diagnose-ignored-error: the write's own error is what the caller acts on; a close failure after it has nothing left to protect
+	defer root.Close()
+
+	return document.WriteFile(root, root.NewPath(".writ-migrated"), &marker)
 }
 
 // joinWords concatenates words with spaces.

@@ -15,6 +15,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 )
 
 // region EXPORTED TYPES
@@ -133,38 +135,42 @@ func Write(w io.Writer, format Format, v any, opts ...Option) error {
 	return nil
 }
 
-// WriteFile serializes v to disk as a structured document. Format is inferred from the file extension. Creates
-// parent directories (0o750) if needed. Default file permission is 0o600; override with WithPerm.
+// WriteFile serializes v to disk as a structured document, through the caller's root. Format is inferred from
+// the file extension. Creates parent directories (0o750) if needed. Default file permission is 0o600; override
+// with WithPerm.
 //
-// The rename of the former path-only Write, freeing that name for the stream form — the same
-// [Read] / [ReadFile] symmetry the read side always had (#558).
+// The root is received, never constructed (#558; #405 phase 3): file creation belongs to whoever owns the
+// destination tree, and writing through [fsroot.Dir] is what makes a restrictive permission enforceable on
+// Windows, where the mode bits alone protect nothing.
 //
 // Parameters:
-//   - `path`: filesystem path for the output document.
+//   - `dir`: the tree the document belongs to, opened by the caller.
+//   - `p`: the document's path within `dir`.
 //   - `v`: the value to serialize.
 //   - `opts`: optional configuration ([WithPerm], [WithIndent], [WithHeader]).
 //
 // Returns:
-//   - `error`: wraps marshal, directory creation, and write errors with the file path for context.
-func WriteFile(path string, v any, opts ...Option) error {
+//   - `error`: wraps marshal, directory creation, and write errors with the document's path for context.
+func WriteFile(dir fsroot.Dir, p fsroot.Path, v any, opts ...Option) error {
 
 	cfg := defaultWriteOpts()
 	for _, o := range opts {
 		o(&cfg)
 	}
 
-	data, err := encode(formatFromExt(path), v, &cfg)
+	data, err := encode(formatFromExt(p.Rel()), v, &cfg)
 	if err != nil {
-		return fmt.Errorf("marshal %s: %w", path, err)
+		return fmt.Errorf("marshal %s: %w", p.Abs(), err)
 	}
 
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		return fmt.Errorf("create directory %s: %w", dir, err)
+	if parent := filepath.Dir(p.Rel()); parent != "." {
+		if err := dir.MkdirAll(dir.NewPath(parent), 0o750); err != nil {
+			return fmt.Errorf("create directory %s: %w", parent, err)
+		}
 	}
 
-	if err := os.WriteFile(path, data, cfg.perm); err != nil {
-		return fmt.Errorf("write %s: %w", path, err)
+	if err := dir.WriteFile(p, data, cfg.perm); err != nil {
+		return fmt.Errorf("write %s: %w", p.Abs(), err)
 	}
 
 	return nil

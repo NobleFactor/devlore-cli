@@ -8,9 +8,23 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 )
+
+// testRoot opens a confined root at a fresh temp directory — the shape every WriteFile caller now has (#558).
+func testRoot(t *testing.T) fsroot.Dir {
+	t.Helper()
+	root, err := fsroot.OpenConfined(t.TempDir())
+	if err != nil {
+		t.Fatalf("fsroot.OpenConfined: %v", err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+	return root
+}
 
 // testDoc is a simple struct used across all tests.
 type testDoc struct {
@@ -137,22 +151,26 @@ func TestReadFile_ErrorIncludesFilePath(t *testing.T) {
 
 func TestWrite_YAMLCreatesFileWith0o600(t *testing.T) {
 
-	path := filepath.Join(t.TempDir(), "out.yaml")
+	root := testRoot(t)
+	p := root.NewPath("out.yaml")
 	doc := testDoc{Name: "dave", Count: 99}
 
-	if err := WriteFile(path, &doc); err != nil {
-		t.Fatalf("Write: %v", err)
+	if err := WriteFile(root, p, &doc); err != nil {
+		t.Fatalf("WriteFile: %v", err)
 	}
 
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("Stat: %v", err)
-	}
-	if perm := info.Mode().Perm(); perm != 0o600 {
-		t.Errorf("permission = %o, want %o", perm, 0o600)
+	// Mode bits are a unix subject; on Windows the truth is the DACL, asserted by the windows test file.
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(p.Abs())
+		if err != nil {
+			t.Fatalf("Stat: %v", err)
+		}
+		if perm := info.Mode().Perm(); perm != 0o600 {
+			t.Errorf("permission = %o, want %o", perm, 0o600)
+		}
 	}
 
-	readBack, err := ReadFile[testDoc](path)
+	readBack, err := ReadFile[testDoc](p.Abs())
 	if err != nil {
 		t.Fatalf("ReadFile back: %v", err)
 	}
@@ -163,22 +181,26 @@ func TestWrite_YAMLCreatesFileWith0o600(t *testing.T) {
 
 func TestWrite_JSONCreatesFileWith0o600(t *testing.T) {
 
-	path := filepath.Join(t.TempDir(), "out.json")
+	root := testRoot(t)
+	p := root.NewPath("out.json")
 	doc := testDoc{Name: "eve", Count: 5}
 
-	if err := WriteFile(path, &doc); err != nil {
-		t.Fatalf("Write: %v", err)
+	if err := WriteFile(root, p, &doc); err != nil {
+		t.Fatalf("WriteFile: %v", err)
 	}
 
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("Stat: %v", err)
-	}
-	if perm := info.Mode().Perm(); perm != 0o600 {
-		t.Errorf("permission = %o, want %o", perm, 0o600)
+	// Mode bits are a unix subject; on Windows the truth is the DACL, asserted by the windows test file.
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(p.Abs())
+		if err != nil {
+			t.Fatalf("Stat: %v", err)
+		}
+		if perm := info.Mode().Perm(); perm != 0o600 {
+			t.Errorf("permission = %o, want %o", perm, 0o600)
+		}
 	}
 
-	readBack, err := ReadFile[testDoc](path)
+	readBack, err := ReadFile[testDoc](p.Abs())
 	if err != nil {
 		t.Fatalf("ReadFile back: %v", err)
 	}
@@ -239,29 +261,31 @@ func TestWrite_UnknownFormatIsRefused(t *testing.T) {
 
 func TestWrite_CreatesParentDirectories(t *testing.T) {
 
-	path := filepath.Join(t.TempDir(), "a", "b", "c", "deep.yaml")
+	root := testRoot(t)
+	p := root.NewPath("a", "b", "c", "deep.yaml")
 	doc := testDoc{Name: "nested", Count: 1}
 
-	if err := WriteFile(path, &doc); err != nil {
-		t.Fatalf("Write: %v", err)
+	if err := WriteFile(root, p, &doc); err != nil {
+		t.Fatalf("WriteFile: %v", err)
 	}
 
-	if _, err := os.Stat(path); err != nil {
+	if _, err := os.Stat(p.Abs()); err != nil {
 		t.Fatalf("file should exist: %v", err)
 	}
 }
 
 func TestWrite_WithHeaderPrependsText(t *testing.T) {
 
-	path := filepath.Join(t.TempDir(), "header.yaml")
+	root := testRoot(t)
+	p := root.NewPath("header.yaml")
 	doc := testDoc{Name: "grace", Count: 10}
 	header := "# Auto-generated — do not edit\n"
 
-	if err := WriteFile(path, &doc, WithHeader(header)); err != nil {
-		t.Fatalf("Write: %v", err)
+	if err := WriteFile(root, p, &doc, WithHeader(header)); err != nil {
+		t.Fatalf("WriteFile: %v", err)
 	}
 
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(p.Abs())
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
@@ -276,14 +300,15 @@ func TestWrite_WithHeaderPrependsText(t *testing.T) {
 
 func TestWrite_WithHeaderAppendsNewlineIfMissing(t *testing.T) {
 
-	path := filepath.Join(t.TempDir(), "header2.yaml")
+	root := testRoot(t)
+	p := root.NewPath("header2.yaml")
 	doc := testDoc{Name: "heidi", Count: 2}
 
-	if err := WriteFile(path, &doc, WithHeader("# no trailing newline")); err != nil {
-		t.Fatalf("Write: %v", err)
+	if err := WriteFile(root, p, &doc, WithHeader("# no trailing newline")); err != nil {
+		t.Fatalf("WriteFile: %v", err)
 	}
 
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(p.Abs())
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
@@ -294,12 +319,13 @@ func TestWrite_WithHeaderAppendsNewlineIfMissing(t *testing.T) {
 
 func TestWrite_JSONTrailingNewline(t *testing.T) {
 
-	path := filepath.Join(t.TempDir(), "out.json")
-	if err := WriteFile(path, &testDoc{Name: "ivan", Count: 1}); err != nil {
-		t.Fatalf("Write: %v", err)
+	root := testRoot(t)
+	p := root.NewPath("out.json")
+	if err := WriteFile(root, p, &testDoc{Name: "ivan", Count: 1}); err != nil {
+		t.Fatalf("WriteFile: %v", err)
 	}
 
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(p.Abs())
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
@@ -349,15 +375,15 @@ func TestFormatFromExt_CaseInsensitive(t *testing.T) {
 
 func TestRoundTrip_YAMLReadWritePreservesData(t *testing.T) {
 
-	dir := t.TempDir()
+	root := testRoot(t)
 	original := testDoc{Name: "round", Count: 77}
 
-	path := filepath.Join(dir, "trip.yaml")
-	if err := WriteFile(path, &original); err != nil {
-		t.Fatalf("Write: %v", err)
+	p := root.NewPath("trip.yaml")
+	if err := WriteFile(root, p, &original); err != nil {
+		t.Fatalf("WriteFile: %v", err)
 	}
 
-	restored, err := ReadFile[testDoc](path)
+	restored, err := ReadFile[testDoc](p.Abs())
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
@@ -369,15 +395,15 @@ func TestRoundTrip_YAMLReadWritePreservesData(t *testing.T) {
 
 func TestRoundTrip_JSONReadWritePreservesData(t *testing.T) {
 
-	dir := t.TempDir()
+	root := testRoot(t)
 	original := testDoc{Name: "trip", Count: 88}
 
-	path := filepath.Join(dir, "trip.json")
-	if err := WriteFile(path, &original); err != nil {
-		t.Fatalf("Write: %v", err)
+	p := root.NewPath("trip.json")
+	if err := WriteFile(root, p, &original); err != nil {
+		t.Fatalf("WriteFile: %v", err)
 	}
 
-	restored, err := ReadFile[testDoc](path)
+	restored, err := ReadFile[testDoc](p.Abs())
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}

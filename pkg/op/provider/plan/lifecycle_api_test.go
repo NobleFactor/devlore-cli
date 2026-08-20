@@ -17,6 +17,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/document"
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/flow"
@@ -108,7 +109,12 @@ func TestGraphSaveLoadExecuteTrace_ViaPublicAPI(t *testing.T) {
 	if trace.GraphChecksum != loaded.Checksum() {
 		t.Errorf("trace.GraphChecksum %q != loaded graph checksum %q", trace.GraphChecksum, loaded.Checksum())
 	}
-	if err := document.WriteFile(tracePath, trace); err != nil {
+	docRoot, docRootErr := fsroot.OpenConfined(tmp)
+	if docRootErr != nil {
+		t.Fatalf("fsroot.OpenConfined: %v", docRootErr)
+	}
+	t.Cleanup(func() { _ = docRoot.Close() })
+	if err := document.WriteFile(docRoot, docRoot.NewPath(tracePath), trace); err != nil {
 		t.Fatalf("document.WriteFile(trace): %v", err)
 	}
 	if _, statErr := os.Stat(tracePath); statErr != nil {
@@ -338,7 +344,12 @@ func TestGraphSaveLoadResume_ViaPublicAPI(t *testing.T) {
 	if original.Catalog == nil || len(original.Catalog.Entries) == 0 {
 		t.Fatalf("Trace.Catalog: want a non-empty resource ledger snapshot, got %+v", original.Catalog)
 	}
-	if writeErr := document.WriteFile(tracePath, original); writeErr != nil {
+	docRoot, docRootErr := fsroot.OpenConfined(tmp)
+	if docRootErr != nil {
+		t.Fatalf("fsroot.OpenConfined: %v", docRootErr)
+	}
+	t.Cleanup(func() { _ = docRoot.Close() })
+	if writeErr := document.WriteFile(docRoot, docRoot.NewPath(tracePath), original); writeErr != nil {
 		t.Fatalf("document.WriteFile(trace): %v", writeErr)
 	}
 	reloaded, err := document.ReadFile[op.Trace](tracePath)
@@ -449,7 +460,12 @@ func resumeThenFailRollsBack(t *testing.T, format string) {
 	}
 
 	tracePath := filepath.Join(tmp, "trace."+format)
-	if writeErr := document.WriteFile(tracePath, executor.Trace()); writeErr != nil {
+	docRoot, docRootErr := fsroot.OpenConfined(tmp)
+	if docRootErr != nil {
+		t.Fatalf("fsroot.OpenConfined: %v", docRootErr)
+	}
+	t.Cleanup(func() { _ = docRoot.Close() })
+	if writeErr := document.WriteFile(docRoot, docRoot.NewPath(tracePath), executor.Trace()); writeErr != nil {
 		t.Fatalf("document.WriteFile(trace): %v", writeErr)
 	}
 	reloaded, err := document.ReadFile[op.Trace](tracePath)
@@ -546,7 +562,12 @@ func resumePromiseFidelity(t *testing.T, format string) {
 	}
 
 	tracePath := filepath.Join(tmp, "trace."+format)
-	if writeErr := document.WriteFile(tracePath, executor.Trace()); writeErr != nil {
+	docRoot, docRootErr := fsroot.OpenConfined(tmp)
+	if docRootErr != nil {
+		t.Fatalf("fsroot.OpenConfined: %v", docRootErr)
+	}
+	t.Cleanup(func() { _ = docRoot.Close() })
+	if writeErr := document.WriteFile(docRoot, docRoot.NewPath(tracePath), executor.Trace()); writeErr != nil {
 		t.Fatalf("document.WriteFile(trace): %v", writeErr)
 	}
 	reloaded, err := document.ReadFile[op.Trace](tracePath)

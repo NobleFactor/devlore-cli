@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
 )
 
 func TestSharedConfigPath(t *testing.T) {
@@ -381,8 +383,14 @@ func TestSaveConfig_CreatesDirectory(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", tmpDir)
 
-	// Directory doesn't exist yet
+	// Directory doesn't exist yet — OpenTree creates it, exactly as the commands do (#558).
 	configPath := SharedConfigPath()
+
+	configRoot, err := OpenTree(devlore.ConfigHome())
+	if err != nil {
+		t.Fatalf("OpenTree: %v", err)
+	}
+	t.Cleanup(func() { _ = configRoot.Close() })
 
 	config := map[string]interface{}{
 		"model": map[string]interface{}{
@@ -390,7 +398,7 @@ func TestSaveConfig_CreatesDirectory(t *testing.T) {
 		},
 	}
 
-	err := saveConfig(configPath, config)
+	err = saveConfig(configRoot, configRoot.NewPath(configPath), config)
 	if err != nil {
 		t.Fatalf("saveConfig() error: %v", err)
 	}

@@ -28,6 +28,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/NobleFactor/devlore-cli/pkg/document"
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 )
 
 // KnowledgeIndex represents the index.yaml manifest for a knowledge domain.
@@ -311,5 +312,13 @@ func writeIndex(domainPath string, index *KnowledgeIndex) error {
 	header := "# Auto-generated file list by: go run ./cmd/gen-index\n" +
 		"# Metadata (purpose, source_system, description) is preserved and should be edited manually.\n"
 
-	return document.WriteFile(filepath.Join(domainPath, "index.yaml"), index, document.WithHeader(header))
+	// The domain tree exists — buildIndex just read it — so opening is a query (#558).
+	root, err := fsroot.OpenConfined(domainPath)
+	if err != nil {
+		return err
+	}
+	//nolint:errcheck // diagnose-ignored-error: the write's own error is what the tool reports; a close failure after it has nothing left to protect
+	defer root.Close()
+
+	return document.WriteFile(root, root.NewPath("index.yaml"), index, document.WithHeader(header))
 }

@@ -14,6 +14,8 @@
 // Environment variables are handled by the caller, not here.
 package credentials
 
+import "github.com/NobleFactor/devlore-cli/pkg/fsroot"
+
 // Get retrieves a credential with priority: keychain > file.
 // Environment variables should be checked by the caller before calling this.
 func Get(key string) (string, error) {
@@ -29,7 +31,11 @@ func Get(key string) (string, error) {
 }
 
 // Set stores a credential in keychain (preferred) or file fallback.
-func Set(key, secret string) error {
+//
+// The config tree's root is received, never constructed (#558; #405 phase 3): the file fallback writes a
+// secret, and only a write through the caller's root makes its 0600 enforceable on Windows. The keychain path
+// never touches it.
+func Set(configRoot fsroot.Dir, key, secret string) error {
 	// Try native keychain first
 	if helper := detectHelper(); helper != "" {
 		if err := helperStore(helper, key, secret); err == nil {
@@ -38,14 +44,14 @@ func Set(key, secret string) error {
 		// Keychain failed, fall back to file
 	}
 
-	return fileSet(key, secret)
+	return fileSet(configRoot, key, secret)
 }
 
-// Delete removes a credential from keychain and/or file.
-func Delete(key string) error {
+// Delete removes a credential from keychain and/or file. The root is received for the file half, as in [Set].
+func Delete(configRoot fsroot.Dir, key string) error {
 	// Try both - don't fail if one doesn't have it
 	if helper := detectHelper(); helper != "" {
 		_ = helperErase(helper, key) //nolint:errcheck // best-effort erase, not critical
 	}
-	return fileDelete(key)
+	return fileDelete(configRoot, key)
 }

@@ -974,11 +974,15 @@ read an unmoved 28 after phase 3 as a failed migration.**
         write side was missing), `Write(w, format, v, …)` added, `WithPerm` documented as
         [WriteFile]-only. Ten production call sites renamed mechanically; no behavior change; the
         windows leg holds.
-      - [ ] **PR-B — the root.** `WriteFile(dir fsroot.Dir, p fsroot.Path, v, …)`; the ten call
+      - [x] **PR-B — the root.** `WriteFile(dir fsroot.Dir, p fsroot.Path, v, …)`; the ten call
         sites take roots threaded from the CLI layer that owns the purpose-named tree (ruled: no
-        library opens a root for itself). The two 0o600 mode assertions gate to unix, and a
-        `document_windows_test.go` DACL read-back proves protection, in phase 2's shape. The
-        windows leg moves **6 → 4**: `TestWrite_JSONCreatesFileWith0o600`,
+        library opens a root for itself). Two sites earned documented exceptions: the git transport
+        opens at its own `.sync-info.yaml` write because its subprocess creates and replaces the
+        cache tree wholesale — there is nothing for a caller to open before Sync, and a held handle
+        would block the replacement on Windows; and `e2e.WriteReport`'s raw `summary.md` write rode
+        along through the same root. The two 0o600 mode assertions gate to unix, and
+        `document_windows_test.go` DACL read-backs prove protection and the 0o644 boundary, in
+        phase 2's shape. The windows leg moves **6 → 4**: `TestWrite_JSONCreatesFileWith0o600`,
         `TestWrite_YAMLCreatesFileWith0o600`.
 - [ ] **3.4 — the writ deploy/sops output path** ([#433](https://github.com/NobleFactor/devlore-cli/issues/433)) — behind `TestExecute_SopsChains`, and the one
       that writes **decrypted plaintext**, which makes it the second-most security-relevant site in

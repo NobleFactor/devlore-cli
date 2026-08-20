@@ -11,6 +11,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/document"
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/plan"
@@ -72,7 +73,12 @@ func TestExecutionTrace_SerializesAsMigrationReceipt(t *testing.T) {
 	}
 
 	receiptPath := filepath.Join(tmp, ".writ-migrate-receipt.json")
-	if err := document.WriteFile(receiptPath, trace); err != nil {
+	docRoot, docRootErr := fsroot.OpenConfined(tmp)
+	if docRootErr != nil {
+		t.Fatalf("fsroot.OpenConfined: %v", docRootErr)
+	}
+	t.Cleanup(func() { _ = docRoot.Close() })
+	if err := document.WriteFile(docRoot, docRoot.NewPath(receiptPath), trace); err != nil {
 		t.Fatalf("document.WriteFile(receipt): %v", err)
 	}
 

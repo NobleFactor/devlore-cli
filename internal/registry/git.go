@@ -17,6 +17,7 @@ import (
 	"github.com/Masterminds/semver/v3"
 
 	"github.com/NobleFactor/devlore-cli/pkg/document"
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 )
 
 // gitTransport implements Transport using git.
@@ -522,7 +523,18 @@ func (g *gitTransport) writeSyncInfo(cacheDir, ref string, syncedAt time.Time) e
 		Endpoint: g.repoURL,
 	}
 
-	return document.WriteFile(filepath.Join(cacheDir, ".sync-info.yaml"), &info, document.WithPerm(0o644))
+	// Opened here, not received (#558): the transport's own subprocess creates and replaces the cache tree
+	// wholesale — before Sync there may be nothing for a caller to open, and a handle held across the clone
+	// would block the directory replacement on Windows. By this write the tree its subprocess just made
+	// exists, so opening is a query.
+	root, err := fsroot.OpenConfined(cacheDir)
+	if err != nil {
+		return err
+	}
+	//nolint:errcheck // diagnose-ignored-error: the write's own error is what the caller acts on; a close failure after it has nothing left to protect
+	defer root.Close()
+
+	return document.WriteFile(root, root.NewPath(".sync-info.yaml"), &info, document.WithPerm(0o644))
 }
 
 // endregion

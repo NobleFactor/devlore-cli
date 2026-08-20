@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
 	"github.com/NobleFactor/devlore-cli/pkg/document"
 )
 
@@ -77,11 +78,14 @@ func (c *SyntheticCache) Get(source PackageSource, name string) *SyntheticPackag
 
 // Put stores a synthetic package in the cache.
 //
+// The cache tree is opened per write and created on first use (#558; #405 phase 3): this package sits at the
+// CLI layer, so it owns its purpose-named root, and the tree may not exist before the first Put.
+//
 // Parameters:
 //   - info: synthetic package metadata to cache
 //
 // Returns:
-//   - error: marshal or write error
+//   - error: root open, marshal, or write error
 func (c *SyntheticCache) Put(info *SyntheticPackageInfo) error {
 
 	info.CachedAt = time.Now()
@@ -89,7 +93,14 @@ func (c *SyntheticCache) Put(info *SyntheticPackageInfo) error {
 		info.VerifiedAt = time.Now()
 	}
 
-	return document.WriteFile(c.cachePathForPackage(info.Source, info.Name), info)
+	cacheRoot, err := cli.OpenTree(c.cacheDir)
+	if err != nil {
+		return err
+	}
+	//nolint:errcheck // diagnose-ignored-error: the write's own error is what the caller acts on; a close failure after it has nothing left to protect
+	defer cacheRoot.Close()
+
+	return document.WriteFile(cacheRoot, cacheRoot.NewPath(c.cachePathForPackage(info.Source, info.Name)), info)
 }
 
 // Delete removes a synthetic package from the cache.

@@ -149,7 +149,14 @@ Examples:
 				setNestedValue(config, key, typed)
 			}
 
-			return saveConfig(cfgPath, config)
+			configRoot, err := OpenTree(devlore.ConfigHome())
+			if err != nil {
+				return err
+			}
+			//nolint:errcheck // diagnose-ignored-error: the write's own error is what the command reports; a close failure after it has nothing left to protect
+			defer configRoot.Close()
+
+			return saveConfig(configRoot, configRoot.NewPath(cfgPath), config)
 		},
 	}
 
@@ -181,7 +188,14 @@ Examples:
 				}
 			}
 
-			return saveConfig(cfgPath, config)
+			configRoot, err := OpenTree(devlore.ConfigHome())
+			if err != nil {
+				return err
+			}
+			//nolint:errcheck // diagnose-ignored-error: the write's own error is what the command reports; a close failure after it has nothing left to protect
+			defer configRoot.Close()
+
+			return saveConfig(configRoot, configRoot.NewPath(cfgPath), config)
 		},
 	}
 
@@ -292,15 +306,18 @@ func loadConfig(path string) (map[string]interface{}, error) {
 
 // saveConfig saves the config map to file. Supports YAML and JSON formats, detected by file extension.
 //
+// The root is received, never constructed (#405, phase 2b): the command owns the config tree.
+//
 // Parameters:
-//   - path: filesystem path to the config file
+//   - configRoot: the config tree, opened by the calling command
+//   - path: the config file's path within configRoot
 //   - config: config map to serialize
 //
 // Returns:
 //   - error: marshal or write error
-func saveConfig(path string, config map[string]interface{}) error {
+func saveConfig(configRoot fsroot.Dir, path fsroot.Path, config map[string]interface{}) error {
 
-	return document.WriteFile(path, config)
+	return document.WriteFile(configRoot, path, config)
 }
 
 // configEdit opens the config file in the user's editor, seeding it with defaults when absent.
