@@ -33,7 +33,16 @@ sketches retire when integration is complete.
 3. **Identity is rel; the fsroot binds at run.** Plan-space paths follow the git model: a leading slash
    anchors at the fsroot; machine-absoluteness is inexpressible in a plan and arises only from the run's
    root choice.
-4. **The design integrates into the resource-management design doc; sketches are mined and then removed.**
+4. **Activation never changes identity.** The graph is the only place pending resources are *stored*; a run
+   activates them on the clone (the graph document is never mutated by a run). Pre-flight transitions
+   Pending → Active by verifying each rel under the bound fsroot — a *state and binding* event, never an
+   identity event. After activation the identity is the same slash-canonical rel it was as pending — it must
+   be: identity is the catalog key, so rewriting it would orphan the correspondence between the graph's
+   intent, the clone's active entries, and the trace's journal, and would break dedup mid-run. The
+   `SourcePath` becomes the fully bound `fsroot.Path` triad: `Rel()` = the identity, verbatim; `Root()` =
+   the run's fsroot; `Abs()` = derived, OS-native, carries all I/O, never serialized. **Identity lives in
+   the rel; location lives in the Path; activation joins them without letting them trade places.**
+5. **The design integrates into the resource-management design doc; sketches are mined and then removed.**
 
 The demonstrations that forced the rulings (both red, both become acceptance with phase-3-corrected
 assertions):
@@ -240,6 +249,22 @@ product entry** — the copy never produced; the trace records the node's failur
 
 **The sentence the scenario proves:** the graph says what must be true; the trace says what happened; the
 gap between them is the run's story.
+
+### Scenario 2 — relocate the tree, reconcile the graph
+
+**Setup.** Create a graph; run it at fsroot location A. Copy the **entire tree** to a new fsroot location B
+(bytes intact; inodes and mtimes new, as copies are). Reconcile the graph at B.
+
+**Expected result — reconciliation succeeds and reports no content drift.** The graph's intent is rels, so
+binding to B is fully defined: nothing in identity remembers A. Every rel exists under B. The **Etag screen
+mismatches on every entry** — Etags are stat tuples, and relocation mints new inodes — which is by design:
+the cheap screen escalates to the honest check. **Digests match**, so every entry classifies as **touch
+drift**: Etag refreshed against B, no shadow, no repair, clean report. The graph is at home in its new root.
+
+**The contrast that gives the scenario teeth:** under absolute identity, reconciliation at B finds zero
+corresponding resources — every entry "missing," the graph unreconcilable without rewriting it. Scenario 2
+is the relocation proof — the direct payoff of rel identity — and it exercises the reconciler's two-tier
+cascade (Etag screen → Digest verdict) exactly as designed.
 
 ## Open questions — all ruled 2026-08-20
 
