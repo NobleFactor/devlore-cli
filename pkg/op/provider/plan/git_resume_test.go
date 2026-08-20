@@ -99,8 +99,8 @@ func gitCloneResumeThenFail(t *testing.T, format string) {
 	}
 
 	tracePath := filepath.Join(tmp, "trace."+format)
-	if writeErr := document.Write(tracePath, executor.Trace()); writeErr != nil {
-		t.Fatalf("document.Write(trace): %v", writeErr)
+	if writeErr := document.WriteFile(tracePath, executor.Trace()); writeErr != nil {
+		t.Fatalf("document.WriteFile(trace): %v", writeErr)
 	}
 	reloaded, err := document.ReadFile[op.Trace](tracePath)
 	if err != nil {

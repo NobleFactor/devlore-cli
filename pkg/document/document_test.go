@@ -4,6 +4,8 @@
 package document
 
 import (
+	"bytes"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -138,7 +140,7 @@ func TestWrite_YAMLCreatesFileWith0o600(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "out.yaml")
 	doc := testDoc{Name: "dave", Count: 99}
 
-	if err := Write(path, &doc); err != nil {
+	if err := WriteFile(path, &doc); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 
@@ -164,7 +166,7 @@ func TestWrite_JSONCreatesFileWith0o600(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "out.json")
 	doc := testDoc{Name: "eve", Count: 5}
 
-	if err := Write(path, &doc); err != nil {
+	if err := WriteFile(path, &doc); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 
@@ -185,12 +187,62 @@ func TestWrite_JSONCreatesFileWith0o600(t *testing.T) {
 	}
 }
 
+// TestWrite_StreamRendersTheStatedFormat pins the codec seam (#558): the stream form takes its format
+// explicitly — nothing is inferred from a file name, and creation concerns never enter.
+func TestWrite_StreamRendersTheStatedFormat(t *testing.T) {
+
+	doc := testDoc{Name: "stream", Count: 7}
+
+	var jsonBuf bytes.Buffer
+	if err := Write(&jsonBuf, JSON, &doc); err != nil {
+		t.Fatalf("Write(JSON): %v", err)
+	}
+	if !strings.HasPrefix(jsonBuf.String(), "{") {
+		t.Errorf("JSON rendering = %q, want a JSON object", jsonBuf.String())
+	}
+
+	var yamlBuf bytes.Buffer
+	if err := Write(&yamlBuf, YAML, &doc); err != nil {
+		t.Fatalf("Write(YAML): %v", err)
+	}
+
+	parsed, err := Read[testDoc](&yamlBuf)
+	if err != nil {
+		t.Fatalf("Read back: %v", err)
+	}
+	if parsed.Name != "stream" || parsed.Count != 7 {
+		t.Errorf("round-trip = %+v, want the original", parsed)
+	}
+}
+
+// TestWrite_StreamHonorsTheHeader pins that encoding options ride the stream form: the header lands ahead of
+// the rendered document, newline-terminated.
+func TestWrite_StreamHonorsTheHeader(t *testing.T) {
+
+	var buf bytes.Buffer
+	if err := Write(&buf, YAML, &testDoc{Name: "h", Count: 1}, WithHeader("# generated")); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if !strings.HasPrefix(buf.String(), "# generated\n") {
+		t.Errorf("stream = %q, want the header first, newline-terminated", buf.String())
+	}
+}
+
+// TestWrite_UnknownFormatIsRefused pins the explicit-format contract: an unstated or misspelled rendering is
+// an error, never a silent default.
+func TestWrite_UnknownFormatIsRefused(t *testing.T) {
+
+	if err := Write(io.Discard, Format("toml"), &testDoc{}); err == nil {
+		t.Fatal("Write(unknown format) = nil error, want a refusal")
+	}
+}
+
 func TestWrite_CreatesParentDirectories(t *testing.T) {
 
 	path := filepath.Join(t.TempDir(), "a", "b", "c", "deep.yaml")
 	doc := testDoc{Name: "nested", Count: 1}
 
-	if err := Write(path, &doc); err != nil {
+	if err := WriteFile(path, &doc); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 
@@ -205,7 +257,7 @@ func TestWrite_WithHeaderPrependsText(t *testing.T) {
 	doc := testDoc{Name: "grace", Count: 10}
 	header := "# Auto-generated — do not edit\n"
 
-	if err := Write(path, &doc, WithHeader(header)); err != nil {
+	if err := WriteFile(path, &doc, WithHeader(header)); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 
@@ -227,7 +279,7 @@ func TestWrite_WithHeaderAppendsNewlineIfMissing(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "header2.yaml")
 	doc := testDoc{Name: "heidi", Count: 2}
 
-	if err := Write(path, &doc, WithHeader("# no trailing newline")); err != nil {
+	if err := WriteFile(path, &doc, WithHeader("# no trailing newline")); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 
@@ -243,7 +295,7 @@ func TestWrite_WithHeaderAppendsNewlineIfMissing(t *testing.T) {
 func TestWrite_JSONTrailingNewline(t *testing.T) {
 
 	path := filepath.Join(t.TempDir(), "out.json")
-	if err := Write(path, &testDoc{Name: "ivan", Count: 1}); err != nil {
+	if err := WriteFile(path, &testDoc{Name: "ivan", Count: 1}); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 
@@ -301,7 +353,7 @@ func TestRoundTrip_YAMLReadWritePreservesData(t *testing.T) {
 	original := testDoc{Name: "round", Count: 77}
 
 	path := filepath.Join(dir, "trip.yaml")
-	if err := Write(path, &original); err != nil {
+	if err := WriteFile(path, &original); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 
@@ -321,7 +373,7 @@ func TestRoundTrip_JSONReadWritePreservesData(t *testing.T) {
 	original := testDoc{Name: "trip", Count: 88}
 
 	path := filepath.Join(dir, "trip.json")
-	if err := Write(path, &original); err != nil {
+	if err := WriteFile(path, &original); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 

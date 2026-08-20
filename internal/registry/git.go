@@ -522,7 +522,7 @@ func (g *gitTransport) writeSyncInfo(cacheDir, ref string, syncedAt time.Time) e
 		Endpoint: g.repoURL,
 	}
 
-	return document.Write(filepath.Join(cacheDir, ".sync-info.yaml"), &info, document.WithPerm(0o644))
+	return document.WriteFile(filepath.Join(cacheDir, ".sync-info.yaml"), &info, document.WithPerm(0o644))
 }
 
 // endregion

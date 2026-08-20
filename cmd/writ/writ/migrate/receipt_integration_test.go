@@ -72,8 +72,8 @@ func TestExecutionTrace_SerializesAsMigrationReceipt(t *testing.T) {
 	}
 
 	receiptPath := filepath.Join(tmp, ".writ-migrate-receipt.json")
-	if err := document.Write(receiptPath, trace); err != nil {
-		t.Fatalf("document.Write(receipt): %v", err)
+	if err := document.WriteFile(receiptPath, trace); err != nil {
+		t.Fatalf("document.WriteFile(receipt): %v", err)
 	}
 
 	info, err := os.Stat(receiptPath)

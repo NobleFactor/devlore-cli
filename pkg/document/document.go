@@ -19,7 +19,23 @@ import (
 
 // region EXPORTED TYPES
 
-// Option configures Write behavior.
+// Format names a rendering the codec produces.
+//
+// The stream form ([Write]) takes it explicitly — with no file name there is nothing to infer from, and the
+// output syntax is not an option but a decision (the same rule op.SaveGraph follows: format is stated). The
+// path form ([WriteFile]) infers it from the file extension as a convenience at the file boundary only.
+type Format string
+
+const (
+
+	// JSON renders the document as indented JSON.
+	JSON Format = "json"
+
+	// YAML renders the document as YAML.
+	YAML Format = "yaml"
+)
+
+// Option configures write behavior.
 type Option func(*writeOpts)
 
 // endregion
@@ -84,39 +100,62 @@ func ReadFile[T any](path string) (*T, error) {
 	return &v, nil
 }
 
-// Write serializes v to disk as a structured document. Format is inferred from the file extension. Creates parent
-// directories (0o750) if needed. Default file permission is 0o600; override with WithPerm.
+// Write serializes v to a stream in the given [Format] — the codec alone, owning no file creation.
+//
+// The seam the write side was missing (#558): [Read] separates codec from I/O and Write now mirrors it, so
+// creation concerns (permissions, directories) stay with whoever owns the destination. [WithPerm] is
+// meaningless here and is ignored; it belongs to [WriteFile].
 //
 // Parameters:
-//   - path: filesystem path for the output document
-//   - v: value to serialize
-//   - opts: optional configuration (WithPerm, WithIndent, WithHeader)
+//   - `w`: the stream to write the rendered document to.
+//   - `format`: the [Format] to render; [JSON] or [YAML].
+//   - `v`: the value to serialize.
+//   - `opts`: optional configuration ([WithIndent], [WithHeader]).
 //
 // Returns:
-//   - error: wraps marshal, directory creation, and write errors with the file path for context
-func Write(path string, v any, opts ...Option) error {
+//   - `error`: an unknown format, a marshal error, or a stream write error.
+func Write(w io.Writer, format Format, v any, opts ...Option) error {
 
-	cfg := writeOpts{
-		perm:         0o600,
-		jsonPrefix:   "",
-		jsonIndent:   "  ",
-		indentCustom: false,
-	}
+	cfg := defaultWriteOpts()
 	for _, o := range opts {
 		o(&cfg)
 	}
 
-	data, err := marshal(path, v, &cfg)
+	data, err := encode(format, v, &cfg)
 	if err != nil {
-		return fmt.Errorf("marshal %s: %w", path, err)
+		return fmt.Errorf("marshal: %w", err)
 	}
 
-	if cfg.header != "" {
-		h := cfg.header
-		if !strings.HasSuffix(h, "\n") {
-			h += "\n"
-		}
-		data = append([]byte(h), data...)
+	if _, err := w.Write(data); err != nil {
+		return fmt.Errorf("write: %w", err)
+	}
+
+	return nil
+}
+
+// WriteFile serializes v to disk as a structured document. Format is inferred from the file extension. Creates
+// parent directories (0o750) if needed. Default file permission is 0o600; override with WithPerm.
+//
+// The rename of the former path-only Write, freeing that name for the stream form — the same
+// [Read] / [ReadFile] symmetry the read side always had (#558).
+//
+// Parameters:
+//   - `path`: filesystem path for the output document.
+//   - `v`: the value to serialize.
+//   - `opts`: optional configuration ([WithPerm], [WithIndent], [WithHeader]).
+//
+// Returns:
+//   - `error`: wraps marshal, directory creation, and write errors with the file path for context.
+func WriteFile(path string, v any, opts ...Option) error {
+
+	cfg := defaultWriteOpts()
+	for _, o := range opts {
+		o(&cfg)
+	}
+
+	data, err := encode(formatFromExt(path), v, &cfg)
+	if err != nil {
+		return fmt.Errorf("marshal %s: %w", path, err)
 	}
 
 	dir := filepath.Dir(path)
@@ -131,13 +170,14 @@ func Write(path string, v any, opts ...Option) error {
 	return nil
 }
 
-// WithPerm overrides the default 0o600 file permission.
+// WithPerm overrides the default 0o600 file permission. A creation concern: it applies to [WriteFile] only
+// and is ignored by the stream form, which owns no file.
 //
 // Parameters:
-//   - mode: the file permission mode to use
+//   - `mode`: the file permission mode to use.
 //
 // Returns:
-//   - Option: a write option that sets the file permission
+//   - `Option`: a write option that sets the file permission.
 func WithPerm(mode os.FileMode) Option {
 
 	return func(o *writeOpts) {
@@ -197,42 +237,90 @@ type writeOpts struct {
 
 // region Behaviors
 
-// formatFromExt returns "json" or "yaml" based on the file extension.
-//
-// Parameters:
-//   - path: filesystem path whose extension determines the format
+// defaultWriteOpts returns the write configuration before options apply.
 //
 // Returns:
-//   - string: "json" for .json files, "yaml" for everything else
-func formatFromExt(path string) string {
+//   - `writeOpts`: the defaults — 0o600 permission, two-space JSON indent, no prefix, no header.
+func defaultWriteOpts() writeOpts {
 
-	if strings.ToLower(filepath.Ext(path)) == ".json" {
-		return "json"
+	return writeOpts{
+		perm:         0o600,
+		jsonPrefix:   "",
+		jsonIndent:   "  ",
+		indentCustom: false,
 	}
-	return "yaml"
 }
 
-// marshal serializes v according to the format inferred from the file extension.
+// encode renders v in the given format, with the configured header prepended.
 //
 // Parameters:
-//   - path: filesystem path whose extension determines the format
-//   - v: value to serialize
-//   - cfg: write options controlling indentation
+//   - `format`: the [Format] to render.
+//   - `v`: the value to serialize.
+//   - `cfg`: write options controlling indentation and the header.
 //
 // Returns:
-//   - []byte: serialized content
-//   - error: marshal error from the underlying codec
-func marshal(path string, v any, cfg *writeOpts) ([]byte, error) {
+//   - `[]byte`: the rendered document.
+//   - `error`: an unknown format, or a marshal error from the underlying codec.
+func encode(format Format, v any, cfg *writeOpts) ([]byte, error) {
 
-	if formatFromExt(path) == "json" {
+	data, err := marshal(format, v, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	if cfg.header != "" {
+		h := cfg.header
+		if !strings.HasSuffix(h, "\n") {
+			h += "\n"
+		}
+		data = append([]byte(h), data...)
+	}
+
+	return data, nil
+}
+
+// formatFromExt returns the [Format] a file extension names.
+//
+// Parameters:
+//   - `path`: filesystem path whose extension determines the format.
+//
+// Returns:
+//   - `Format`: [JSON] for .json files, [YAML] for everything else.
+func formatFromExt(path string) Format {
+
+	if strings.ToLower(filepath.Ext(path)) == ".json" {
+		return JSON
+	}
+	return YAML
+}
+
+// marshal serializes v in the given format.
+//
+// Parameters:
+//   - `format`: the [Format] to render.
+//   - `v`: the value to serialize.
+//   - `cfg`: write options controlling indentation.
+//
+// Returns:
+//   - `[]byte`: serialized content.
+//   - `error`: an unknown format, or a marshal error from the underlying codec.
+func marshal(format Format, v any, cfg *writeOpts) ([]byte, error) {
+
+	switch format {
+
+	case JSON:
 		data, err := json.MarshalIndent(v, cfg.jsonPrefix, cfg.jsonIndent)
 		if err != nil {
 			return nil, err
 		}
 		return append(data, '\n'), nil
-	}
 
-	return yaml.Marshal(v)
+	case YAML:
+		return yaml.Marshal(v)
+
+	default:
+		return nil, fmt.Errorf("document: unknown format %q", format)
+	}
 }
 
 // unmarshal deserializes data into v according to the format inferred from the file extension.

@@ -963,12 +963,23 @@ read an unmoved 28 after phase 3 as a failed migration.**
       and zero cleared. The three `scenario` legs — the self-install scenario's first run under
       branch protection — passed on all platforms.
 
-- [ ] **3.3b — `document.Write` takes a root.** Deferred deliberately, per the 2026-08-17 ruling:
-      it lands with the configuration work and the JSON/YAML/protobuf codec, because its remaining
-      **18-19** callers are ordinary config-shaped documents and its extension-sniffing is precisely
-      what the single-codec design replaces. Threading a root through it now would be work done
-      twice. Until then `pkg/document` keeps its two `os.*` sites, and the three permission
-      tests behind it stay where they are — they move in phase 5 regardless.
+- [ ] **3.3b — `document.WriteFile` takes a root.** The 2026-08-17 deferral is superseded by the
+      2026-08-20 rulings on [#558](https://github.com/NobleFactor/devlore-cli/issues/558): both steps
+      land now, as two PRs. The work-done-twice concern is answered rather than waited out — the
+      stream form `Write(w io.Writer, format Format, v any, …)` takes its format **explicitly** (the
+      `SaveGraph` rule: format is stated, not inferred), which IS the single-codec seam a protobuf
+      rendering plugs into; extension-sniffing survives only in the path form as a file-boundary
+      convenience.
+      - [x] **PR-A — the codec split.** `Write` → `WriteFile` (the `Read`/`ReadFile` symmetry the
+        write side was missing), `Write(w, format, v, …)` added, `WithPerm` documented as
+        [WriteFile]-only. Ten production call sites renamed mechanically; no behavior change; the
+        windows leg holds.
+      - [ ] **PR-B — the root.** `WriteFile(dir fsroot.Dir, p fsroot.Path, v, …)`; the ten call
+        sites take roots threaded from the CLI layer that owns the purpose-named tree (ruled: no
+        library opens a root for itself). The two 0o600 mode assertions gate to unix, and a
+        `document_windows_test.go` DACL read-back proves protection, in phase 2's shape. The
+        windows leg moves **6 → 4**: `TestWrite_JSONCreatesFileWith0o600`,
+        `TestWrite_YAMLCreatesFileWith0o600`.
 - [ ] **3.4 — the writ deploy/sops output path** ([#433](https://github.com/NobleFactor/devlore-cli/issues/433)) — behind `TestExecute_SopsChains`, and the one
       that writes **decrypted plaintext**, which makes it the second-most security-relevant site in
       the campaign after the private key.

@@ -89,7 +89,7 @@ func (c *SyntheticCache) Put(info *SyntheticPackageInfo) error {
 		info.VerifiedAt = time.Now()
 	}
 
-	return document.Write(c.cachePathForPackage(info.Source, info.Name), info)
+	return document.WriteFile(c.cachePathForPackage(info.Source, info.Name), info)
 }
 
 // Delete removes a synthetic package from the cache.

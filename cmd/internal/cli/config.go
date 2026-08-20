@@ -300,7 +300,7 @@ func loadConfig(path string) (map[string]interface{}, error) {
 //   - error: marshal or write error
 func saveConfig(path string, config map[string]interface{}) error {
 
-	return document.Write(path, config)
+	return document.WriteFile(path, config)
 }
 
 // configEdit opens the config file in the user's editor, seeding it with defaults when absent.
