@@ -36,7 +36,7 @@ const (
 
 func TestApplyMode_PrivateFileGetsProtectedDACL(t *testing.T) {
 
-	root := testConfinedRoot(t)
+	root := testConfinedDir(t)
 
 	target := root.NewPath("secret.txt")
 	if err := root.WriteFile(target, []byte("private"), 0o600); err != nil {
@@ -68,7 +68,7 @@ func TestApplyMode_PrivateFileGetsProtectedDACL(t *testing.T) {
 
 func TestApplyMode_PrivateDirectoryGetsProtectedDACL(t *testing.T) {
 
-	root := testConfinedRoot(t)
+	root := testConfinedDir(t)
 
 	target := root.NewPath("state")
 	if err := root.Mkdir(target, 0o700); err != nil {
@@ -84,7 +84,7 @@ func TestApplyMode_PrivateDirectoryGetsProtectedDACL(t *testing.T) {
 
 func TestApplyMode_ChmodRestrictsAnExistingFile(t *testing.T) {
 
-	root := testConfinedRoot(t)
+	root := testConfinedDir(t)
 
 	target := root.NewPath("later.txt")
 	if err := root.WriteFile(target, []byte("shared"), 0o644); err != nil {
@@ -106,7 +106,7 @@ func TestApplyMode_ChmodRestrictsAnExistingFile(t *testing.T) {
 
 func TestApplyMode_NonPrivateModeIsLeftAlone(t *testing.T) {
 
-	root := testConfinedRoot(t)
+	root := testConfinedDir(t)
 
 	target := root.NewPath("shared.txt")
 	if err := root.WriteFile(target, []byte("shared"), 0o644); err != nil {
@@ -118,7 +118,7 @@ func TestApplyMode_NonPrivateModeIsLeftAlone(t *testing.T) {
 	}
 }
 
-func TestApplyMode_ScratchRootRestrictsItsContents(t *testing.T) {
+func TestApplyMode_ScratchDirRestrictsItsContents(t *testing.T) {
 
 	scratch, err := OpenScratch("fsroot-acl-*")
 	if err != nil {
@@ -140,7 +140,7 @@ func TestApplyMode_ScratchRootRestrictsItsContents(t *testing.T) {
 
 func TestApplyMode_OpenFileCreateIsEnforced(t *testing.T) {
 
-	root := testConfinedRoot(t)
+	root := testConfinedDir(t)
 
 	target := root.NewPath("opened.txt")
 
@@ -179,14 +179,14 @@ func hasTrustee(sddl, alias, sid string) bool {
 		strings.Contains(sddl, ";;;"+sid+aceTrusteeEnd)
 }
 
-// testConfinedRoot opens a confined root at a per-test temporary directory, closed at test end.
+// testConfinedDir opens a confined root at a per-test temporary directory, closed at test end.
 //
 // Parameters:
 //   - `t`: the test.
 //
 // Returns:
 //   - `Root`: the confined root.
-func testConfinedRoot(t *testing.T) Dir {
+func testConfinedDir(t *testing.T) Dir {
 
 	t.Helper()
 

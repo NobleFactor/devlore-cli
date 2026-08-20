@@ -175,7 +175,7 @@ func TestRoot_Close(t *testing.T) {
 		t.Fatalf("fsroot.OpenConfined: %v", err)
 	}
 	if err := cr.Close(); err != nil {
-		t.Errorf("fsroot.confinedRoot.Close() = %v", err)
+		t.Errorf("fsroot.confinedDir.Close() = %v", err)
 	}
 }
 
@@ -483,13 +483,13 @@ func TestRoot_WriteFile(t *testing.T) {
 	}
 }
 
-func TestConfinedRoot_RejectsTraversal(t *testing.T) {
+func TestConfinedDir_RejectsTraversal(t *testing.T) {
 
 	dir := t.TempDir()
 
 	r, err := fsroot.OpenConfined(dir)
 	if err != nil {
-		t.Fatalf("NewConfinedRoot: %v", err)
+		t.Fatalf("fsroot.OpenConfined: %v", err)
 	}
 	defer func() { _ = r.Close() }()
 
@@ -503,7 +503,7 @@ func TestConfinedRoot_RejectsTraversal(t *testing.T) {
 	}
 }
 
-func TestConfinedRoot_InvalidDir(t *testing.T) {
+func TestConfinedDir_InvalidDir(t *testing.T) {
 
 	_, err := fsroot.OpenConfined("/nonexistent/path/that/does/not/exist")
 	if err == nil {
@@ -737,9 +737,9 @@ func TestCreateTemp_PatternWithSeparatorIsRefused(t *testing.T) {
 	}
 }
 
-// TestCreateTemp_ScratchRootKeepsItsTempFilesInsideTheTree proves a scratch root's temp files are removed with it,
+// TestCreateTemp_ScratchDirKeepsItsTempFilesInsideTheTree proves a scratch root's temp files are removed with it,
 // which is the property that makes scratch the default home for transient bytes.
-func TestCreateTemp_ScratchRootKeepsItsTempFilesInsideTheTree(t *testing.T) {
+func TestCreateTemp_ScratchDirKeepsItsTempFilesInsideTheTree(t *testing.T) {
 
 	scratch, err := fsroot.OpenScratch("fsroot-scratch-temp-*")
 	if err != nil {
@@ -821,7 +821,7 @@ func allRoots(t *testing.T, dir string) []rootCase {
 	t.Cleanup(func() { _ = cr.Close() })
 
 	return []rootCase{
-		{"confinedRoot", cr},
+		{"confinedDir", cr},
 	}
 }
 
