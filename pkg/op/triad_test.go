@@ -68,7 +68,7 @@ func TestTriad_RootProducesPath(t *testing.T) {
 		newTriad func(t *testing.T) triadEnv
 	}{
 		{"RootReaderWriter", newTriadRW},
-		{"confinedRoot", newTriadConfined},
+		{"confinedDir", newTriadConfined},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 
@@ -99,7 +99,7 @@ func TestTriad_RootProducesPathFromAbsolute(t *testing.T) {
 		newTriad func(t *testing.T) triadEnv
 	}{
 		{"RootReaderWriter", newTriadRW},
-		{"confinedRoot", newTriadConfined},
+		{"confinedDir", newTriadConfined},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 
@@ -125,7 +125,7 @@ func TestTriad_ArchiveFileRestoreFile(t *testing.T) {
 		newTriad func(t *testing.T) triadEnv
 	}{
 		{"RootReaderWriter", newTriadRW},
-		{"confinedRoot", newTriadConfined},
+		{"confinedDir", newTriadConfined},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 
@@ -188,7 +188,7 @@ func TestTriad_ArchiveDataRestoreData(t *testing.T) {
 		newTriad func(t *testing.T) triadEnv
 	}{
 		{"RootReaderWriter", newTriadRW},
-		{"confinedRoot", newTriadConfined},
+		{"confinedDir", newTriadConfined},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 
@@ -223,7 +223,7 @@ func TestTriad_NestedPathRecreation(t *testing.T) {
 		newTriad func(t *testing.T) triadEnv
 	}{
 		{"RootReaderWriter", newTriadRW},
-		{"confinedRoot", newTriadConfined},
+		{"confinedDir", newTriadConfined},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 
@@ -278,7 +278,7 @@ func TestTriad_WriteReadThroughRoot(t *testing.T) {
 		newTriad func(t *testing.T) triadEnv
 	}{
 		{"RootReaderWriter", newTriadRW},
-		{"confinedRoot", newTriadConfined},
+		{"confinedDir", newTriadConfined},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 
@@ -318,7 +318,7 @@ func TestTriad_MkdirAllThroughRoot(t *testing.T) {
 		newTriad func(t *testing.T) triadEnv
 	}{
 		{"RootReaderWriter", newTriadRW},
-		{"confinedRoot", newTriadConfined},
+		{"confinedDir", newTriadConfined},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 
@@ -348,7 +348,7 @@ func TestTriad_RenameThroughRoot(t *testing.T) {
 		newTriad func(t *testing.T) triadEnv
 	}{
 		{"RootReaderWriter", newTriadRW},
-		{"confinedRoot", newTriadConfined},
+		{"confinedDir", newTriadConfined},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 
@@ -451,7 +451,7 @@ func TestTriad_PathJSONFromRoot(t *testing.T) {
 	}
 }
 
-func TestTriad_ConfinedRootBlocksTraversal(t *testing.T) {
+func TestTriad_ConfinedDirBlocksTraversal(t *testing.T) {
 
 	env := newTriadConfined(t)
 	p := env.Root.NewPath("../escape.txt")
