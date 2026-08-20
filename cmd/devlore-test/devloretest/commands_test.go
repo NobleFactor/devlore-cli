@@ -225,3 +225,30 @@ func TestRunCmd_MissingScript(t *testing.T) {
 		t.Fatal("expected error for missing script")
 	}
 }
+
+// TestRunCmd_DefaultsToScriptNamedArtifacts pins the default routing (ruled 2026-08-20): each stream lands in
+// an artifact file named for the script, in the working directory — results are files, narration is stderr,
+// and stdout stays clean. An explicit --output overrides per stream, which every other test here exercises.
+func TestRunCmd_DefaultsToScriptNamedArtifacts(t *testing.T) {
+
+	work := t.TempDir()
+	script := filepath.Join(work, "probe.star")
+	if err := os.WriteFile(script, []byte("t.expect_unit_count(0)\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(work)
+
+	cmd := newRunCmd()
+	cmd.SilenceErrors = true
+	cmd.SilenceUsage = true
+	cmd.SetArgs([]string{script})
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("run: %v", err)
+	}
+
+	for _, artifact := range []string{"probe.summary.json", "probe.graph.yaml", "probe.receipt.yaml"} {
+		if _, err := os.Stat(filepath.Join(work, artifact)); err != nil {
+			t.Errorf("default artifact %s not written: %v", artifact, err)
+		}
+	}
+}
