@@ -30,7 +30,7 @@ func newTestRecoverySite(t *testing.T) (*RecoverySite, fsroot.Dir) {
 
 	runtimeEnvironment, err := NewRuntimeEnvironment(context.Background(),
 		NewRuntimeEnvironmentSpec("test").
-			WithRoot(t.TempDir(), fsroot.ModeConfined).
+			WithRoot(t.TempDir()).
 			WithApplication(&application.Application{Name: "test"}))
 	if err != nil {
 		t.Fatalf("NewRuntimeEnvironment: %v", err)

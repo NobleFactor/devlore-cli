@@ -14,7 +14,6 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
 	"github.com/NobleFactor/devlore-cli/pkg/application"
-	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/xdg"
 )
@@ -266,7 +265,7 @@ func buildSpec(root string) *op.RuntimeEnvironmentSpec {
 
 	return op.NewRuntimeEnvironmentSpec("writ").
 		WithStatus(cli.UI()).
-		WithRoot(root, fsroot.ModeConfined).
+		WithRoot(root).
 		WithApplication(&application.Application{Name: "writ"})
 }
 

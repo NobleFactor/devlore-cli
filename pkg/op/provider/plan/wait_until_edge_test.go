@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/NobleFactor/devlore-cli/pkg/application"
-	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/flow"
@@ -31,7 +30,7 @@ func waitUntilSpec(t *testing.T, root string) *op.RuntimeEnvironmentSpec {
 	t.Helper()
 
 	return op.NewRuntimeEnvironmentSpec("test").
-		WithRoot(root, fsroot.ModeConfined).
+		WithRoot(root).
 		WithApplication(&application.Application{Name: "test"})
 }
 

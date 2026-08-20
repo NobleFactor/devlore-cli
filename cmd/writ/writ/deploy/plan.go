@@ -15,7 +15,6 @@ import (
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/tree"
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
-	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/encryption"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
@@ -384,7 +383,7 @@ func deploySpec(root string, dryRun bool, conflict op.ConflictPolicy) *op.Runtim
 
 	return op.NewRuntimeEnvironmentSpec("writ").
 		WithStatus(cli.UI()).
-		WithRoot(root, fsroot.ModeConfined).
+		WithRoot(root).
 		WithApplication(&application.Application{
 			Name:  "writ",
 			Flags: map[string]any{"dry-run": dryRun, "conflict": conflict},

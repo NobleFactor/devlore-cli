@@ -12,7 +12,6 @@ import (
 	"testing"
 
 	"filippo.io/age"
-	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/getsops/sops/v3"
 	"github.com/getsops/sops/v3/aes"
 	sopsage "github.com/getsops/sops/v3/age"
@@ -41,7 +40,7 @@ func testEnvironment(t *testing.T, dir string) *op.RuntimeEnvironment {
 
 	runtimeEnvironment, err := op.NewRuntimeEnvironment(context.Background(),
 		op.NewRuntimeEnvironmentSpec("test").
-			WithRoot(dir, fsroot.ModeConfined).
+			WithRoot(dir).
 			WithApplication(&application.Application{Name: "test"}))
 	if err != nil {
 		t.Fatalf("op.NewRuntimeEnvironment: %v", err)

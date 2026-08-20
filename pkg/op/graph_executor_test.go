@@ -13,7 +13,6 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/application"
-	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 )
 
 // The two fixture providers below exercise the executor's failure-terminal split (phase-8 step 21): each pairs a
@@ -1072,7 +1071,7 @@ func TestRun_BadRootAnchor_PreflightFailed(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "absent")
 	executor := NewGraphExecutor(newRecoverGraph(t), NewRuntimeEnvironmentSpec("test").
 		WithApplication(&application.Application{Name: "test"}).
-		WithRoot(missing, fsroot.ModeConfined))
+		WithRoot(missing))
 
 	if _, runErr := executor.Run(context.Background(), nil); runErr == nil {
 		t.Fatal("Run = nil error, want the mint failure for the missing anchor")
@@ -1094,7 +1093,7 @@ func TestRun_SequentialExecutorsShareOneSpec(t *testing.T) {
 	graph := newRecoverGraph(t)
 	spec := NewRuntimeEnvironmentSpec("test").
 		WithApplication(&application.Application{Name: "test"}).
-		WithRoot(t.TempDir(), fsroot.ModeConfined)
+		WithRoot(t.TempDir())
 
 	for i := 1; i <= 2; i++ {
 		if _, runErr := NewGraphExecutor(graph, spec).Run(context.Background(), nil); runErr != nil {

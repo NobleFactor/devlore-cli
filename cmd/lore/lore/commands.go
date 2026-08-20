@@ -9,7 +9,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
@@ -244,7 +243,7 @@ func executeDeployments(ctx context.Context, resolved []resolvedPackage, cfg *lo
 
 	spec := op.NewRuntimeEnvironmentSpec("lore").
 		WithStatus(cli.UI()).
-		WithRoot(wd, fsroot.ModeConfined).
+		WithRoot(wd).
 		WithApplication(&application.Application{
 			Name:  "lore",
 			Flags: map[string]any{"dry-run": cfg.DryRun},

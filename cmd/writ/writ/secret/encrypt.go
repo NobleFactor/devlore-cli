@@ -24,7 +24,6 @@ import (
 	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
-	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/encryption"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/plan"
@@ -248,7 +247,7 @@ func encryptSpec(root string, dryRun bool) *op.RuntimeEnvironmentSpec {
 
 	return op.NewRuntimeEnvironmentSpec("writ").
 		WithStatus(cli.UI()).
-		WithRoot(root, fsroot.ModeConfined).
+		WithRoot(root).
 		WithApplication(&application.Application{
 			Name:  "writ",
 			Flags: map[string]any{"dry-run": dryRun},

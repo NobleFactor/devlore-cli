@@ -516,13 +516,13 @@ type rootCase struct {
 	root fsroot.Dir
 }
 
-func TestOpen_ModeConfined(t *testing.T) {
+func TestOpenConfined_CloseReleasesTheHandle(t *testing.T) {
 
 	dir := t.TempDir()
 
-	root, err := fsroot.Open(dir, fsroot.ModeConfined)
+	root, err := fsroot.OpenConfined(dir)
 	if err != nil {
-		t.Fatalf("Open(ModeConfined): %v", err)
+		t.Fatalf("fsroot.OpenConfined: %v", err)
 	}
 
 	p := root.NewPath("probe.txt")
@@ -534,27 +534,9 @@ func TestOpen_ModeConfined(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 
-	// Only the confined implementation holds a live OS handle, so failure after Close is the
-	// behavioral discriminator for the dispatch.
+	// A confined root holds a live OS handle, so an operation after Close must fail.
 	if _, err := root.ReadFile(p); err == nil {
 		t.Fatal("ReadFile after Close = nil error, want failure (confined root holds a live handle)")
-	}
-}
-
-func TestOpen_ConfinedMissingDirFails(t *testing.T) {
-
-	missing := filepath.Join(t.TempDir(), "absent")
-
-	if _, err := fsroot.Open(missing, fsroot.ModeConfined); err == nil {
-		t.Fatal("Open(ModeConfined) on a missing directory = nil error, want failure")
-	}
-}
-
-func TestOpen_ZeroValueModeIsConfined(t *testing.T) {
-
-	var mode fsroot.Mode
-	if mode != fsroot.ModeConfined {
-		t.Fatalf("zero-value Mode = %d, want ModeConfined (%d)", mode, fsroot.ModeConfined)
 	}
 }
 

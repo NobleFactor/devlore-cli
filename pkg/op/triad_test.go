@@ -27,17 +27,17 @@ type triadEnv struct {
 	Dir  string // underlying directory
 }
 
-// newTriad wires a triad for `dir` in the given access mode.
+// newTriad wires a triad for `dir`.
 //
-// The mode is passed rather than a constructed [fsroot.Dir]: the session mints its own root from the spec's
-// anchor, so callers name the tree and the access they want instead of handing over filesystem access.
-func newTriad(t *testing.T, mode fsroot.Mode, dir string) triadEnv {
+// The anchor is passed rather than a constructed [fsroot.Dir]: the session mints its own root from the spec's
+// anchor, so callers name the tree instead of handing over filesystem access.
+func newTriad(t *testing.T, dir string) triadEnv {
 
 	t.Helper()
 
 	runtimeEnvironment, err := op.NewRuntimeEnvironment(context.Background(),
 		op.NewRuntimeEnvironmentSpec("test").
-			WithRoot(dir, mode).
+			WithRoot(dir).
 			WithApplication(&application.Application{Name: "test"}))
 	if err != nil {
 		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
@@ -47,18 +47,11 @@ func newTriad(t *testing.T, mode fsroot.Mode, dir string) triadEnv {
 	return triadEnv{Root: runtimeEnvironment.Root(), Site: op.NewRecoverySite(runtimeEnvironment), Dir: dir}
 }
 
-func newTriadRW(t *testing.T) triadEnv {
-
-	t.Helper()
-
-	return newTriad(t, fsroot.ModeConfined, t.TempDir())
-}
-
 func newTriadConfined(t *testing.T) triadEnv {
 
 	t.Helper()
 
-	return newTriad(t, fsroot.ModeConfined, t.TempDir())
+	return newTriad(t, t.TempDir())
 }
 
 func TestTriad_RootProducesPath(t *testing.T) {
@@ -67,7 +60,6 @@ func TestTriad_RootProducesPath(t *testing.T) {
 		name     string
 		newTriad func(t *testing.T) triadEnv
 	}{
-		{"RootReaderWriter", newTriadRW},
 		{"confinedDir", newTriadConfined},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -98,7 +90,6 @@ func TestTriad_RootProducesPathFromAbsolute(t *testing.T) {
 		name     string
 		newTriad func(t *testing.T) triadEnv
 	}{
-		{"RootReaderWriter", newTriadRW},
 		{"confinedDir", newTriadConfined},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -124,7 +115,6 @@ func TestTriad_ArchiveFileRestoreFile(t *testing.T) {
 		name     string
 		newTriad func(t *testing.T) triadEnv
 	}{
-		{"RootReaderWriter", newTriadRW},
 		{"confinedDir", newTriadConfined},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -187,7 +177,6 @@ func TestTriad_ArchiveDataRestoreData(t *testing.T) {
 		name     string
 		newTriad func(t *testing.T) triadEnv
 	}{
-		{"RootReaderWriter", newTriadRW},
 		{"confinedDir", newTriadConfined},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -222,7 +211,6 @@ func TestTriad_NestedPathRecreation(t *testing.T) {
 		name     string
 		newTriad func(t *testing.T) triadEnv
 	}{
-		{"RootReaderWriter", newTriadRW},
 		{"confinedDir", newTriadConfined},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -277,7 +265,6 @@ func TestTriad_WriteReadThroughRoot(t *testing.T) {
 		name     string
 		newTriad func(t *testing.T) triadEnv
 	}{
-		{"RootReaderWriter", newTriadRW},
 		{"confinedDir", newTriadConfined},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -317,7 +304,6 @@ func TestTriad_MkdirAllThroughRoot(t *testing.T) {
 		name     string
 		newTriad func(t *testing.T) triadEnv
 	}{
-		{"RootReaderWriter", newTriadRW},
 		{"confinedDir", newTriadConfined},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -347,7 +333,6 @@ func TestTriad_RenameThroughRoot(t *testing.T) {
 		name     string
 		newTriad func(t *testing.T) triadEnv
 	}{
-		{"RootReaderWriter", newTriadRW},
 		{"confinedDir", newTriadConfined},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -383,7 +368,7 @@ func TestTriad_RenameThroughRoot(t *testing.T) {
 
 func TestTriad_MultipleArchivesCoexist(t *testing.T) {
 
-	env := newTriadRW(t)
+	env := newTriadConfined(t)
 
 	for i, name := range []string{"a.txt", "b.txt", "c.txt"} {
 

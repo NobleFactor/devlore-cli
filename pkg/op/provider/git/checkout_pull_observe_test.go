@@ -12,7 +12,6 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/application"
-	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/sink"
 	"github.com/NobleFactor/devlore-cli/pkg/status"
@@ -36,7 +35,7 @@ func newNarratingProvider(t *testing.T, dryRun bool) (*Provider, *bytes.Buffer) 
 
 	runtimeEnvironment, err := op.NewRuntimeEnvironment(context.Background(),
 		op.NewRuntimeEnvironmentSpec("test").
-			WithRoot(t.TempDir(), fsroot.ModeConfined).
+			WithRoot(t.TempDir()).
 			WithApplication(&application.Application{Name: "test", Flags: map[string]any{"dry_run": dryRun}}).
 			WithStatus(status.NewNarrator("test", captureSink)))
 	if err != nil {

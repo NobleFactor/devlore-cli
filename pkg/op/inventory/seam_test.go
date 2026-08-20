@@ -10,7 +10,6 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/application"
-	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 	"github.com/google/uuid"
@@ -29,7 +28,7 @@ func seamEnv(t *testing.T, dir string) *op.RuntimeEnvironment {
 
 	runtimeEnvironment, err := op.NewRuntimeEnvironment(context.Background(),
 		op.NewRuntimeEnvironmentSpec("test").
-			WithRoot(dir, fsroot.ModeConfined).
+			WithRoot(dir).
 			WithApplication(&application.Application{Name: "test"}))
 	if err != nil {
 		t.Fatalf("op.NewRuntimeEnvironment: %v", err)

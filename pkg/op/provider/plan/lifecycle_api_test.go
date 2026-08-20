@@ -17,7 +17,6 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/document"
-	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/flow"
@@ -44,7 +43,7 @@ func TestGraphSaveLoadExecuteTrace_ViaPublicAPI(t *testing.T) {
 	tmp := t.TempDir()
 
 	environment, err := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
-		WithRoot(tmp, fsroot.ModeConfined).
+		WithRoot(tmp).
 		WithApplication(&application.Application{Name: "test"}))
 	if err != nil {
 		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
@@ -127,7 +126,7 @@ func TestGraphPauseResume_ViaPublicAPI(t *testing.T) {
 	tmp := t.TempDir()
 
 	environment, err := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
-		WithRoot(tmp, fsroot.ModeConfined).
+		WithRoot(tmp).
 		WithApplication(&application.Application{Name: "test"}))
 	if err != nil {
 		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
@@ -210,7 +209,7 @@ func TestGraphPauseResumeNested_ViaPublicAPI(t *testing.T) {
 	tmp := t.TempDir()
 
 	environment, err := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
-		WithRoot(tmp, fsroot.ModeConfined).
+		WithRoot(tmp).
 		WithApplication(&application.Application{Name: "test"}))
 	if err != nil {
 		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
@@ -289,7 +288,7 @@ func TestGraphSaveLoadResume_ViaPublicAPI(t *testing.T) {
 	tmp := t.TempDir()
 
 	environment, err := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
-		WithRoot(tmp, fsroot.ModeConfined).
+		WithRoot(tmp).
 		WithApplication(&application.Application{Name: "test"}))
 	if err != nil {
 		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
@@ -400,7 +399,7 @@ func resumeThenFailRollsBack(t *testing.T, format string) {
 	tmp := t.TempDir()
 
 	environment, err := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
-		WithRoot(tmp, fsroot.ModeConfined).
+		WithRoot(tmp).
 		WithApplication(&application.Application{Name: "test"}))
 	if err != nil {
 		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
@@ -501,7 +500,7 @@ func resumePromiseFidelity(t *testing.T, format string) {
 	tmp := t.TempDir()
 
 	environment, err := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
-		WithRoot(tmp, fsroot.ModeConfined).
+		WithRoot(tmp).
 		WithApplication(&application.Application{Name: "test"}))
 	if err != nil {
 		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
@@ -605,7 +604,7 @@ func TestResourceLedgerRehydrate_PreservesIDs(t *testing.T) {
 	tmp := t.TempDir()
 
 	spec := op.NewRuntimeEnvironmentSpec("test").
-		WithRoot(tmp, fsroot.ModeConfined).
+		WithRoot(tmp).
 		WithApplication(&application.Application{Name: "test"})
 
 	environment, err := op.NewRuntimeEnvironment(context.Background(), spec)
@@ -655,7 +654,7 @@ func TestGraphSaveLoad_ContentTransport(t *testing.T) {
 
 	newHost := func(dir string) *op.RuntimeEnvironment {
 		host, err := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
-			WithRoot(dir, fsroot.ModeConfined).
+			WithRoot(dir).
 			WithApplication(&application.Application{Name: "test"}))
 		if err != nil {
 			t.Fatalf("op.NewRuntimeEnvironment(%s): %v", dir, err)
@@ -801,7 +800,7 @@ func TestGraphStop_UnwindsToStopped_ViaPublicAPI(t *testing.T) {
 	tmp := t.TempDir()
 
 	environment, err := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
-		WithRoot(tmp, fsroot.ModeConfined).
+		WithRoot(tmp).
 		WithApplication(&application.Application{Name: "test"}))
 	if err != nil {
 		t.Fatalf("op.NewRuntimeEnvironment: %v", err)

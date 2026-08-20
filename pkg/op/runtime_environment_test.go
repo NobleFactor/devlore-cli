@@ -13,7 +13,6 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/application"
-	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 )
 
 // TestVariableByName_ResolvesSourceSetAfterRegistration verifies the cache-on-found (sync.OnceValues) semantics.
@@ -94,7 +93,7 @@ func TestNewRuntimeEnvironment_MintsRootFromAnchor(t *testing.T) {
 
 	dir := t.TempDir()
 	app := &application.Application{Name: "test"}
-	spec := NewRuntimeEnvironmentSpec(app.Name).WithApplication(app).WithRoot(dir, fsroot.ModeConfined)
+	spec := NewRuntimeEnvironmentSpec(app.Name).WithApplication(app).WithRoot(dir)
 
 	runtimeEnvironment, err := NewRuntimeEnvironment(context.Background(), spec)
 	if err != nil {
@@ -122,7 +121,7 @@ func TestNewRuntimeEnvironment_BadAnchorFails(t *testing.T) {
 
 	app := &application.Application{Name: "test"}
 	missing := filepath.Join(t.TempDir(), "absent")
-	spec := NewRuntimeEnvironmentSpec(app.Name).WithApplication(app).WithRoot(missing, fsroot.ModeConfined)
+	spec := NewRuntimeEnvironmentSpec(app.Name).WithApplication(app).WithRoot(missing)
 
 	if _, err := NewRuntimeEnvironment(context.Background(), spec); err == nil {
 		t.Fatal("NewRuntimeEnvironment = nil error, want a mint failure for the missing anchor")
