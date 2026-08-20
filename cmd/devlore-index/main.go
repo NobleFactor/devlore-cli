@@ -311,5 +311,5 @@ func writeIndex(domainPath string, index *KnowledgeIndex) error {
 	header := "# Auto-generated file list by: go run ./cmd/gen-index\n" +
 		"# Metadata (purpose, source_system, description) is preserved and should be edited manually.\n"
 
-	return document.Write(filepath.Join(domainPath, "index.yaml"), index, document.WithHeader(header))
+	return document.WriteFile(filepath.Join(domainPath, "index.yaml"), index, document.WithHeader(header))
 }

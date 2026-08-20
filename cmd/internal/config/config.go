@@ -103,7 +103,7 @@ func Save(cfg *Config) error {
 	fileCfg := *cfg
 	fileCfg.Model.APIKey = ""
 
-	return document.Write(Path(), &fileCfg)
+	return document.WriteFile(Path(), &fileCfg)
 }
 
 // applyEnvOverrides applies environment variable overrides to the config.

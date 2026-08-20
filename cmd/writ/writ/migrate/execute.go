@@ -126,7 +126,7 @@ func WriteMigratedMarker(sourceRoot string, graph *op.Graph, analysis *Migration
 		Renames:   renames,
 	}
 	markerPath := filepath.Join(sourceRoot, ".writ-migrated")
-	return document.Write(markerPath, &marker)
+	return document.WriteFile(markerPath, &marker)
 }
 
 // joinWords concatenates words with spaces.

@@ -200,12 +200,12 @@ type TestReport struct {
 func (r *TestReport) WriteReport(outDir string) error {
 
 	// Write JSON report
-	if err := document.Write(filepath.Join(outDir, "results.json"), r); err != nil {
+	if err := document.WriteFile(filepath.Join(outDir, "results.json"), r); err != nil {
 		return err
 	}
 
 	// Write YAML report
-	if err := document.Write(filepath.Join(outDir, "results.yaml"), r); err != nil {
+	if err := document.WriteFile(filepath.Join(outDir, "results.yaml"), r); err != nil {
 		return err
 	}
 

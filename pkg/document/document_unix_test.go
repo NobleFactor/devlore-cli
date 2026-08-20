@@ -23,7 +23,7 @@ func TestWrite_WithPermOverridesPermission(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "perm.yaml")
 	doc := testDoc{Name: "frank", Count: 0}
 
-	if err := Write(path, &doc, WithPerm(0o644)); err != nil {
+	if err := WriteFile(path, &doc, WithPerm(0o644)); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
 

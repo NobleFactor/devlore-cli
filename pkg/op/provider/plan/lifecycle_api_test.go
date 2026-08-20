@@ -108,8 +108,8 @@ func TestGraphSaveLoadExecuteTrace_ViaPublicAPI(t *testing.T) {
 	if trace.GraphChecksum != loaded.Checksum() {
 		t.Errorf("trace.GraphChecksum %q != loaded graph checksum %q", trace.GraphChecksum, loaded.Checksum())
 	}
-	if err := document.Write(tracePath, trace); err != nil {
-		t.Fatalf("document.Write(trace): %v", err)
+	if err := document.WriteFile(tracePath, trace); err != nil {
+		t.Fatalf("document.WriteFile(trace): %v", err)
 	}
 	if _, statErr := os.Stat(tracePath); statErr != nil {
 		t.Errorf("trace receipt not saved: %v", statErr)
@@ -338,8 +338,8 @@ func TestGraphSaveLoadResume_ViaPublicAPI(t *testing.T) {
 	if original.Catalog == nil || len(original.Catalog.Entries) == 0 {
 		t.Fatalf("Trace.Catalog: want a non-empty resource ledger snapshot, got %+v", original.Catalog)
 	}
-	if writeErr := document.Write(tracePath, original); writeErr != nil {
-		t.Fatalf("document.Write(trace): %v", writeErr)
+	if writeErr := document.WriteFile(tracePath, original); writeErr != nil {
+		t.Fatalf("document.WriteFile(trace): %v", writeErr)
 	}
 	reloaded, err := document.ReadFile[op.Trace](tracePath)
 	if err != nil {
@@ -449,8 +449,8 @@ func resumeThenFailRollsBack(t *testing.T, format string) {
 	}
 
 	tracePath := filepath.Join(tmp, "trace."+format)
-	if writeErr := document.Write(tracePath, executor.Trace()); writeErr != nil {
-		t.Fatalf("document.Write(trace): %v", writeErr)
+	if writeErr := document.WriteFile(tracePath, executor.Trace()); writeErr != nil {
+		t.Fatalf("document.WriteFile(trace): %v", writeErr)
 	}
 	reloaded, err := document.ReadFile[op.Trace](tracePath)
 	if err != nil {
@@ -546,8 +546,8 @@ func resumePromiseFidelity(t *testing.T, format string) {
 	}
 
 	tracePath := filepath.Join(tmp, "trace."+format)
-	if writeErr := document.Write(tracePath, executor.Trace()); writeErr != nil {
-		t.Fatalf("document.Write(trace): %v", writeErr)
+	if writeErr := document.WriteFile(tracePath, executor.Trace()); writeErr != nil {
+		t.Fatalf("document.WriteFile(trace): %v", writeErr)
 	}
 	reloaded, err := document.ReadFile[op.Trace](tracePath)
 	if err != nil {

@@ -254,8 +254,8 @@ func saveAndReload(t *testing.T, tmp string, trace *op.Trace) *op.Trace {
 	t.Helper()
 
 	tracePath := filepath.Join(tmp, "trace.json")
-	if err := document.Write(tracePath, trace); err != nil {
-		t.Fatalf("document.Write(trace): %v", err)
+	if err := document.WriteFile(tracePath, trace); err != nil {
+		t.Fatalf("document.WriteFile(trace): %v", err)
 	}
 	reloaded, err := document.ReadFile[op.Trace](tracePath)
 	if err != nil {

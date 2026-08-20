@@ -68,7 +68,7 @@ func fileSet(key, secret string) error {
 	header := "# DevLore credentials - stored with 0600 permissions\n" +
 		"# Prefer environment variables or credential helpers for better security\n"
 
-	return document.Write(path, creds, document.WithHeader(header))
+	return document.WriteFile(path, creds, document.WithHeader(header))
 }
 
 // fileDelete removes a credential from the credentials file. No-op if the file does not exist.
@@ -96,5 +96,5 @@ func fileDelete(key string) error {
 		return os.Remove(path)
 	}
 
-	return document.Write(path, creds)
+	return document.WriteFile(path, creds)
 }
