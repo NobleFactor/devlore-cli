@@ -28,10 +28,19 @@ func isolate(t *testing.T) (signer Signer, allowedSigners string) {
 	root := t.TempDir()
 
 	// The caller owns the root, exactly as cmd/internal/cli does in production; signing receives it.
-	configRoot := fsroot.OpenWritableUnconfined(filepath.Join(root, "config", "devlore"))
+	// Production creates the tree before opening it (cli.OpenTree); the MkdirAll is that step here.
+	configDir := filepath.Join(root, "config", "devlore")
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	configRoot, err := fsroot.OpenConfined(configDir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() { _ = configRoot.Close() })
 
-	signer, err := DefaultSigner(configRoot, filepath.Join(root, "absent", "id_ed25519"))
+	signer, err = DefaultSigner(configRoot, filepath.Join(root, "absent", "id_ed25519"))
 	if err != nil {
 		t.Fatalf("DefaultSigner: %v", err)
 	}

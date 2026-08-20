@@ -224,7 +224,10 @@ func TestCopyFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	dstRoot := fsroot.OpenWritableUnconfined(tmpDir)
+	dstRoot, err := fsroot.OpenConfined(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() { _ = dstRoot.Close() })
 
 	dst := dstRoot.NewPath("dest.txt")
@@ -247,7 +250,10 @@ func TestCopyFile_NonExistentSource(t *testing.T) {
 	tmpDir := t.TempDir()
 	src := filepath.Join(tmpDir, "nonexistent.txt")
 
-	dstRoot := fsroot.OpenWritableUnconfined(tmpDir)
+	dstRoot, err := fsroot.OpenConfined(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() { _ = dstRoot.Close() })
 
 	if err := copyFile(dstRoot, src, dstRoot.NewPath("dest.txt")); err == nil {
@@ -259,7 +265,10 @@ func TestCopyFile_NonExistentSource(t *testing.T) {
 func TestCopyDir(t *testing.T) {
 	src := t.TempDir()
 
-	dstRoot := fsroot.OpenWritableUnconfined(t.TempDir())
+	dstRoot, err := fsroot.OpenConfined(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() { _ = dstRoot.Close() })
 	dstPath := dstRoot.NewPath("dest")
 	dst := dstPath.Abs()
@@ -423,7 +432,10 @@ func TestWriteAndReadManifest(t *testing.T) {
 	}
 
 	// Write manifest.
-	prefixRoot := fsroot.OpenWritableUnconfined(tmpDir)
+	prefixRoot, err := fsroot.OpenConfined(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() { _ = prefixRoot.Close() })
 
 	if err := writeManifest(prefixRoot, "test", "1.0.0", []string{"bin/test"}); err != nil {
@@ -526,7 +538,10 @@ func TestManifestUninstall(t *testing.T) {
 	}
 
 	// Write manifest.
-	prefixRoot := fsroot.OpenWritableUnconfined(tmpDir)
+	prefixRoot, err := fsroot.OpenConfined(tmpDir)
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Cleanup(func() { _ = prefixRoot.Close() })
 
 	if err := writeManifest(prefixRoot, "test", "1.0.0", []string{"bin/test", "share/man/man1/test.1"}); err != nil {

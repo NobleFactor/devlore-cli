@@ -1078,7 +1078,9 @@ func CopyDir(dstRoot fsroot.Dir, src string, dst fsroot.Path) error {
 		return fmt.Errorf("%s is not a directory", src)
 	}
 
-	if err := dstRoot.MkdirAll(dst, srcInfo.Mode()); err != nil {
+	// Perm(), not Mode(): a directory's Mode carries fs.ModeDir, which os.Mkdir silently discards but
+	// [os.Root.Mkdir] rejects as an unsupported file mode. Only the permission bits are the caller's to ask for.
+	if err := dstRoot.MkdirAll(dst, srcInfo.Mode().Perm()); err != nil {
 		return err
 	}
 
