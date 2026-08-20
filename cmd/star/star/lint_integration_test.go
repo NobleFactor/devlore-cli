@@ -68,6 +68,9 @@ func setupLintRuntime(t *testing.T, testDir string) (*Application, error) {
 	// Create runtime
 	r := NewApplication(&cobra.Command{Use: "star"})
 
+	// The Application owns a confined root on the working directory — a real OS handle to release.
+	t.Cleanup(func() { _ = r.Close() })
+
 	// Change to test directory for config loading
 	origDir, err := os.Getwd()
 	if err != nil {
@@ -522,6 +525,9 @@ func TestLintCommands_NoConfigOutsideGitRepo(t *testing.T) {
 	}
 
 	r := NewApplication(&cobra.Command{Use: "star"})
+
+	// The Application owns a confined root on the working directory — a real OS handle to release.
+	t.Cleanup(func() { _ = r.Close() })
 
 	origDir, err := os.Getwd()
 	if err != nil {

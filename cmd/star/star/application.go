@@ -72,13 +72,18 @@ func NewApplication(rootCmd *cobra.Command) *Application {
 	wd, err := os.Getwd()
 	assert.True("os.Getwd succeeded", err == nil)
 
+	// The session root anchors at the working directory, confined — star scripts resolve relative
+	// paths against the root's anchor, so any other anchor changes what every relative path in every
+	// script means (a volume anchor was tried and broke the generator's go.mod walk). Whether star
+	// should instead anchor at the repository root, home, the volume, or a set of declared roots is
+	// #571, open until the hermeticity design (#563) rules it.
 	app := application.NewApplication("star", rootCmd)
 	registry := op.ReceiverRegistry()
 
 	spec := op.NewRuntimeEnvironmentSpec("star").
 		WithApplication(app).
 		WithModules(registry.Modules()...).
-		WithRoot(wd, fsroot.ModeWritableUnconfined)
+		WithRoot(wd, fsroot.ModeConfined)
 
 	runtimeEnvironment, err := op.NewRuntimeEnvironment(context.Background(), spec)
 	assert.NoError("op.NewRuntimeEnvironment", err)

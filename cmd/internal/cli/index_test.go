@@ -29,7 +29,10 @@ func stateRootForTest(t *testing.T) fsroot.Dir {
 
 	t.Helper()
 
-	root := fsroot.OpenWritableUnconfined(devlore.StateHome())
+	root, err := OpenTree(devlore.StateHome())
+	if err != nil {
+		t.Fatalf("OpenTree(%s): %v", devlore.StateHome(), err)
+	}
 	t.Cleanup(func() { _ = root.Close() })
 
 	return root

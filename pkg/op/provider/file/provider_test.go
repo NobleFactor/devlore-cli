@@ -2084,7 +2084,12 @@ func TestChecksumFile_ComputesDigest(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	root := fsroot.OpenWritableUnconfined(tmp)
+	root, err := fsroot.OpenConfined(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+
 	got := checksumFile(root, path)
 	if got == "" {
 		t.Fatal("checksumFile() returned empty string")
@@ -2099,8 +2104,15 @@ func TestChecksumFile_ComputesDigest(t *testing.T) {
 
 func TestChecksumFile_NonExistent(t *testing.T) {
 
-	root := fsroot.OpenWritableUnconfined(t.TempDir())
-	got := checksumFile(root, "/nonexistent/file.txt")
+	tmp := t.TempDir()
+
+	root, err := fsroot.OpenConfined(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+
+	got := checksumFile(root, filepath.Join(tmp, "nonexistent", "file.txt"))
 	if got != "" {
 		t.Errorf("checksumFile(nonexistent) = %q, want empty string", got)
 	}

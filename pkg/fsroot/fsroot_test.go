@@ -169,19 +169,7 @@ func TestRoot_Close(t *testing.T) {
 
 	dir := t.TempDir()
 
-	// RootReader — Close is a no-op.
-	r := fsroot.OpenUnconfined(dir)
-	if err := r.Close(); err != nil {
-		t.Errorf("RootReader.Close() = %v", err)
-	}
-
-	// RootReaderWriter — Close is a no-op.
-	rw := fsroot.OpenWritableUnconfined(dir)
-	if err := rw.Close(); err != nil {
-		t.Errorf("RootReaderWriter.Close() = %v", err)
-	}
-
-	// confinedRoot — Close releases the file descriptor.
+	// Close releases the file descriptor.
 	cr, err := fsroot.OpenConfined(dir)
 	if err != nil {
 		t.Fatalf("fsroot.OpenConfined: %v", err)
@@ -348,9 +336,9 @@ func TestRoot_Readlink(t *testing.T) {
 func TestRoot_MkdirAll(t *testing.T) {
 
 	dir := t.TempDir()
-	writableRoots := writableRoots(t, dir)
+	roots := allRoots(t, dir)
 
-	for _, tc := range writableRoots {
+	for _, tc := range roots {
 		t.Run(tc.name, func(t *testing.T) {
 			p := tc.root.NewPath(tc.name, "a", "b", "c")
 			if err := tc.root.MkdirAll(p, 0o755); err != nil {
@@ -370,9 +358,9 @@ func TestRoot_MkdirAll(t *testing.T) {
 func TestRoot_OpenFile(t *testing.T) {
 
 	dir := t.TempDir()
-	writableRoots := writableRoots(t, dir)
+	roots := allRoots(t, dir)
 
-	for _, tc := range writableRoots {
+	for _, tc := range roots {
 		t.Run(tc.name, func(t *testing.T) {
 			p := tc.root.NewPath(tc.name + "_openfile.txt")
 			f, err := tc.root.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
@@ -398,9 +386,9 @@ func TestRoot_OpenFile(t *testing.T) {
 func TestRoot_Remove(t *testing.T) {
 
 	dir := t.TempDir()
-	writableRoots := writableRoots(t, dir)
+	roots := allRoots(t, dir)
 
-	for _, tc := range writableRoots {
+	for _, tc := range roots {
 		t.Run(tc.name, func(t *testing.T) {
 			name := tc.name + "_remove.txt"
 			writeFixture(t, dir, name, "doomed")
@@ -419,9 +407,9 @@ func TestRoot_Remove(t *testing.T) {
 func TestRoot_Rename(t *testing.T) {
 
 	dir := t.TempDir()
-	writableRoots := writableRoots(t, dir)
+	roots := allRoots(t, dir)
 
-	for _, tc := range writableRoots {
+	for _, tc := range roots {
 		t.Run(tc.name, func(t *testing.T) {
 			oldName := tc.name + "_old.txt"
 			newName := tc.name + "_new.txt"
@@ -451,9 +439,9 @@ func TestRoot_Symlink(t *testing.T) {
 
 	dir := t.TempDir()
 	writeFixture(t, dir, "symtarget.txt", "data")
-	writableRoots := writableRoots(t, dir)
+	roots := allRoots(t, dir)
 
-	for _, tc := range writableRoots {
+	for _, tc := range roots {
 		t.Run(tc.name, func(t *testing.T) {
 			linkName := tc.name + "_symlink.txt"
 			link := tc.root.NewPath(linkName)
@@ -476,9 +464,9 @@ func TestRoot_Symlink(t *testing.T) {
 func TestRoot_WriteFile(t *testing.T) {
 
 	dir := t.TempDir()
-	writableRoots := writableRoots(t, dir)
+	roots := allRoots(t, dir)
 
-	for _, tc := range writableRoots {
+	for _, tc := range roots {
 		t.Run(tc.name, func(t *testing.T) {
 			p := tc.root.NewPath(tc.name + "_writefile.txt")
 			if err := tc.root.WriteFile(p, []byte("payload"), 0o644); err != nil {
@@ -490,34 +478,6 @@ func TestRoot_WriteFile(t *testing.T) {
 			}
 			if string(data) != "payload" {
 				t.Errorf("content = %q, want %q", data, "payload")
-			}
-		})
-	}
-}
-
-func TestRootReader_WritesReturnErrReadOnly(t *testing.T) {
-
-	dir := t.TempDir()
-	r := fsroot.OpenUnconfined(dir)
-	p := r.NewPath("file.txt")
-
-	tests := []struct {
-		name string
-		fn   func() error
-	}{
-		{"MkdirAll", func() error { return r.MkdirAll(p, 0o755) }},
-		{"OpenFile", func() error { _, err := r.OpenFile(p, os.O_WRONLY, 0o644); return err }},
-		{"Remove", func() error { return r.Remove(p) }},
-		{"Rename", func() error { return r.Rename(p, p) }},
-		{"Symlink", func() error { return r.Symlink("target", p) }},
-		{"WriteFile", func() error { return r.WriteFile(p, []byte("x"), 0o644) }},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			err := tt.fn()
-			if !errors.Is(err, errors.ErrUnsupported) {
-				t.Errorf("got %v, want ErrReadOnly", err)
 			}
 		})
 	}
@@ -581,50 +541,6 @@ func TestOpen_ModeConfined(t *testing.T) {
 	}
 }
 
-func TestOpen_ModeUnconfined(t *testing.T) {
-
-	dir := t.TempDir()
-	writeFixture(t, dir, "fixture.txt", "content")
-
-	root, err := fsroot.Open(dir, fsroot.ModeUnconfined)
-	if err != nil {
-		t.Fatalf("Open(ModeUnconfined): %v", err)
-	}
-
-	if _, err := root.ReadFile(root.NewPath("fixture.txt")); err != nil {
-		t.Errorf("ReadFile: %v", err)
-	}
-
-	err = root.WriteFile(root.NewPath("probe.txt"), []byte("x"), 0o644)
-	if !errors.Is(err, errors.ErrUnsupported) {
-		t.Errorf("WriteFile = %v, want errors.ErrUnsupported (read-only mode)", err)
-	}
-}
-
-func TestOpen_ModeWritableUnconfined(t *testing.T) {
-
-	dir := t.TempDir()
-
-	root, err := fsroot.Open(dir, fsroot.ModeWritableUnconfined)
-	if err != nil {
-		t.Fatalf("Open(ModeWritableUnconfined): %v", err)
-	}
-
-	p := root.NewPath("probe.txt")
-	if err := root.WriteFile(p, []byte("writable"), 0o644); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-
-	if err := root.Close(); err != nil {
-		t.Fatalf("Close: %v", err)
-	}
-
-	// Unconfined roots are handle-free: Close is a no-op and operations keep working.
-	if _, err := root.ReadFile(p); err != nil {
-		t.Errorf("ReadFile after Close = %v, want nil (unconfined roots are handle-free)", err)
-	}
-}
-
 func TestOpen_ConfinedMissingDirFails(t *testing.T) {
 
 	missing := filepath.Join(t.TempDir(), "absent")
@@ -646,7 +562,7 @@ func TestParity_WritableRootsImplementEveryMutation(t *testing.T) {
 
 	dir := t.TempDir()
 
-	for _, tc := range writableRoots(t, dir) {
+	for _, tc := range allRoots(t, dir) {
 		t.Run(tc.name, func(t *testing.T) {
 
 			base := tc.root.NewPath(tc.name)
@@ -732,7 +648,7 @@ func TestCreateTemp_UniqueNamesHonorThePatternAndStayInTheDirectory(t *testing.T
 
 	dir := t.TempDir()
 
-	for _, tc := range writableRoots(t, dir) {
+	for _, tc := range allRoots(t, dir) {
 		t.Run(tc.name, func(t *testing.T) {
 
 			under := tc.root.NewPath(tc.name)
@@ -805,7 +721,12 @@ func TestCreateTemp_UniqueNamesHonorThePatternAndStayInTheDirectory(t *testing.T
 // directory argument — the one way a name could otherwise act as a path.
 func TestCreateTemp_PatternWithSeparatorIsRefused(t *testing.T) {
 
-	root := fsroot.OpenWritableUnconfined(t.TempDir())
+	root, err := fsroot.OpenConfined(t.TempDir())
+	if err != nil {
+		t.Fatalf("fsroot.OpenConfined: %v", err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+
 	under := root.NewPath(".")
 
 	if _, _, err := root.CreateTemp(under, "../escape-*"); !errors.Is(err, fs.ErrInvalid) {
@@ -843,46 +764,6 @@ func TestCreateTemp_ScratchRootKeepsItsTempFilesInsideTheTree(t *testing.T) {
 	}
 	if _, err := os.Stat(absolute); !os.IsNotExist(err) {
 		t.Errorf("Stat after scratch Close = %v, want the file gone with the tree", err)
-	}
-}
-
-func TestParity_ReadOnlyRootRefusesEveryMutation(t *testing.T) {
-
-	dir := t.TempDir()
-	writeFixture(t, dir, "fixture.txt", "content")
-
-	root := fsroot.OpenUnconfined(dir)
-	p := root.NewPath("fixture.txt")
-
-	if _, err := root.Create(p); !errors.Is(err, errors.ErrUnsupported) {
-		t.Errorf("Create = %v, want ErrUnsupported", err)
-	}
-	if _, _, err := root.CreateTemp(root.NewPath("."), "temp-*"); !errors.Is(err, errors.ErrUnsupported) {
-		t.Errorf("CreateTemp = %v, want ErrUnsupported", err)
-	}
-
-	for name, err := range map[string]error{
-		"Chmod":     root.Chmod(p, 0o600),
-		"Chown":     root.Chown(p, -1, -1),
-		"Chtimes":   root.Chtimes(p, time.Now(), time.Now()),
-		"Lchown":    root.Lchown(p, -1, -1),
-		"Link":      root.Link(p, root.NewPath("link.txt")),
-		"Mkdir":     root.Mkdir(root.NewPath("sub"), 0o750),
-		"MkdirTemp": mkdirTempError(root),
-		"RemoveAll": root.RemoveAll(p),
-	} {
-		if !errors.Is(err, errors.ErrUnsupported) {
-			t.Errorf("%s = %v, want ErrUnsupported", name, err)
-		}
-	}
-
-	// OpenRoot is a read, so it succeeds — and its sub-root inherits read-only.
-	sub, err := root.OpenRoot(root.NewPath("."))
-	if err != nil {
-		t.Fatalf("OpenRoot: %v", err)
-	}
-	if err := sub.RemoveAll(sub.NewPath("fixture.txt")); !errors.Is(err, errors.ErrUnsupported) {
-		t.Errorf("sub-root RemoveAll = %v, want ErrUnsupported (mode is inherited)", err)
 	}
 }
 
@@ -926,7 +807,8 @@ func TestOpenScratch_IsConfined(t *testing.T) {
 	}
 }
 
-// allRoots returns all three Root implementations rooted at dir. The confinedRoot is registered for cleanup.
+// allRoots returns each Root implementation rooted at dir — one, since the design collapsed to a single
+// confinement behavior. The table shape survives it, so every consumer still names its case.
 func allRoots(t *testing.T, dir string) []rootCase {
 
 	t.Helper()
@@ -939,32 +821,6 @@ func allRoots(t *testing.T, dir string) []rootCase {
 	t.Cleanup(func() { _ = cr.Close() })
 
 	return []rootCase{
-		{"RootReader", fsroot.OpenUnconfined(dir)},
-		{"RootReaderWriter", fsroot.OpenWritableUnconfined(dir)},
-		{"confinedRoot", cr},
-	}
-}
-
-// writableRoots returns Root implementations that support write operations.
-// mkdirTempError returns only MkdirTemp's error, so the read-only refusal table can hold it beside the
-// single-value mutations.
-func mkdirTempError(root fsroot.Dir) error {
-
-	_, err := root.MkdirTemp(root.NewPath("."), "temp-*")
-	return err
-}
-
-func writableRoots(t *testing.T, dir string) []rootCase {
-
-	t.Helper()
-	cr, err := fsroot.OpenConfined(dir)
-	if err != nil {
-		t.Fatalf("fsroot.OpenConfined: %v", err)
-	}
-	t.Cleanup(func() { _ = cr.Close() })
-
-	return []rootCase{
-		{"RootReaderWriter", fsroot.OpenWritableUnconfined(dir)},
 		{"confinedRoot", cr},
 	}
 }

@@ -6,7 +6,6 @@ package op_test
 import (
 	"bytes"
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -382,61 +381,6 @@ func TestTriad_RenameThroughRoot(t *testing.T) {
 	}
 }
 
-func TestTriad_RootReaderRejectsWrites(t *testing.T) {
-
-	dir := t.TempDir()
-	root := fsroot.OpenUnconfined(dir)
-
-	p := root.NewPath("file.txt")
-
-	if err := root.WriteFile(p, []byte("data"), 0o644); !errors.Is(err, errors.ErrUnsupported) {
-		t.Errorf("WriteFile err = %v, want ErrReadOnly", err)
-	}
-
-	if err := root.MkdirAll(p, 0o755); !errors.Is(err, errors.ErrUnsupported) {
-		t.Errorf("MkdirAll err = %v, want ErrReadOnly", err)
-	}
-
-	if err := root.Remove(p); !errors.Is(err, errors.ErrUnsupported) {
-		t.Errorf("Remove err = %v, want ErrReadOnly", err)
-	}
-
-	if err := root.Rename(p, p); !errors.Is(err, errors.ErrUnsupported) {
-		t.Errorf("Rename err = %v, want ErrReadOnly", err)
-	}
-}
-
-func TestTriad_RootReaderAllowsReads(t *testing.T) {
-
-	tempDir := t.TempDir()
-	abs := filepath.Join(tempDir, "readable.txt")
-
-	if err := os.WriteFile(abs, []byte("hello"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	root := fsroot.OpenUnconfined(tempDir)
-	p := root.NewPath("readable.txt")
-
-	data, err := root.ReadFile(p)
-	if err != nil {
-		t.Fatalf("ReadFile: %v", err)
-	}
-
-	if string(data) != "hello" {
-		t.Errorf("content = %q, want %q", data, "hello")
-	}
-
-	info, err := root.Stat(p)
-	if err != nil {
-		t.Fatalf("Stat: %v", err)
-	}
-
-	if info.Size() != 5 {
-		t.Errorf("size = %d, want 5", info.Size())
-	}
-}
-
 func TestTriad_MultipleArchivesCoexist(t *testing.T) {
 
 	env := newTriadRW(t)
@@ -474,7 +418,13 @@ func TestTriad_MultipleArchivesCoexist(t *testing.T) {
 func TestTriad_PathJSONFromRoot(t *testing.T) {
 
 	tempDir := t.TempDir()
-	root := fsroot.OpenWritableUnconfined(tempDir)
+
+	root, err := fsroot.OpenConfined(tempDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+
 	p := root.NewPath("sub/file.txt")
 
 	data, err := p.MarshalJSON()
