@@ -90,8 +90,15 @@ func findRepoRoot() (string, error) {
 
 // run executes devlore-test with the given args and returns stdout, stderr, and exit code.
 func run(args ...string) (stdout, stderr string, exitCode int) {
+	return runIn("", args...)
+}
+
+// runIn executes devlore-test with the given working directory (empty means inherit) — the ruled defaults
+// write artifact files into the working directory, so tests exercising them must own one.
+func runIn(dir string, args ...string) (stdout, stderr string, exitCode int) {
 	// The helper has no *testing.T; the subprocess is bounded by cmd.Run below.
 	cmd := exec.CommandContext(context.Background(), binary, args...)
+	cmd.Dir = dir
 	var outBuf, errBuf strings.Builder
 	cmd.Stdout = &outBuf
 	cmd.Stderr = &errBuf
@@ -129,8 +136,19 @@ func TestCLI_RunTooManyArgs(t *testing.T) {
 }
 
 func TestCLI_RunMissingFile(t *testing.T) {
-	_, stderr, code := run("run", "nonexistent.star")
+	work := t.TempDir()
+	_, stderr, code := runIn(work, "run", "nonexistent.star")
 	assertExit(t, 1, code)
+
+	// A run that cannot start must not litter the working directory with artifacts named for the missing
+	// script — this exact litter shipped once (nonexistent.graph.yaml in the package directory).
+	entries, err := os.ReadDir(work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("missing-script run created artifacts: %v", entries)
+	}
 
 	// The wrapped syscall text belongs to the OS -- "no such file or directory" on Unix, "The system cannot
 	// find the file specified." on Windows -- so asserting on it tested the platform, not the CLI. These two
@@ -140,35 +158,43 @@ func TestCLI_RunMissingFile(t *testing.T) {
 }
 
 func TestCLI_ScriptFirst(t *testing.T) {
-	stdout, _, code := run("run", scriptPath, "--output", "receipt="+os.DevNull, "--output", "graph="+os.DevNull)
+	stdout, _, code := run("run", scriptPath, "--output", "summary=/dev/stdout", "--output", "receipt="+os.DevNull, "--output", "graph="+os.DevNull)
 	assertExit(t, 0, code)
 	assertValidSummary(t, stdout)
 }
 
 func TestCLI_ScriptMiddle(t *testing.T) {
-	stdout, _, code := run("run", "--output", "receipt="+os.DevNull, scriptPath, "--output", "graph="+os.DevNull)
+	stdout, _, code := run("run", "--output", "summary=/dev/stdout", "--output", "receipt="+os.DevNull, scriptPath, "--output", "graph="+os.DevNull)
 	assertExit(t, 0, code)
 	assertValidSummary(t, stdout)
 }
 
 func TestCLI_ScriptLast(t *testing.T) {
-	stdout, _, code := run("run", "--output", "receipt="+os.DevNull, "--output", "graph="+os.DevNull, scriptPath)
+	stdout, _, code := run("run", "--output", "summary=/dev/stdout", "--output", "receipt="+os.DevNull, "--output", "graph="+os.DevNull, scriptPath)
 	assertExit(t, 0, code)
 	assertValidSummary(t, stdout)
 }
 
 // --- Output routing ---
 
-func TestCLI_DefaultAllToStdout(t *testing.T) {
-	stdout, _, code := run("run", scriptPath)
+// TestCLI_DefaultsToArtifactFiles pins the ruled default routing (2026-08-20): results are files named for
+// the script in the working directory; stdout carries none of the three payloads.
+func TestCLI_DefaultsToArtifactFiles(t *testing.T) {
+	work := t.TempDir()
+	stdout, _, code := runIn(work, "run", scriptPath)
 	assertExit(t, 0, code)
-	assertContains(t, stdout, "Hello World!")
-	assertContains(t, stdout, `"passed":true`)
-	assertContains(t, stdout, "version:")
+	assertNotContains(t, stdout, `"passed"`)
+	assertNotContains(t, stdout, "Hello World!")
+	assertNotContains(t, stdout, "version:")
+	for _, artifact := range []string{"test_hello.summary.json", "test_hello.graph.yaml", "test_hello.receipt.yaml"} {
+		if _, err := os.Stat(filepath.Join(work, artifact)); err != nil {
+			t.Errorf("default artifact %s not written: %v", artifact, err)
+		}
+	}
 }
 
 func TestCLI_SummaryOnly(t *testing.T) {
-	stdout, _, code := run("run", "--output", "graph="+os.DevNull, "--output", "receipt="+os.DevNull, scriptPath)
+	stdout, _, code := run("run", "--output", "summary=/dev/stdout", "--output", "graph="+os.DevNull, "--output", "receipt="+os.DevNull, scriptPath)
 	assertExit(t, 0, code)
 	assertValidSummary(t, stdout)
 	assertNotContains(t, stdout, "Hello World!")
@@ -176,7 +202,7 @@ func TestCLI_SummaryOnly(t *testing.T) {
 }
 
 func TestCLI_GraphOnly(t *testing.T) {
-	stdout, _, code := run("run", "--output", "summary="+os.DevNull, "--output", "receipt="+os.DevNull, scriptPath)
+	stdout, _, code := run("run", "--output", "graph=/dev/stdout", "--output", "summary="+os.DevNull, "--output", "receipt="+os.DevNull, scriptPath)
 	assertExit(t, 0, code)
 	assertContains(t, stdout, "Hello World!")
 	assertNotContains(t, stdout, `"passed"`)
@@ -184,7 +210,7 @@ func TestCLI_GraphOnly(t *testing.T) {
 }
 
 func TestCLI_ReceiptOnlyYAML(t *testing.T) {
-	stdout, _, code := run("run", "--output", "graph="+os.DevNull, "--output", "summary="+os.DevNull, scriptPath)
+	stdout, _, code := run("run", "--output", "receipt=/dev/stdout", "--output", "graph="+os.DevNull, "--output", "summary="+os.DevNull, scriptPath)
 	assertExit(t, 0, code)
 	assertNotContains(t, stdout, `"passed"`)
 	assertValidYAML(t, stdout)
@@ -193,7 +219,7 @@ func TestCLI_ReceiptOnlyYAML(t *testing.T) {
 }
 
 func TestCLI_ReceiptOnlyJSON(t *testing.T) {
-	stdout, _, code := run("run", "--output", "graph="+os.DevNull, "--output", "summary="+os.DevNull, "--receipt-format=json", scriptPath)
+	stdout, _, code := run("run", "--output", "receipt=/dev/stdout", "--output", "graph="+os.DevNull, "--output", "summary="+os.DevNull, "--receipt-format=json", scriptPath)
 	assertExit(t, 0, code)
 	assertValidJSON(t, stdout)
 	assertContains(t, stdout, "shell.exec")
@@ -254,19 +280,19 @@ func TestCLI_JSONReceiptToFile(t *testing.T) {
 // --- Flags ---
 
 func TestCLI_DryRun(t *testing.T) {
-	stdout, _, code := run("run", "--dry-run", "--output", "graph="+os.DevNull, "--output", "receipt="+os.DevNull, scriptPath)
+	stdout, _, code := run("run", "--dry-run", "--output", "summary=/dev/stdout", "--output", "graph="+os.DevNull, "--output", "receipt="+os.DevNull, scriptPath)
 	assertExit(t, 0, code)
 	assertValidSummary(t, stdout)
 }
 
 func TestCLI_Trace(t *testing.T) {
-	stdout, _, code := run("run", "--trace", "--output", "graph="+os.DevNull, "--output", "receipt="+os.DevNull, scriptPath)
+	stdout, _, code := run("run", "--trace", "--output", "summary=/dev/stdout", "--output", "graph="+os.DevNull, "--output", "receipt="+os.DevNull, scriptPath)
 	assertExit(t, 0, code)
 	assertContains(t, stdout, `"trace"`)
 }
 
 func TestCLI_Silent(t *testing.T) {
-	_, stderr, code := run("--silent", "run", "--output", "graph="+os.DevNull, "--output", "receipt="+os.DevNull, scriptPath)
+	_, stderr, code := run("--silent", "run", "--output", "summary="+os.DevNull, "--output", "graph="+os.DevNull, "--output", "receipt="+os.DevNull, scriptPath)
 	assertExit(t, 0, code)
 	if stderr != "" {
 		t.Errorf("--silent should suppress stderr, got: %q", stderr)

@@ -37,14 +37,17 @@ func NewRootCmd() *cobra.Command {
 It executes a Starlark test script that builds an execution graph, runs the
 graph through the engine, and verifies expectations against the results.
 
-Output streams:
-  graph    Output from the software under test (default: stdout)
-  summary  Test result with pass/fail and expectation counts (default: stdout)
-  receipt  Full execution graph transaction log (default: stdout)
+Results are files; narration is stderr; stdout stays clean. Each stream
+defaults to an artifact file named for the script, in the working directory:
 
-Use --output to route streams to files or %[1]s:
-  devlore-test run --output receipt=receipt.yaml test.star
-  devlore-test run --output graph=%[1]s --output receipt=%[1]s test.star`, os.DevNull),
+  summary  Test result with pass/fail and expectation counts   <script>.summary.json
+  graph    The graph document from the software under test     <script>.graph.yaml
+  receipt  Full execution graph transaction log                <script>.receipt.<format>
+
+Use --output to reroute any stream to a path, /dev/stdout, or %[1]s:
+  devlore-test run test.star
+  devlore-test run --output summary=/dev/stdout --output graph=%[1]s --output receipt=%[1]s test.star`, os.DevNull),
+		SilenceUsage: true,
 		CompletionOptions: cobra.CompletionOptions{
 			HiddenDefaultCmd: true,
 		},

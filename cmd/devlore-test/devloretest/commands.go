@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -56,11 +57,7 @@ func (o *outputFlags) Type() string {
 const stdoutSentinel = "/dev/stdout"
 
 func newRunCmd() *cobra.Command {
-	outputs := &outputFlags{entries: map[string]string{
-		"summary": stdoutSentinel,
-		"receipt": stdoutSentinel,
-		"graph":   stdoutSentinel,
-	}}
+	outputs := &outputFlags{entries: map[string]string{}}
 
 	cmd := &cobra.Command{
 		Use:   "run [flags] <script.star>",
@@ -70,18 +67,19 @@ func newRunCmd() *cobra.Command {
 The script uses plan.* bindings to build a graph and t.* assertions to
 verify expectations after execution.
 
-Three output streams can be independently routed:
-  graph    Promise from the software under test
-  summary  JSON test result (passed, node_count, failures)
-  receipt  Full serialized execution graph
+Three output streams route independently; each defaults to an artifact file
+named for the script, in the working directory:
+  summary  JSON test result (passed, node_count, failures)   <script>.summary.json
+  graph    The graph document from the software under test   <script>.graph.yaml
+  receipt  Full serialized execution graph                    <script>.receipt.<format>
 
-All streams default to %[1]s. Route to files or %[2]s:
-  devlore-test run --output receipt=receipt.yaml test.star
+Reroute any stream to a path, %[1]s, or %[2]s:
+  devlore-test run --output summary=%[1]s test.star
   devlore-test run --output graph=%[2]s test.star`, stdoutSentinel, os.DevNull),
 		Example: fmt.Sprintf(`  devlore-test run test.star
   devlore-test run --dry-run test.star
   devlore-test run --trace test.star
-  devlore-test run --output receipt=receipt.yaml --receipt-format=json test.star
+  devlore-test run --output receipt=my-receipt.json --receipt-format=json test.star
   devlore-test run --output graph=%[1]s --output receipt=%[1]s test.star`, os.DevNull),
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -93,7 +91,9 @@ All streams default to %[1]s. Route to files or %[2]s:
 	cmd.Flags().Bool("trace", false, "Enable Starlark step trace")
 	cmd.Flags().String("provider", "", "Restrict to a specific provider")
 	cmd.Flags().String("receipt-format", "yaml", "Receipt format: json or yaml")
-	cmd.Flags().Var(outputs, "output", "Promise routing: summary|receipt|graph=destination (repeatable)")
+	cmd.Flags().Var(outputs, "output",
+		"Stream routing: summary|receipt|graph=destination (repeatable; default: <script>.summary.json, "+
+			"<script>.graph.yaml, <script>.receipt.<format> beside the working directory)")
 
 	return cmd
 }
@@ -107,6 +107,29 @@ func runTest(cmd *cobra.Command, script string, outputs *outputFlags) (err error
 	if receiptFmt != "json" && receiptFmt != "yaml" {
 		return fmt.Errorf("--receipt-format must be json or yaml, got %q", receiptFmt)
 	}
+
+	// The script is verified before any output destination opens: default routing names artifacts after the
+	// script, and a run that cannot start must not litter the working directory with files named for a
+	// script that does not exist.
+	if _, err := os.Stat(script); err != nil {
+		return fmt.Errorf("reading script: %w", err)
+	}
+
+	// Default routing: three artifact files named for the script, in the working directory — results are
+	// files, narration is stderr, and stdout stays clean (ruled 2026-08-20). An explicit --output — a path,
+	// os.DevNull, or /dev/stdout — overrides per stream.
+	base := strings.TrimSuffix(filepath.Base(script), filepath.Ext(script))
+	for stream, dest := range map[string]string{
+		"summary": base + ".summary.json",
+		"graph":   base + ".graph.yaml",
+		"receipt": base + ".receipt." + receiptFmt,
+	} {
+		if _, set := outputs.entries[stream]; !set {
+			outputs.entries[stream] = dest
+		}
+	}
+	cli.Note("summary=%s graph=%s receipt=%s",
+		outputs.entries["summary"], outputs.entries["graph"], outputs.entries["receipt"])
 
 	// Open graph output destination for streaming during execution.
 	graphOut, err := openDest(outputs.entries["graph"])
@@ -200,15 +223,18 @@ func writeSummary(dest string, result *Result) (err error) {
 }
 
 func writeReceipt(dest, format string, graph *op.Graph) (err error) {
-	if graph == nil {
-		return nil
-	}
 
+	// The destination is opened before the nil check so every run leaves all three artifacts — a script that
+	// assembles no graph writes an empty receipt rather than no file (ruled 2026-08-20: three files, always).
 	f, err := openDest(dest)
 	if err != nil {
 		return err
 	}
 	defer iox.Close(&err, f)
+
+	if graph == nil {
+		return nil
+	}
 
 	switch format {
 	case "json":
