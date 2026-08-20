@@ -108,6 +108,13 @@ func runTest(cmd *cobra.Command, script string, outputs *outputFlags) (err error
 		return fmt.Errorf("--receipt-format must be json or yaml, got %q", receiptFmt)
 	}
 
+	// The script is verified before any output destination opens: default routing names artifacts after the
+	// script, and a run that cannot start must not litter the working directory with files named for a
+	// script that does not exist.
+	if _, err := os.Stat(script); err != nil {
+		return fmt.Errorf("reading script: %w", err)
+	}
+
 	// Default routing: three artifact files named for the script, in the working directory — results are
 	// files, narration is stderr, and stdout stays clean (ruled 2026-08-20). An explicit --output — a path,
 	// os.DevNull, or /dev/stdout — overrides per stream.

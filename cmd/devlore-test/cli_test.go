@@ -136,8 +136,19 @@ func TestCLI_RunTooManyArgs(t *testing.T) {
 }
 
 func TestCLI_RunMissingFile(t *testing.T) {
-	_, stderr, code := run("run", "nonexistent.star")
+	work := t.TempDir()
+	_, stderr, code := runIn(work, "run", "nonexistent.star")
 	assertExit(t, 1, code)
+
+	// A run that cannot start must not litter the working directory with artifacts named for the missing
+	// script — this exact litter shipped once (nonexistent.graph.yaml in the package directory).
+	entries, err := os.ReadDir(work)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("missing-script run created artifacts: %v", entries)
+	}
 
 	// The wrapped syscall text belongs to the OS -- "no such file or directory" on Unix, "The system cannot
 	// find the file specified." on Windows -- so asserting on it tested the platform, not the CLI. These two
