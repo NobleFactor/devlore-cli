@@ -94,6 +94,25 @@ func TestRoot_NewPath_CleansDotSegments(t *testing.T) {
 	}
 }
 
+func TestRoot_NewPath_ColonSegmentRelIsPlatformNeutral(t *testing.T) {
+
+	// A first segment containing a colon trips Windows filepath.Clean into guarding the result with a
+	// leading ".\" (the drive-relative disambiguation), and that guard must never reach the rel — the
+	// identity half of a Path is slash-canonical and identical on every platform (#547's sixth discovery:
+	// the same input minted "./https:/example.com/x" on Windows and "https:/example.com/x" elsewhere).
+	dir := t.TempDir()
+	roots := allRoots(t, dir)
+
+	for _, tc := range roots {
+		t.Run(tc.name, func(t *testing.T) {
+			p := tc.root.NewPath("https://example.com/x")
+			if p.Rel() != "https:/example.com/x" {
+				t.Errorf("Rel() = %q, want %q", p.Rel(), "https:/example.com/x")
+			}
+		})
+	}
+}
+
 func TestPath_MarshalJSON(t *testing.T) {
 
 	p := fsroot.NewPath("/project", "src/main.go")

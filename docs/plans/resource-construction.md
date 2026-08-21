@@ -193,7 +193,9 @@ actual shape) and what #571's declared-roots direction extends naturally into `(
 **PR slicing:** PR 1 — the identity mint (URI specific part carries `SourcePath.Rel()`), the 4.1 amendment,
 re-pinned format-identity tests; Windows 3 → 2. PR 2 — the plan-space grammar with both refusals plus the
 full authoring migration (`t.tmp`, writ deploy, tests) and the re-diagnosed fixes for the two path-as-text
-failures; Windows 2 → 0. PR 3 — the four consumers onto `SourcePath.Abs()`, pre-flight as the one sentence,
+failures; Windows 2 → 0. The grammar also **reserves the root-qualification spelling** (#597 — named
+multi-root design, filed 2026-08-21): a shape like `@name/rel` that cannot collide with the drive-letter
+refusal, decided now so the little language does not break when multi-root lands. PR 3 — the four consumers onto `SourcePath.Abs()`, pre-flight as the one sentence,
 closure.
 
 **PR 1 record (2026-08-21):** the mint flips to the ruled opaque form — `"file:" + SourcePath.Rel()`
@@ -215,6 +217,14 @@ environment's root, never the run's. PR 1 made the identity payload relocatable;
 *verification* relocatable: pre-flight binds every pending rel against the run's root (rel-first activation
 binding at the executor's resolve pass, where the run environment is in scope), and Abs derives from that
 binding.
+
+**The sixth discovery (2026-08-21, caught by the foreign-scheme pin on Windows):** `fsroot.makePath`'s rel
+half was not platform-neutral — Windows `filepath.Clean` guards a colon-bearing first segment with a
+leading `./` (drive-relative disambiguation), so the same input minted `./https:/example.com/x` on Windows
+and `https:/example.com/x` elsewhere. Fixed where the capability lives: `fsroot.canonicalRel` (slash-path
+Clean after separator normalization) renders every rel in both `makePath` branches and `fsroot.NewPath`,
+with a platform-neutrality pin in the fsroot suite. Exactly the class #547 predicted ("the sixth is
+waiting"); recorded on #547.
 
 ### Phase 3 — plan-time claiming: inputs only, pending only — status: pending
 
