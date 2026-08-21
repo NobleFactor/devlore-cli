@@ -14,9 +14,10 @@ Implement the resource-construction design as ruled: **the graph's resource cata
 it is, in effect, what must exist when the graph runs.** The catalog serializes with the graph (mandatory
 section, even when empty; absence is a hard pre-flight failure). At plan time, resource-typed parameters with
 string values mint **pending** entries — no existence check, no disk contact; promise values record the
-promise and nothing else; products are runtime facts with no plan-time presence. Identity is the
-slash-canonical **root-relative** path — plan-space paths follow the git model (a leading slash anchors at
-the fsroot), and the fsroot itself is a run parameter, unknown until execution. No string-to-resource
+promise and nothing else; products are runtime facts with no plan-time presence. **File-resource** identity is the
+slash-canonical **root-relative** path — plan-space file paths follow the git model (a leading slash anchors
+at the fsroot), and the fsroot itself is a run parameter, unknown until execution; other schemes keep their
+own identity forms (purl, service name, opaque, digest) and existence predicates. No string-to-resource
 conversion happens at run time. The design integrates into `docs/architecture/4-resource-management.md` as
 the body (Appendix A deleted as rejected; the transport plan's content-only narrowing superseded), and the
 sketches retire when integration is complete.
@@ -30,9 +31,10 @@ sketches retire when integration is complete.
 2. **Pre-flight fails hard when a graph has no resource catalog — even an empty one is mandatory.** The
    serialized section is always present; a document without it does not load, and a graph without a catalog
    does not dispatch.
-3. **Identity is rel; the fsroot binds at run.** Plan-space paths follow the git model: a leading slash
-   anchors at the fsroot; machine-absoluteness is inexpressible in a plan and arises only from the run's
-   root choice.
+3. **File identity is rel; the fsroot binds at run.** This ruling is scoped to **file resources** — the
+   full panoply (pkg, svc, git, appnet, the CAS types) keeps its own identity forms and existence
+   predicates. Plan-space file paths follow the git model: a leading slash anchors at the fsroot;
+   machine-absoluteness is inexpressible in a plan and arises only from the run's root choice.
 4. **Activation never changes identity.** The graph is the only place pending resources are *stored*; a run
    activates them on the clone (the graph document is never mutated by a run). Pre-flight transitions
    Pending → Active by verifying each rel under the bound fsroot — a *state and binding* event, never an
@@ -132,7 +134,7 @@ Windows known-failures.
 4. Round-trip pin: pack → unpack → pack byte-identical, including the empty section.
 5. Windows baseline expectation: unchanged (3).
 
-### Phase 2 — portable identity: rel, bound to the run's root (#546/#547) — status: pending
+### Phase 2 — portable file identity: rel, bound to the run's root (#546/#547) — status: pending
 
 **RULED 2026-08-20: named resources are computed relative to some fsroot, and the fsroot is not known until
 the run.** The motivating cases are the product's own scopes: a **home**-scope graph binds to the account
@@ -194,9 +196,10 @@ the catalog at plan time. The plan-time catalog is the graph's *input intent*, a
    `original.txt` (pending), and asserts `duplicate.txt` **absent**, pinning the product ruling in both
    directions. **Delivered early — the pins flipped with phase 1**: planning already interned the
    resource-typed source, so serialization was the missing half and the destination's absence was already
-   true. Phase 3's remaining substance is the claiming discipline itself: plan-time minting must be
-   pending-only with no existence I/O (today's Discover can still resolve at plan time), and the promise
-   grammar verified.
+   true. Phase 3's remaining substance shrank on audit (2026-08-20): `Discover` already performs no
+   existence I/O — its body says so and the executor's pre-flight owns transitions — so phase 3 is the
+   promise grammar verified plus pins for the no-I/O rule and the pre-flight transition-failure semantics
+   (a pending resource that does not exist under the run's root fails the run — Q1 ruling).
 
 ### Phase 4 — run time consumes the catalog, never strings — status: pending
 
@@ -254,6 +257,24 @@ product entry** — the copy never produced; the trace records the node's failur
 **The sentence the scenario proves:** the graph says what must be true; the trace says what happened; the
 gap between them is the run's story.
 
+**Evidence (2026-08-20):** `test_judgment_1_delete_then_copy.star`, wired into the CI suite
+(`TestJudgmentScenario1_DeleteThenCopy`) — five expectations, passing on the first run against phase 1. One
+precision recorded during authoring: `file.remove` takes `path string` by step-23 ruling 2 (only content
+reads take the resource), so the single catalog entry comes from the copy's resource-typed source — the
+count prediction held; the phrasing "delete a named regular file resource" surfaced Remove's typing, and the
+ruling followed (2026-08-20): **mutation targets are resource-typed consumers** — one pending entry, two
+consumers; the remove transitions the entry to Gone at runtime and its receipt relocates the bytes for undo.
+Step-23 ruling 2's path-typed mutation targets are overruled; the `file.remove` signature migration is
+phase-3 claiming-grammar work (#585), after which this scenario's single entry carries both consumer
+links. Refined the same day: **the second consumer sees Gone** — the copy fails on the catalog's verdict, not
+by rediscovering the loss through its own I/O. Evidence of today's gap: the manual run's receipt shows the
+entry still `pending` after the failed run — nothing transitions it yet; #585 closes both halves (the
+behavior-matrix consumption table in 4-resource-management.md §3 records the ruled semantics). Placement
+ruled the same day: the guard lives in the action dispatch seam — after `Method.Invoke`'s slot-to-argument
+conversion, before the forward method call — the earliest point the complete consumed set exists (promises
+resolve only at slot-fill), shared by graph and immediate dispatch; the catalog-resolve verdict is the
+in-flight backstop, and the Gone transition stamps the destroying unit.
+
 ### Scenario 2 — relocate the tree, reconcile the graph
 
 **Setup.** Create a graph; run it at fsroot location A. Copy the **entire tree** to a new fsroot location B
@@ -264,6 +285,9 @@ binding to B is fully defined: nothing in identity remembers A. Every rel exists
 mismatches on every entry** — Etags are stat tuples, and relocation mints new inodes — which is by design:
 the cheap screen escalates to the honest check. **Digests match**, so every entry classifies as **touch
 drift**: Etag refreshed against B, no shadow, no repair, clean report. The graph is at home in its new root.
+
+**Evidence:** deferred — the scenario needs a drivable reconcile surface (phase 4/closure era); it stays a
+recorded prediction until then.
 
 **The contrast that gives the scenario teeth:** under absolute identity, reconciliation at B finds zero
 corresponding resources — every entry "missing," the graph unreconcilable without rewriting it. Scenario 2

@@ -430,3 +430,16 @@ func TestWritAdoptSubgraph(t *testing.T) {
 func TestWritAdoptTypeMismatch(t *testing.T) {
 	runScript(t, "test_writ_adopt_type_mismatch.star")
 }
+
+// --- Judgment scenarios (docs/plans/resource-construction.md) ---
+//
+// Predictions authored before implementation; the implementation is correct when the harness observes
+// exactly the prediction. These run in CI as the standing evidence the rulings require.
+
+func TestGraphCatalogContract(t *testing.T) {
+	runScript(t, "test_graph_catalog_contract.star")
+}
+
+func TestJudgmentScenario1_DeleteThenCopy(t *testing.T) {
+	runScript(t, "test_judgment_1_delete_then_copy.star")
+}
