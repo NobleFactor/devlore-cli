@@ -417,9 +417,10 @@ type contentIdentity struct {
 
 // recordedIdentity extracts the per-path content identity a run's ledger snapshot recorded (step 48).
 //
-// File-form entries (URIs whose tag-specific payload is `file://<path>`) map by absolute path; later
-// generations of the same path win (append order). A nil catalog — a pre-capture trace — yields an empty map,
-// and consumers treat the absent identity as indeterminate.
+// File-form entries (URIs whose tag-specific payload is `file:<rel>`) carry root-relative identity
+// (#584); the native key is derived by joining the snapshot's recorded run root with the rel — identity is
+// never parsed for a native form. Later generations of the same path win (append order). A nil catalog — a
+// pre-capture trace — yields an empty map, and consumers treat the absent identity as indeterminate.
 //
 // Parameters:
 //   - `catalog`: the trace's ledger snapshot, or nil.
@@ -441,11 +442,11 @@ func recordedIdentity(catalog *op.ResourceLedgerSnapshot) map[string]contentIden
 		if err != nil {
 			continue
 		}
-		path, ok := strings.CutPrefix(specific, "file://")
+		rel, ok := strings.CutPrefix(specific, "file:")
 		if !ok {
 			continue
 		}
-		recorded[path] = contentIdentity{etag: entry.Etag, digest: entry.Digest}
+		recorded[filepath.Join(catalog.Root, filepath.FromSlash(rel))] = contentIdentity{etag: entry.Etag, digest: entry.Digest}
 	}
 
 	return recorded

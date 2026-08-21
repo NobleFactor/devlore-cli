@@ -16,6 +16,10 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+
+	// Aliased: the rel half of a Path is a slash-form value on every platform, and its canonical form
+	// comes from the slash-path Clean, not the OS one.
+	slashpath "path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -578,7 +582,7 @@ type Path struct {
 // Returns:
 //   - `Path`: the constructed path, with `rel` canonicalized to slash form.
 func NewPath(root, rel string) Path {
-	return Path{root: root, rel: filepath.ToSlash(rel), abs: filepath.Join(root, rel)}
+	return Path{root: root, rel: canonicalRel(rel), abs: filepath.Join(root, rel)}
 }
 
 // region EXPORTED METHODS
@@ -773,13 +777,31 @@ func makePath(rootName string, name []string) Path {
 
 	if filepath.IsAbs(path) {
 		rel := assert.Must(filepath.Rel(rootName, path))
-		return Path{root: rootName, rel: filepath.ToSlash(rel), abs: filepath.Clean(path)}
+		return Path{root: rootName, rel: canonicalRel(rel), abs: filepath.Clean(path)}
 	}
 	return Path{
 		root: rootName,
-		rel:  filepath.ToSlash(filepath.Clean(path)),
+		rel:  canonicalRel(path),
 		abs:  filepath.Join(rootName, path),
 	}
+}
+
+// canonicalRel renders `rel` in the slash-canonical form that is identical on every platform.
+//
+// The OS-form Clean is not neutral: on Windows it guards a first segment containing a colon with a leading
+// ".\" so the result cannot be misread as drive-relative (the CVE-2022-41722 rule), and that guard would
+// otherwise ride into the rel — the identity half of a [Path] — making the same input mint different
+// identities per platform (#547's sixth discovery, caught by the foreign-scheme identity pin). The slash-path
+// Clean owns the canonical form: OS separators normalize first, then slash semantics collapse duplicate
+// slashes, dot segments, and the guard alike.
+//
+// Parameters:
+//   - `rel`: the relative path in any separator form.
+//
+// Returns:
+//   - `string`: the slash-canonical relative path.
+func canonicalRel(rel string) string {
+	return slashpath.Clean(filepath.ToSlash(rel))
 }
 
 // createTempIn creates a uniquely named file under `dir`, mirroring [os.CreateTemp] inside a root.

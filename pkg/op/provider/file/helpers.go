@@ -101,17 +101,18 @@ func buildCandidateAs(
 	}
 
 	// The input is a filesystem path. One internal round-trip also lands here: catalog rehydration hands
-	// back this provider's own emitted identity specific ("file://" + path) — strip our own prefix and it
-	// is a path again. No URI parsing: the provider decodes only what it mints (readback does the same).
-	path = strings.TrimPrefix(path, "file://")
+	// back this provider's own emitted identity specific ("file:" + rel) — strip our own prefix and it is
+	// a path again. No URI parsing: the provider decodes only what it mints (readback does the same).
+	path = strings.TrimPrefix(path, "file:")
 	sourcePath := runtimeEnvironment.Root().NewPath(path)
 	var base op.ResourceBase
 
-	// NOTE: this identity is OS-native, so on Windows it carries backslashes inside a URI — see #547.
-	// Normalizing HERE was tried on 2026-08-18 and reverted: it fixed the identity string and broke four
-	// consumers that key on the native form, because the transform belongs at resource construction with
-	// the resource owning both forms, not at one site along the way.
-	base, err = op.NewResourceBase(runtimeEnvironment, "file://"+sourcePath.Abs(), resourceType)
+	// Identity is the slash-canonical root-relative path (#584, ruled 2026-08-20): the fsroot is a run
+	// parameter, so the rel half is what serializes and the same graph relocates across prefixes. The
+	// native form is access, not identity — consumers reach it through SourcePath.Abs(), never by parsing
+	// the URI. A rel that escapes the root ("../…") still mints here until the plan-space grammar (PR 2 of
+	// phase 2) refuses authoring it.
+	base, err = op.NewResourceBase(runtimeEnvironment, "file:"+sourcePath.Rel(), resourceType)
 	if err != nil {
 		return nil, err
 	}

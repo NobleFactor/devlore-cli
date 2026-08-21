@@ -176,6 +176,56 @@ actual shape) and what #571's declared-roots direction extends naturally into `(
    **3 → 0** if all three prove to be pure identity-form failures; any remainder is re-diagnosed, not
    assumed.
 
+**Review findings (2026-08-21, from the live CI logs and the code):**
+
+- Failure diagnosis: `TestDiscoverRegular_ForeignSchemeString_IsAPath` is **pure identity-form** (the tag
+  URI embeds the backslashed machine-absolute path) — the identity mint fixes it directly.
+  `TestSourceFile_StarlarkIntegration` is a machine path **interpolated into generated Starlark source**
+  (`\U` reads as an invalid escape) and `TestWriteOnboardManifest…` is **mixed-separator narration**
+  (`C:\…\001/packages-manifest.yaml`) — both are path-as-text at their surfaces, cured in the
+  authoring-migration step, not by the mint.
+- Sequencing constraint: **the grammar refusals and the harness migration must co-land** — once volume
+  spellings are plan-time refusals, every `t.tmp`-authored script fails to plan (`t.tmp` returns
+  `filepath.Join(tmpDir, name)`, machine-absolute). The identity mint has no such coupling: `SourcePath`
+  already carries `Rel()`, so the mint lands first and alone.
+- Providers already use `SourcePath.Abs()` at their I/O sites; step 4's four consumers are a bounded hunt.
+
+**PR slicing:** PR 1 — the identity mint (URI specific part carries `SourcePath.Rel()`), the 4.1 amendment,
+re-pinned format-identity tests; Windows 3 → 2. PR 2 — the plan-space grammar with both refusals plus the
+full authoring migration (`t.tmp`, writ deploy, tests) and the re-diagnosed fixes for the two path-as-text
+failures; Windows 2 → 0. The grammar also **reserves the root-qualification spelling** (#597 — named
+multi-root design, filed 2026-08-21): a shape like `@name/rel` that cannot collide with the drive-letter
+refusal, decided now so the little language does not break when multi-root lands. PR 3 — the four consumers onto `SourcePath.Abs()`, pre-flight as the one sentence,
+closure.
+
+**PR 1 record (2026-08-21):** the mint flips to the ruled opaque form — `"file:" + SourcePath.Rel()`
+(4.1's amended row and sketch, already landed in phase 0). The empirical consumer hunt found ONE seam, not
+four: writ's readback (`recordedIdentity`) parsed the URI's embedded path and keyed drift attribution by it;
+everything else already used `SourcePath.Abs()`. The fix is design-true: `ResourceLedgerSnapshot` gains
+`Root` — the run's bound fsroot, stamped by the executor at capture (§5.5: the trace records the binding) —
+and readback joins the recorded root with the rel to derive its native keys. The foreign-scheme pin
+re-asserts against the rel form (`file:https:/example.com/x`), which also makes it platform-neutral —
+expected to clear on Windows. Escaping rels (`../…`) still mint until PR 2's grammar refuses authoring them.
+Gate: make check 103 ok / 0 fail, GOOS=windows vet clean.
+
+**Run-from-elsewhere caveat (USER, 2026-08-21): PR 3 is load-bearing, not closure hygiene.** The existence
+check reads `r.RuntimeEnvironment().Root()` — the environment the resource object was *constructed*
+against — and feeds `SourcePath.Abs()`, the construction-time absolute (`file.Resource.Exists`/`Resolve`;
+`Resolve` even re-binds abs-first). Plan-and-run-in-one-session flows hide this because the roots coincide;
+**save the graph and run later from elsewhere and they don't** — the run verifies against the load
+environment's root, never the run's. PR 1 made the identity payload relocatable; PR 3 must make the
+*verification* relocatable: pre-flight binds every pending rel against the run's root (rel-first activation
+binding at the executor's resolve pass, where the run environment is in scope), and Abs derives from that
+binding.
+
+**The sixth discovery (2026-08-21, caught by the foreign-scheme pin on Windows):** `fsroot.makePath`'s rel
+half was not platform-neutral — Windows `filepath.Clean` guards a colon-bearing first segment with a
+leading `./` (drive-relative disambiguation), so the same input minted `./https:/example.com/x` on Windows
+and `https:/example.com/x` elsewhere. Fixed where the capability lives: `fsroot.canonicalRel` (slash-path
+Clean after separator normalization) renders every rel in both `makePath` branches and `fsroot.NewPath`,
+with a platform-neutrality pin in the fsroot suite. Exactly the class #547 predicted ("the sixth is
+waiting"); recorded on #547.
+
 ### Phase 3 — plan-time claiming: inputs only, pending only — status: pending
 
 **RULED 2026-08-20, superseding the sketch's output section (:21–27) and rejecting Appendix A outright:**
