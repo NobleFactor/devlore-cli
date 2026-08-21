@@ -443,3 +443,13 @@ func TestGraphCatalogContract(t *testing.T) {
 func TestJudgmentScenario1_DeleteThenCopy(t *testing.T) {
 	runScript(t, "test_judgment_1_delete_then_copy.star")
 }
+
+func TestJudgmentPreflightFailFast(t *testing.T) {
+	t.Skip("phase-3 acceptance pin (#585): resolvePendingResources marks Gone without failing the run; " +
+		"un-skip when pre-flight fails on unmet intent")
+	runScript(t, "test_judgment_preflight_fail_fast.star")
+}
+
+func TestJudgmentPromiseOrdering(t *testing.T) {
+	runScript(t, "test_judgment_promise_ordering.star")
+}

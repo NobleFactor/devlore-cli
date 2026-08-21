@@ -5,8 +5,9 @@
 
 # Get-EpicReport - render the epic / feature / task tree as markdown
 #
-# GitHub is the index. Four kinds across three tiers: `epic` -> `feature` -> {`task` | `bug`}. A task
-# implements part of a feature; a bug repairs one. They are peers and mutually exclusive. Every issue also
+# GitHub is the index. Five kinds across three tiers: `epic` -> `feature` -> {`task` | `bug`}, plus `chore`
+# for maintenance work on the repo itself (adopted by #574). A task implements part of a feature; a bug
+# repairs one. They are peers and mutually exclusive. Every issue also
 # carries its epic's `Epic:<Name>` label, and every tier-three issue states its parent in its body as
 # `**Feature:** #<number>`; those without the marker are reported under "Unfiled" rather than silently
 # attached to something.
@@ -112,7 +113,7 @@ gh issue list \
         --arg debtOnly "$debt_only" --argjson exempt "$exempt" '
     def names: [.labels[].name];
     def tagged($l): (names | index($l)) != null;
-    def kinds: (names | map(select(. == "epic" or . == "feature" or . == "task" or . == "bug")));
+    def kinds: (names | map(select(. == "epic" or . == "feature" or . == "task" or . == "bug" or . == "chore")));
     def epicTags: (names | map(select(startswith("Epic:"))));
     def epicTag: (epicTags | first // "");
     def mark: if .state == "CLOSED" then "~~" else "" end;
@@ -149,7 +150,7 @@ gh issue list \
 
     def faults:
       if awaitingTriage then [] else
-      [ (if (kinds | length) == 0 then "no kind label (epic/feature/task/bug)" else empty end),
+      [ (if (kinds | length) == 0 then "no kind label (epic/feature/task/bug/chore)" else empty end),
         (if (kinds | length) > 1 then "multiple kind labels: \(kinds | join(", "))" else empty end),
         (if (epicTags | length) == 0 then "no Epic:<Name> label" else empty end),
         (if (epicTags | length) > 1 then "multiple epics: \(epicTags | join(", "))" else empty end) ] end;
