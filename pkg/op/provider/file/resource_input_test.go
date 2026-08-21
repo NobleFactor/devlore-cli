@@ -10,7 +10,7 @@ import (
 )
 
 // The constructor input domain (paths-only ruling, 2026-08-09): the input is a filesystem path, plus the one
-// internal round-trip — the provider's own emitted identity specific ("file://" + path) handed back by
+// internal round-trip — the provider's own emitted identity specific ("file:" + rel, #584) handed back by
 // catalog rehydration. No URI grammar exists on the input side.
 
 func TestDiscoverRegular_PathAndOwnSpecific_SameIdentity(t *testing.T) {
@@ -24,7 +24,10 @@ func TestDiscoverRegular_PathAndOwnSpecific_SameIdentity(t *testing.T) {
 		t.Fatalf("DiscoverRegular(path): %v", err)
 	}
 
-	fromSpecific, err := DiscoverRegular(p.RuntimeEnvironment(), "file://"+path)
+	// The provider's OWN specific, asked of the resource rather than spelled here — the pin follows the
+	// mint instead of freezing a retired form (the defect this test caught on Windows when it hardcoded
+	// "file://" + abs).
+	fromSpecific, err := DiscoverRegular(p.RuntimeEnvironment(), fromPath.ReachabilityURI())
 	if err != nil {
 		t.Fatalf("DiscoverRegular(own specific): %v", err)
 	}

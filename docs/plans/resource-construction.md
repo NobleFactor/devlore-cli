@@ -206,6 +206,16 @@ re-asserts against the rel form (`file:https:/example.com/x`), which also makes 
 expected to clear on Windows. Escaping rels (`../…`) still mint until PR 2's grammar refuses authoring them.
 Gate: make check 103 ok / 0 fail, GOOS=windows vet clean.
 
+**Run-from-elsewhere caveat (USER, 2026-08-21): PR 3 is load-bearing, not closure hygiene.** The existence
+check reads `r.RuntimeEnvironment().Root()` — the environment the resource object was *constructed*
+against — and feeds `SourcePath.Abs()`, the construction-time absolute (`file.Resource.Exists`/`Resolve`;
+`Resolve` even re-binds abs-first). Plan-and-run-in-one-session flows hide this because the roots coincide;
+**save the graph and run later from elsewhere and they don't** — the run verifies against the load
+environment's root, never the run's. PR 1 made the identity payload relocatable; PR 3 must make the
+*verification* relocatable: pre-flight binds every pending rel against the run's root (rel-first activation
+binding at the executor's resolve pass, where the run environment is in scope), and Abs derives from that
+binding.
+
 ### Phase 3 — plan-time claiming: inputs only, pending only — status: pending
 
 **RULED 2026-08-20, superseding the sketch's output section (:21–27) and rejecting Appendix A outright:**
