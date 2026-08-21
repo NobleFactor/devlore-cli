@@ -16,11 +16,12 @@ import (
 //
 // Three states: Pending (initial — entry exists in the namespace but the underlying resource has not yet been
 // observed or produced), Active (observation succeeded or the producer created the resource; metadata is
-// populated), Gone (the catalog attempted to access the underlying resource via Resolve and it failed; Gone is
-// reactive, not driven by explicit "delete" calls).
+// populated), Gone (the resource is no longer there — an existence check failed, or a mutating consumer
+// destroyed the resource and reported it; a later consumer of a Gone entry sees the state rather than
+// rediscovering the loss).
 //
 // The state field is mutated by catalog code only; provider implementations have no setter. See
-// docs/architecture/4-resource-management.md §3.1 and §6.2 for the full lifecycle spec.
+// docs/architecture/4-resource-management.md §3 (states + the behavior matrix) for the full lifecycle spec.
 type ResourceState int
 
 const (
@@ -30,8 +31,9 @@ const (
 	// Active means the resource has been observed (discovery path) or freshly created (production path).
 	Active
 
-	// Gone means a call to Resolve has failed on this entry; the catalog has tried and the resource is not
-	// where it should be.
+	// Gone means the resource is no longer there: an existence check failed, or a mutating consumer
+	// destroyed the resource and reported it. A later consumer sees Gone from the catalog rather than
+	// rediscovering the loss.
 	Gone
 )
 

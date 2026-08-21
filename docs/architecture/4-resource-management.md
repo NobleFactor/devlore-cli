@@ -3,7 +3,7 @@
 > **Status:** rewritten 2026-07-22 (phase-8 step 51, slice 3) onto the landed `pkg/op` model; **revised
 > 2026-08-20 onto the resource-construction rulings** ([plan](../plans/resource-construction.md), feature
 > [#581](https://github.com/NobleFactor/devlore-cli/issues/581)): the catalog is input intent and travels with
-> the graph (§5), plan-space paths follow the git model, identity is root-relative, and **the
+> the graph (§5), plan-space file paths follow the git model, file identity is root-relative, and **the
 > declared-output-spec proposal is rejected** — products are runtime facts, so the former Appendix A is
 > removed rather than preserved (§9 item 8). Implementation is staged in
 > [#582–#587](https://github.com/NobleFactor/devlore-cli/issues/581); until those land, the tree carries the
@@ -47,9 +47,10 @@ executed on many machines:
 - **Plan time** — pure, no I/O: a resource-typed parameter's string value mints a **pending** entry (no
   existence check); a promise value records the promise and nothing else; a **product is a runtime fact**
   with no plan-time presence (§5). String-typed parameters stay plain values.
-- **Execution time** — the executor's pre-flight resolve pass verifies every pending rel under the run's
-  root and applies state transitions; dispatch results — products included — become catalog facts on the
-  per-run clone, recorded by the trace.
+- **Execution time** — the executor's pre-flight resolve pass verifies every pending resource by its
+  scheme's existence predicate (for file resources: the rel under the run's root) and applies state
+  transitions; dispatch results — products included — become catalog facts on the per-run clone, recorded
+  by the trace.
 
 **`Resource`** (`pkg/op/resource.go`) — an interface sealed by an unexported method; only types embedding
 `ResourceBase` implement it. The base carries identity (`uri`, catalog `id`, `producerID` — empty for discovered,
@@ -81,7 +82,9 @@ Three states (`pkg/op/resource_state.go` — `ResourceState`, renamed from `op.S
 
 - **Pending** — the URI is claimed but not yet observed or produced. Plan-time entries are born here.
 - **Active** — observed-as-existing (discovery) or freshly created (production). Metadata is trustworthy.
-- **Gone** — reactive: an existence check failed. Terminal for the entry; reviving a URI appends a fresh entry.
+- **Gone** — the resource is no longer there: an existence check failed (reactive), or a mutating consumer
+  destroyed the resource and reported it (ruled 2026-08-20 — the remove is the authority; its receipt carries the
+  undo). Terminal for the entry; reviving a URI appends a fresh entry.
 
 **The catalog owns transitions.** The existence verdict is the resource's `Exists()` predicate; the catalog applies
 the transition through `VerifyExistence`, driven from the **executor's pre-flight resolve pass** over the per-run
@@ -100,23 +103,66 @@ stubs and stay `Pending` until their per-type step.
    │  Active  │ │  Gone  │ ◀── terminal; revival = a fresh shadowing entry
    └──────────┘ └────────┘
           │        ▲
-          └────────┘  (a later failed check on an Active entry → Gone)
+          └────────┘  (a later failed check, or a mutating consumer's destruction → Gone)
 ```
 
-#### Catalog behavior matrix (ruled 2026-07-14; step 22)
+#### Catalog behavior matrix
 
-| Op | Cache state | `Exists()` | Content-addressable | Location-based |
-|---|---|---|---|---|
-| `DiscoverResource` | miss | success | append `Pending` → `Active`; no `producerID` | same |
-| `DiscoverResource` | miss | failure | append `Pending` → `Gone`; return error | same |
-| `DiscoverResource` | hit, `Pending` | success | in-place `Pending` → `Active`; discard input | same |
-| `DiscoverResource` | hit, `Pending` | failure | in-place `Pending` → `Gone`; return error | same |
-| `DiscoverResource` | hit, `Active` | (not called) | return existing | same |
-| `DiscoverResource` | hit, `Gone` | (not called) | return error | same |
-| `DiscoverResource` | (any) | (any) | **never shadows** | **never shadows** |
-| `NewResource` | miss | (not called) | append `Pending` → `Active`; stamp `producerID` | same |
-| `NewResource` | hit, `Pending`/`Active` | (not called) | return existing (singleton) | **shadow**: new entry, stamp `producerID`; old entry stays as history |
-| `NewResource` | hit, `Gone` | (not called) | **shadow** (revives the URI) | same |
+Ruled 2026-07-14 (step 22); **re-stated 2026-08-20 (Q1 ruling)** to agree with §5.1 and the code: the
+2026-07-14 rendering folded pre-flight's existence outcomes into the `Discover` rows, which read as
+discover-time I/O — `Discover` performs none, and existence belongs to pre-flight alone.
+
+**Claiming (plan time — no I/O anywhere in this table):**
+
+| Op | Cache state | Content-addressable | Location-based |
+|---|---|---|---|
+| `Discover` | miss | append `Pending`; no `producerID` | same |
+| `Discover` | hit, `Pending` | return existing; discard input | same |
+| `Discover` | hit, `Active` | return existing | same |
+| `Discover` | hit, `Gone` | return error | same |
+| `Discover` | (any) | **never shadows** | **never shadows** |
+
+**Verification (pre-flight, over the per-run clone — `VerifyExistence`, the only place `Exists()` runs):**
+
+| Entry state | `Exists()` | Result |
+|---|---|---|
+| `Pending` | true | `Pending` → `Active` |
+| `Pending` | false | **the transition fails**: `Pending` → `Gone`, and pre-flight fails the run — a pending resource that fails its scheme's existence predicate (for **file resources**: the rel does not exist relative to the run's fsroot) is unmet intent (§5.5) |
+| `Active` | false (a later re-check) | `Active` → `Gone` |
+
+**Production (dispatch time — products are runtime facts, §5.1):**
+
+| Op | Cache state | Content-addressable | Location-based |
+|---|---|---|---|
+| `NewResource` | miss | append `Pending` → `Active`; stamp `producerID` | same |
+| `NewResource` | hit, `Pending`/`Active` | return existing (singleton) | **shadow**: new entry, stamp `producerID`; old entry stays as history |
+| `NewResource` | hit, `Gone` | **shadow** (revives the URI) | same |
+
+**Consumption (dispatch time — ruled 2026-08-20, judgment scenario 1):**
+
+| Consumed entry state | Result |
+|---|---|
+| `Active` | dispatch proceeds; a mutating consumer that destroys the resource transitions the entry `Active` → `Gone`, and its receipt carries the undo |
+| `Gone` | **the consumer fails on the catalog's verdict** — it sees the state; it does not rediscover the loss through its own I/O |
+| `Pending` | unreachable — pre-flight has already activated the entry or failed the run |
+
+Where the guard lives (ruled 2026-08-20): **the action dispatch seam** — `Method.Invoke` converts slot values
+to Go arguments via `Convert`, and the check runs **after conversion, before the forward method is called**.
+After conversion is the earliest point the complete consumed set exists: promise-fed and defaulted slots
+resolve only at slot-fill, so a purely static executor-side guard would miss promise-fed consumption. The
+seam is also shared by graph dispatch and starlark immediate dispatch, so the verdict holds on both surfaces.
+The guard closes a live asymmetry: `Discover` errors on a hit-`Gone` entry (the claiming table), but
+`Convert`'s catalog hit (`Current`/`Lookup`) screens no state — today it hands a consumer the `Gone`
+generation silently. The guard's error is typed; the executor classifies it into the run-status reason
+(the failure is structural — the forward method never ran, so there is nothing to compensate for this unit).
+The catalog-resolve verdict remains the in-flight backstop, and provider I/O errors still catch losses the
+catalog cannot know (out-of-band deletion mid-run). The `Gone` transition stamps the destroying unit —
+symmetric with `producerID` — so the verdict names both units: *consumed by unit 1 before unit 2 could run*.
+
+Staged rollout: today `file.remove` is path-typed (no consumer link, no transition — scenario 1's receipt shows
+the entry still `pending` after the failed run) and the copy rediscovers the loss as a dispatch-time filesystem
+error. #585 closes both halves: the remove becomes a consumer that transitions the entry, and the second
+consumer's failure becomes the catalog's verdict.
 
 **Why the asymmetry:** a content-addressable URI encodes its identity, so re-producing it is provably the same
 resource (the CAS types: mem, function, json, yaml — [4.2](4.2-mem-resource.md),
@@ -195,18 +241,18 @@ input intent — it is, in effect, what must exist when the graph runs.**
   declaration of any kind (the declared-output-spec proposal is rejected — §9 item 8).
 - **String-typed parameters** (`destination_path`, `mode`, `user`, …) stay plain values.
 
-### 5.2 Plan-space paths — the git model
+### 5.2 Plan-space paths — the git model (file resources)
 
-Plan-authored paths are a small portable language: a **leading slash anchors at the fsroot** (as in
+Plan-authored **file paths** are a small portable language: a **leading slash anchors at the fsroot** (as in
 `.gitignore`), so `/foo/bar` ≡ `foo/bar`, both naming rel `foo/bar`. Machine-absoluteness is
 **inexpressible in a plan** — it arises only from the run's root choice: a home-scope graph binds to the
 account running it (`/Users/a`, `/home/b`, `C:\Users\c` — same graph, different accounts); a system-scope
 graph binds to the host (`%SystemDrive%\` on Windows, `/` on unix). Volume and drive-letter spellings, and
 rels that escape (`../`), are plan-time refusals — the latter is intent confinement can never satisfy.
 
-### 5.3 Identity is rel; the fsroot binds at run
+### 5.3 File identity is rel; the fsroot binds at run
 
-Resource identity is the **slash-canonical root-relative path** — the `fsroot.Path` serialization doctrine
+**File-resource** identity is the **slash-canonical root-relative path** — the `fsroot.Path` serialization doctrine
 (`rel` is the half that serializes) applied to the catalog. The fsroot is a **run parameter**, unknown until
 execution. Activation (pre-flight's Pending → Active) is a *state and binding* event, never an identity
 event: afterward the identity is the same rel it was as pending, and the `SourcePath` is the fully bound
@@ -227,7 +273,7 @@ documents simply fail to load and are rewritten by re-planning.
 
 The graph document never records observation. The trace's ledger snapshot (step 48) records what the run
 saw: activations with captured content identity, products, transitions, compensations. Pre-flight in one
-sentence: **every pending rel must exist under the run's root.** The judgment scenarios that pin this split
+sentence: **every pending resource must satisfy its scheme's existence predicate — for file resources, the rel must exist under the run's root.** The judgment scenarios that pin this split
 live in the plan's "Judgment scenarios" section.
 
 ## 6. Recovery — Receipts and the Recovery Site
