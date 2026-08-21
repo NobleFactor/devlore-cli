@@ -123,6 +123,8 @@ gh issue list \
     def isBug: tagged("bug");
     def severity: (names | map(select(startswith("Severity:"))) | first // "");
     def priority: (names | map(select(startswith("Priority:"))) | first // "");
+    def taskRow:
+      "| \(if .state == "CLOSED" then "✅" else "" end) | [#\(.number)](\(.url)) | \(mark)\(.title | gsub("\\|"; "\\\\|"))\(mark) | \(if isBug then "bug" else "task" end) | \(severity | ltrimstr("Severity:")) | \(priority | ltrimstr("Priority:")) |";
     def severityRank:
       severity
       | if . == "Severity:Critical" then 0
@@ -130,12 +132,6 @@ gh issue list \
         elif . == "Severity:Medium" then 2
         elif . == "Severity:Low" then 3
         else 4 end;
-    def triage:
-      [ (if isBug then "bug" else empty end),
-        (if severity != "" then severity else empty end),
-        (if priority != "" then priority else empty end) ]
-      | if length == 0 then "" else " — **" + join("** · **") + "**" end;
-
     # A tier-three issue is a task or a bug; they are peers under a feature.
     def isChild: tagged("task") or isBug;
 
@@ -209,23 +205,27 @@ gh issue list \
                     | [ $all[] | select(isChild          and epicTag == $tag) ] as $tasks
                     | ([ $features[].number ]) as $featureNumbers
                     | (
-                        "\n# \($e | line)",
+                        "\n## \($e | line)",
                         "\n_\($features | length) feature(s), \([$tasks[] | select(isBug | not)] | length) task(s), \([$tasks[] | select(isBug)] | length) bug(s)._",
                         ( $features
                           | sort_by(.number)
                           | .[] as $f
-                          | ( "\n## \($f | line)",
+                          | ( "\n### \($f | line)",
                               ( [ $tasks[] | select(parentFeature == $f.number) ]
                                 | sort_by(.number)
                                 | if length == 0 then "\n_No tasks filed._"
-                                  else (.[] | "\n### \(line)\(triage)") end ) ) ),
+                                  else ( "\n| Done | Issue | Title | Kind | Severity | Priority |",
+                                         "|---|---|---|---|---|---|",
+                                         (.[] | taskRow) ) end ) ) ),
                         ( [ $tasks[]
                             | select(parentFeature == null
                                      or (parentFeature as $p | $featureNumbers | index($p) | not)) ]
                           | sort_by(.number)
                           | if length == 0 then empty
-                            else ( "\n## Unfiled — no parent feature stated",
-                                   (.[] | "\n### \(line)\(triage)") ) end )
+                            else ( "\n### Unfiled — no parent feature stated",
+                                   "\n| Done | Issue | Title | Kind | Severity | Priority |",
+                                   "|---|---|---|---|---|---|",
+                                   (.[] | taskRow) ) end )
                       ) ) )
               end )
         end )
