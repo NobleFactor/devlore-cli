@@ -294,6 +294,39 @@ corresponding resources — every entry "missing," the graph unreconcilable with
 is the relocation proof — the direct payoff of rel identity — and it exercises the reconciler's two-tier
 cascade (Etag screen → Digest verdict) exactly as designed.
 
+### Scenario — promise ordering
+
+**Setup.** One unit produces a file; a second consumes it through the producer's promise. The list hands the
+**consumer first** to `assemble_definition` — if ordering were positional, the copy would dispatch before its
+source exists.
+
+**Predictions.** Ordering comes from promises, so the write runs before the copy regardless of list
+position; the promise-fed source mints **no** pending entry (a promise is recorded, not claimed); the
+products are runtime facts — the stored catalog section is present and **empty**; the produced content flows
+through the promise into the copy.
+
+**Evidence (2026-08-20):** `test_judgment_promise_ordering.star`, wired into the CI suite
+(`TestJudgmentPromiseOrdering`) — four expectations, passing on the first run. The consumer-first list is the
+sharp assertion: execution ordered by the promise edge, not by position.
+
+### Scenario — pre-flight fail-fast
+
+**Setup.** A graph claims an existing file as pending intent; the file is deleted **after planning, before
+the run**.
+
+**Predictions (from the Q1 ruling).** Pre-flight's verification pass finds the pending file resource missing
+relative to the run's fsroot — unmet intent — and **fails the run before any unit dispatches**; the error is
+the catalog's verdict (`verify existence: resource … does not exist`), not a rediscovered copy error; the
+destination is never created.
+
+**Evidence (2026-08-20): red, exactly as predicted — this is phase 3's acceptance pin.**
+`test_judgment_preflight_fail_fast.star`: two of three expectations pass (one pending entry claimed; the
+destination never created); the error-shape expectation fails because today's run produced
+`file.copy: openat vanishes.txt: no such file or directory` — the copy **dispatched** and rediscovered the
+loss through its own I/O. `resolvePendingResources` says so itself: "Mark, don't fail." Wired as
+`TestJudgmentPreflightFailFast` with a `t.Skip` naming the gap; #585 un-skips it, and the scenario flipping
+green is the phase's acceptance evidence.
+
 ## Open questions — all ruled 2026-08-20
 
 1. ~~Which string parameters are output-naming?~~ — **RULED: none.** Products are runtime-created; nothing
