@@ -176,6 +176,36 @@ actual shape) and what #571's declared-roots direction extends naturally into `(
    **3 → 0** if all three prove to be pure identity-form failures; any remainder is re-diagnosed, not
    assumed.
 
+**Review findings (2026-08-21, from the live CI logs and the code):**
+
+- Failure diagnosis: `TestDiscoverRegular_ForeignSchemeString_IsAPath` is **pure identity-form** (the tag
+  URI embeds the backslashed machine-absolute path) — the identity mint fixes it directly.
+  `TestSourceFile_StarlarkIntegration` is a machine path **interpolated into generated Starlark source**
+  (`\U` reads as an invalid escape) and `TestWriteOnboardManifest…` is **mixed-separator narration**
+  (`C:\…\001/packages-manifest.yaml`) — both are path-as-text at their surfaces, cured in the
+  authoring-migration step, not by the mint.
+- Sequencing constraint: **the grammar refusals and the harness migration must co-land** — once volume
+  spellings are plan-time refusals, every `t.tmp`-authored script fails to plan (`t.tmp` returns
+  `filepath.Join(tmpDir, name)`, machine-absolute). The identity mint has no such coupling: `SourcePath`
+  already carries `Rel()`, so the mint lands first and alone.
+- Providers already use `SourcePath.Abs()` at their I/O sites; step 4's four consumers are a bounded hunt.
+
+**PR slicing:** PR 1 — the identity mint (URI specific part carries `SourcePath.Rel()`), the 4.1 amendment,
+re-pinned format-identity tests; Windows 3 → 2. PR 2 — the plan-space grammar with both refusals plus the
+full authoring migration (`t.tmp`, writ deploy, tests) and the re-diagnosed fixes for the two path-as-text
+failures; Windows 2 → 0. PR 3 — the four consumers onto `SourcePath.Abs()`, pre-flight as the one sentence,
+closure.
+
+**PR 1 record (2026-08-21):** the mint flips to the ruled opaque form — `"file:" + SourcePath.Rel()`
+(4.1's amended row and sketch, already landed in phase 0). The empirical consumer hunt found ONE seam, not
+four: writ's readback (`recordedIdentity`) parsed the URI's embedded path and keyed drift attribution by it;
+everything else already used `SourcePath.Abs()`. The fix is design-true: `ResourceLedgerSnapshot` gains
+`Root` — the run's bound fsroot, stamped by the executor at capture (§5.5: the trace records the binding) —
+and readback joins the recorded root with the rel to derive its native keys. The foreign-scheme pin
+re-asserts against the rel form (`file:https:/example.com/x`), which also makes it platform-neutral —
+expected to clear on Windows. Escaping rels (`../…`) still mint until PR 2's grammar refuses authoring them.
+Gate: make check 103 ok / 0 fail, GOOS=windows vet clean.
+
 ### Phase 3 — plan-time claiming: inputs only, pending only — status: pending
 
 **RULED 2026-08-20, superseding the sketch's output section (:21–27) and rejecting Appendix A outright:**

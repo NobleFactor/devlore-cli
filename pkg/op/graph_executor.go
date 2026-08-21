@@ -310,9 +310,7 @@ func (e *GraphExecutor) ResumeUnwind(ctx context.Context) error {
 	}
 	e.environment = environment
 	defer func() {
-		if e.environment.ResourceCatalog != nil {
-			e.ledgerSnapshot = e.environment.ResourceCatalog.Snapshot()
-		}
+		e.captureLedgerSnapshot()
 		//nolint:errcheck // diagnose-ignored-error: cleanup close; see docs/architecture/2.8-eventing-infrastructure.md
 		_ = e.environment.Close()
 		e.environment = nil
@@ -512,9 +510,7 @@ func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) 
 		// after Run returns) can project it into [Trace.Catalog]: a paused run's trace becomes resumable, and a
 		// completed run's trace records the as-deployed content identity — the ledger's Etag/Digest capture
 		// (phase-8 step 48) — that drift attribution reads back.
-		if e.environment.ResourceCatalog != nil {
-			e.ledgerSnapshot = e.environment.ResourceCatalog.Snapshot()
-		}
+		e.captureLedgerSnapshot()
 		//nolint:errcheck // diagnose-ignored-error: cleanup close; see docs/architecture/2.8-eventing-infrastructure.md
 		_ = e.environment.Close()
 		e.environment = nil
@@ -1071,6 +1067,23 @@ func (e *GraphExecutor) bindVariables(graph *Graph, callerVariables map[string]V
 // operations against a not-yet-existent path is legitimate (`file.exists` on a missing file answers false; a producer
 // revives a [Gone] URI via shadow), and consumers of a genuinely missing resource fail at their own dispatch (the Q2
 // "dependents fail on their own" precedent). The probes are read-only (stat-class), so the pass also runs in dry-run.
+// captureLedgerSnapshot records the resource ledger and the run's bound root for the trace.
+//
+// The binding half of the trace record: file identities are root-relative (#584), so the snapshot names
+// the root this run bound them to. A nil catalog leaves the snapshot untouched.
+func (e *GraphExecutor) captureLedgerSnapshot() {
+
+	if e.environment.ResourceCatalog == nil {
+		return
+	}
+
+	e.ledgerSnapshot = e.environment.ResourceCatalog.Snapshot()
+
+	if e.environment.HasRoot() {
+		e.ledgerSnapshot.Root = e.environment.Root().Name()
+	}
+}
+
 func (e *GraphExecutor) resolvePendingResources() {
 
 	catalog := e.environment.ResourceCatalog

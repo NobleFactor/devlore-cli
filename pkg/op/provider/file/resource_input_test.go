@@ -64,8 +64,9 @@ func TestDiscoverRegular_ForeignSchemeString_IsAPath(t *testing.T) {
 	}
 
 	// Path canonicalization collapses the "//" — the string rides as the relative path
-	// "https:/example.com/x" under the root, proving no scheme grammar intervened.
-	if !strings.Contains(resource.URI(), "/https:/example.com/x") {
+	// "https:/example.com/x" under the root, proving no scheme grammar intervened. Identity is the rel
+	// itself (#584), so it sits immediately after the file: marker, slash-canonical on every platform.
+	if !strings.Contains(resource.URI(), "file:https:/example.com/x") {
 		t.Fatalf("expected the string carried as a path in the identity, got %s", resource.URI())
 	}
 }

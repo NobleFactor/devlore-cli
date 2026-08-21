@@ -272,7 +272,11 @@ documents simply fail to load and are rewritten by re-planning.
 ### 5.5 Graph = intent; trace = observation
 
 The graph document never records observation. The trace's ledger snapshot (step 48) records what the run
-saw: activations with captured content identity, products, transitions, compensations. Pre-flight in one
+saw: activations with captured content identity, products, transitions, compensations — and **the binding**:
+the snapshot names the root the run bound (its `root` field, stamped by the executor at capture), because
+file identities are rels and a recorded rel is interpretable only against the root that ran it. Consumers
+derive an entry's native path by joining the recorded root with the URI's rel payload — identity is never
+parsed for a native form (the #547 rule). Pre-flight in one
 sentence: **every pending resource must satisfy its scheme's existence predicate — for file resources, the rel must exist under the run's root.** The judgment scenarios that pin this split
 live in the plan's "Judgment scenarios" section.
 

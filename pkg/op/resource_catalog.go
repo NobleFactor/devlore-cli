@@ -831,6 +831,12 @@ func stripFragment(uri string) string {
 // receipt references resolve against the rehydrated ledger by id.
 type ResourceLedgerSnapshot struct {
 
+	// Root is the run's bound fsroot, stamped by the executor at capture time (empty on a snapshot taken
+	// outside a run). File identities are root-relative (#584), so the trace must record which root the run
+	// bound — consumers derive an entry's native path by joining Root with the URI's rel payload, never by
+	// parsing a native form out of identity.
+	Root string `json:"root" yaml:"root"`
+
 	// Entries is every ledger generation in append order. Replaying that order reproduces the URI→id namespace's
 	// current-generation pointer (last writer for a URI wins).
 	Entries []LedgerEntrySnapshot `json:"entries" yaml:"entries"`
