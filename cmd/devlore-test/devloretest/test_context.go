@@ -361,15 +361,34 @@ func (tc *TestContext) checkNoFile(exp Expectation) *Failure {
 	return nil
 }
 
+// resolve maps a script-supplied path onto the disk: a plan-space rel resolves against the scoping root's
+// anchor; an absolute path passes through.
+//
+// Parameters:
+//   - `path`: the script-supplied path — a plan-space rel (t.tmp's form) or an absolute path.
+//
+// Returns:
+//   - `string`: the absolute path.
+func (tc *TestContext) resolve(path string) string {
+
+	if filepath.IsAbs(path) || tc.root == nil {
+		return path
+	}
+
+	return filepath.Join(tc.root.Name(), filepath.FromSlash(path))
+}
+
 // readFile reads a file, using root-scoped I/O when root is available. Falls back to os.ReadFile otherwise.
 //
 // Parameters:
-//   - `abs`: absolute path to the file.
+//   - `path`: the script-supplied path; resolved via [TestContext.resolve].
 //
 // Returns:
 //   - []byte: file contents.
 //   - `error`: any read error.
-func (tc *TestContext) readFile(abs string) ([]byte, error) {
+func (tc *TestContext) readFile(path string) ([]byte, error) {
+
+	abs := tc.resolve(path)
 
 	if tc.root != nil {
 		return tc.root.ReadFile(tc.root.NewPath(abs))
@@ -515,7 +534,7 @@ func (tc *TestContext) starMkdir(
 		return nil, err
 	}
 
-	if err := os.MkdirAll(path, 0o750); err != nil {
+	if err := os.MkdirAll(tc.resolve(path), 0o750); err != nil {
 		return nil, fmt.Errorf("t.mkdir: %w", err)
 	}
 
@@ -535,12 +554,13 @@ func (tc *TestContext) starWrite(
 		return nil, err
 	}
 
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		return nil, fmt.Errorf("t.write: %w", err)
+	abs := tc.resolve(path)
+
+	if err := os.MkdirAll(filepath.Dir(abs), 0o750); err != nil {
+		return nil, fmt.Errorf("t.mkdir: %w", err)
 	}
 
-	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+	if err := os.WriteFile(abs, []byte(content), 0o600); err != nil {
 		return nil, fmt.Errorf("t.write: %w", err)
 	}
 
@@ -565,6 +585,16 @@ func (tc *TestContext) starTmp(
 		return nil, fmt.Errorf("t.tmp: path traversal not allowed: %s", relative)
 	}
 
+	// Plan-space names (#584 phase 2): with a scoping root, t.tmp returns the slash-canonical rel of the
+	// name under the run's root — the same value works as authored plan input, immediate-mode I/O, and a
+	// harness expectation, because every consumer resolves rels against the one root. Without a root the
+	// context falls back to the historical absolute form.
+	if tc.root != nil {
+		if rel, err := filepath.Rel(tc.root.Name(), filepath.Join(tc.tmpDir, relative)); err == nil {
+			return starlark.String(filepath.ToSlash(rel)), nil
+		}
+	}
+
 	return starlark.String(filepath.Join(tc.tmpDir, relative)), nil
 }
 
@@ -576,7 +606,9 @@ func (tc *TestContext) starTmp(
 // Returns:
 //   - os.FileInfo: file metadata.
 //   - `error`: any stat error.
-func (tc *TestContext) stat(abs string) (os.FileInfo, error) {
+func (tc *TestContext) stat(path string) (os.FileInfo, error) {
+
+	abs := tc.resolve(path)
 
 	if tc.root != nil {
 		return tc.root.Stat(tc.root.NewPath(abs))
@@ -839,9 +871,17 @@ func (tc *TestContext) buildSpec() (*op.RuntimeEnvironmentSpec, error) {
 		Config:    tc.sources.Config,
 	}
 
+	// One root everywhere (#584 phase 2): the run anchors where the script session anchors — the scoping
+	// root's own name — so plan-space rels mean the same disk locations at plan time, immediate dispatch,
+	// and run dispatch. The .devlore/tmp prefix lives in the rels t.tmp returns, not in the root.
+	anchor := tc.tmpDir
+	if tc.root != nil {
+		anchor = tc.root.Name()
+	}
+
 	return op.NewRuntimeEnvironmentSpec(programName).
 		WithStatus(cli.UI()).
-		WithRoot(tc.tmpDir).
+		WithRoot(anchor).
 		WithPlatform(hostPlatform).
 		WithApplication(app), nil
 }

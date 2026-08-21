@@ -1199,6 +1199,11 @@ func (p *Provider) findWalkFunc(
 // +devlore:defaults includeGitignored=false
 func (p *Provider) Glob(pattern string, includeGitignored bool) ([]Entry, error) {
 
+	// A relative pattern is root-relative (#584 phase 2), never process-cwd-relative.
+	if !filepath.IsAbs(pattern) && p.RuntimeEnvironment().HasRoot() {
+		pattern = filepath.Join(p.Root(), filepath.FromSlash(pattern))
+	}
+
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
 		return nil, err

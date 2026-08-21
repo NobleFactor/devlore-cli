@@ -109,8 +109,10 @@ var MaxRetries = 3
 		t.Fatal(err)
 	}
 
+	// The path rides inside double-quoted starlark source, so it must be slash-form — a native Windows
+	// spelling's backslashes read as escape sequences there (#547: path-as-text is neutral text).
 	starScript := `def run(command, ctx):
-    ast = goast.load_source_file("` + testGoPath + `")
+    ast = goast.load_source_file("` + filepath.ToSlash(testGoPath) + `")
 
     # --- PkgPath name (string return = eagerly evaluated property) ---
     if ast.package_name != "example":
@@ -213,6 +215,7 @@ var MaxRetries = 3
 	t.Cleanup(func() { os.Chdir(origDir) })
 
 	r := NewApplication(&cobra.Command{Use: "star"})
+	t.Cleanup(func() { _ = r.Close() })
 
 	// Load the test extension.
 	if err := r.LoadExtensionsFrom(filepath.Join(dir, "star", "extensions")); err != nil {

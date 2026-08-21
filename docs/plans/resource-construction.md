@@ -134,7 +134,7 @@ Windows known-failures.
 4. Round-trip pin: pack → unpack → pack byte-identical, including the empty section.
 5. Windows baseline expectation: unchanged (3).
 
-### Phase 2 — portable file identity: rel, bound to the run's root (#546/#547) — status: pending
+### Phase 2 — portable file identity: rel, bound to the run's root (#546/#547) — status: in progress (PR 1 merged `92c18eb1`; PR 2 in review)
 
 **RULED 2026-08-20: named resources are computed relative to some fsroot, and the fsroot is not known until
 the run.** The motivating cases are the product's own scopes: a **home**-scope graph binds to the account
@@ -226,6 +226,37 @@ Clean after separator normalization) renders every rel in both `makePath` branch
 with a platform-neutrality pin in the fsroot suite. Exactly the class #547 predicted ("the sixth is
 waiting"); recorded on #547.
 
+**PR 2 record (2026-08-21):** the plan-space grammar and the full co-landing, one PR as the sequencing
+constraint demanded.
+
+- **The grammar** (`file.NormalizePlanSpacePath`, registered per resource type via
+  `op.RegisterPlanPathNormalizer`, applied at the planner's claiming seam — `normalizePlanSpaceValue` in
+  `bindPresentValue`): `foo/bar` ≡ `/foo/bar`; volume/UNC/backslash spellings refuse; `@name/…` refuses
+  as reserved for #597; escapes and the bare root refuse. One table pin covers every rule. Immediate-mode
+  and programmatic construction are untouched — the grammar governs what a plan may say.
+- **One root everywhere in devlore-test**: `t.tmp` returns plan-space rels (`.devlore/tmp/<name>`), the
+  run anchors at the same workspace root as the script session, and the harness's Go-side helpers resolve
+  rels through one `resolve` seam. Machine-absolute authored paths died by double-prefix exactly as
+  predicted — the migration was forced, visible, and complete.
+- **writ emits rels**: `PlanFileChain` renders source/origin/target through the new `deploy.PlanSpacePath`
+  (rel against the planning environment's root — the run root writ already chooses); the encrypt planner
+  follows; graph-origin annotations keep machine-absolute paths for the readback fold's keying.
+- **Process-cwd leaks fixed as discovered**: `shell.exec`/`powershell.exec` anchor the command's cwd at
+  the run root; `file.glob` resolves relative patterns against the root; `plan.save_definition`/
+  `load_definition` resolve relative document paths against the session root.
+- **The two Windows surfaces fixed**: the star integration fixture interpolates its path slash-form into
+  starlark source (paths-in-text are neutral text); lore's onboard manifest path uses a native join
+  instead of string concatenation.
+- Gate: make check 103 ok / 0 fail (grammar pins + all scenario stars green), GOOS=windows vet clean.
+  **Windows expectation: 2 → 0 — the first fully green CI of the campaign.** Any Windows remainder is
+  re-diagnosed, not assumed.
+- **First CI re-diagnosis (2026-08-21):** two names, neither assumed. `TestPlannedCopy_…` was the last
+  unswept authoring surface — the Go judgment pin interpolated machine-absolutes into its star fixture and
+  the grammar refused them on Windows exactly as designed; it now authors rels, which is also truer to its
+  subject. `TestSourceFile_StarlarkIntegration`'s escape failure was CURED by the slash-form fix — the
+  residue was a Windows handle leak: the test never called the documented `Application.Close`, so the
+  session root pinned the temp dir at cleanup (the same class as the TestLintCopyright fix).
+
 ### Phase 3 — plan-time claiming: inputs only, pending only — status: pending
 
 **RULED 2026-08-20, superseding the sketch's output section (:21–27) and rejecting Appendix A outright:**
@@ -239,9 +270,15 @@ the catalog at plan time. The plan-time catalog is the graph's *input intent*, a
    arrives when the producer runs.
 3. String-typed parameters (`destination_path`, `mode`, `user`, …) stay plain values. No output-naming
    convention, no `+devlore:output` — there is nothing to declare because there is nothing tracked.
-4. Consequence for phase 1's stored section: every stored entry is Pending by construction — `{id, uri,
-   state: pending}` rows, no producer stamps, no Etag/Digest. **Graph = intent; trace = observation** (the
-   step-48 snapshot keeps the observed side).
+4. Consequence for phase 1's stored section: every stored entry is Pending by construction. **RULED
+   2026-08-21: the stored row drops `state` entirely** — the intent row becomes its own `{id, uri}` type
+   (presence IS the pending claim), splitting from the trace's `LedgerEntrySnapshot`, whose
+   state/etag/digest/producer vocabulary stays where observation lives. **Graph = intent; trace =
+   observation** (the step-48 snapshot keeps the observed side). Fallout, small and known: the
+   round-trip pins re-pin (bytes change; old documents die, schema stays 1); the star pins asserting
+   `state == "pending"` flip to asserting the field's absence; the Go catalog pin keeps presence/absence
+   and drops its state assertion; writ readback is untouched (it reads the trace). Known boundary: lenient
+   decoding means a stray hand-edited `state:` is ignored, not refused — a codec-wide property, noted.
 5. Acceptance: **both pins flip green with corrected assertions** — the stored document carries
    `original.txt` (pending), and asserts `duplicate.txt` **absent**, pinning the product ruling in both
    directions. **Delivered early — the pins flipped with phase 1**: planning already interned the

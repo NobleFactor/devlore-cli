@@ -53,6 +53,12 @@ func (p *Provider) Exec(command string) (*Result, error) {
 		return nil, fmt.Errorf("no command specified")
 	}
 	cmd := exec.CommandContext(p.RuntimeEnvironment().Context, "sh", "-c", command) //nolint:gosec // G204: command built from provider inputs
+
+	// The command's world is the run's root (#584 phase 2): plan-space paths are root-relative, so a
+	// planned command's relative paths must resolve against the run's root, not the host process's cwd.
+	if p.RuntimeEnvironment().HasRoot() {
+		cmd.Dir = p.RuntimeEnvironment().Root().Name()
+	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

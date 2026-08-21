@@ -343,7 +343,13 @@ func (p *Provider) Clear() error {
 //   - `error`: non-nil when the file cannot be read, the format is unsupported, or decoding fails.
 func (p *Provider) LoadDefinition(path string) (*op.Graph, error) {
 
-	// Confinement: plan documents are store/CLI documents at caller-named paths, not confined-tree resources.
+	// Confinement: plan documents are store/CLI documents at caller-named paths, not confined-tree
+	// resources. A relative caller-named path resolves against the session root (#584 phase 2) — never the
+	// process cwd.
+	if !filepath.IsAbs(path) && p.RuntimeEnvironment().HasRoot() {
+		path = filepath.Join(p.RuntimeEnvironment().Root().Name(), filepath.FromSlash(path))
+	}
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("plan.Provider.LoadDefinition: %w", err)
@@ -386,7 +392,13 @@ func (p *Provider) SaveDefinition(graph *op.Graph, path string) (err error) {
 
 	var file *os.File
 
-	// Confinement: plan documents are store/CLI documents at caller-named paths, not confined-tree resources.
+	// Confinement: plan documents are store/CLI documents at caller-named paths, not confined-tree
+	// resources. A relative caller-named path resolves against the session root (#584 phase 2) — never the
+	// process cwd.
+	if !filepath.IsAbs(path) && p.RuntimeEnvironment().HasRoot() {
+		path = filepath.Join(p.RuntimeEnvironment().Root().Name(), filepath.FromSlash(path))
+	}
+
 	file, err = os.Create(path)
 	if err != nil {
 		return fmt.Errorf("plan.Provider.SaveDefinition: %w", err)

@@ -381,6 +381,11 @@ func bindPresentValue(invocator PlanInvocator, spec *NodeSpec, actionName string
 
 	default:
 
+		value, err := normalizePlanSpaceValue(actionName, param, value)
+		if err != nil {
+			return err
+		}
+
 		// A builtin value may be the Go form of a content resource (e.g. a *starlark.Function). The provider
 		// keys its constructor by the source type; if the registry has one, build the resource here so the
 		// addressing switch below takes over — naming only op + reflect, never the provider.
@@ -409,6 +414,40 @@ func bindPresentValue(invocator PlanInvocator, spec *NodeSpec, actionName string
 	}
 
 	return nil
+}
+
+// normalizePlanSpaceValue renders an authored string bound to a resource-typed parameter through the
+// owning scheme's plan-space grammar — the claiming seam of the little language (§5.2).
+//
+// Non-string values and parameter types without a registered normalizer pass through untouched: the grammar
+// governs what a plan may say, not what a session may do.
+//
+// Parameters:
+//   - `actionName`: the action name, for error messages.
+//   - `param`: the parameter being bound.
+//   - `value`: the supplied value.
+//
+// Returns:
+//   - `any`: the canonical value (normalized when the grammar applied; the input otherwise).
+//   - `error`: non-nil when the grammar refuses the authored path.
+func normalizePlanSpaceValue(actionName string, param Parameter, value any) (any, error) {
+
+	s, isString := value.(string)
+	if !isString || param.Type == nil {
+		return value, nil
+	}
+
+	normalize, ok := planPathNormalizerFor(param.Type)
+	if !ok {
+		return value, nil
+	}
+
+	normalized, err := normalize(s)
+	if err != nil {
+		return nil, fmt.Errorf("op.ActionPlanner.Plan: %s: param %q: %w", actionName, param.Name, err)
+	}
+
+	return normalized, nil
 }
 
 // bindResourceValue binds a resource-valued argument per its addressing.

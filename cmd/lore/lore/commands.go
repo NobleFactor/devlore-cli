@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -799,7 +800,7 @@ func reportOnboardResult(result *onboard.Result) {
 //   - `error`: non-nil when the manifest cannot be written.
 func writeOnboardManifest(outputDir string, result *onboard.Result) error {
 
-	manifestPath := outputDir + "/packages-manifest.yaml"
+	manifestPath := filepath.Join(outputDir, "packages-manifest.yaml")
 	if err := os.WriteFile(manifestPath, []byte(result.Manifest), 0o600); err != nil {
 		return fmt.Errorf("writing manifest: %w", err)
 	}
