@@ -1092,10 +1092,22 @@ func (e *GraphExecutor) resolvePendingResources() {
 	}
 
 	for _, resource := range catalog.pendingEntries() {
+
+		// The activation binding (§5.5): the run, not the construction session, owns location. Every
+		// pending entry re-bases onto the run's environment, and a root-relative scheme re-binds its path
+		// rel-first against the run's root through the [RootBinder] seam — so the existence check below,
+		// and every later observation, read the run's world rather than the environment that happened to
+		// construct or rehydrate the object (the run-from-elsewhere defect).
+		resource.resourceBase().runtimeEnvironment = e.environment
+		if binder, ok := resource.(RootBinder); ok && e.environment.HasRoot() {
+			binder.BindRoot(e.environment.Root())
+		}
+
 		if !participatesInExistenceVerification(resource) {
 			continue
 		}
-		// Mark, don't fail: VerifyExistence records Gone on a missing resource; the error is informational here.
+		// Mark, don't fail: VerifyExistence records Gone on a missing resource; the error is informational
+		// here (phase 3 of the resource-construction plan owns the transition-failure consequence).
 		//nolint:errcheck // diagnose-ignored-error: records Gone; see docs/architecture/2.8-eventing-infrastructure.md
 		_ = catalog.VerifyExistence(resource)
 	}

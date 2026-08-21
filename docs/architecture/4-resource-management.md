@@ -280,9 +280,13 @@ saw: activations with captured content identity, products, transitions, compensa
 the snapshot names the root the run bound (its `root` field, stamped by the executor at capture), because
 file identities are rels and a recorded rel is interpretable only against the root that ran it. Consumers
 derive an entry's native path by joining the recorded root with the URI's rel payload — identity is never
-parsed for a native form (the #547 rule). Pre-flight in one
-sentence: **every pending resource must satisfy its scheme's existence predicate — for file resources, the rel must exist under the run's root.** The judgment scenarios that pin this split
-live in the plan's "Judgment scenarios" section.
+parsed for a native form (the #547 rule). **The binding is enforced at the executor's pre-flight resolve
+pass** (implemented 2026-08-21, #584 PR 3): every pending entry re-bases onto the run's environment, and a
+root-relative scheme re-binds its path rel-first through the `op.RootBinder` seam (`file` implements it) —
+so existence, Etag, Digest, and I/O all read the run's world, never the environment that constructed or
+rehydrated the object. Pre-flight in one sentence: **every pending resource must satisfy its scheme's
+existence predicate — for file resources, the rel must exist under the run's root.** The judgment scenarios
+that pin this split live in the plan's "Judgment scenarios" section.
 
 ## 6. Recovery — Receipts and the Recovery Site
 

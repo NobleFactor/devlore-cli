@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 )
 
 // tagURIPrefix is the fixed prefix of every canonical [Resource] URI.
@@ -29,6 +30,24 @@ var (
 	// [ResourceBase.Convert] to decide whether the URI projection applies to a given conversion target.
 	stringType = reflect.TypeFor[string]()
 )
+
+// RootBinder is the activation-binding seam (4-resource-management.md §5.5): a resource whose identity is
+// root-relative re-binds its location to the run's root at the executor's pre-flight resolve pass.
+//
+// The run, not the construction session, owns location: a resource is constructed (or rehydrated) in
+// whatever environment planned or loaded the graph, but every location fact about it — existence, content
+// identity, I/O — belongs to the root the run binds. A scheme whose identity is a rel implements BindRoot
+// to re-derive its path rel-first against the run's root; Abs derives from that binding and never survives
+// from construction. The inverse — verifying against the construction environment's root — was the
+// run-from-elsewhere defect: a graph saved on one machine verified against the environment that loaded it,
+// never the root that ran it. Schemes without location (the content-addressed types) simply do not
+// implement the interface.
+type RootBinder interface {
+
+	// BindRoot re-binds the resource's location to `root`, rel-first: identity (the rel) is unchanged;
+	// the root is the run's; the native form derives.
+	BindRoot(root fsroot.Dir)
+}
 
 // Resource is the interface for all resource receiverTypes.
 //

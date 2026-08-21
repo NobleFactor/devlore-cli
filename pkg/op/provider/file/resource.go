@@ -27,10 +27,24 @@ import (
 type Resource struct {
 	op.ResourceBase
 
-	// SourcePath is the canonicalized absolute path on the disk. Set at construction by [buildCandidate] (which routes
-	// the input through `RuntimeEnvironment.Root.NewPath`); rebound to the live execution fsroot by [Resource.Resolve]
-	// when the run-time fsroot differs from the construction-time fsroot.
+	// SourcePath is the bound location triad (§5.5): Rel() is the identity verbatim, Root() the bound
+	// fsroot, Abs() derived and OS-native for I/O. Set at construction against the constructing session's
+	// root; re-bound REL-FIRST to the run's root by [Resource.BindRoot] at the executor's pre-flight
+	// resolve pass (the op.RootBinder seam) and by [Resource.Resolve].
 	SourcePath fsroot.Path
+}
+
+// BindRoot re-binds this resource's location to `root`, rel-first — the activation binding (§5.5), driven
+// from the executor's pre-flight resolve pass through the [op.RootBinder] seam.
+//
+// Identity (the rel) is unchanged; the root becomes the run's; the native form derives. The environment
+// re-base happens executor-side, so after binding every observation — existence, Etag, Digest, I/O — reads
+// the run's world.
+//
+// Parameters:
+//   - `root`: the run's bound fsroot.
+func (r *Resource) BindRoot(root fsroot.Dir) {
+	r.SourcePath = root.NewPath(r.SourcePath.Rel())
 }
 
 // discoverResource registers a catch-all base handle via [op.ResourceCatalog.Discover] without claiming production.
@@ -346,7 +360,9 @@ func (r *Resource) Resolve() error {
 
 	root := r.RuntimeEnvironment().Root()
 
-	r.SourcePath = root.NewPath(r.SourcePath.Abs())
+	// Rel-first (§5.5): identity is the rel and location derives from the live root. The abs-first form
+	// this replaces preserved the construction-time machine location — the run-from-elsewhere defect.
+	r.SourcePath = root.NewPath(r.SourcePath.Rel())
 
 	_, err := root.Stat(r.SourcePath)
 	if err != nil {

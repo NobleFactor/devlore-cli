@@ -134,7 +134,7 @@ Windows known-failures.
 4. Round-trip pin: pack → unpack → pack byte-identical, including the empty section.
 5. Windows baseline expectation: unchanged (3).
 
-### Phase 2 — portable file identity: rel, bound to the run's root (#546/#547) — status: in progress (PR 1 merged `92c18eb1`; PR 2 in review)
+### Phase 2 — portable file identity: rel, bound to the run's root (#546/#547) — status: complete 2026-08-21 (PR 1 `92c18eb1`; PR 2 `2c5f6e6a`; PR 3 in review — the completing PR)
 
 **RULED 2026-08-20: named resources are computed relative to some fsroot, and the fsroot is not known until
 the run.** The motivating cases are the product's own scopes: a **home**-scope graph binds to the account
@@ -256,6 +256,18 @@ constraint demanded.
   subject. `TestSourceFile_StarlarkIntegration`'s escape failure was CURED by the slash-form fix — the
   residue was a Windows handle leak: the test never called the documented `Application.Close`, so the
   session root pinned the temp dir at cleanup (the same class as the TestLintCopyright fix).
+
+**PR 3 record (2026-08-21) — the activation binding; phase 2 closes.** The run-from-elsewhere caveat is
+implemented: the executor's pre-flight resolve pass re-bases every pending entry onto the run's environment
+and re-binds root-relative schemes rel-first through the new `op.RootBinder` seam (`file.Resource.BindRoot`;
+`Resolve`'s abs-first rebind — the documented inverse — flips rel-first). The consequence stays
+mark-don't-fail; phase 3 owns the transition-failure semantics. Pinned in both directions
+(`TestRun_BindsPendingResourcesToTheRunRoot`, `TestRun_APendingRelAbsentUnderTheRunRootIsGone`): a graph
+planned under root A and executed under root B verifies and observes under B — the trace records B as the
+binding, the rel is Active when the file exists only under B, Gone when only under A. Step 4's consumer
+sweep completed across PRs 1–3: readback (PR 1), providers already on the accessor, and Resolve's rebind
+(this PR). Windows expectation: green stays green — the baseline is now zero. **The Windows CI leg went
+28 → 0 during this phase; #547 closed.**
 
 ### Phase 3 — plan-time claiming: inputs only, pending only — status: pending
 
