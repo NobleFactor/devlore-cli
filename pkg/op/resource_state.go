@@ -4,7 +4,10 @@
 package op
 
 import (
+	"encoding/json"
 	"fmt"
+
+	"gopkg.in/yaml.v3"
 
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
 )
@@ -49,4 +52,76 @@ func (s ResourceState) String() string {
 
 	assert.Unreachable(fmt.Sprintf("op.ResourceState.String: invalid state value %d", int(s)))
 	return ""
+}
+
+// MarshalJSON serializes the state as its canonical lowercase string — a document carries "pending", never a
+// bare ordinal (the typed-value rule: no value degrades to its least-typed rendering in an artifact).
+//
+// Returns:
+//   - `[]byte`: the JSON string form.
+//   - `error`: any error from the underlying marshal.
+func (s ResourceState) MarshalJSON() ([]byte, error) { return json.Marshal(s.String()) }
+
+// MarshalYAML serializes the state as its canonical lowercase string, mirroring [ResourceState.MarshalJSON].
+//
+// Returns:
+//   - `any`: the string form for the YAML encoder.
+//   - `error`: always nil; present to satisfy the [yaml.Marshaler] interface.
+func (s ResourceState) MarshalYAML() (any, error) { return s.String(), nil }
+
+// UnmarshalJSON deserializes the canonical string form.
+//
+// Parameters:
+//   - `data`: the JSON bytes to decode.
+//
+// Returns:
+//   - `error`: a malformed JSON string, or an unknown state name.
+func (s *ResourceState) UnmarshalJSON(data []byte) error {
+
+	var name string
+	if err := json.Unmarshal(data, &name); err != nil {
+		return err
+	}
+
+	return s.parse(name)
+}
+
+// UnmarshalYAML deserializes the canonical string form, mirroring [ResourceState.UnmarshalJSON].
+//
+// Parameters:
+//   - `value`: the YAML node to decode.
+//
+// Returns:
+//   - `error`: a malformed YAML scalar, or an unknown state name.
+func (s *ResourceState) UnmarshalYAML(value *yaml.Node) error {
+
+	var name string
+	if err := value.Decode(&name); err != nil {
+		return err
+	}
+
+	return s.parse(name)
+}
+
+// parse assigns the state named by `name`.
+//
+// Parameters:
+//   - `name`: the canonical lowercase state name.
+//
+// Returns:
+//   - `error`: non-nil for an unknown name.
+func (s *ResourceState) parse(name string) error {
+
+	switch name {
+	case "pending":
+		*s = Pending
+	case "active":
+		*s = Active
+	case "gone":
+		*s = Gone
+	default:
+		return fmt.Errorf("op.ResourceState: unknown state %q", name)
+	}
+
+	return nil
 }
