@@ -215,6 +215,7 @@ var MaxRetries = 3
 	t.Cleanup(func() { os.Chdir(origDir) })
 
 	r := NewApplication(&cobra.Command{Use: "star"})
+	t.Cleanup(func() { _ = r.Close() })
 
 	// Load the test extension.
 	if err := r.LoadExtensionsFrom(filepath.Join(dir, "star", "extensions")); err != nil {

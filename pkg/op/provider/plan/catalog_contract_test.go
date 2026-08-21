@@ -5,7 +5,6 @@ package plan_test
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -44,12 +43,14 @@ func TestPlannedCopy_TheStoredCatalogIsInputIntent(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Plan — not run — a one-node copy from Starlark, and save the graph document.
-	script := fmt.Sprintf(`
-node  = plan.file.copy(source = %q, destination_path = %q, mode = 0o600, user = "", group = "")
+	// Plan — not run — a one-node copy from Starlark, and save the graph document. The script authors
+	// plan-space rels (#584 phase 2): the session root is the run root here, so the names resolve to the
+	// files written above, and the same script text is valid on every platform.
+	script := `
+node  = plan.file.copy(source = "original.txt", destination_path = "duplicate.txt", mode = 0o600, user = "", group = "")
 graph = plan.assemble_definition([node])
-plan.save_definition(graph, %q)
-`, sourcePath, destinationPath, graphPath)
+plan.save_definition(graph, "graph.json")
+`
 
 	scriptPath := filepath.Join(root, "catalog.star")
 	if err := os.WriteFile(scriptPath, []byte(script), 0o644); err != nil {

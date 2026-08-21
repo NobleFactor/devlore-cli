@@ -263,11 +263,15 @@ without letting them trade places.
 ### 5.4 The serialized section — mandatory, even when empty
 
 Every graph document carries a `resources` section: one row per current-generation entry, as intent —
-`{id, uri, state: pending}` (all pending by construction: no producers, no Etag/Digest — those are trace
-material). Content-addressed entries additionally carry their packed bytes (the content transport, step 25).
-The section is present even when empty. **A document without it does not load, and a graph without a catalog
-fails pre-flight hard** (`ReasonPreflightFailed`, before any dispatch). `schema_version` stays 1: pre-ruling
-documents simply fail to load and are rewritten by re-planning.
+**`{id, uri}` and nothing else** (ruled 2026-08-21; implementation rides #585). Intent needs no state
+field: presence in the section IS the pending claim — pending is definitional, not recorded — and
+producers, Etag/Digest, and state are trace vocabulary (§5.5), so the intent row is its own type rather
+than a borrowed trace row. Content-addressed entries additionally carry their packed bytes (the content
+transport, step 25). The section is present even when empty. **A document without it does not load, and a
+graph without a catalog fails pre-flight hard** (`ReasonPreflightFailed`, before any dispatch).
+`schema_version` stays 1: pre-ruling documents simply fail to load and are rewritten by re-planning. Known
+boundary, accepted: today's decoders are lenient, so a stray field (e.g. a hand-edited `state:`) is ignored
+rather than refused — strict decoding is a codec-wide property, not this section's.
 
 ### 5.5 Graph = intent; trace = observation
 

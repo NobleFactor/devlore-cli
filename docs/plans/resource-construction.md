@@ -250,6 +250,12 @@ constraint demanded.
 - Gate: make check 103 ok / 0 fail (grammar pins + all scenario stars green), GOOS=windows vet clean.
   **Windows expectation: 2 → 0 — the first fully green CI of the campaign.** Any Windows remainder is
   re-diagnosed, not assumed.
+- **First CI re-diagnosis (2026-08-21):** two names, neither assumed. `TestPlannedCopy_…` was the last
+  unswept authoring surface — the Go judgment pin interpolated machine-absolutes into its star fixture and
+  the grammar refused them on Windows exactly as designed; it now authors rels, which is also truer to its
+  subject. `TestSourceFile_StarlarkIntegration`'s escape failure was CURED by the slash-form fix — the
+  residue was a Windows handle leak: the test never called the documented `Application.Close`, so the
+  session root pinned the temp dir at cleanup (the same class as the TestLintCopyright fix).
 
 ### Phase 3 — plan-time claiming: inputs only, pending only — status: pending
 
@@ -264,9 +270,15 @@ the catalog at plan time. The plan-time catalog is the graph's *input intent*, a
    arrives when the producer runs.
 3. String-typed parameters (`destination_path`, `mode`, `user`, …) stay plain values. No output-naming
    convention, no `+devlore:output` — there is nothing to declare because there is nothing tracked.
-4. Consequence for phase 1's stored section: every stored entry is Pending by construction — `{id, uri,
-   state: pending}` rows, no producer stamps, no Etag/Digest. **Graph = intent; trace = observation** (the
-   step-48 snapshot keeps the observed side).
+4. Consequence for phase 1's stored section: every stored entry is Pending by construction. **RULED
+   2026-08-21: the stored row drops `state` entirely** — the intent row becomes its own `{id, uri}` type
+   (presence IS the pending claim), splitting from the trace's `LedgerEntrySnapshot`, whose
+   state/etag/digest/producer vocabulary stays where observation lives. **Graph = intent; trace =
+   observation** (the step-48 snapshot keeps the observed side). Fallout, small and known: the
+   round-trip pins re-pin (bytes change; old documents die, schema stays 1); the star pins asserting
+   `state == "pending"` flip to asserting the field's absence; the Go catalog pin keeps presence/absence
+   and drops its state assertion; writ readback is untouched (it reads the trace). Known boundary: lenient
+   decoding means a stray hand-edited `state:` is ignored, not refused — a codec-wide property, noted.
 5. Acceptance: **both pins flip green with corrected assertions** — the stored document carries
    `original.txt` (pending), and asserts `duplicate.txt` **absent**, pinning the product ruling in both
    directions. **Delivered early — the pins flipped with phase 1**: planning already interned the
