@@ -119,7 +119,7 @@ Windows known-failures.
    is its subject) and retire; `package-signatures.md` is `Epic:LorePackaging` material — moves to that
    epic's design home, not this plan's scope beyond the move.
 
-### Phase 1 — the catalog section: serialize + enforce — status: pending
+### Phase 1 — the catalog section: serialize + enforce — status: complete 2026-08-20
 
 1. `graphData` gains a mandatory `resources` section: every current-generation ledger entry as intent —
    `{id, uri, state: pending}` (per the phase-3 ruling, plan-time entries are all Pending; no producer
@@ -192,7 +192,11 @@ the catalog at plan time. The plan-time catalog is the graph's *input intent*, a
    step-48 snapshot keeps the observed side).
 5. Acceptance: **both pins flip green with corrected assertions** — the stored document carries
    `original.txt` (pending), and asserts `duplicate.txt` **absent**, pinning the product ruling in both
-   directions.
+   directions. **Delivered early — the pins flipped with phase 1**: planning already interned the
+   resource-typed source, so serialization was the missing half and the destination's absence was already
+   true. Phase 3's remaining substance is the claiming discipline itself: plan-time minting must be
+   pending-only with no existence I/O (today's Discover can still resolve at plan time), and the promise
+   grammar verified.
 
 ### Phase 4 — run time consumes the catalog, never strings — status: pending
 

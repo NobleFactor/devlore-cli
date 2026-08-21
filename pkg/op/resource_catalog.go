@@ -112,6 +112,34 @@ func (c *ResourceCatalog) Clone() *ResourceCatalog {
 	}
 }
 
+// IntentEntries returns the graph document's intent rows: every current-generation entry, in ledger append
+// order, rendered [Pending] — the stored catalog is what must exist when the graph runs, never what planning
+// observed, so no producer stamps and no content identity travel here
+// (4-resource-management.md §5.4, ruled 2026-08-20).
+//
+// Returns:
+//   - `[]LedgerEntrySnapshot`: id, URI, and [Pending] per current generation; empty (never nil) when the
+//     ledger holds nothing — the document's section serializes even then, mandatorily.
+func (c *ResourceCatalog) IntentEntries() []LedgerEntrySnapshot {
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	entries := make([]LedgerEntrySnapshot, 0, len(c.entries))
+
+	for _, resource := range c.entries {
+
+		base := resource.resourceBase()
+		if c.ns[namespaceKey(resource)] != base.id {
+			continue // a superseded generation is history, not intent
+		}
+
+		entries = append(entries, LedgerEntrySnapshot{ID: base.id, URI: resource.URI(), State: Pending})
+	}
+
+	return entries
+}
+
 // ContentResources returns the current-generation content-addressed entries, sorted by URI.
 //
 // This is the list that travels with a serialized graph document: reference resources ([AddressingLocation]) are

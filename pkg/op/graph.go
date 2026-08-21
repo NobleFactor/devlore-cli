@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -81,10 +82,12 @@ type Graph struct {
 	// [RuntimeEnvironment.ResourceCatalog] so each Run gets an independent working catalog and the graph's planning
 	// catalog stays pristine across "plan once, run many" reuse.
 	//
-	// Partially serialized: the catalog's content-addressed entries travel in the document's content section — a
-	// content resource IS its bytes, so [Graph.packContent] packs each ([Packer]) and [unpackContent] reconstructs
-	// them into a fresh catalog on load ([Unpacker]). Reference entries ([AddressingLocation]) and the per-run state
-	// (lifecycle, producer stamps) do not travel — references recreate on the target host from the slot URIs.
+	// Serialized as intent (4-resource-management.md §5.4, ruled 2026-08-20): every current-generation entry
+	// travels in the document's mandatory resources section as a pending row; content-addressed entries
+	// additionally carry their packed bytes in the content section — a content resource IS its bytes, so
+	// [Graph.packContent] packs each ([Packer]) and [unpackCatalog] reconstructs the whole catalog on load.
+	// Per-run state (lifecycle, producer stamps, content identity) never travels here — that is the trace's
+	// ledger snapshot.
 	resourceCatalog *ResourceCatalog
 
 	// root is the graph's root subgraph. [NewGraph] constructs it from the supplied `units` (top-level children),
@@ -455,7 +458,14 @@ func assembleGraph(env *RuntimeEnvironment, p *graphData) (*Graph, error) {
 		return nil, err
 	}
 
-	catalog, err := unpackContent(env, p.Content)
+	// The catalog section is mandatory even when empty (4-resource-management.md §5.4, ruled 2026-08-20):
+	// a nil section means a pre-ruling document, which does not load — it is rewritten by re-planning.
+	if p.Resources == nil {
+		return nil, fmt.Errorf(
+			"op.LoadGraph: document carries no resource catalog section — mandatory even when empty; re-plan the graph")
+	}
+
+	catalog, err := unpackCatalog(env, p.Resources, p.Content)
 	if err != nil {
 		return nil, err
 	}
@@ -482,51 +492,143 @@ func assembleGraph(env *RuntimeEnvironment, p *graphData) (*Graph, error) {
 	return g, nil
 }
 
-// unpackContent reconstructs a document's content section into a fresh [*ResourceCatalog] — the load-side dual of
-// [Graph.packContent].
+// unpackCatalog reconstructs a document's catalog from its intent rows and content blobs — the load-side dual
+// of [Graph.marshalData]'s Resources + Content pair (4-resource-management.md §5.4).
 //
-// Each entry's URI fragment names the concrete resource type; the announced inventory resolves it to the type's
-// [Unpacker] ([receiverRegistry.UnpackerByTypeID]), whose Unpack materializes the bytes into the local
-// content-addressed store and verifies the reconstructed URI against the recorded one — the integrity link covering
-// the (unsigned) content section. Reconstructed resources enter the catalog as discoveries: production stamps and
-// lifecycle are per-run state that does not travel.
+// Every row restores as a [Pending] ledger entry with its recorded id — the stored catalog is intent, so no
+// producer stamps, states, or content identity are read from the document. A row whose URI has a content blob
+// reconstructs through the type's [Unpacker], which materializes the bytes into the local content-addressed
+// store and verifies the reconstructed URI against the recorded one; every other row reconstructs through the
+// registered [ResourceConstructor] from the URI's `specific` part (the trace-rehydrate discipline: interning
+// disabled so restoreEntry stamps the recorded id). A content blob with no intent row is an orphan and an
+// error — the intent section is the catalog; the content section only carries bytes for it.
 //
 // Parameters:
-//   - `env`: the runtime environment; supplies the local content-addressed store.
-//   - `entries`: the document's content section; may be empty.
+//   - `env`: the runtime environment; supplies the local content-addressed store and construction context.
+//   - `rows`: the document's mandatory resources section; empty is legal, nil never reaches here ([LoadGraph]
+//     refuses the document first).
+//   - `content`: the document's content section; may be empty.
 //
 // Returns:
-//   - `*ResourceCatalog`: a fresh catalog holding the reconstructed content resources.
-//   - `error`: non-nil on an unresolvable type id, an Unpack failure (including a URI mismatch), or a catalog
-//     failure.
-func unpackContent(env *RuntimeEnvironment, entries []contentEntry) (*ResourceCatalog, error) {
+//   - `*ResourceCatalog`: the reconstructed catalog, ids preserved, every entry Pending.
+//   - `error`: non-nil on a malformed URI, an unresolvable type id, an Unpack or construction failure, or an
+//     orphan content blob.
+func unpackCatalog(env *RuntimeEnvironment, rows []LedgerEntrySnapshot, content []contentEntry) (*ResourceCatalog, error) {
+
+	blobs := make(map[string][]byte, len(content))
+	for _, entry := range content {
+		blobs[entry.URI] = entry.Content
+	}
 
 	catalog := NewResourceCatalog()
 
-	for _, entry := range entries {
+	// Interning disabled during reconstruction (the Rehydrate discipline): constructors return bare
+	// candidates and restoreEntry stamps the recorded id rather than minting a fresh one.
+	saved := env.ResourceCatalog
+	env.ResourceCatalog = nil
+	defer func() { env.ResourceCatalog = saved }()
 
-		_, typeID, err := ExtractTagSpecific(entry.URI)
+	nextID := 0
+
+	for _, row := range rows {
+
+		resource, err := reconstructIntentRow(env, row, blobs)
 		if err != nil {
-			return nil, fmt.Errorf("op.LoadGraph: content entry %s: %w", entry.URI, err)
+			return nil, err
 		}
+
+		catalog.restoreEntry(row.ID, resource, "", Pending)
+
+		if n, ok := parseLedgerID(row.ID); ok && n >= nextID {
+			nextID = n + 1
+		}
+	}
+
+	if len(blobs) > 0 {
+		orphans := make([]string, 0, len(blobs))
+		for uri := range blobs {
+			orphans = append(orphans, uri)
+		}
+		sort.Strings(orphans)
+		return nil, fmt.Errorf("op.LoadGraph: content entries with no resource row (the intent section is the catalog): %s",
+			strings.Join(orphans, ", "))
+	}
+
+	catalog.nextID = nextID
+
+	return catalog, nil
+}
+
+// reconstructIntentRow rebuilds one intent row's Resource: through the type's [Unpacker] when the row's URI
+// has a content blob (consuming it from `blobs`), through the registered [ResourceConstructor] otherwise.
+//
+// Parameters:
+//   - `env`: the runtime environment, with interning already disabled by the caller.
+//   - `row`: the intent row under reconstruction.
+//   - `blobs`: the remaining content blobs by URI; the matched blob is deleted.
+//
+// Returns:
+//   - `Resource`: the reconstructed resource.
+//   - `error`: a malformed URI, an unresolvable type id, or an Unpack/construction failure.
+func reconstructIntentRow(env *RuntimeEnvironment, row LedgerEntrySnapshot, blobs map[string][]byte) (Resource, error) {
+
+	specific, typeID, err := ExtractTagSpecific(row.URI)
+	if err != nil {
+		return nil, fmt.Errorf("op.LoadGraph: resource entry %s: %w", row.URI, err)
+	}
+
+	if blob, ok := blobs[row.URI]; ok {
 
 		unpacker, ok := ReceiverRegistry().UnpackerByTypeID(typeID)
 		if !ok {
 			return nil, fmt.Errorf("op.LoadGraph: content entry %s: no announced op.Unpacker for type id %q",
-				entry.URI, typeID)
+				row.URI, typeID)
 		}
 
-		resource, err := unpacker.Unpack(env, entry.URI, entry.Content)
-		if err != nil {
-			return nil, fmt.Errorf("op.LoadGraph: content entry %s: %w", entry.URI, err)
+		resource, unpackErr := unpacker.Unpack(env, row.URI, blob)
+		if unpackErr != nil {
+			return nil, fmt.Errorf("op.LoadGraph: content entry %s: %w", row.URI, unpackErr)
 		}
 
-		if _, err := catalog.Discover(resource.URI(), func() (Resource, error) { return resource, nil }); err != nil {
-			return nil, fmt.Errorf("op.LoadGraph: content entry %s: %w", entry.URI, err)
-		}
+		delete(blobs, row.URI)
+		return resource, nil
 	}
 
-	return catalog, nil
+	construct, ok := ReceiverRegistry().ResourceConstructorByTypeID(typeID)
+	if !ok {
+		return nil, fmt.Errorf("op.LoadGraph: resource entry %s: no resource type registered for %q",
+			row.URI, typeID)
+	}
+
+	resource, constructErr := construct(env, specific)
+	if constructErr != nil {
+		return nil, fmt.Errorf("op.LoadGraph: resource entry %s: reconstruct: %w", row.URI, constructErr)
+	}
+
+	return resource, nil
+}
+
+// parseLedgerID extracts the numeric component of a catalog id (`res-N`).
+//
+// Parameters:
+//   - `id`: the ledger id to parse.
+//
+// Returns:
+//   - `int`: the numeric component.
+//   - `bool`: false when the id does not carry the `res-N` shape.
+func parseLedgerID(id string) (int, bool) {
+
+	numeric, ok := strings.CutPrefix(id, "res-")
+	if !ok {
+		return 0, false
+	}
+
+	n, err := strconv.Atoi(numeric)
+	if err != nil {
+		return 0, false
+	}
+
+	return n, true
 }
 
 // region EXPORTED METHODS
@@ -888,6 +990,7 @@ func (g *Graph) marshalData() (graphData, error) {
 		Content:   content,
 		Edges:     edges,
 		Nodes:     nodePayloads,
+		Resources: g.resourceCatalog.IntentEntries(),
 		Subgraphs: subgraphPayloads,
 	}, nil
 }
@@ -1118,10 +1221,18 @@ type graphData struct {
 	Signature *Signature `json:"signature,omitempty"  yaml:"signature,omitempty"`
 
 	// Content
-	Children  []string       `json:"children"             yaml:"children"`
-	Content   []contentEntry `json:"content,omitempty"    yaml:"content,omitempty"`
-	Edges     []Edge         `json:"edges,omitempty"      yaml:"edges,omitempty"`
-	Nodes     []nodeData     `json:"nodes,omitempty"      yaml:"nodes,omitempty"`
+	Children []string       `json:"children"             yaml:"children"`
+	Content  []contentEntry `json:"content,omitempty"    yaml:"content,omitempty"`
+	Edges    []Edge         `json:"edges,omitempty"      yaml:"edges,omitempty"`
+	Nodes    []nodeData     `json:"nodes,omitempty"      yaml:"nodes,omitempty"`
+
+	// Resources is the catalog's intent section — what must exist when the graph runs
+	// (4-resource-management.md §5.4, ruled 2026-08-20): every current-generation entry as
+	// `{id, uri, state: pending}`, in ledger append order. Deliberately NOT omitempty: the section is
+	// mandatory even when empty, and [LoadGraph] refuses a document without it. Like the content section it
+	// sits outside [Graph.CanonicalContent].
+	Resources []LedgerEntrySnapshot `json:"resources"            yaml:"resources"`
+
 	Subgraphs []subgraphData `json:"subgraphs,omitempty"  yaml:"subgraphs,omitempty"`
 }
 

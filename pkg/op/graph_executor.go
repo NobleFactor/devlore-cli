@@ -299,6 +299,11 @@ func (e *GraphExecutor) ResumeUnwind(ctx context.Context) error {
 		return fmt.Errorf("ResumeUnwind: executor is not at stopped × compensation_failed (status: %s)", e.status)
 	}
 
+	// The Run-side mandatory-catalog backstop, repeated here so a catalog-less graph cannot reach the clone.
+	if e.graph.ResourceCatalog() == nil {
+		return fmt.Errorf("ResumeUnwind: graph carries no resource catalog — mandatory even when empty")
+	}
+
 	environment, buildErr := NewRuntimeEnvironment(ctx, e.spec.WithCatalog(e.graph.ResourceCatalog().Clone()))
 	if buildErr != nil {
 		return fmt.Errorf("ResumeUnwind: build runtime environment: %w", buildErr)
@@ -483,6 +488,16 @@ func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) 
 
 	if e.status.Phase != PhasePreparing && !resuming {
 		return nil, fmt.Errorf("executor already used (state: %s)", e.status)
+	}
+
+	// A graph without a resource catalog does not dispatch — even an empty catalog is mandatory
+	// (4-resource-management.md §5.4, ruled 2026-08-20). [NewGraph] always supplies one and [LoadGraph]
+	// refuses a document without the section, so this guard is the pre-flight backstop for any other
+	// construction path.
+	if e.graph.ResourceCatalog() == nil {
+		e.status = RunStatus{Phase: PhaseStopped, Condition: ConditionExecutionFailed,
+			Reason: ReasonPreflightFailed, Message: "graph carries no resource catalog"}
+		return nil, fmt.Errorf("Run: graph carries no resource catalog — mandatory even when empty")
 	}
 
 	environment, buildErr := NewRuntimeEnvironment(ctx, e.spec.WithCatalog(e.graph.ResourceCatalog().Clone()))
