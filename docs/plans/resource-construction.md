@@ -134,7 +134,7 @@ Windows known-failures.
 4. Round-trip pin: pack → unpack → pack byte-identical, including the empty section.
 5. Windows baseline expectation: unchanged (3).
 
-### Phase 2 — portable file identity: rel, bound to the run's root (#546/#547) — status: pending
+### Phase 2 — portable file identity: rel, bound to the run's root (#546/#547) — status: in progress (PR 1 merged `92c18eb1`; PR 2 in review)
 
 **RULED 2026-08-20: named resources are computed relative to some fsroot, and the fsroot is not known until
 the run.** The motivating cases are the product's own scopes: a **home**-scope graph binds to the account
@@ -225,6 +225,31 @@ and `https:/example.com/x` elsewhere. Fixed where the capability lives: `fsroot.
 Clean after separator normalization) renders every rel in both `makePath` branches and `fsroot.NewPath`,
 with a platform-neutrality pin in the fsroot suite. Exactly the class #547 predicted ("the sixth is
 waiting"); recorded on #547.
+
+**PR 2 record (2026-08-21):** the plan-space grammar and the full co-landing, one PR as the sequencing
+constraint demanded.
+
+- **The grammar** (`file.NormalizePlanSpacePath`, registered per resource type via
+  `op.RegisterPlanPathNormalizer`, applied at the planner's claiming seam — `normalizePlanSpaceValue` in
+  `bindPresentValue`): `foo/bar` ≡ `/foo/bar`; volume/UNC/backslash spellings refuse; `@name/…` refuses
+  as reserved for #597; escapes and the bare root refuse. One table pin covers every rule. Immediate-mode
+  and programmatic construction are untouched — the grammar governs what a plan may say.
+- **One root everywhere in devlore-test**: `t.tmp` returns plan-space rels (`.devlore/tmp/<name>`), the
+  run anchors at the same workspace root as the script session, and the harness's Go-side helpers resolve
+  rels through one `resolve` seam. Machine-absolute authored paths died by double-prefix exactly as
+  predicted — the migration was forced, visible, and complete.
+- **writ emits rels**: `PlanFileChain` renders source/origin/target through the new `deploy.PlanSpacePath`
+  (rel against the planning environment's root — the run root writ already chooses); the encrypt planner
+  follows; graph-origin annotations keep machine-absolute paths for the readback fold's keying.
+- **Process-cwd leaks fixed as discovered**: `shell.exec`/`powershell.exec` anchor the command's cwd at
+  the run root; `file.glob` resolves relative patterns against the root; `plan.save_definition`/
+  `load_definition` resolve relative document paths against the session root.
+- **The two Windows surfaces fixed**: the star integration fixture interpolates its path slash-form into
+  starlark source (paths-in-text are neutral text); lore's onboard manifest path uses a native join
+  instead of string concatenation.
+- Gate: make check 103 ok / 0 fail (grammar pins + all scenario stars green), GOOS=windows vet clean.
+  **Windows expectation: 2 → 0 — the first fully green CI of the campaign.** Any Windows remainder is
+  re-diagnosed, not assumed.
 
 ### Phase 3 — plan-time claiming: inputs only, pending only — status: pending
 

@@ -139,6 +139,24 @@ func BuildGraphs(ctx context.Context, cfg *Config, pin *PinInfo) (*BuildResult, 
 //   - `error`: non-nil when the pipeline is unknown or a planning call fails.
 func PlanFileChain(provider *plan.Provider, f *tree.FileEntry, data map[string]any) (*op.Invocation, string, error) {
 
+	// The plan carries rels (#584 phase 2): every path the chain authors renders in plan space against the
+	// planning environment's root — writ chose that root (the common ancestor of sources and targets), and
+	// a graph of rels relocates with it. The origin is converted only when the entry carries one.
+	source, err := PlanSpacePath(provider.RuntimeEnvironment(), f.Source)
+	if err != nil {
+		return nil, "", err
+	}
+	target, err := PlanSpacePath(provider.RuntimeEnvironment(), f.Target)
+	if err != nil {
+		return nil, "", err
+	}
+	origin := ""
+	if f.Origin != "" {
+		if origin, err = PlanSpacePath(provider.RuntimeEnvironment(), f.Origin); err != nil {
+			return nil, "", err
+		}
+	}
+
 	pipeline := strings.Join(f.Operations, "+")
 
 	switch pipeline {
@@ -147,20 +165,20 @@ func PlanFileChain(provider *plan.Provider, f *tree.FileEntry, data map[string]a
 		// The link targets the ORIGIN path: the snapshot this entry was read from is removed when the
 		// run ends, so a durable link must point at the layer repo itself (ruled 2026-08-08).
 		invocation, err := provider.Plan(file.Link, nil, map[string]any{
-			"source_path": f.Origin,
-			"target_path": f.Target,
+			"source_path": origin,
+			"target_path": target,
 		})
 		return invocation, string(file.Link), err
 
 	case "encryption.decrypt+file.copy":
 		invocation, err := provider.Plan(encryption.DecryptSopsFile, nil, map[string]any{
-			"source":           f.Source,
-			"destination_path": f.Target,
+			"source":           source,
+			"destination_path": target,
 		})
 		return invocation, string(encryption.DecryptSopsFile), err
 
 	case "template.render_bytes+file.copy":
-		content, err := provider.Plan(file.ReadText, nil, map[string]any{"resource": f.Source})
+		content, err := provider.Plan(file.ReadText, nil, map[string]any{"resource": source})
 		if err != nil {
 			return nil, "", err
 		}
@@ -176,7 +194,7 @@ func PlanFileChain(provider *plan.Provider, f *tree.FileEntry, data map[string]a
 			mode = 0o644
 		}
 		invocation, err := provider.Plan(file.WriteText, nil, map[string]any{
-			"destination_path": f.Target,
+			"destination_path": target,
 			"content":          rendered,
 			"mode":             mode,
 			"user":             "", "group": "",
@@ -185,8 +203,8 @@ func PlanFileChain(provider *plan.Provider, f *tree.FileEntry, data map[string]a
 
 	case "encryption.decrypt+template.render_bytes+file.copy":
 		decrypted, err := provider.Plan(encryption.DecryptSopsFile, nil, map[string]any{
-			"source":           f.Source,
-			"destination_path": f.Target,
+			"source":           source,
+			"destination_path": target,
 		})
 		if err != nil {
 			return nil, "", err
@@ -203,7 +221,7 @@ func PlanFileChain(provider *plan.Provider, f *tree.FileEntry, data map[string]a
 			return nil, "", err
 		}
 		invocation, err := provider.Plan(file.WriteText, nil, map[string]any{
-			"destination_path": f.Target,
+			"destination_path": target,
 			"content":          rendered,
 			"mode":             os.FileMode(0o600),
 			"user":             "", "group": "",
@@ -213,6 +231,37 @@ func PlanFileChain(provider *plan.Provider, f *tree.FileEntry, data map[string]a
 	default:
 		return nil, "", fmt.Errorf("unknown pipeline %q", pipeline)
 	}
+}
+
+// PlanSpacePath renders the machine-absolute `abs` in plan space: the slash-canonical rel against the
+// planning environment's root.
+//
+// writ's planners choose their run root as the common ancestor of every involved path ([runRootFor] and the
+// per-command equivalents), so a path outside the root is a planning defect, not an input case.
+//
+// Parameters:
+//   - `runtimeEnvironment`: the planning environment; its root is the run root the rel binds to.
+//   - `abs`: the machine-absolute path to render.
+//
+// Returns:
+//   - `string`: the slash-canonical rel.
+//   - `error`: non-nil when `abs` cannot be made relative to the root, or escapes it.
+func PlanSpacePath(runtimeEnvironment *op.RuntimeEnvironment, abs string) (string, error) {
+
+	root := runtimeEnvironment.Root().Name()
+
+	rel, err := filepath.Rel(root, abs)
+	if err != nil {
+		return "", fmt.Errorf("plan space: %q against root %q: %w", abs, root, err)
+	}
+
+	slash := filepath.ToSlash(rel)
+
+	if slash == ".." || strings.HasPrefix(slash, "../") {
+		return "", fmt.Errorf("plan space: %q escapes the run root %q — widen the root before planning", abs, root)
+	}
+
+	return slash, nil
 }
 
 // CommonAncestor returns the deepest directory containing both `a` and `b`.

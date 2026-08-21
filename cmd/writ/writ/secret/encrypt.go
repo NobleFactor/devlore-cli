@@ -22,6 +22,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
 	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
+	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/deploy"
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
@@ -156,9 +157,14 @@ func buildLayerGraph(ctx context.Context, cfg *EncryptConfig, group *layerGroup)
 
 		for _, source := range group.files {
 
-			destination := source + sopsSuffix
+			rel, err := deploy.PlanSpacePath(environment, source)
+			if err != nil {
+				return nil, err
+			}
+
+			destination := rel + sopsSuffix
 			invocation, err := provider.Plan(encryption.EncryptFile, nil, map[string]any{
-				"source":           source,
+				"source":           rel,
 				"destination_path": destination,
 			})
 			if err != nil {
@@ -167,7 +173,7 @@ func buildLayerGraph(ctx context.Context, cfg *EncryptConfig, group *layerGroup)
 
 			fileMetas[invocation.Target.ID()] = map[string]any{
 				"source":      source,
-				"destination": destination,
+				"destination": source + sopsSuffix,
 				"layer":       group.name,
 			}
 		}
