@@ -8,9 +8,12 @@ Travels with the Graph" added (intent-only claiming, git-model plan-space paths,
 fsroot, mandatory serialized section with hard pre-flight, graph=intent/trace=observation); §4 rewritten to
 runtime-only shadowing with the two-path reconciler as §4.1 (absorbed from the retired
 catalog-reconciler-logic sketch); §1/§2 corrected — ordering is the promise's job, never URI matching;
-**Appendix A deleted as rejected** (products are runtime facts). The DESIGN is current; the TREE still
-carries pre-ruling behavior until #583–#586 land — the two red judgment pins
-(`catalog_contract_test.go`, `test_graph_catalog_contract.star`) measure that gap. The migration-era body — string-parameter "today"
+**Appendix A deleted as rejected** (products are runtime facts). The DESIGN is current, and the TREE
+implements it through phase 3 (#582–#585, delivered 2026-08-20..22): the catalog section serializes and is
+enforced, file identity is the rel with run-bound activation, and plan-time claiming, scoped verification,
+`MissingResourcePolicy`, and the consumed-Gone guard are live — the once-red judgment pins
+(`catalog_contract_test.go`, `test_graph_catalog_contract.star`) are committed green. The remaining gap is
+#586 — dispatch still re-derives resources from strings — with #587 the closure. The migration-era body — string-parameter "today"
 snapshots, per-method signature-migration tables, `Tombstone` recovery, the `RegisterConstructor` /
 `coerceSlotValue` coercion chain, the phase-by-phase bookkeeping — is replaced by the landed model: the catalog
 surface (tree-verified method by method), the `ResourceState` machine and behavior matrix (the 2026-07-14 rulings,
@@ -31,6 +34,9 @@ post-dispatch shadowing for monadic outputs) is named beside it.
 | Receipts + recovery site (Tombstones retired) | Landed (steps 40/42; [3.5.4](3.5.4-file-provider.md)) |
 | Declared output specs (former Appendix A) | **Rejected 2026-08-20** — removed; products are runtime facts |
 | Document rewrite onto the landed model | Complete 2026-07-22 (step 51 slice 3) |
+| Catalog section serialized + enforced (mandatory even empty; hard load/pre-flight failure) | Landed 2026-08-21 (#583; PR #593) |
+| File identity = rel; plan-space grammar; activation binds the run's root | Landed 2026-08-21 (#584; PRs #596/#600/#601) |
+| Plan-time claiming: scoped verification, `MissingResourcePolicy`, consumed-Gone guard, resource-typed mutators, `{id, uri}` intent rows | Landed 2026-08-22 (#585; PRs #602–#606) |
 
 ## Document Discrepancies
 
@@ -39,9 +45,9 @@ proposal explicitly.
 
 ## Outstanding Work
 
-1. The resource-construction implementation, #583–#586: serialize + enforce the catalog section; rel
-   identity + authoring migration; plan-time claiming; run time consumes the catalog. The design in §5 leads
-   the tree until they land.
+1. The resource-construction remainder, #586 + #587: run time consumes the catalog — dispatch resolves
+   slots against the run catalog, the `buildCandidateAs` string re-parsing retires, products update the
+   claimed pending entries — then closure (statuses, the transport supersession note).
 2. The staged per-type `Resolve`/`Exists` rollout (step 22's ledger).
 3. Remote-execution filesystem abstraction (open question §10.1).
 Remaining step-51 slices are tracked in

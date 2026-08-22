@@ -5,9 +5,13 @@
 > [#581](https://github.com/NobleFactor/devlore-cli/issues/581)): the catalog is input intent and travels with
 > the graph (§5), plan-space file paths follow the git model, file identity is root-relative, and **the
 > declared-output-spec proposal is rejected** — products are runtime facts, so the former Appendix A is
-> removed rather than preserved (§9 item 8). Implementation is staged in
-> [#582–#587](https://github.com/NobleFactor/devlore-cli/issues/581); until those land, the tree carries the
-> pre-ruling behavior. Companion: [`4-resource-management.status.md`](4-resource-management.status.md).
+> removed rather than preserved (§9 item 8). Implementation: phases 0–3
+> ([#582](https://github.com/NobleFactor/devlore-cli/issues/582)–[#585](https://github.com/NobleFactor/devlore-cli/issues/585),
+> delivered 2026-08-20..22) are in the tree — the serialized section is enforced, file identity is the rel
+> with run-bound activation, and plan-time claiming, scoped verification, `MissingResourcePolicy`, and the
+> consumed-Gone guard are live; [#586](https://github.com/NobleFactor/devlore-cli/issues/586) (run time
+> consumes the catalog at dispatch) and [#587](https://github.com/NobleFactor/devlore-cli/issues/587)
+> (closure) remain. Companion: [`4-resource-management.status.md`](4-resource-management.status.md).
 
 This document describes resource management in `pkg/op`: how providers track external state through typed resource
 handles, how the catalog resolves URI-based identity across the execution graph, and how recovery unifies under
@@ -47,10 +51,11 @@ executed on many machines:
 - **Plan time** — pure, no I/O: a resource-typed parameter's string value mints a **pending** entry (no
   existence check); a promise value records the promise and nothing else; a **product is a runtime fact**
   with no plan-time presence (§5). String-typed parameters stay plain values.
-- **Execution time** — the executor's pre-flight resolve pass verifies every pending resource by its
-  scheme's existence predicate (for file resources: the rel under the run's root) and applies state
-  transitions; dispatch results — products included — become catalog facts on the per-run clone, recorded
-  by the trace.
+- **Execution time** — the executor's pre-flight resolve pass binds every pending resource to the run's
+  environment (rel-first for root-relative schemes), and each subgraph executor verifies the claims its own
+  units consume when its scope starts, by the scheme's existence predicate (for file resources: the rel
+  under the run's root) — §3; dispatch results — products included — become catalog facts on the per-run
+  clone, recorded by the trace.
 
 **`Resource`** (`pkg/op/resource.go`) — an interface sealed by an unexported method; only types embedding
 `ResourceBase` implement it. The base carries identity (`uri`, catalog `id`, `producerID` — empty for discovered,
@@ -195,9 +200,11 @@ The catalog-resolve verdict remains the in-flight backstop, and provider I/O err
 catalog cannot know (out-of-band deletion mid-run). The `Gone` transition stamps the destroying unit —
 symmetric with `producerID` — so the verdict names both units: *consumed by unit 1 before unit 2 could run*.
 
-Delivered (#585 PRs C and D, 2026-08-22): the remove consumes its resource-typed target and transitions the
-entry with the destroyer stamp; the guard at the dispatch seam gives the second consumer the narrated
-verdict. Judgment scenario 1 pins the full ruled shape end to end.
+Delivered (#585 PRs C, D, and C2 — #604/#605/#606, 2026-08-22): the remove consumes its resource-typed
+target and transitions the entry with the destroyer stamp; the guard at the dispatch seam gives the second
+consumer the narrated verdict; and C2 completed the family — every file-scheme mutator (`Remove`, `Unlink`,
+`Move`'s source, `RemoveAll`) is a resource-typed consumer gated by `on_missing`, a successful move marking
+its source Gone with the stamp. Judgment scenario 1 pins the full ruled shape end to end.
 
 **Why the asymmetry:** a content-addressable URI encodes its identity, so re-producing it is provably the same
 resource (the CAS types: mem, function, json, yaml — [4.2](4.2-mem-resource.md),
@@ -298,7 +305,7 @@ without letting them trade places.
 ### 5.4 The serialized section — mandatory, even when empty
 
 Every graph document carries a `resources` section: one row per current-generation entry, as intent —
-**`{id, uri}` and nothing else** (ruled 2026-08-21; implementation rides #585). Intent needs no state
+**`{id, uri}` and nothing else** (ruled 2026-08-21; delivered 2026-08-22, #585 PR A/#602). Intent needs no state
 field: presence in the section IS the pending claim — pending is definitional, not recorded — and
 producers, Etag/Digest, and state are trace vocabulary (§5.5), so the intent row is its own type rather
 than a borrowed trace row. Content-addressed entries additionally carry their packed bytes (the content
@@ -371,6 +378,15 @@ is uniform: `p.RuntimeEnvironment()` for the root, catalog, platform, recovery s
     never changes identity (§5.2–5.3).
 11. **Graph = intent; trace = observation** (ruled 2026-08-20) — the document records pending intent only;
     the step-48 snapshot records what the run saw (§5.5).
+12. **The claims taxonomy** (ruled 2026-08-22) — every literal claim required by default; per-consumption
+    tolerance via `MissingResourcePolicy` (`Stop` the fail-safe zero and default, `Ignore`; **Skip
+    dropped**); the parameter's type is the declaration; a warning on every detection; Stop wins
+    aggregation (§3).
+13. **Verification is scoped** (ruled 2026-08-22) — each subgraph executor verifies the claims its own
+    units consume when its scope starts; conditionality is structural, never declared (§3).
+14. **Mutation targets are resource-typed consumers** (ruled 2026-08-20; delivered 2026-08-22, #585) — the
+    mutator claims its target, destruction stamps the destroyer, and the consumed-Gone guard at the
+    dispatch seam narrates the verdict (§3).
 
 ## 10. Open Questions
 
