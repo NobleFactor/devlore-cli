@@ -14,15 +14,13 @@
 #   access=planned    — planned receiver + graph action wrapper
 #   access=both       — all three artifacts
 #
-# // +devlore:lifetime= declares provider lifecycle semantics:
-#   lifetime=stateless — safe to cache indefinitely (default if no directive)
-#   lifetime=phase     — fresh instance per phase; cleanup between phases
-#   lifetime=session   — single instance for session; cleanup at session end
-#
 # Methods carry directives:
 #
 # // +devlore:defaults param=value,... marks params as optional with defaults
-# // +devlore:struct_param var=Type expands a struct param to individual kwargs
+#
+# Planners link by convention, not directive: a package type named
+# <MethodName>Planner is the method's planner, emitted into the method's
+# announcement metadata.
 #
 # Generated files live in gen/ subpackage with provider import alias.
 
@@ -123,13 +121,6 @@ def access_title(access):
     """
     return access[0].upper() + access[1:]
 
-def lifetime_title(lifetime):
-    """Convert a lifetime string to its Go title-case constant suffix.
-
-    'stateless' → 'Stateless', 'phase' → 'Phase', 'session' → 'Session'
-    """
-    return lifetime[0].upper() + lifetime[1:]
-
 def lc_first(name):
     """Lowercase the first character of a name."""
     if not name:
@@ -155,22 +146,6 @@ def struct_access(path):
                 fail("invalid +devlore:access value %r on Provider struct (valid: immediate, planned, both)" % value)
             return value
     return "immediate"
-
-def struct_lifetime(path):
-    """Extract the +devlore:lifetime level from the Provider struct's doc comment.
-
-    Returns 'stateless' if no directive is found (the default).
-    """
-    doc = goast.type_doc(path)
-    for line in doc.split("\n"):
-        line = line.strip().lstrip("/").strip()
-        if "+devlore:lifetime=" in line:
-            idx = line.index("+devlore:lifetime=")
-            value = line[idx + len("+devlore:lifetime="):].strip()
-            if value not in ["stateless", "phase", "session"]:
-                fail("invalid +devlore:lifetime value %r on Provider struct (valid: stateless, phase, session)" % value)
-            return value
-    return "stateless"
 
 def struct_root(path):
     """Extract the +devlore:root flag from the Provider struct's doc comment.
@@ -231,46 +206,6 @@ def parse_defaults(doc, method_name):
                 if k in result:
                     fail("method %s: +devlore:defaults specifies %r more than once" % (method_name, k))
                 result[k] = v
-    return result
-
-def parse_struct_param(doc):
-    """Parse +devlore:struct_param from a method doc comment.
-
-    Returns a dict of var_name → struct_type_name, or empty dict.
-    Example: '+devlore:struct_param cfg=AnalysisConfig'
-    → {"cfg": "AnalysisConfig"}
-    """
-    result = {}
-    for line in doc.split("\n"):
-        line = line.strip().lstrip("/").strip()
-        if "+devlore:struct_param " in line:
-            idx = line.index("+devlore:struct_param ")
-            pairs = line[idx + len("+devlore:struct_param "):].strip()
-            for pair in pairs.split(","):
-                pair = pair.strip()
-                if "=" in pair:
-                    k, v = pair.split("=", 1)
-                    result[k.strip()] = v.strip()
-    return result
-
-def parse_planner(doc, method_name):
-    """Parse +devlore:planner=<TypeName> from a method doc comment.
-
-    Returns the planner type name (a single Go identifier) or "" when no
-    directive is present. Multiple directives on one method are an error.
-    Example: '+devlore:planner=GatherPlanner' -> 'GatherPlanner'
-    """
-    result = ""
-    for line in doc.split("\n"):
-        line = line.strip().lstrip("/").strip()
-        if "+devlore:planner=" in line:
-            idx = line.index("+devlore:planner=")
-            value = line[idx + len("+devlore:planner="):].strip()
-            if value == "":
-                fail("method %s: +devlore:planner directive has empty value" % method_name)
-            if result != "":
-                fail("method %s: +devlore:planner declared more than once" % method_name)
-            result = value
     return result
 
 def parse_property(doc, method_name):
@@ -415,80 +350,37 @@ def filter_methods(methods, include_list):
         filtered.append(m)
     return filtered, all_names
 
-def resolve_struct_param(struct_type, structs_by_name, path):
-    """Resolve a struct_param type, handling cross-package references.
-
-    For local types (no "."), looks up in structs_by_name.
-    For cross-package types (e.g., "staranalysis.AnalysisConfig"), resolves
-    by calling goast.structs() on the sibling package.
-
-    Returns (struct_info, resolved_type) where resolved_type is the type name
-    to use in generated code (may include package prefix for cross-package).
-    """
-    if "." not in struct_type:
-        if struct_type not in structs_by_name:
-            fail("struct_param type %s not found in package structs" % struct_type)
-        return structs_by_name[struct_type], struct_type
-
-    # Cross-package: "staranalysis.AnalysisConfig" → pkg="staranalysis", bare="AnalysisConfig"
-    pkg_alias, bare = struct_type.split(".", 1)
-    sibling_path = file.join(file.parent(path), pkg_alias)
-    if not file.exists(sibling_path):
-        fail("cross-package struct_param: sibling package path %s does not exist" % sibling_path)
-
-    sibling_structs = goast.structs(sibling_path)
-    for s in sibling_structs:
-        if s.name == bare:
-            return s, struct_type
-    fail("struct_param type %s not found in sibling package %s" % (struct_type, sibling_path))
-
-def build_method_descriptors(methods, all_names, defaults_map, struct_param_map, planner_map, structs_by_name, path):
+def build_method_descriptors(methods, all_names, defaults_map, planner_map):
     """Build method descriptor dicts from filtered method list.
 
     defaults_map: method_name → {param_name: default_value}
-    struct_param_map: method_name → {var_name: struct_type}
     planner_map: method_name → planner type name (Go identifier); missing key means default planner
-    structs_by_name: struct_name → struct info from goast.structs()
-    path: filesystem path to the package (for cross-package struct resolution)
     """
     descriptors = []
     for m in methods:
         method_defaults = defaults_map.get(m.name, {})
-        method_struct_params = struct_param_map.get(m.name, {})
         method_planner = planner_map.get(m.name, "")
         compensable = ("Compensate" + m.name) in all_names
         pure = "error" not in m.returns
 
         params = []
         for p in filter_ctx_param(m.params):
-            # Struct param: emit the Go param name (not expanded fields).
-            # The marshaler handles dict → struct conversion.
-            if p.name in method_struct_params:
-                params.append({
-                    "name": p.name,
-                    "type": method_struct_params[p.name],
-                    "variadic": False,
-                    "doc": "",
-                    "optional": True,
-                    "default": "",
-                })
-            else:
-                default_val = method_defaults.get(p.name, "")
-                is_variadic = p.variadic or (p.name == "args" and p.type.startswith("[]"))
-                is_kwargs = p.name == "kwargs" and p.type.startswith("map[string]")
-                # Variadic and **kwargs params are inherently optional — the caller may always omit positional
-                # overflow or extra keyword args. Mirroring the runtime invariant in pkg/op/parameter.go where
-                # parseParameterToken sets Parameter.Optional for these forms unconditionally.
-                is_optional = is_variadic or is_kwargs or (p.name in method_defaults)
-                params.append({
-                    "name": p.name,
-                    "type": p.type,
-                    "variadic": is_variadic,
-                    "kwargs": is_kwargs,
-                    "doc": p.doc,
-                    "optional": is_optional,
-                    "default": default_val,
-                })
+            default_val = method_defaults.get(p.name, "")
+            is_variadic = p.variadic or (p.name == "args" and p.type.startswith("[]"))
+            is_kwargs = p.name == "kwargs" and p.type.startswith("map[string]")
+            # Variadic and **kwargs params are inherently optional — the caller may always omit positional
+            # overflow or extra keyword args. Mirroring the runtime invariant in pkg/op/parameter.go where
+            # parseParameterToken sets Parameter.Optional for these forms unconditionally.
+            is_optional = is_variadic or is_kwargs or (p.name in method_defaults)
+            params.append({
+                "name": p.name,
+                "type": p.type,
+                "variadic": is_variadic,
+                "kwargs": is_kwargs,
+                "doc": p.doc,
+                "optional": is_optional,
+                "default": default_val,
+            })
 
         # Semantic validation of +devlore:defaults against this method's parameter list. Every name in
         # method_defaults must correspond to a real param on this method, and that param must not be variadic or
@@ -1032,7 +924,7 @@ def compute_provider_import(path):
         return module_path + "/" + rel
     return module_path
 
-def emit_provider_receiver(command, path, provider, struct_short, struct_name, access, lifetime, root,
+def emit_provider_receiver(command, path, provider, struct_short, struct_name, access, root,
                       all_method_names, provider_descriptors,
                       output_dir, write_files):
     """Generate receivers in gen/ mode with type graph walking."""
@@ -1055,27 +947,25 @@ def emit_provider_receiver(command, path, provider, struct_short, struct_name, a
         fail("Provider struct must embed op.ProviderBase")
 
     # -------------------------------------------------------------------------
-    # Parse defaults and struct_param directives from method docs
+    # Parse defaults directives from method docs; link planners by convention
     # -------------------------------------------------------------------------
     structs = goast.structs(path)
     structs_by_name = {}
     for s in structs:
         structs_by_name[s.name] = s
 
-    # Build defaults_map, struct_param_map, and planner_map for Provider methods.
+    # Build defaults_map and planner_map for Provider methods. Planners link by
+    # convention: a package type named <MethodName>Planner is the method's
+    # planner — no directive.
     defaults_map = {}
-    struct_param_map = {}
     planner_map = {}
     for desc in provider_descriptors:
         method_defaults = parse_defaults(desc["doc"], desc["name"])
         if method_defaults:
             defaults_map[desc["name"]] = method_defaults
-        method_struct_params = parse_struct_param(desc["doc"])
-        if method_struct_params:
-            struct_param_map[desc["name"]] = method_struct_params
-        method_planner = parse_planner(desc["doc"], desc["name"])
-        if method_planner != "":
-            planner_map[desc["name"]] = method_planner
+        planner_name = desc["name"] + "Planner"
+        if planner_name in structs_by_name:
+            planner_map[desc["name"]] = planner_name
 
     # -------------------------------------------------------------------------
     # Walk type graph to find dependent types and data structs
@@ -1092,20 +982,14 @@ def emit_provider_receiver(command, path, provider, struct_short, struct_name, a
         type_methods = goast.methods(path, receiver_type=type_name)
         filtered, dep_all_names = filter_methods(type_methods, [])
 
-        # Parse defaults and struct_param for dependent type methods
+        # Parse defaults for dependent type methods
         dep_defaults = {}
-        dep_struct_params = {}
         for m in filtered:
             md = parse_defaults(m.doc, m.name)
             if md:
                 dep_defaults[m.name] = md
-            ms = parse_struct_param(m.doc)
-            if ms:
-                dep_struct_params[m.name] = ms
 
-        descs = build_method_descriptors(
-            filtered, dep_all_names, dep_defaults, dep_struct_params, {}, structs_by_name, path,
-        )
+        descs = build_method_descriptors(filtered, dep_all_names, dep_defaults, {})
         dependent_descriptors[type_name] = descs
 
     # -------------------------------------------------------------------------
@@ -1118,14 +1002,12 @@ def emit_provider_receiver(command, path, provider, struct_short, struct_name, a
     # classifyReturn → marshalReflect → marshalStruct. No converter annotation needed.
 
     # -------------------------------------------------------------------------
-    # Re-build Provider method descriptors with defaults/struct_param applied
+    # Re-build Provider method descriptors with defaults and planners applied
     # -------------------------------------------------------------------------
     all_methods_raw = goast.methods(path, receiver_type=struct_name)
     validate_activation_floor(all_methods_raw, struct_name)
     filtered_raw, all_names_raw = filter_methods(all_methods_raw, [])
-    provider_method_descs = build_method_descriptors(
-        filtered_raw, all_names_raw, defaults_map, struct_param_map, planner_map, structs_by_name, path,
-    )
+    provider_method_descs = build_method_descriptors(filtered_raw, all_names_raw, defaults_map, planner_map)
 
     # Data struct returns are handled by WrapReceiver's auto-bridging via
     # classifyReturn → marshalReflect → marshalStruct. No converter annotation needed.
@@ -1133,14 +1015,6 @@ def emit_provider_receiver(command, path, provider, struct_short, struct_name, a
     # -------------------------------------------------------------------------
     # Generate: Provider immediate receiver (gen/immediate.gen.go)
     # -------------------------------------------------------------------------
-    # Prefix struct_type with "provider." for gen/ subpackage mode.
-    # Cross-package struct types (containing ".") keep their qualifier as-is.
-    for d in provider_method_descs:
-        for p in d.get("params", []):
-            st = p.get("struct_type", "")
-            if st and "." not in st:
-                p["struct_type"] = "provider." + st
-
     namespace = provider
     if access == "planned":
         # Planned providers also get immediate for gen/ mode
@@ -1162,8 +1036,6 @@ def emit_provider_receiver(command, path, provider, struct_short, struct_name, a
         "access": access,
         "access_title": access_title(access),
         "root": root,
-        "lifetime": lifetime,
-        "lifetime_title": lifetime_title(lifetime),
     }
     if provider_cross_imports:
         provider_desc["cross_package_imports"] = provider_cross_imports
@@ -1245,10 +1117,9 @@ def emit_provider_receiver(command, path, provider, struct_short, struct_name, a
     ui.succeed("Done. Generated %d file(s) in gen/ mode for %s" % (generated_count, struct_short))
 
 def collect_cross_pkg_imports(provider_import, converters, method_desc_lists):
-    """Collect cross-package imports from converter fields, method result_exprs, and struct_params.
+    """Collect cross-package imports from converter fields and method result_exprs.
 
-    Returns a list of {"alias": "starstatsgen", "path": "github.com/.../starstats/gen"}
-    or {"alias": "staranalysis", "path": "github.com/.../staranalysis"} for struct params.
+    Returns a list of {"alias": "starstatsgen", "path": "github.com/.../starstats/gen"}.
     """
     if "/" not in provider_import:
         return []
@@ -1273,14 +1144,6 @@ def collect_cross_pkg_imports(provider_import, converters, method_desc_lists):
                 if alias.endswith("gen") and alias not in imports:
                     pkg = alias[:-3]
                     imports[alias] = base + "/" + pkg + "/gen"
-
-            # From struct_param cross-package types (raw package import, not gen/)
-            for p in desc.get("params", []):
-                st = p.get("struct_type", "")
-                if st and "." in st and "provider." not in st:
-                    pkg_alias = st.split(".", 1)[0]
-                    if pkg_alias not in imports:
-                        imports[pkg_alias] = base + "/" + pkg_alias
 
     result = []
     for alias in sorted(imports.keys()):
@@ -1546,12 +1409,11 @@ def run(command, ctx):
     ui.note("Found " + str(len(filtered)) + " methods for " + struct_name)
 
     # -------------------------------------------------------------------------
-    # Derive names and access/lifetime from struct directives
+    # Derive names and access/root from struct directives
     # -------------------------------------------------------------------------
     provider = path.split("/")[-1]
     struct_short = provider.title()
     access = struct_access(path)
-    lifetime = struct_lifetime(path)
     root = struct_root(path)
 
     ui.note("Provider access: " + access)
@@ -1559,7 +1421,7 @@ def run(command, ctx):
         ui.note("Provider root: true")
 
     # -------------------------------------------------------------------------
-    # Build basic method descriptors (without defaults/struct_param expansion)
+    # Build basic method descriptors (without defaults applied)
     # -------------------------------------------------------------------------
     all_descriptors = []
 
@@ -1604,6 +1466,6 @@ def run(command, ctx):
     if not gen_mode:
         fail("--gen is required")
 
-    emit_provider_receiver(command, path, provider, struct_short, struct_name, access, lifetime, root,
+    emit_provider_receiver(command, path, provider, struct_short, struct_name, access, root,
                       all_method_names, all_descriptors,
                       output_dir, write_files)
