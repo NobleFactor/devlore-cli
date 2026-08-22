@@ -657,7 +657,7 @@ func (p *Provider) compensateRemoveDir(receipt *Receipt) error {
 // (4-resource-management.md §3, the claims taxonomy). At dispatch the delete invariants discharge here: the
 // observed entry is moved to the recovery site and its catalog entry marked [op.Gone] on success. A missing
 // target follows the policy — Stop errors (mid-run loss rediscovered at dispatch; scope verification covers
-// the starting line), Ignore and Skip no-op (Skip's do-not-dispatch half is the executor guard's). A
+// the starting line), Ignore no-ops. A
 // directory is an error — use [Provider.RemoveAll] for recursive deletion. When `prune` is set, now-empty
 // parents up to `boundary` are removed.
 //
@@ -710,7 +710,7 @@ func (p *Provider) Remove(
 	}
 
 	receipt = NewReceipt(NewReceiptSpec(entry, MutationDeleteFile).WithRecovery(recoveryID, digest))
-	p.markEntryGone(entry)
+	p.markEntryGone(activationRecord, entry)
 
 	return nil, receipt, nil
 }
@@ -755,7 +755,7 @@ func (p *Provider) RemoveAll(
 	}
 
 	receipt = NewReceipt(NewReceiptSpec(entry, MutationDeleteFile).WithRecovery(recoveryID, digest))
-	p.markEntryGone(entry)
+	p.markEntryGone(activationRecord, entry)
 
 	return nil, receipt, nil
 }
@@ -766,7 +766,7 @@ func (p *Provider) RemoveAll(
 // the kind is fixed by Unlink's own semantics): its literal claim enters the graph's catalog as required
 // intent, gated per call by `onMissing` (§3, the claims taxonomy). At dispatch the delete invariants
 // discharge here: the link is moved to the recovery site and its catalog entry marked [op.Gone] on
-// success. A missing target follows the policy — Stop errors, Ignore and Skip no-op. A target that exists
+// success. A missing target follows the policy — Stop errors, Ignore no-ops. A target that exists
 // but is not a symlink is an error. When `prune` is set, now-empty parents up to `boundary` are removed.
 //
 // Parameters:
@@ -820,7 +820,7 @@ func (p *Provider) Unlink(
 	}
 
 	receipt = NewReceipt(NewReceiptSpec(entry, MutationDeleteFile).WithRecovery(recoveryID, digest))
-	p.markEntryGone(entry)
+	p.markEntryGone(activationRecord, entry)
 
 	return nil, receipt, nil
 }
@@ -1702,10 +1702,10 @@ func (p *Provider) findClosestExistingDir(path string) (ancestor Entry, info os.
 //
 // Parameters:
 //   - `entry`: the deleted [Entry].
-func (p *Provider) markEntryGone(entry Entry) {
+func (p *Provider) markEntryGone(activationRecord *op.ActivationRecord, entry Entry) {
 
 	if catalog := p.RuntimeEnvironment().ResourceCatalog; catalog != nil && entry.ID() != "" {
-		catalog.MarkGone(entry)
+		catalog.MarkGone(entry, activationRecord.CallerID)
 	}
 }
 

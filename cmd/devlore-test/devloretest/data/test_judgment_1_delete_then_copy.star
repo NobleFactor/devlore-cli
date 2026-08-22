@@ -7,10 +7,10 @@
 # prediction, authored before implementation: the stored catalog carries exactly one pending file entry with
 # two consumers (ruled 2026-08-20: mutation targets are resource-typed consumers — delivered by #585 PR C:
 # the remove's target and the copy's source both claim, deduplicating to the single entry asserted below);
-# pre-flight passes because intent was satisfied at the starting line; the run fails at the copy — under
-# the ruled shape the copy sees the catalog's Gone verdict (the remove, as consumer, transitioned the entry);
-# until #585 it rediscovers the loss through its own I/O; the failure unwinds and the delete's receipt restores
-# the file. The graph says what
+# pre-flight passes because intent was satisfied at the starting line; the run fails at the copy on the
+# catalog's NARRATED verdict — the remove transitioned the entry to Gone with the destroyer stamp, and the
+# guard at the dispatch seam names both units (delivered by #585 PR D); the failure unwinds and the delete's
+# receipt restores the file. The graph says what
 # must be true; the trace says what happened; the gap between them is the run's story.
 
 src = t.tmp("data.txt")
@@ -35,7 +35,7 @@ t.expect_equal(len([e for e in entries if "copy.txt" in str(e)]), 0)
 
 # The run: the copy fails on the gone source; compensation restores the deleted file; the never-produced
 # destination does not exist.
-t.expect_error("file.copy")
+t.expect_error("file.copy.*destroyed by")
 t.expect_file(src, content="the original bytes")
 t.expect_no_file(dst)
 

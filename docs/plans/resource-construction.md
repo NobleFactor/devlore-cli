@@ -372,6 +372,23 @@ catalog exposed.**
   consumer's policy; the destroyer stamp). `Move`'s source and `RemoveAll` stay path-typed — chartered as
   the C2 follow-up rather than folded, per the sizing rule.
 - Gate: make check 103 ok / 0 fail, GOOS=windows vet clean.
+
+**PR D record (2026-08-22) — the guard, the stamp, and the Skip drop; phase 3 completes its docket.**
+
+- **Skip is DROPPED (USER ruling)**: its undo story is trivially clean — nothing ran, nothing to undo —
+  but its forward side (nil promises downstream; a trace that cannot tell "skipped" from "ran and produced
+  nothing") buys machinery Ignore never needs; choose cases already express optional steps structurally.
+  The enum is `{Stop 0, Ignore 1}`; "skip" now refuses at parse (pinned).
+- **The destroyer stamp**: `MarkGone(r, destroyerID)` records the mutator's authorship (symmetric with
+  producerID); the trace row gains `destroyed_by`; reactive Gone transitions stamp nothing.
+- **The guard** lands at the ruled seam (`Method.Invoke`, post-conversion pre-forward-call): a consumed
+  Gone entry warns and routes by policy — Stop fails on the **narrated verdict** ("consumes X, destroyed
+  by unit N before it could run"), Ignore proceeds to the provider.
+- **Scenario 1 sharpens to the narrated verdict** (`expect_error("file.copy.*destroyed by")`) — the full
+  ruled semantics proven end to end. The new gone-tolerance scenario pins Ignore: two removes of one file,
+  the second `on_missing="ignore"`, one deletion + one recorded no-op, run succeeds.
+- Gate: make check 103 ok / 0 fail, GOOS=windows vet clean. Phase-3 remainder: C2 (Move's source,
+  RemoveAll) chartered.
 4. Consequence for phase 1's stored section: every stored entry is Pending by construction. **RULED
    2026-08-21: the stored row drops `state` entirely** — the intent row becomes its own `{id, uri}` type
    (presence IS the pending claim), splitting from the trace's `LedgerEntrySnapshot`, whose

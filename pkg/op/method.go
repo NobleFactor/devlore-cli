@@ -4,6 +4,7 @@
 package op
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -406,6 +407,14 @@ func (m *Method) Invoke(activation *ActivationRecord, receiver any) (Result, Com
 		goArgs = append(goArgs, val)
 	}
 
+	// The consumed-Gone guard (§3's consumption table, ruled 2026-08-20/22), at the ruled seam: after
+	// conversion — the earliest point the complete consumed set exists, promises resolved and strings
+	// interned — and before the forward call. A consumer of an entry the catalog knows is gone SEES the
+	// state; it does not rediscover the loss through its own I/O.
+	if guardErr := guardConsumedGone(activation, goArgs); guardErr != nil {
+		return nil, nil, guardErr
+	}
+
 	result, compensator, dispatchErr := m.Do(receiver, goArgs)
 
 	// Unwrap the reflected return once. m.Do hands back a reflect.Value; the receipt's stored result — and every
@@ -622,6 +631,82 @@ const (
 // endregion
 
 // region HELPER FUNCTIONS
+
+// guardConsumedGone applies the consumed-Gone guard to the converted arguments (§3's consumption table).
+//
+// Each catalog-resident resource among the arguments is checked against the run catalog's state; a [Gone]
+// entry routes through the caller's [MissingResourcePolicy], found among the same arguments by type (the
+// parameter's type is the declaration) with the fail-safe [MissingResourcePolicyStop] default: Stop fails
+// the dispatch on the narrated verdict — "destroyed by <unit> before <consumer> could run" when the
+// destroyer stamp is present — and Ignore proceeds, the provider seeing and handling the absence. A
+// warning is produced on every detection, under both policies.
+//
+// Parameters:
+//   - `activation`: the dispatch activation; carries the run catalog, the caller's id, and the narrator.
+//   - `goArgs`: the converted Go arguments.
+//
+// Returns:
+//   - `error`: the narrated verdict under [MissingResourcePolicyStop]; nil otherwise.
+func guardConsumedGone(activation *ActivationRecord, goArgs []any) error {
+
+	environment := activation.RuntimeEnvironment
+	if environment == nil || environment.ResourceCatalog == nil {
+		return nil
+	}
+
+	policy := MissingResourcePolicyStop
+	for _, arg := range goArgs {
+		if declared, ok := arg.(MissingResourcePolicy); ok {
+			policy = declared
+			break
+		}
+	}
+
+	for _, arg := range goArgs {
+
+		resource, ok := arg.(Resource)
+		if !ok || resource.resourceBase().id == "" {
+			continue
+		}
+
+		if environment.ResourceCatalog.State(resource.ID()) != Gone {
+			continue
+		}
+
+		verdict := verdictForGone(environment.ResourceCatalog, activation.CallerID, resource)
+
+		if environment.Status != nil {
+			environment.Status.Warn(fmt.Sprintf("%s (policy %s)", verdict, policy))
+		}
+
+		if policy == MissingResourcePolicyStop {
+			return errors.New(verdict)
+		}
+		// Ignore: the call proceeds; the provider handles the absence.
+	}
+
+	return nil
+}
+
+// verdictForGone renders the catalog's verdict for a consumed-Gone entry, naming both units when the
+// destroyer stamp is present.
+//
+// Parameters:
+//   - `catalog`: the run catalog holding the destroyer stamp.
+//   - `consumerID`: the consuming unit's id.
+//   - `resource`: the gone resource.
+//
+// Returns:
+//   - `string`: the verdict text.
+func verdictForGone(catalog *ResourceCatalog, consumerID string, resource Resource) string {
+
+	if destroyer := catalog.DestroyerOf(resource.ID()); destroyer != "" {
+		return fmt.Sprintf("%s consumes %s, destroyed by %s before it could run",
+			consumerID, resource.URI(), destroyer)
+	}
+
+	return fmt.Sprintf("%s consumes %s, which is gone", consumerID, resource.URI())
+}
 
 // errorFromValue extracts an error from a reflect.Value, returning nil when the value holds a nil interface.
 //

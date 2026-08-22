@@ -636,7 +636,7 @@ func TestMarkGone_RecordsDeletionFromAnyState(t *testing.T) {
 	if got := c.State(pendingID); got != Pending {
 		t.Fatalf("precondition: State = %v, want Pending", got)
 	}
-	c.MarkGone(pending)
+	c.MarkGone(pending, "unit-9")
 	if got := c.State(pendingID); got != Gone {
 		t.Errorf("State after MarkGone from Pending = %v, want Gone", got)
 	}
@@ -644,12 +644,12 @@ func TestMarkGone_RecordsDeletionFromAnyState(t *testing.T) {
 	active := newLifecycle("file:///active", AddressingLocation)
 	_, activeID := c.Resolve(active)
 	c.markActive(active)
-	c.MarkGone(active)
+	c.MarkGone(active, "unit-9")
 	if got := c.State(activeID); got != Gone {
 		t.Errorf("State after MarkGone from Active = %v, want Gone", got)
 	}
 
-	c.MarkGone(active) // idempotent re-mark
+	c.MarkGone(active, "unit-9") // idempotent re-mark
 	if got := c.State(activeID); got != Gone {
 		t.Errorf("State after re-MarkGone = %v, want Gone", got)
 	}
@@ -662,7 +662,7 @@ func TestMarkGone_GoneIsTerminalForDiscovery(t *testing.T) {
 	c := NewResourceCatalog()
 	r := newLifecycle("file:///deleted", AddressingLocation)
 	c.Resolve(r)
-	c.MarkGone(r)
+	c.MarkGone(r, "unit-9")
 
 	_, err := c.Discover(r.URI(), func() (Resource, error) {
 		return newLifecycle("file:///deleted", AddressingLocation), nil
@@ -679,7 +679,7 @@ func TestMarkGone_RevivalIsAProductionAct(t *testing.T) {
 	c := NewResourceCatalog()
 	first := newLifecycle("file:///revived", AddressingLocation)
 	_, firstID := c.Resolve(first)
-	c.MarkGone(first)
+	c.MarkGone(first, "unit-9")
 
 	revived, err := c.GetOrCreate("", first.URI(), func() (Resource, error) {
 		return newLifecycle("file:///revived", AddressingLocation), nil
@@ -710,7 +710,7 @@ func TestMarkGone_UncatalogedIsAProgrammingError(t *testing.T) {
 		}
 	}()
 
-	c.MarkGone(newLifecycle("file:///never-interned", AddressingLocation))
+	c.MarkGone(newLifecycle("file:///never-interned", AddressingLocation), "unit-9")
 }
 
 func TestCatalog_VerifyExistence_PresentMarksActive(t *testing.T) {
