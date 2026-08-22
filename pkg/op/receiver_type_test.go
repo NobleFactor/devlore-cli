@@ -122,8 +122,8 @@ func TestNewReceiverType_RequiredFloor_CompanionWithoutActivation(t *testing.T) 
 	}
 }
 
-// mustParseParameters cracks a wire-form methodParameters map into Parameter values for the test, failing the
-// test on parse error. Tests express their inputs in the wire form (matching codegen output); this helper drives
+// mustParseParameters cracks a token-form methodParameters map into Parameter values for the test, failing the
+// test on parse error. Tests express their inputs in the token form (matching codegen output); this helper drives
 // them through parseParameters so the receiver-construction path under test consumes typed Parameter values just
 // as production code does.
 func mustParseParameters(t *testing.T, providerType reflect.Type, m map[string][]string) map[string][]Parameter {

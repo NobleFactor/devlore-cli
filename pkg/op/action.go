@@ -64,7 +64,7 @@ type Compensator interface {
 
 // Parameter describes a single parameter accepted by an Action's Do method.
 //
-// Parameter is the runtime-typed form of a wire parameter token produced by codegen. The wire token (e.g.,
+// Parameter is the runtime-typed form of a parameter token produced by codegen. The parameter token (e.g.,
 // "destination_path", "mode?", "mode?=0o666", "*parts", "**kwargs") is cracked at the announce boundary by
 // parseParameterToken, which populates every field below. Downstream consumers — Method.Invoke, slot-fill in the
 // starlark bridge, error reporting — read these fields directly and never re-parse the token.
@@ -73,8 +73,8 @@ type Compensator interface {
 //   - Name is the bare parameter name with no decoration (no leading "*"/"**", no trailing "?", no "=value"
 //     suffix). It is the canonical key for slots[Name] lookups and for kwarg matching.
 //   - Type is the Go reflect.Type the dispatch site projects values into via op.Convert.
-//   - Optional is true when the caller may omit this slot. Set by parseParameterToken in three cases: the wire
-//     token carries "?", or the parameter is Variadic, or the parameter is Kwargs. Variadic and Kwargs are
+//   - Optional is true when the caller may omit this slot. Set by parseParameterToken in three cases: the
+//     parameter token carries "?", or the parameter is Variadic, or the parameter is Kwargs. Variadic and Kwargs are
 //     inherently "zero or more" — the caller may always omit positional overflow or extra keyword args — so
 //     Optional being true for them lets consumers ask one question ("may caller omit this slot?") without
 //     special-casing the Variadic / Kwargs flags. If Default is non-nil, slot-fill substitutes it.
@@ -87,7 +87,7 @@ type Compensator interface {
 //     to Type's named form (e.g., os.FileMode(0o666), not uint32(0o666)). Default is never a starlark.Value and
 //     never a raw string at the runtime layer.
 //
-// Variadic and Kwargs cannot carry an explicit "?" or "=value" at the wire level — the grammar rejects
+// Variadic and Kwargs cannot carry an explicit "?" or "=value" at the token level — the grammar rejects
 // "*parts?" and "**kwargs?=foo" at parse time. Their Optional bit is set by parseParameterToken on the basis
 // of the marker alone, and Default is always nil for them.
 type Parameter struct {

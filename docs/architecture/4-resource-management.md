@@ -122,13 +122,45 @@ discover-time I/O — `Discover` performs none, and existence belongs to pre-fli
 | `Discover` | hit, `Gone` | return error | same |
 | `Discover` | (any) | **never shadows** | **never shadows** |
 
-**Verification (pre-flight, over the per-run clone — `VerifyExistence`, the only place `Exists()` runs):**
+**Verification (scoped pre-flight — `VerifyExistence`, the only place `Exists()` runs). Ruled 2026-08-22:
+verification is per subgraph executor.** A graph is an object holding a root subgraph — there is only
+subgraph execution — so each executor verifies, when its scope starts, the claims its own units consume.
+The root executor verifies unconditional claims at the run's starting line; a choose case (itself a
+subgraph) verifies its claims only when it is hit, by which point mid-run production may already have
+satisfied them. Unreached scopes never judge their claims.
 
 | Entry state | `Exists()` | Result |
 |---|---|---|
 | `Pending` | true | `Pending` → `Active` |
-| `Pending` | false | **the transition fails**: `Pending` → `Gone`, and pre-flight fails the run — a pending resource that fails its scheme's existence predicate (for **file resources**: the rel does not exist relative to the run's fsroot) is unmet intent (§5.5) |
+| `Pending` | false | **the transition fails**: `Pending` → `Gone`, with a warning always produced. Under `MissingResourcePolicyStop` (the default) the consuming scope fails — a pending resource that fails its scheme's existence predicate (for **file resources**: the rel does not exist relative to the run's fsroot) is unmet intent (§5.5). Under `Ignore`/`Skip` the scope proceeds and the consumer applies its policy at dispatch. |
 | `Active` | false (a later re-check) | `Active` → `Gone` |
+
+**The claims taxonomy (ruled 2026-08-22; policy model ruled the same day).** Every literal claim is
+**required** by default — all resources named as literals are expected to exist when their consuming scope
+starts. Per-consumption tolerance is expressed by **`MissingResourcePolicy`**, an enumeration with explicit
+values (never iota) and a fail-safe zero:
+
+- `MissingResourcePolicyStop` (**0 — the zero value and the default**): a missing resource fails the
+  consuming scope — unmet intent.
+- `MissingResourcePolicyIgnore`: the call is **made anyway** — the provider sees the absence and handles it
+  (a remove no-ops; the receipt records "target was already absent" so compensation of the no-op is a
+  no-op).
+- `MissingResourcePolicySkip`: the call is **skipped** — the unit does not dispatch, recorded as skipped.
+
+**A warning is produced whenever a missing resource is detected, under every policy.** The parameter's TYPE
+is the declaration — no directive: at announcement, a method with a `MissingResourcePolicy`-typed parameter
+and exactly one consumed (resource-typed) parameter links the two; more than one consumed parameter beside
+one policy is ambiguous and refuses at announcement. The claim still enters the catalog under every policy
+(identity, compensation, and drift all want the entry). Aggregation across consumers of one entry: **Stop
+wins** — any Stop consumer in the verifying scope fails it; otherwise each non-Stop consumer applies its
+own policy at dispatch. Open consequence, owned by the implementing PR: the promise of a *skipped* unit is
+unresolved for downstream consumers — the skip semantics must say what they see.
+
+**Conditionality is structural, never declared**: a claim consumed only inside a conditional subgraph is
+verified by that subgraph's executor when the branch is hit. The one deliberately strict case: an
+*unconditional* consumer of a file that an earlier unit creates with no promise edge stays a pre-flight
+failure — ordering-by-coincidence is what "ordering comes from promises" forbids; consume the producer's
+promise and no pending entry exists to check at all.
 
 **Production (dispatch time — products are runtime facts, §5.1):**
 
@@ -143,7 +175,7 @@ discover-time I/O — `Discover` performs none, and existence belongs to pre-fli
 | Consumed entry state | Result |
 |---|---|
 | `Active` | dispatch proceeds; a mutating consumer that destroys the resource transitions the entry `Active` → `Gone`, and its receipt carries the undo |
-| `Gone` | **the consumer fails on the catalog's verdict** — it sees the state; it does not rediscover the loss through its own I/O |
+| `Gone` | **a `Stop` consumer fails on the catalog's verdict** — it sees the state; it does not rediscover the loss through its own I/O. An `Ignore` consumer makes the call (its provider handles the absence; the receipt records it); a `Skip` consumer does not dispatch, recorded as skipped. A warning is produced in every case. |
 | `Pending` | unreachable — pre-flight has already activated the entry or failed the run |
 
 Where the guard lives (ruled 2026-08-20): **the action dispatch seam** — `Method.Invoke` converts slot values
@@ -284,9 +316,10 @@ parsed for a native form (the #547 rule). **The binding is enforced at the execu
 pass** (implemented 2026-08-21, #584 PR 3): every pending entry re-bases onto the run's environment, and a
 root-relative scheme re-binds its path rel-first through the `op.RootBinder` seam (`file` implements it) —
 so existence, Etag, Digest, and I/O all read the run's world, never the environment that constructed or
-rehydrated the object. Pre-flight in one sentence: **every pending resource must satisfy its scheme's
-existence predicate — for file resources, the rel must exist under the run's root.** The judgment scenarios
-that pin this split live in the plan's "Judgment scenarios" section.
+rehydrated the object. Pre-flight in one sentence (scoped per the 2026-08-22 ruling): **every required pending resource must
+satisfy its scheme's existence predicate when its consuming scope starts — for file resources, the rel must
+exist under the run's root.** The judgment scenarios that pin this split live in the plan's "Judgment
+scenarios" section.
 
 ## 6. Recovery — Receipts and the Recovery Site
 

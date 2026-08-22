@@ -18,10 +18,10 @@ import (
 
 // TestGraph_Marshal_WritAdopt_YAML and TestGraph_Marshal_WritAdopt_JSON build an adopt-shaped graph
 // (two adopt subgraphs, each with mkdir → move → link), serialize via the named encoder, decode the
-// bytes back into a [graphPayload] directly, and verify the wire-form structure preserves all IDs,
+// bytes back into a [graphPayload] directly, and verify the document-form structure preserves all IDs,
 // edges, names, and action labels.
 //
-// Under step 18.b, Graph / Node / Subgraph no longer implement [json.Unmarshaler] — the wire form
+// Under step 18.b, Graph / Node / Subgraph no longer implement [json.Unmarshaler] — the document form
 // decodes into payload structs, and [LoadGraph] is the registry-aware path that converts payloads
 // to in-memory units. This test asserts on the payload structure directly, which doesn't require a
 // registry; coverage of the registry-aware decode path lives alongside [plan.Provider.Load].
@@ -37,7 +37,7 @@ func TestGraph_Marshal_WritAdopt_JSON(t *testing.T) {
 }
 
 // runMarshalRoundTrip marshals an adopt-shaped graph, decodes the bytes into a [graphPayload], and
-// verifies the projected wire structure.
+// verifies the projected document structure.
 func runMarshalRoundTrip(
 	t *testing.T,
 	name string,
@@ -290,7 +290,7 @@ func buildAdoptSubgraph(id string) *Subgraph {
 	return sg
 }
 
-// newAdoptNode constructs a Node carrying the given ID, bound to a stub [Action]. The wire-format
+// newAdoptNode constructs a Node carrying the given ID, bound to a stub [Action]. The document-format
 // round-trip test exercises only the symbol-table / containment layer (IDs, children, edges).
 func newAdoptNode(id string) *Node {
 

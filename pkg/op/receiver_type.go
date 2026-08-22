@@ -226,7 +226,7 @@ type providerReceiverType struct {
 //   - providerType: the provider's reflect.Type.
 //   - construct: creates a provider instance from RuntimeEnvironment.
 //   - roles: the provider's declared roles (RoleModule, RoleAction, or both).
-//   - methodParameters: parsed Parameter values per Go method. The wire-form parameter tokens are cracked into
+//   - methodParameters: parsed Parameter values per Go method. The parameter tokens are cracked into
 //     Parameter values upstream by parseParameters at the announce boundary.
 //
 // Returns:
@@ -337,7 +337,7 @@ func (rt *resourceReceiverType) SourceTypes() []reflect.Type { return rt.sourceT
 //
 // Parameters:
 //   - providerType: the reflect.Type of the provider or resource.
-//   - methodParameters: parsed Parameter values per Go method, or nil for positional auto-naming. The wire
+//   - methodParameters: parsed Parameter values per Go method, or nil for positional auto-naming. The token
 //     grammar is cracked upstream by parseParameters; newReceiverType consumes typed Parameter values only.
 //   - isProvider: true if this receiver is an op.Provider (enables companion lookup).
 //

@@ -221,10 +221,10 @@ func newRecoveryStack(parent *RecoveryStack) *RecoveryStack {
 	return &RecoveryStack{parent: parent}
 }
 
-// parseParameters walks the `announce` map and converts wire-form tokens to fully typed Parameter values.
+// parseParameters walks the `announce` map and converts parameter tokens to fully typed Parameter values.
 //
-// The wire form arrives at AnnounceProvider, AnnounceResource, and AnnounceType as a map[string][]string of
-// codegen-emitted parameter-name tokens. parseParameters is the boundary that converts that wire form into
+// The token form arrives at AnnounceProvider, AnnounceResource, and AnnounceType as a map[string][]string of
+// codegen-emitted parameter-name tokens. parseParameters is the boundary that converts that token form into
 // runtime-typed Parameter values, so ReceiverType construction and everything below it consume Parameter values
 // directly and never see raw tokens. For each method, the function looks up the corresponding `[reflect.Method]` on
 // providerType to source per-parameter reflect.Type info, then calls parseParameterToken once per token.
@@ -234,9 +234,9 @@ func newRecoveryStack(parent *RecoveryStack) *RecoveryStack {
 // Parameters:
 //   - `providerType`: the announced type's `[reflect.Type]`. Used to resolve per-method reflect.Method values via
 //     MethodByName so each parameter token can be paired with its Go parameter type.
-//   - `methodParameters`: the codegen-emitted wire map. Each value is a list of parameter-name tokens for one
+//   - `methodParameters`: the codegen-emitted token map. Each value is a list of parameter-name tokens for one
 //     method, in the same order as the Go method's non-receiver parameters (a leading context.Context, if
-//     present, is implicit and not represented in the wire list).
+//     present, is implicit and not represented in the token list).
 //
 // Returns:
 //   - `map[string][]Parameter`: the parsed map, ready to be passed to NewProviderReceiverType, NewResourceReceiverType,
@@ -300,7 +300,7 @@ func parseParameters(providerType reflect.Type, methodParameters map[string][]st
 	return out, nil
 }
 
-// resolvePayloadAction resolves a wire-payload action name through the registry to its bound [Action].
+// resolvePayloadAction resolves a document-payload action name through the registry to its bound [Action].
 //
 // Shared by [assembleNode] and [assembleSubgraph] on the deserialization path.
 //
@@ -315,7 +315,7 @@ func parseParameters(providerType reflect.Type, methodParameters map[string][]st
 func resolvePayloadAction(name, kind, id string) (Action, error) {
 
 	if name == "" {
-		return nil, fmt.Errorf("op.LoadGraph: %s %q has no action_name in wire form", kind, id)
+		return nil, fmt.Errorf("op.LoadGraph: %s %q has no action_name in the document", kind, id)
 	}
 	action, err := ReceiverRegistry().BuildAction(ActionName(name))
 	if err != nil {

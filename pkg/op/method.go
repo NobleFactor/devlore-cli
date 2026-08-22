@@ -90,7 +90,7 @@ type Method struct {
 //
 // Parameters:
 //   - `do`: the reflected Go method to wrap.
-//   - `parameters`: parsed Parameter values matching the method's non-receiver parameters. Wire-form parsing happens
+//   - `parameters`: parsed Parameter values matching the method's non-receiver parameters. Token-form parsing happens
 //     upstream in parseParameters at the announcement boundary; NewMethod consumes typed Parameters only.
 //   - `plan`: the Plan<Name> companion method, or nil if the method has no plan companion.
 //   - `undo`: the Compensate companion method, or nil for non-compensable methods.
@@ -734,7 +734,7 @@ func methodSignature(m *reflect.Method) string {
 // endregion
 
 // validateParameterPositions checks the variadic / kwargs position rules: each flag implies the
-// parameter sits in the last (or last-before-kwargs) slot. The wire grammar already enforces that
+// parameter sits in the last (or last-before-kwargs) slot. The token grammar already enforces that
 // variadic / kwargs cannot also carry ?/=; only cross-parameter position is validated here.
 //
 // Parameters:
