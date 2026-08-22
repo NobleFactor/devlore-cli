@@ -452,6 +452,10 @@ func TestJudgmentScopedClaims(t *testing.T) {
 	runScript(t, "test_judgment_scoped_claims.star")
 }
 
+func TestJudgmentGoneTolerance(t *testing.T) {
+	runScript(t, "test_judgment_gone_tolerance.star")
+}
+
 func TestJudgmentPromiseOrdering(t *testing.T) {
 	runScript(t, "test_judgment_promise_ordering.star")
 }

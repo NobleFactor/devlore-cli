@@ -132,7 +132,7 @@ satisfied them. Unreached scopes never judge their claims.
 | Entry state | `Exists()` | Result |
 |---|---|---|
 | `Pending` | true | `Pending` → `Active` |
-| `Pending` | false | **the transition fails**: `Pending` → `Gone`, with a warning always produced. Under `MissingResourcePolicyStop` (the default) the consuming scope fails — a pending resource that fails its scheme's existence predicate (for **file resources**: the rel does not exist relative to the run's fsroot) is unmet intent (§5.5). Under `Ignore`/`Skip` the scope proceeds and the consumer applies its policy at dispatch. |
+| `Pending` | false | **the transition fails**: `Pending` → `Gone`, with a warning always produced. Under `MissingResourcePolicyStop` (the default) the consuming scope fails — a pending resource that fails its scheme's existence predicate (for **file resources**: the rel does not exist relative to the run's fsroot) is unmet intent (§5.5). Under `Ignore` the scope proceeds and the consumer applies its policy at dispatch. |
 | `Active` | false (a later re-check) | `Active` → `Gone` |
 
 **The claims taxonomy (ruled 2026-08-22; policy model ruled the same day).** Every literal claim is
@@ -145,16 +145,20 @@ values (never iota) and a fail-safe zero:
 - `MissingResourcePolicyIgnore`: the call is **made anyway** — the provider sees the absence and handles it
   (a remove no-ops; the receipt records "target was already absent" so compensation of the no-op is a
   no-op).
-- `MissingResourcePolicySkip`: the call is **skipped** — the unit does not dispatch, recorded as skipped.
+
+A **Skip** variant ("do not dispatch") was considered and **DROPPED (ruled 2026-08-22)**: its undo story is
+trivially clean — nothing ran, nothing to undo — but its forward side (nil-valued promises to downstream
+consumers; a trace that cannot tell "skipped" from "ran and produced nothing") buys machinery Ignore never
+needs, and the structural way to author optional steps already exists (a choose case, whose claims are
+judged only when hit). Re-adding it later is purely additive.
 
 **A warning is produced whenever a missing resource is detected, under every policy.** The parameter's TYPE
 is the declaration — no directive: at announcement, a method with a `MissingResourcePolicy`-typed parameter
 and exactly one consumed (resource-typed) parameter links the two; more than one consumed parameter beside
 one policy is ambiguous and refuses at announcement. The claim still enters the catalog under every policy
 (identity, compensation, and drift all want the entry). Aggregation across consumers of one entry: **Stop
-wins** — any Stop consumer in the verifying scope fails it; otherwise each non-Stop consumer applies its
-own policy at dispatch. Open consequence, owned by the implementing PR: the promise of a *skipped* unit is
-unresolved for downstream consumers — the skip semantics must say what they see.
+wins** — any Stop consumer in the verifying scope fails it; otherwise each Ignore consumer applies its
+policy at dispatch.
 
 **Conditionality is structural, never declared**: a claim consumed only inside a conditional subgraph is
 verified by that subgraph's executor when the branch is hit. The one deliberately strict case: an
@@ -175,7 +179,7 @@ promise and no pending entry exists to check at all.
 | Consumed entry state | Result |
 |---|---|
 | `Active` | dispatch proceeds; a mutating consumer that destroys the resource transitions the entry `Active` → `Gone`, and its receipt carries the undo |
-| `Gone` | **a `Stop` consumer fails on the catalog's verdict** — it sees the state; it does not rediscover the loss through its own I/O. An `Ignore` consumer makes the call (its provider handles the absence; the receipt records it); a `Skip` consumer does not dispatch, recorded as skipped. A warning is produced in every case. |
+| `Gone` | **a `Stop` consumer fails on the catalog's NARRATED verdict** — "consumes X, destroyed by unit N before it could run" (the destroyer stamp) — it sees the state; it does not rediscover the loss through its own I/O. An `Ignore` consumer makes the call: its provider handles the absence. A warning is produced in every case. |
 | `Pending` | unreachable — pre-flight has already activated the entry or failed the run |
 
 Where the guard lives (ruled 2026-08-20): **the action dispatch seam** — `Method.Invoke` converts slot values
@@ -191,10 +195,9 @@ The catalog-resolve verdict remains the in-flight backstop, and provider I/O err
 catalog cannot know (out-of-band deletion mid-run). The `Gone` transition stamps the destroying unit —
 symmetric with `producerID` — so the verdict names both units: *consumed by unit 1 before unit 2 could run*.
 
-Staged rollout: today `file.remove` is path-typed (no consumer link, no transition — scenario 1's receipt shows
-the entry still `pending` after the failed run) and the copy rediscovers the loss as a dispatch-time filesystem
-error. #585 closes both halves: the remove becomes a consumer that transitions the entry, and the second
-consumer's failure becomes the catalog's verdict.
+Delivered (#585 PRs C and D, 2026-08-22): the remove consumes its resource-typed target and transitions the
+entry with the destroyer stamp; the guard at the dispatch seam gives the second consumer the narrated
+verdict. Judgment scenario 1 pins the full ruled shape end to end.
 
 **Why the asymmetry:** a content-addressable URI encodes its identity, so re-producing it is provably the same
 resource (the CAS types: mem, function, json, yaml — [4.2](4.2-mem-resource.md),

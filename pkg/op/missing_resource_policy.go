@@ -18,7 +18,10 @@ import (
 // The parameter's TYPE is the declaration — no directive: a method with a MissingResourcePolicy-typed
 // parameter and exactly one consumed (resource-typed) parameter links the two at announcement. A warning
 // is produced whenever a missing resource is detected, under every policy. Aggregation across the
-// consumers of one entry: Stop wins.
+// consumers of one entry: Stop wins. A Skip variant ("do not dispatch") was considered and DROPPED (ruled
+// 2026-08-22): its undo story is trivially clean — nothing ran, nothing to undo — but its forward side
+// (nil-valued promises to downstream consumers; a trace that cannot tell "skipped" from "ran and produced
+// nothing") buys machinery that Ignore never needs. Re-adding it later is purely additive.
 type MissingResourcePolicy int
 
 const (
@@ -29,15 +32,12 @@ const (
 	// MissingResourcePolicyIgnore makes the call anyway: the provider sees the absence and handles it
 	// (a remove no-ops), and the receipt records that the target was already absent.
 	MissingResourcePolicyIgnore MissingResourcePolicy = 1
-
-	// MissingResourcePolicySkip skips the call: the unit does not dispatch, recorded as skipped.
-	MissingResourcePolicySkip MissingResourcePolicy = 2
 )
 
 // String returns the canonical lowercase rendering of the policy.
 //
 // Returns:
-//   - `string`: "stop", "ignore", or "skip".
+//   - `string`: "stop" or "ignore".
 func (p MissingResourcePolicy) String() string {
 
 	switch p {
@@ -45,8 +45,6 @@ func (p MissingResourcePolicy) String() string {
 		return "stop"
 	case MissingResourcePolicyIgnore:
 		return "ignore"
-	case MissingResourcePolicySkip:
-		return "skip"
 	}
 
 	assert.Unreachable(fmt.Sprintf("op.MissingResourcePolicy.String: invalid policy value %d", int(p)))
@@ -127,8 +125,6 @@ func (p *MissingResourcePolicy) parse(name string) error {
 		*p = MissingResourcePolicyStop
 	case "ignore":
 		*p = MissingResourcePolicyIgnore
-	case "skip":
-		*p = MissingResourcePolicySkip
 	default:
 		return fmt.Errorf("op.MissingResourcePolicy: unknown policy %q", name)
 	}

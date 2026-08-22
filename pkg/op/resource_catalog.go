@@ -41,6 +41,11 @@ type ResourceCatalog struct {
 	ns      map[string]string        // namespace key → current id; see [namespaceKey] for the per-addressing keying regime
 	states  map[string]ResourceState // id → per-run lifecycle state; independent of Resource identity
 	nextID  int                      // monotonic counter for id generation
+
+	// destroyers maps an entry id to the unit that destroyed the resource — the mutator-side [Gone]
+	// transition's authorship (the destroyer stamp, ruled 2026-08-20), symmetric with producerID on
+	// production. Reactive Gone transitions (a failed existence check) stamp nothing.
+	destroyers map[string]string
 }
 
 // NewResourceCatalog creates an empty catalog.
@@ -49,9 +54,10 @@ type ResourceCatalog struct {
 //   - `*ResourceCatalog`: the empty catalog.
 func NewResourceCatalog() *ResourceCatalog {
 	return &ResourceCatalog{
-		byID:   make(map[string]int),
-		ns:     make(map[string]string),
-		states: make(map[string]ResourceState),
+		byID:       make(map[string]int),
+		ns:         make(map[string]string),
+		states:     make(map[string]ResourceState),
+		destroyers: make(map[string]string),
 	}
 }
 
@@ -103,12 +109,18 @@ func (c *ResourceCatalog) Clone() *ResourceCatalog {
 		states[k] = v
 	}
 
+	destroyers := make(map[string]string, len(c.destroyers))
+	for k, v := range c.destroyers {
+		destroyers[k] = v
+	}
+
 	return &ResourceCatalog{
-		entries: entries,
-		byID:    byID,
-		ns:      ns,
-		states:  states,
-		nextID:  c.nextID,
+		entries:    entries,
+		byID:       byID,
+		ns:         ns,
+		states:     states,
+		nextID:     c.nextID,
+		destroyers: destroyers,
 	}
 }
 
@@ -380,12 +392,38 @@ func (c *ResourceCatalog) Lookup(id string) (Resource, bool) {
 //
 // Panics with an [*assert.AssertionError] when `r` is nil or not cataloged — a programming error at the call site,
 // not a runtime condition.
-func (c *ResourceCatalog) MarkGone(r Resource) {
+func (c *ResourceCatalog) MarkGone(r Resource, destroyerID string) {
 
 	assert.True("resource required", r != nil)
 	assert.True("resource is cataloged", r.resourceBase().id != "")
 
-	c.markGone(r)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.states[r.resourceBase().id] = Gone
+
+	// The destroyer stamp (ruled 2026-08-20): the mutator is the authority for its own destruction, so
+	// the verdict a later consumer sees can name both units. Empty means unattributed (immediate-mode
+	// dispatch without a caller).
+	if destroyerID != "" {
+		c.destroyers[r.resourceBase().id] = destroyerID
+	}
+}
+
+// DestroyerOf returns the unit that destroyed the entry `id`, or "" when the Gone transition was reactive
+// (a failed existence check) or unattributed.
+//
+// Parameters:
+//   - `id`: the catalog id to look up.
+//
+// Returns:
+//   - `string`: the destroying unit's id, or "".
+func (c *ResourceCatalog) DestroyerOf(id string) string {
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.destroyers[id]
 }
 
 // Resolve returns the canonical resource for the given resource's URI, along with its catalog ID.
@@ -513,10 +551,11 @@ func (c *ResourceCatalog) Snapshot() *ResourceLedgerSnapshot {
 		pending = append(pending, captured{
 			resource: resource,
 			entry: LedgerEntrySnapshot{
-				ID:         base.id,
-				URI:        resource.URI(),
-				ProducerID: base.producerID,
-				State:      c.states[base.id],
+				ID:          base.id,
+				URI:         resource.URI(),
+				ProducerID:  base.producerID,
+				State:       c.states[base.id],
+				DestroyedBy: c.destroyers[base.id],
 			},
 		})
 	}
@@ -888,6 +927,11 @@ type LedgerEntrySnapshot struct {
 	// deferred to step 23's Merkle deliverable — leaves it empty); reporting metadata —
 	// [ResourceLedgerSnapshot.Rehydrate] ignores it.
 	Digest string `json:"digest,omitempty" yaml:"digest,omitempty"`
+
+	// DestroyedBy is the unit that destroyed this resource — the destroyer stamp on a mutator-side [Gone]
+	// transition (ruled 2026-08-20), symmetric with ProducerID. Empty for reactive Gone transitions and
+	// every non-Gone state; reporting metadata — [ResourceLedgerSnapshot.Rehydrate] ignores it.
+	DestroyedBy string `json:"destroyed_by,omitempty" yaml:"destroyed_by,omitempty"`
 }
 
 // Rehydrate rebuilds a live [*ResourceCatalog] from the snapshot, preserving every generation's id.

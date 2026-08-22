@@ -1075,7 +1075,7 @@ func (e *GraphExecutor) bindVariables(graph *Graph, callerVariables map[string]V
 // [Gone] transition through [ResourceCatalog.VerifyExistence]; a warning is produced on every detection of
 // a missing resource, under every policy. The consequence follows the unit's [MissingResourcePolicy]
 // (fail-safe default [MissingResourcePolicyStop]): Stop fails the scope with [ReasonPreflightFailed];
-// Ignore and Skip let the scope proceed — their behavior applies at the consumer's dispatch.
+// Ignore lets the scope proceed — its behavior applies at the consumer's dispatch.
 //
 // Parameters:
 //   - `scopeID`: the verifying scope's unit id, for the warning and the failure.

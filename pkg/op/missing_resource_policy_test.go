@@ -24,7 +24,6 @@ func TestMissingResourcePolicy_RoundTripAndZeroValue(t *testing.T) {
 	}{
 		{MissingResourcePolicyStop, "stop"},
 		{MissingResourcePolicyIgnore, "ignore"},
-		{MissingResourcePolicySkip, "skip"},
 	} {
 		if tc.policy.String() != tc.name {
 			t.Errorf("String(%d) = %q, want %q", int(tc.policy), tc.policy.String(), tc.name)
@@ -50,5 +49,10 @@ func TestMissingResourcePolicy_RoundTripAndZeroValue(t *testing.T) {
 	var invalid MissingResourcePolicy
 	if err := invalid.UnmarshalText([]byte("shrug")); err == nil {
 		t.Error("unknown policy name accepted — must refuse")
+	}
+
+	// Skip was considered and dropped (ruled 2026-08-22); the name refuses like any other stranger.
+	if err := invalid.UnmarshalText([]byte("skip")); err == nil {
+		t.Error(`"skip" accepted — the variant was dropped and must refuse`)
 	}
 }
