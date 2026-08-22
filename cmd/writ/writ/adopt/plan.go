@@ -105,7 +105,7 @@ func BuildGraph(env *op.RuntimeEnvironment, items []Item) (*op.Graph, error) {
 	}
 
 	moveInvocation, err := planProvider.Plan(file.Move, nil, map[string]any{
-		"source_path":      planProvider.Item("source"),
+		"source":           planProvider.Item("source"),
 		"destination_path": planProvider.Item("dest_path"),
 	})
 	if err != nil {

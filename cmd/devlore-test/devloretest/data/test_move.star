@@ -9,7 +9,7 @@ src = t.tmp("move_src.txt")
 dst = t.tmp("move_dst.txt")
 
 written = plan.file.write_text(destination_path=src, content="moving data", mode=0o644)
-moved   = plan.file.move(source_path=written, destination_path=dst)
+moved   = plan.file.move(source=written, destination_path=dst)
 
 graph = plan.assemble_definition([written, moved])
 

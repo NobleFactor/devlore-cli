@@ -269,7 +269,7 @@ sweep completed across PRs 1–3: readback (PR 1), providers already on the acce
 (this PR). Windows expectation: green stays green — the baseline is now zero. **The Windows CI leg went
 28 → 0 during this phase; #547 closed.**
 
-### Phase 3 — plan-time claiming: inputs only, pending only — status: pending
+### Phase 3 — plan-time claiming: inputs only, pending only — status: complete 2026-08-22 (PRs A #602, B #603, C #604, D #605 merged; C2 in review — the closing PR)
 
 **NOTE (USER, 2026-08-22): two e2e lore scenarios join this phase's development — Docker and Go Toolchain,
 each covering deployment, upgrade, reconcile, and decommission. Docker first. Expected to take many passes;
@@ -389,6 +389,20 @@ catalog exposed.**
   the second `on_missing="ignore"`, one deletion + one recorded no-op, run succeeds.
 - Gate: make check 103 ok / 0 fail, GOOS=windows vet clean. Phase-3 remainder: C2 (Move's source,
   RemoveAll) chartered.
+
+**C2 record (2026-08-22) — the last mutators; phase 3 closes without remainder.**
+
+- `file.Move(source *Regular, destination_path, on_missing)` — a move destroys the source location, so the
+  source claims, and success marks it Gone with the destroyer stamp. `file.RemoveAll(target *Directory,
+  on_missing, prune, boundary)` — policy-gated like its siblings; missing-target pin rewritten to both
+  directions. `Backup` delegates through the typed Move.
+- The strict case caught one more star (`test_mkdir_and_remove_all` created its tree mid-run and removed
+  it by name) — re-authored: `remove_all` consumes mkdir's promise.
+- writ migrate's register emits its consumed source in plan space; one recorded kind-looseness: the layer
+  registration moves a DIRECTORY through the `*Regular`-typed claim — dispatch observes the actual kind;
+  kind-honest claims for directory moves ride the 3.6 method-classification work.
+- Every file-scheme mutator is now a resource-typed consumer. Gate: make check 103 ok / 0 fail,
+  GOOS=windows vet clean.
 4. Consequence for phase 1's stored section: every stored entry is Pending by construction. **RULED
    2026-08-21: the stored row drops `state` entirely** — the intent row becomes its own `{id, uri}` type
    (presence IS the pending claim), splitting from the trace's `LedgerEntrySnapshot`, whose

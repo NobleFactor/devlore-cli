@@ -44,7 +44,7 @@ t.expect_equal(type(copied), "Regular")
 
 # Move — returns a Resource
 moved = t.tmp("imm_moved.txt")
-file.move(source_path=dst, destination_path=moved)
+file.move(source=dst, destination_path=moved)
 t.expect_equal(file.exists(path=dst), False)
 t.expect_equal(file.exists(path=moved), True)
 

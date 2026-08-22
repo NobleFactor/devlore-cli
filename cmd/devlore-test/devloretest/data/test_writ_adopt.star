@@ -25,7 +25,7 @@ t.set_flags({
 })
 
 mkdir = plan.file.mkdir(path=plan.variable("dest_dir"), mode=0o755)
-move  = plan.file.move(source_path=plan.variable("source_path"), destination_path=plan.variable("dest_path"))
+move  = plan.file.move(source=plan.variable("source_path"), destination_path=plan.variable("dest_path"))
 link  = plan.file.link(source_path=plan.variable("dest_path"), target_path=plan.variable("source_path"))
 
 graph = plan.assemble_definition([mkdir, move, link])

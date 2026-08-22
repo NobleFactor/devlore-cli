@@ -12,10 +12,15 @@
 dir  = t.tmp("mydir")
 file = t.tmp("mydir/nested.txt")
 
+# remove_all consumes mkdir's PROMISE: the graph itself creates the tree, so the claim rides the edge —
+# the promise-less name-coincidence form is refused by scoped pre-flight, by design (§3).
+made = plan.file.mkdir(path=dir, mode=0o755)
+written = plan.file.write_text(destination_path=file, content="nested content", mode=0o644)
+
 graph = plan.assemble_definition([
-    plan.file.mkdir(path=dir, mode=0o755),
-    plan.file.write_text(destination_path=file, content="nested content", mode=0o644),
-    plan.file.remove_all(path=dir, prune=False, boundary=""),
+    made,
+    written,
+    plan.file.remove_all(target=made, prune=False, boundary=""),
 ])
 
 t.expect_no_file(file)

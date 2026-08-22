@@ -875,7 +875,7 @@ func TestMove_MovesFileToDestination(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	result, state, err := p.Move(testActivation(t, p.RuntimeEnvironment()), src, dst)
+	result, state, err := p.Move(testActivation(t, p.RuntimeEnvironment()), mustDiscoverRegular(t, p, src), dst, op.MissingResourcePolicyStop)
 	if err != nil {
 		t.Fatalf("Move() error = %v", err)
 	}
@@ -965,7 +965,7 @@ func TestCompensateMove_RoundTrip(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	_, state, err := p.Move(testActivation(t, p.RuntimeEnvironment()), src, dst)
+	_, state, err := p.Move(testActivation(t, p.RuntimeEnvironment()), mustDiscoverRegular(t, p, src), dst, op.MissingResourcePolicyStop)
 	if err != nil {
 		t.Fatalf("Move() error = %v", err)
 	}
@@ -1007,7 +1007,7 @@ func TestCompensateMove_RoundTrip_WithPreExistingDestination(t *testing.T) {
 
 	p := testProvider(t, tmp)
 
-	_, state, err := p.Move(testActivation(t, p.RuntimeEnvironment()), src, dst)
+	_, state, err := p.Move(testActivation(t, p.RuntimeEnvironment()), mustDiscoverRegular(t, p, src), dst, op.MissingResourcePolicyStop)
 	if err != nil {
 		t.Fatalf("Move() error = %v", err)
 	}
@@ -1816,7 +1816,7 @@ func TestRemoveAll_RoundTrip(t *testing.T) {
 	writeTestFile(t, dir, "child.txt", "child content")
 
 	p := testProvider(t, tmp)
-	_, state, err := p.RemoveAll(testActivation(t, p.RuntimeEnvironment()), dir, false, "")
+	_, state, err := p.RemoveAll(testActivation(t, p.RuntimeEnvironment()), mustDiscoverDirectory(t, p, dir), op.MissingResourcePolicyStop, false, "")
 	if err != nil {
 		t.Fatalf("RemoveAll() error = %v", err)
 	}
@@ -1890,7 +1890,7 @@ func TestCompensateRemoveAll_RoundTrip(t *testing.T) {
 	writeTestFile(t, filepath.Join(dir, "sub"), "nested.txt", "nested data")
 
 	p := testProvider(t, tmp)
-	_, state, err := p.RemoveAll(testActivation(t, p.RuntimeEnvironment()), dir, false, "")
+	_, state, err := p.RemoveAll(testActivation(t, p.RuntimeEnvironment()), mustDiscoverDirectory(t, p, dir), op.MissingResourcePolicyStop, false, "")
 	if err != nil {
 		t.Fatalf("RemoveAll() error = %v", err)
 	}
@@ -2498,7 +2498,7 @@ func TestCompensateMove_RoundTrip_RemovesCreatedParents(t *testing.T) {
 	dest := filepath.Join(tmp, "a", "b", "moved.txt")
 
 	p := testProvider(t, tmp)
-	_, receipt, err := p.Move(testActivation(t, p.RuntimeEnvironment()), source, dest)
+	_, receipt, err := p.Move(testActivation(t, p.RuntimeEnvironment()), mustDiscoverRegular(t, p, source), dest, op.MissingResourcePolicyStop)
 	if err != nil {
 		t.Fatalf("Move() error = %v", err)
 	}
@@ -2543,6 +2543,19 @@ func mustDiscoverRegular(t *testing.T, p Provider, path string) *Regular {
 	target, err := DiscoverRegular(p.RuntimeEnvironment(), path)
 	if err != nil {
 		t.Fatalf("DiscoverRegular(%s): %v", path, err)
+	}
+	return target
+}
+
+// mustDiscoverDirectory discovers the typed RemoveAll target for a direct provider call, failing the test
+// on a construction error.
+func mustDiscoverDirectory(t *testing.T, p Provider, path string) *Directory {
+
+	t.Helper()
+
+	target, err := DiscoverDirectory(p.RuntimeEnvironment(), path)
+	if err != nil {
+		t.Fatalf("DiscoverDirectory(%s): %v", path, err)
 	}
 	return target
 }

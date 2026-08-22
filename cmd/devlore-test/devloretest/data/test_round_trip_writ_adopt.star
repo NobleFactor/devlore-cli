@@ -27,7 +27,7 @@ t.set_flags({
 
 plan.subgraph(body=[
     plan.file.mkdir(path=plan.variable("dest_dir"), mode=0o755),
-    plan.file.move(source_path=plan.variable("source_path"), destination_path=plan.variable("dest_path")),
+    plan.file.move(source=plan.variable("source_path"), destination_path=plan.variable("dest_path")),
     plan.file.link(source_path=plan.variable("dest_path"), target_path=plan.variable("source_path")),
 ])
 
