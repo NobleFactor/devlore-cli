@@ -242,7 +242,7 @@ func (b *ResourceBase) Etag() (string, error) {
 	return b.uri, nil
 }
 
-// MarshalJSON marshals the resource to its JSON wire form, which is the URI as a JSON-encoded string.
+// MarshalJSON marshals the resource to its JSON form, which is the URI as a JSON-encoded string.
 //
 // The URI is the resource's identity and the only field required for a round trip through JSON: catalog rehydration
 // reconstructs the resource via [NewResource] from the stored URI. Concrete Resource types that need to persist
@@ -256,7 +256,7 @@ func (b *ResourceBase) MarshalJSON() ([]byte, error) {
 	return json.Marshal(b.uri)
 }
 
-// MarshalText marshals the resource to its text wire form, which is the URI as raw UTF-8 bytes.
+// MarshalText marshals the resource to its text form, which is the URI as raw UTF-8 bytes.
 //
 // The text form is consumed by stdlib encoders ([encoding/json] for map keys, [encoding/xml] for attributes), YAML
 // scalar emission via [yaml.v3], CLI flag ingestion via [flag.TextVar], and most env/config parsers. Round trip through

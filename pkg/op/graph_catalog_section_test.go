@@ -141,9 +141,12 @@ func TestGraphDocument_IntentRowsRoundTrip(t *testing.T) {
 		if !strings.Contains(rows[i].URI, want) {
 			t.Errorf("row %d URI = %q, want it to name %q", i, rows[i].URI, want)
 		}
-		if rows[i].State != Pending {
-			t.Errorf("row %d state = %v, want Pending — the stored catalog is intent", i, rows[i].State)
-		}
+	}
+
+	// The stateless-row ruling (§5.4, 2026-08-21): an intent row is {id, uri} and nothing else — pending
+	// is definitional, so no state field exists to assert. The serialized document must not carry one.
+	if strings.Contains(string(document), `"state"`) {
+		t.Errorf("the graph document carries a state field — intent rows are {id, uri}:\n%s", document)
 	}
 
 	repacked := serializeGraph(t, loaded, "json")

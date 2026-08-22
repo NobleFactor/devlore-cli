@@ -10,7 +10,7 @@ import (
 	"strings"
 )
 
-// parseParameterToken cracks one wire-form parameter token into a fully typed Parameter.
+// parseParameterToken cracks one parameter token into a fully typed Parameter.
 //
 // The token grammar emitted by codegen is:
 //
@@ -32,7 +32,7 @@ import (
 // documents the deferred path.
 //
 // Parameters:
-//   - `raw`: the wire token to parse (e.g., "destination_path", "mode?", "mode?=0o666", "*parts", "**kwargs").
+//   - `raw`: the parameter token to parse (e.g., "destination_path", "mode?", "mode?=0o666", "*parts", "**kwargs").
 //   - `paramType`: the Go-method parameter type the token corresponds to. Used to type-check the default
 //     expression and to detect Resource-typed parameters.
 //

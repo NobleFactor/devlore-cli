@@ -513,7 +513,7 @@ func assembleGraph(env *RuntimeEnvironment, p *graphData) (*Graph, error) {
 //   - `*ResourceCatalog`: the reconstructed catalog, ids preserved, every entry Pending.
 //   - `error`: non-nil on a malformed URI, an unresolvable type id, an Unpack or construction failure, or an
 //     orphan content blob.
-func unpackCatalog(env *RuntimeEnvironment, rows []LedgerEntrySnapshot, content []contentEntry) (*ResourceCatalog, error) {
+func unpackCatalog(env *RuntimeEnvironment, rows []IntentEntry, content []contentEntry) (*ResourceCatalog, error) {
 
 	blobs := make(map[string][]byte, len(content))
 	for _, entry := range content {
@@ -570,7 +570,7 @@ func unpackCatalog(env *RuntimeEnvironment, rows []LedgerEntrySnapshot, content 
 // Returns:
 //   - `Resource`: the reconstructed resource.
 //   - `error`: a malformed URI, an unresolvable type id, or an Unpack/construction failure.
-func reconstructIntentRow(env *RuntimeEnvironment, row LedgerEntrySnapshot, blobs map[string][]byte) (Resource, error) {
+func reconstructIntentRow(env *RuntimeEnvironment, row IntentEntry, blobs map[string][]byte) (Resource, error) {
 
 	specific, typeID, err := ExtractTagSpecific(row.URI)
 	if err != nil {
@@ -1231,7 +1231,7 @@ type graphData struct {
 	// `{id, uri, state: pending}`, in ledger append order. Deliberately NOT omitempty: the section is
 	// mandatory even when empty, and [LoadGraph] refuses a document without it. Like the content section it
 	// sits outside [Graph.CanonicalContent].
-	Resources []LedgerEntrySnapshot `json:"resources"            yaml:"resources"`
+	Resources []IntentEntry `json:"resources"            yaml:"resources"`
 
 	Subgraphs []subgraphData `json:"subgraphs,omitempty"  yaml:"subgraphs,omitempty"`
 }

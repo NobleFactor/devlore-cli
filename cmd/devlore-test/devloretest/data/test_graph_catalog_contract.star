@@ -35,7 +35,8 @@ entries = document["resources"]
 
 # 2 — the source is present, as pending intent.
 t.expect_equal(len([e for e in entries if "original.txt" in str(e)]), 1)
-t.expect_equal(len([e for e in entries if "original.txt" in str(e) and e["state"] == "pending"]), 1)
+t.expect_equal(len([e for e in entries if "original.txt" in str(e)]), 1)
+t.expect_equal(len([e for e in entries if "state" in e]), 0)  # stateless rows: presence IS the pending claim
 
 # 3 — the destination is ABSENT: a product is a runtime fact, not intent.
 t.expect_equal(len([e for e in entries if "duplicate.txt" in str(e)]), 0)

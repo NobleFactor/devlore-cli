@@ -85,11 +85,13 @@ plan.save_definition(graph, "graph.json")
 	rows := loaded.ResourceCatalog().IntentEntries()
 
 	// 2 — the source: pending intent in the stored catalog.
-	sourceRow, found := rowNaming(rows, filepath.Base(sourcePath))
-	if !found {
+	if _, found := rowNaming(rows, filepath.Base(sourcePath)); !found {
 		t.Errorf("stored catalog carries no entry for the source %q\n  rows: %s", sourcePath, describeRows(rows))
-	} else if sourceRow.State != op.Pending {
-		t.Errorf("source entry state = %v, want Pending — the stored catalog is intent", sourceRow.State)
+	}
+
+	// Stateless rows (§5.4): presence IS the pending claim; the document must not carry a state field.
+	if strings.Contains(string(data), `"state"`) {
+		t.Errorf("the stored document carries a state field — intent rows are {id, uri}")
 	}
 
 	// 3 — the destination: absent, pinning the product ruling in both directions.
@@ -100,7 +102,7 @@ plan.save_definition(graph, "graph.json")
 }
 
 // rowNaming returns the first intent row whose URI names `needle`.
-func rowNaming(rows []op.LedgerEntrySnapshot, needle string) (op.LedgerEntrySnapshot, bool) {
+func rowNaming(rows []op.IntentEntry, needle string) (op.IntentEntry, bool) {
 
 	for _, row := range rows {
 		if strings.Contains(row.URI, needle) {
@@ -108,11 +110,11 @@ func rowNaming(rows []op.LedgerEntrySnapshot, needle string) (op.LedgerEntrySnap
 		}
 	}
 
-	return op.LedgerEntrySnapshot{}, false
+	return op.IntentEntry{}, false
 }
 
 // describeRows renders the rows for a failure message.
-func describeRows(rows []op.LedgerEntrySnapshot) string {
+func describeRows(rows []op.IntentEntry) string {
 
 	if len(rows) == 0 {
 		return "(none)"

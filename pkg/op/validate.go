@@ -29,7 +29,7 @@ import (
 // ValidateGraph is the single source of truth for both boundary checks:
 //
 //   - The planning path calls it as the final step of plan.Provider.Assemble.
-//   - The wire-form load path calls it after [Graph.Rebind]'s linkActions resolves pending action
+//   - The document-form load path calls it after [Graph.Rebind]'s linkActions resolves pending action
 //     references through the registry. The loader (e.g., plan.Provider.Load) orders Unmarshal ->
 //     Rebind -> ValidateGraph.
 //

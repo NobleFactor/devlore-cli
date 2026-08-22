@@ -29,7 +29,8 @@ plan.save_definition(graph, doc)
 # is absent.
 document = json.decode(data=file.read_text(resource=doc))
 entries = document["resources"]
-t.expect_equal(len([e for e in entries if "data.txt" in str(e) and e["state"] == "pending"]), 1)
+t.expect_equal(len([e for e in entries if "data.txt" in str(e)]), 1)
+t.expect_equal(len([e for e in entries if "state" in e]), 0)  # stateless rows: presence IS the pending claim
 t.expect_equal(len([e for e in entries if "copy.txt" in str(e)]), 0)
 
 # The run: the copy fails on the gone source; compensation restores the deleted file; the never-produced

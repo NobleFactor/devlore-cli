@@ -271,17 +271,54 @@ sweep completed across PRs 1–3: readback (PR 1), providers already on the acce
 
 ### Phase 3 — plan-time claiming: inputs only, pending only — status: pending
 
+**NOTE (USER, 2026-08-22): two e2e lore scenarios join this phase's development — Docker and Go Toolchain,
+each covering deployment, upgrade, reconcile, and decommission. Docker first. Expected to take many passes;
+development starts right away alongside the phase-3 design work. Parts were previously spec'd — locate and
+fold in when the work begins.**
+
 **RULED 2026-08-20, superseding the sketch's output section (:21–27) and rejecting Appendix A outright:**
 products are runtime facts. A method that returns a resource creates it at execution; nothing about it enters
 the catalog at plan time. The plan-time catalog is the graph's *input intent*, and it never touches the disk.
 
-1. Resource-typed parameter, **string value** → mint a **pending** resource from the string into the catalog.
-   No existence check at plan time; pending, never resolved (the executor's pre-flight owns transitions —
-   [4-resource-management.md](../architecture/4-resource-management.md) §78–81 already rules this).
-2. Resource-typed parameter, **promise value** → record the promise binding; **no catalog entry** — identity
-   arrives when the producer runs.
-3. String-typed parameters (`destination_path`, `mode`, `user`, …) stay plain values. No output-naming
-   convention, no `+devlore:output` — there is nothing to declare because there is nothing tracked.
+Items 1–3 of the original docket (string → pending, promise → recorded, strings stay plain) were
+**delivered by phases 1–2 and are pinned green**. The live docket, consolidated from the #585 rulings:
+
+1. **The claims taxonomy + scoped verification (RULED 2026-08-22).** Required by default; per-consumption
+   tolerance via **`MissingResourcePolicy`** — `Stop` (0, the fail-safe zero value and default: missing
+   fails the scope), `Ignore` (make the call; the provider handles absence, the receipt records it),
+   `Skip` (do not dispatch; recorded as skipped) — **a warning always produced on detection**. The
+   parameter's TYPE is the declaration (announce-time linkage to the single consumed parameter; ambiguity
+   refuses) — no directive. Aggregation: Stop wins. Conditionality is **structural** — a graph is an
+   object holding a root subgraph, there is only subgraph execution, and **each subgraph executor verifies
+   the claims its own units consume when its scope starts** (a choose case verifies only when hit). Strict
+   case stays: promise-less unconditional consumption of a mid-run product fails pre-flight. Open
+   consequence for the implementing PR: what a skipped unit's promise consumers see.
+2. **Pre-flight fails on unmet required intent** — the Q1 consequence, implemented per the taxonomy.
+   Acceptance: `TestJudgmentPreflightFailFast` un-skips and flips green; the binding pin's Gone direction
+   updates from dispatch-failure to the pre-flight verdict.
+3. **Mutation targets go resource-typed** (Remove, Unlink; Move's source and RemoveAll sized at execution)
+   with a `MissingResourcePolicy` parameter on the mutators; the authoring sweep renames `path` → `target`;
+   writ decommission authors a non-Stop policy — a vanished target decommissions as a recorded no-op
+   (ruled; the exact constant, Ignore vs Skip, chosen at this PR).
+4. **The consumed-Gone guard** at the dispatch seam (post-conversion, pre-forward-call), honoring
+   tolerance, with the **destroyer stamp** on `MarkGone` so the verdict names both units.
+5. **Stateless intent rows** — `IntentEntry{ID, URI}`; presence IS the claim (ruled 2026-08-21).
+
+**Directive-inventory rulings (USER, 2026-08-22), chartered here and sized at execution:**
+
+- `+devlore:planner` **retires — inferred**: a package type named `<MethodName>Planner` implementing
+  `op.Planner` links by convention (verified 4/4 on today's uses). No directive required.
+- `+devlore:struct_param` **removed**: consumed by nothing (two declaration sites, zero readers), and
+  `Convert`'s struct hydration already performs the conversion.
+- `+devlore:lifetime` **removed**, with the dormant `Lifetime` machinery (`pkg/op/provider/lifetime.go`).
+- `+devlore:access` retires separately per `3.6-method-classification.md` (its own design; no shim,
+  removed in one pass, per the governing principle).
+- Tolerance carries **no directive** — the `MissingResourcePolicy` parameter type is the declaration.
+- The "wire" comment vocabulary ("wire parameter token" etc.) renames to parameter-token/announce
+  vocabulary — cleanup pass run 2026-08-22 (background).
+
+Surviving directive set: `+devlore:defaults`, `+devlore:property`, `+devlore:root` — everything else
+derives from types, signatures, names, and graph structure.
 4. Consequence for phase 1's stored section: every stored entry is Pending by construction. **RULED
    2026-08-21: the stored row drops `state` entirely** — the intent row becomes its own `{id, uri}` type
    (presence IS the pending claim), splitting from the trace's `LedgerEntrySnapshot`, whose

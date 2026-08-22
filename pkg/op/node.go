@@ -27,7 +27,7 @@ type Node struct {
 // The spec's ID, action, annotations, slots, elevation offer, error action, and retry policy are applied here; the
 // returned Node exposes no public setters and is immutable thereafter (the graph-immutability seal).
 //
-// Wire-form deserialization reaches the same result through [LoadGraph]: it decodes the stream into [nodeData] values
+// Document deserialization reaches the same result through [LoadGraph]: it decodes the stream into [nodeData] values
 // and rebuilds each Node with its registry-resolved [Action], never leaving a Node in an action-less transient state.
 //
 // Parameters:
@@ -188,17 +188,17 @@ func (n *Node) Execute(
 	return result, nil
 }
 
-// MarshalJSON projects the node to its [nodeData] wire shape and JSON-encodes it.
+// MarshalJSON projects the node to its [nodeData] document shape and JSON-encodes it.
 //
 // Returns:
-//   - []byte: the JSON encoding of the node's wire form.
+//   - []byte: the JSON encoding of the node's document form.
 //   - `error`: non-nil if JSON marshaling fails.
 func (n *Node) MarshalJSON() ([]byte, error) { return json.Marshal(n.marshalData()) }
 
-// MarshalYAML returns the node's [nodeData] wire shape for the YAML encoder to serialize.
+// MarshalYAML returns the node's [nodeData] document shape for the YAML encoder to serialize.
 //
 // Returns:
-//   - `any`: the [nodeData] wire-form value.
+//   - `any`: the [nodeData] document-form value.
 //   - `error`: always nil; present only to satisfy the yaml.Marshaler signature.
 func (n *Node) MarshalYAML() (any, error) { return n.marshalData(), nil }
 
@@ -247,8 +247,8 @@ func (n *Node) Parameters() ([]Parameter, error) {
 	return out, nil
 }
 
-// Node intentionally has no [json.Unmarshaler] / yaml.Unmarshaler. The wire form decodes into [nodeData] structs (held
-// inside [graphData]); [LoadGraph] then walks those payloads and constructs each Node via [NewNode] with the
+// Node intentionally has no [json.Unmarshaler] / yaml.Unmarshaler. The document form decodes into [nodeData] structs
+// (held inside [graphData]); [LoadGraph] then walks those payloads and constructs each Node via [NewNode] with the
 // registry-resolved [Action] in one pass — so a Node never exists in an action-less transient state outside
 // [LoadGraph]'s internals.
 

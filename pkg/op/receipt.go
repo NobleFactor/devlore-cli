@@ -480,11 +480,11 @@ func (b *ReceiptBase) MarshalJSON() ([]byte, error) {
 
 // MarshalYAML returns the receipt's base state as a [ReceiptData] value the YAML encoder serializes.
 //
-// Per phase-8 13.0(d), Resource is projected to its [Resource.URI] string on the wire — not embedded as a full Resource
-// document — so the envelope stays flat and the Unmarshal side can rehydrate the concrete Resource via each
+// Per phase-8 13.0(d), Resource is projected to its [Resource.URI] string in the document — not embedded as a full
+// Resource document — so the envelope stays flat and the Unmarshal side can rehydrate the concrete Resource via each
 // derivative's NewResource without nested-decoder context plumbing. TransactionID serializes as the canonical 36-char
 // UUIDv7 string already produced by [ReceiptBase.TransactionID]. Err round-trips as a `status` string (the error
-// message); empty restores as nil. [ReceiptData] is the single source of truth for the wire shape: its `json:` and
+// message); empty restores as nil. [ReceiptData] is the single source of truth for the document shape: its `json:` and
 // `yaml:` tags drive both encoders, and [ReceiptBase.MarshalJSON] delegates here for the value before running
 // [json.Marshal].
 //
@@ -504,15 +504,15 @@ func (b *ReceiptBase) MarshalYAML() (any, error) {
 // Restore rebuilds this receipt's base state from a [ReceiptData].
 //
 // [Snapshot] and Restore form the encapsulation-respecting path to read or write the embedded base state from outside
-// [op]. Concrete receipt types in other packages embed [ReceiptData] in their own wire-shape struct, extract the
+// [op]. Concrete receipt types in other packages embed [ReceiptData] in their own document-shape struct, extract the
 // embedded value during unmarshal, and pass it here. The boundary conversions ([Resource] -> URI, UUID -> 36-char
 // string, error -> status string) run at the Snapshot / Restore boundary so downstream encoders see plain field values
 // and skip reflection-driven method dispatch on the embedded base.
 //
 // The receiver MUST be pre-seeded with a [Resource] before Restore is called — typically by reconstructing the
 // receipt's base via [NewReceiptBase] with a freshly-built concrete Resource. Restore validates that the pre-seeded
-// resource's URI matches snapshot.ResourceURI (sanity check against malformed wire input), parses the transaction ID,
-// then writes every base field from the snapshot. The Resource itself is not mutated — its identity was fixed at
+// resource's URI matches snapshot.ResourceURI (sanity check against malformed document input), parses the transaction
+// ID, then writes every base field from the snapshot. The Resource itself is not mutated — its identity was fixed at
 // construction.
 //
 // Restore is one-shot: it errors if the receipt has already been committed or restored. Callers that need to re-bind a
@@ -608,9 +608,9 @@ func (b *ReceiptBase) RestoreEncoded(_ *RuntimeEnvironment, base ReceiptData, _ 
 //
 // Snapshot is the read side of the encapsulation boundary. Marshalers can return Snapshot's value directly or embed it
 // alongside derivative-specific fields — concrete receipt types in other packages compose [ReceiptData] with their
-// provider fields in a single wire-shape struct. The boundary conversions ([Resource] -> URI, UUID -> 36-char string,
-// error -> status string) run once here, so downstream encoders see plain field values and skip reflection-driven
-// method dispatch on the embedded base.
+// provider fields in a single document-shape struct. The boundary conversions ([Resource] -> URI, UUID -> 36-char
+// string, error -> status string) run once here, so downstream encoders see plain field values and skip
+// reflection-driven method dispatch on the embedded base.
 //
 // Returns:
 //   - ReceiptData: the receipt's base state with ResourceURI empty when no resource is attached, TransactionID the
@@ -687,17 +687,17 @@ type Attempt struct {
 	Timestamp string `json:"timestamp" yaml:"timestamp"`
 }
 
-// ReceiptData is the canonical wire shape for [ReceiptBase].
+// ReceiptData is the canonical document shape for [ReceiptBase].
 //
 // [ReceiptBase.Snapshot] and [ReceiptBase.Restore] form the encapsulation-respecting path to read or write the base
-// state from outside [op]. Concrete receipt types in other packages embed ReceiptData in their own wire-shape
+// state from outside [op]. Concrete receipt types in other packages embed ReceiptData in their own document-shape
 // struct (combining base and provider-specific fields) and pass the embedded value to [ReceiptBase.Restore] during
 // unmarshal. The named type avoids the verbose anonymous-struct repetition a 12-field shape would otherwise demand at
 // every call site.
 //
 // Field-level encoding choices:
 //   - Status holds the dispatch error's message; non-empty restores as errors.New(status) so Err()-presence and the
-//     human-readable reason survive the wire trip (typed/joined errors collapse into a single error on reload).
+//     human-readable reason survive the round trip (typed/joined errors collapse into a single error on reload).
 //   - CompensationError holds the message of the error this receipt's Compensate returned on a failed unwind (empty
 //     when the undo succeeded or never ran); like Status it restores as errors.New(...). Distinct from Status, which
 //     is the forward dispatch error — a receipt on a failed-unwind journal can carry both.

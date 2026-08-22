@@ -120,12 +120,12 @@ func (c *ResourceCatalog) Clone() *ResourceCatalog {
 // Returns:
 //   - `[]LedgerEntrySnapshot`: id, URI, and [Pending] per current generation; empty (never nil) when the
 //     ledger holds nothing — the document's section serializes even then, mandatorily.
-func (c *ResourceCatalog) IntentEntries() []LedgerEntrySnapshot {
+func (c *ResourceCatalog) IntentEntries() []IntentEntry {
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	entries := make([]LedgerEntrySnapshot, 0, len(c.entries))
+	entries := make([]IntentEntry, 0, len(c.entries))
 
 	for _, resource := range c.entries {
 
@@ -134,7 +134,7 @@ func (c *ResourceCatalog) IntentEntries() []LedgerEntrySnapshot {
 			continue // a superseded generation is history, not intent
 		}
 
-		entries = append(entries, LedgerEntrySnapshot{ID: base.id, URI: resource.URI(), State: Pending})
+		entries = append(entries, IntentEntry{ID: base.id, URI: resource.URI()})
 	}
 
 	return entries
@@ -843,6 +843,21 @@ type ResourceLedgerSnapshot struct {
 
 	// NextID is the monotonic id counter, restored so post-resume production continues the id sequence.
 	NextID int `json:"next_id" yaml:"next_id"`
+}
+
+// IntentEntry is one row of the graph document's resource catalog — input intent, nothing else.
+//
+// `{id, uri}` and no more (ruled 2026-08-21, 4-resource-management.md §5.4): presence in the section IS the
+// pending claim — pending is definitional, not recorded — and state, producer, Etag, and Digest are trace
+// vocabulary ([LedgerEntrySnapshot]), where observation genuinely varies. The intent row is its own type
+// precisely so the graph document cannot say more than intent.
+type IntentEntry struct {
+
+	// ID is the catalog id (`res-N`) the claim was minted under; restored verbatim on load.
+	ID string `json:"id" yaml:"id"`
+
+	// URI is the resource's identity, from which the concrete Resource object is rebuilt on load.
+	URI string `json:"uri" yaml:"uri"`
 }
 
 // LedgerEntrySnapshot is one ledger generation's serializable identity and lifecycle state.
