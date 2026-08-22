@@ -98,7 +98,7 @@ Windows known-failures.
 | 1 | [#583](https://github.com/NobleFactor/devlore-cli/issues/583) serialize + enforce the section | #581 |
 | 2 | [#584](https://github.com/NobleFactor/devlore-cli/issues/584) rel identity + authoring migration | #546 |
 | 3 | [#585](https://github.com/NobleFactor/devlore-cli/issues/585) plan-time claiming | #581 |
-| 4 | [#586](https://github.com/NobleFactor/devlore-cli/issues/586) run time consumes the catalog | #581 |
+| 4 | [#586](https://github.com/NobleFactor/devlore-cli/issues/586) run time consumes the catalog — PR tasks [#609](https://github.com/NobleFactor/devlore-cli/issues/609), [#610](https://github.com/NobleFactor/devlore-cli/issues/610), [#611](https://github.com/NobleFactor/devlore-cli/issues/611) | #581 |
 | 5 | [#587](https://github.com/NobleFactor/devlore-cli/issues/587) closure | #581 |
 
 ## Phases
@@ -438,14 +438,151 @@ catalog exposed.**
    (a pending resource that does not exist under the run's root fails the run — Q1 ruling). **Delivered —
    the fail-fast pin flipped green in PR B #603.**
 
-### Phase 4 — run time consumes the catalog, never strings — status: pending
+### Phase 4 — run time consumes the catalog, never strings (#586) — status: pending (in review 2026-08-22; explicit-conversion docket fully ruled)
 
-1. Dispatch conversion resolves slot values against the run catalog (cloned from the now-complete graph
-   catalog); the `file://` prefix-strip re-parsing in `buildCandidateAs` retires (sketch :41).
-2. Products at execution update the *pending* entries the plan claimed (state transition, metadata), rather
-   than minting parallel identities in a throwaway clone.
-3. The catch-all string path remains only for immediate mode, which is a session concern, not a graph one
-   (4-resource-management.md §8 item 3).
+**The rule this phase implements** (the sketch's :41 rule, now 4-resource-management.md §2/§5): **no
+string-to-resource conversion ever happens at run time** — made precise: at graph dispatch a string may be
+a **key, never a constructor**. A resource-typed slot value — captured object or rehydrated URI string
+alike — resolves against the run catalog (the clone of the now-complete graph catalog), and resolution
+retrieves the entry the plan already claimed or refuses; it never mints. Construction from strings survives
+in exactly two places: load-time rehydration (a provider decoding its own emitted identity — an identity
+decode, not a conversion) and immediate mode (a session concern, 4-resource-management.md §9 item 3).
+
+**The three findings the steps rest on** (from the code, 2026-08-22):
+
+- `Convert` steps 1–2 (identity/assignability) return a live captured `Resource` slot value as-is — the
+  run catalog is never consulted at live dispatch. That works today only because `ResourceCatalog.Clone`
+  shares Resource pointers (`pkg/op/resource_catalog.go` — entries copied as an interface slice; state
+  lives in per-clone maps), so pre-flight's `BindRoot` mutation reaches the captured object by aliasing —
+  a load-bearing accident, not design.
+- `Convert` step 6 (`tryConstructResource`, pkg/op/convert.go) resolves a URI-string catalog hit correctly
+  (the reload path), but a **miss falls through to fresh construction** — `buildCandidateAs`
+  (pkg/op/provider/file/helpers.go) strips the provider's own `file:` prefix off arbitrary strings and
+  mints a state-less, unclaimed resource mid-run.
+- Products already intern through the run clone's `Resolve` reconciler at the provider layer, and the
+  trace snapshots that ledger (step 48) — the original "discarded clone" divergence (table row 3) predates
+  the graph=intent/trace=observation split, so item 2 of the original stub is an audit-plus-pin, not a
+  rewrite.
+
+Steps:
+
+1. **Dispatch resolves by identity.** At graph dispatch, a resource-typed slot value — captured object or
+   rehydrated URI string — resolves through the run catalog (`Current`/`Lookup`) so the dispatched object
+   IS the run clone's entry: re-based, state-carrying, the same row pre-flight verified. First discovery
+   of the implementing PR: where the seam lives (slot-fill vs a step-6 refinement) and how the environment
+   names run-vs-session mode (an existing distinction on `RuntimeEnvironment`, or a new bit).
+2. **The miss becomes a refusal.** With the catalog complete by construction (every resource-typed input
+   claimed at plan time), a graph-dispatch catalog miss is a typed error naming the URI — the catalog's
+   verdict, before any disk contact. The fall-through to fresh construction gates on immediate mode only.
+3. **Rehydration splits from conversion.** LoadGraph's re-interning constructs typed resources through the
+   provider's rehydration path, which legitimately decodes its own `file:<rel>`; the catch-all
+   `TrimPrefix` at the dispatch-facing `buildCandidateAs` seam retires with the dispatch string path.
+4. **Clone's sharing is decided, not inherited.** Once dispatch resolves by identity, the pointer-aliasing
+   between planning catalog and run clone stops being load-bearing — the implementing PR rules whether
+   `Clone` deepens or the sharing stays as documented behavior. The pristine-planning-catalog pin extends
+   to cover location: post-run, the planning session's objects still bind the planning root.
+5. **Products reconcile against claimed entries — audit + pin.** Verify the §3 production matrix end to
+   end on the run clone: a product at a claimed URI reaches the claimed entry (touch → Etag refresh; real
+   change → shadow with `producerID`); a product at a fresh URI appends Active with the producer stamp;
+   the trace tells the story. Fix what the audit contradicts; pin both directions.
+6. **Immediate mode unchanged, pinned.** The session string path stays: immediate file ops construct and
+   `Discover`-intern into the session catalog; the step-2 refusal never fires there.
+7. **Acceptance.** New judgment scenario — *save, reload, run*: every resource-typed slot dispatches the
+   section-rehydrated catalog entry (object identity asserted), and a doctored slot URI that misses the
+   catalog fails the run with the step-2 verdict — destination untouched, no disk contact from the miss.
+   Judgment scenario 2 (relocate + reconcile) stays a recorded prediction — it needs the drivable
+   reconcile surface, closure era.
+8. **Windows expectation: green stays green** (baseline 0); any red is re-diagnosed, not assumed.
+
+**The explicit-conversion docket (USER rulings, 2026-08-22).** The step-2 refusal closes the mint but
+leaves run-computed paths — a regex over tool output, an opaque command's side-effect file — with no
+sanctioned channel. Ruled: the conversion becomes an EXPLICIT operation, never implicit dispatcher
+orchestration (an implicit discovery would turn the conversion seam into a third disk-touching site with
+none of the unit machinery — no activation record, no receipt, no policy surface, no narration — and
+`Convert` also serves plan time and immediate mode). Production and discovery are the sanctioned channels;
+the dispatch seam only ever looks up. **Design-doc integration landed 2026-08-22**: the docket records in
+4-resource-management.md as §2's dispatch bullet, §5.6 (key, never constructor), §5.7 (explicit discovery
+and resolution — the seven rules), and §9 items 15–18.
+
+1. **Two new file actions.** `file.discover(path, kind?="entry")` — lstat: the entry itself, no follow —
+   and `file.resolve(path, kind?="entry")` — stat: what the chain designates, which is never a link;
+   confinement-judged. `kind` is a named enum (`entry`, `regular`, `directory`, `symbolic_link`) with
+   explicit values and `UnmarshalText`, the `on_missing?=stop` pattern. Results intern as discoveries
+   (observed facts, no production claim — the taxonomy's existing category). The `entry` default makes the
+   short spelling permissive; asserting a kind is opt-in strictness whose verdict sharpens at the action's
+   own node. The enum shape was chosen over a kind-typed method family because only stat semantics with a
+   kind argument can express "the computed path designates regular content, follow if needed" — the
+   maybe-link case a kind-typed `discover` cannot say; the cost, knowingly carried, is that the declared
+   result type is `Entry`, so an asserted-vs-consumed kind mismatch surfaces at the consumer's conversion
+   instead of `ValidateGraph`.
+2. **Stop-only — no `on_missing` parameter.** A missing target, kind mismatch, dangling chain, or
+   confinement escape is the action's own error. An Ignore would return nothing and put a nil promise in
+   every downstream slot — the exact machinery cost that had Skip dropped from the policy enum (#605);
+   tolerance stays structural (probe + choose) or at the consumer.
+3. **The runtime path grammar: plan-space plus under-root rebase.** Rels and anchored spellings normalize
+   as authored; escapes and the `@name` reservation refuse as authored; a machine-absolute input rebases
+   to its rel when it falls under the bound run root and refuses as a confinement violation otherwise.
+   Run time may speak absolutes because the root is bound — phase 2's own ruling ("machine-absoluteness
+   arises only from the run's root choice"), read from its far side; the doc states why run time may
+   speak absolutes when plans may not.
+4. **The follow doctrine.** Kinds are lstat-strict at consumption (step 23 ruling 5e), and the parameter
+   type is the follow-policy declaration: `*Regular`/`*Directory` demand that kind, no follow;
+   `*SymbolicLink` is the link itself; `Entry` accepts any kind, with the method assuming the kind-switch,
+   confinement judgment, and interning duties for any follow it performs (precedent: `Observe(Entry)`).
+   Implicit follow at the dispatch seam never happens: a silent follow aliases one disk entity under two
+   catalog identities — mediation cannot see the join, so Gone-marking misses consumers — and a symlink is
+   the disk's `../`, escaping the confinement the grammar enforces. The design-doc sentence: the kernel
+   resolves names implicitly at open; this model resolves designation explicitly at a unit.
+5. **An authored string into an `Entry`-typed slot refuses at plan time.** A claim asserts a kind and
+   `Entry` asserts none (mechanically: plan-time claiming constructs the parameter's type, and an
+   interface cannot be instantiated). Shaped refusal, not an incidental construction error; the author
+   states the kind or feeds a discovery.
+6. **Literal paths are legitimate input; the discriminator is starting-line vs mid-run existence (RULED
+   2026-08-22).** The `path` parameter is string-typed, so the input is a literal, a promise, or anything
+   the conversion cascade takes to string; the runtime grammar governs whatever arrives. Doctrine, as
+   guidance not enforcement (no plan-time test can tell the cases apart): a file that must exist when the
+   run starts is CLAIMED (a resource-typed slot; pre-flight's verdict); a file that comes into being
+   mid-run — an opaque command's side effect at a known path — is DISCOVERED. Judgment scenario authored
+   (`test_judgment_discover_after_exec.star`, wired skipped as `TestJudgmentDiscoverAfterExec`): exec
+   writes, discover interns, consumer reads — whose sharp assertion is the ordering edge: list position
+   does not order execution (the promise-ordering scenario's proof), so the exec→discover sequencing must
+   be an explicit edge; the mechanism for a pure ordering edge is the implementing PR's decision.
+7. **Claims are true when made (USER invariant); falseness is a mediation failure.** Four doors: false at
+   birth — the activation gap (the kind-blind base `Resource.Exists` follow-stats through links and wrong
+   kinds, pkg/op/provider/file/resource.go:227; activation's best-effort Etag/Digest capture swallows the
+   5e `kindMismatchError`, pkg/op/resource_catalog.go:569–573); unmediated in-model production (step 5's
+   audit closes it); opaque mutators; out-of-band change (both irreducible — the observation layer is
+   their backstop). Chartered fix for door one: **kind-honest activation** — per-kind `Exists` (lstat +
+   kind test, the PR C `SymbolicLink` override extended across the taxonomy), and the capture
+   kind-mismatch becomes a verdict, not a swallowed error. Rider: audit writ for flows claiming linked
+   paths as `*Regular` — writ claims links as links; re-author any found.
+8. **The fail-fast boundary is stated, not overclaimed (RULED 2026-08-22).** Pre-flight's verdict covers
+   CLAIMS — unmet intent fails before any dispatch. A discovery verifies at its own node, the earliest
+   moment the fact exists, so discover/resolve failures are mid-run by nature; the design doc states this
+   boundary beside the discover/resolve material so the fail-fast guarantee reads at its true scope.
+   Companion fact of life, owned in the same breath (item 7's fourth door): nothing stops an out-of-band
+   actor deleting a file under a running graph, short of a lockdown on the targeted fsroot directory —
+   the observation layer and reconciliation are the designed response, not prevention.
+
+**PR slicing (task issues filed 2026-08-22, indexed by #586):** PR 1
+([#609](https://github.com/NobleFactor/devlore-cli/issues/609)) — steps 1–4, the dispatch seam (opening
+with the empirical audit of the seam location, this campaign's pattern). PR 2
+([#610](https://github.com/NobleFactor/devlore-cli/issues/610)) — steps 5–7, the production audit and the
+pins. PR 3 ([#611](https://github.com/NobleFactor/devlore-cli/issues/611)) — the explicit-conversion
+docket: `file.discover`/`file.resolve` with the runtime grammar, the `Entry` plan-time refusal, and
+kind-honest activation with the writ audit; phase closes. Acceptance rides the explicit-conversion
+scenario suite (Judgment scenarios below): items 1–3 with PRs 1–2, items 4–13 with PR 3. Verification per
+the plan's standing gate: `make check` (103/0), `make vet-all`, `gofmt -l`.
+
+**Flagged, not decided:** the phase-3 note chartered the Docker and Go Toolchain e2e lore scenarios to run
+alongside the campaign — they have not started, and phase 4 is the natural host if they are to move now;
+step 1's run-vs-session distinction may already exist on `RuntimeEnvironment` or may need a bit — the
+implementing PR's first discovery either way; the plan-time mirror of the step-2 refusal
+(`checkPromiseTypes` / `typesAreInterconvertible` are documented as agreeing with dispatch,
+pkg/op/validate.go:238, and step 2 changes dispatch's side) — leaning: graph-context narrowing so a
+declared-string producer into a resource-typed slot refuses at `ValidateGraph`, step 2 the backstop for
+undeclared producers, decided at the implementing PR. The key-versus-constructor sentence and the docket's
+rules landed in 4-resource-management.md (§2, §5.6–5.7, §9 items 15–18) on 2026-08-22.
 
 ### Phase 5 — closure — status: pending
 
@@ -569,6 +706,88 @@ loss through its own I/O. `resolvePendingResources` says so itself: "Mark, don't
 `TestJudgmentPreflightFailFast` with a `t.Skip` naming the gap; #585 un-skips it, and the scenario flipping
 green is the phase's acceptance evidence. **Flipped green 2026-08-22 (PR B #603):** un-skipped — the run
 fails on the catalog's verdict before any dispatch, the destination never created.
+
+### Scenario — discover after exec
+
+**Setup.** An opaque shell command writes a file at a known relative path — a side effect no promise can
+deliver. `file.discover` receives that path as a string **literal**; a copy consumes the discovery's
+promise. The list hands the units consumer-first.
+
+**Predictions (from the explicit-conversion rulings, 2026-08-22).** The stored catalog carries **no**
+claim for the discovered path — a mid-run fact is not intent, and the string parameter mints nothing.
+Discover interns the file at its own dispatch as a discovery (lstat, no follow, Stop-only), and the
+consumer receives the discovered entry through the promise, reading the content the command wrote. The
+sharp assertion is the **ordering edge**: list position does not order execution (the promise-ordering
+scenario's proof), so the exec→discover sequencing must be an explicit edge — the literal-path flow is
+exactly the case a data edge cannot order.
+
+**Evidence (2026-08-22): authored red.** `test_judgment_discover_after_exec.star`, wired as
+`TestJudgmentDiscoverAfterExec` with a `t.Skip` naming both gaps: `file.discover` unimplemented, and the
+pure-ordering-edge mechanism undecided (no flow construct provides one today — Choose/Gather/Subgraph/
+WaitUntil is the full set). The implementing PR decides the mechanism, completes the ordering line, and
+un-skips; the scenario flipping green is part of PR 3's acceptance.
+
+### The explicit-conversion scenario suite (chartered 2026-08-22 — all thirteen)
+
+Chartered as predictions (USER, 2026-08-22): each item's status adjusts — **predicted** (not yet authored)
+→ **authored red** (star script + skipped wiring) → **green** — with commentary updated as the work
+progresses. Items 1–3 ride phase 4's PRs 1–2; items 4–13 are PR 3's acceptance evidence.
+
+**A. The rule itself**
+
+1. **Save, reload, run — identity all the way through.** Plan with a claimed source, save, reload, run:
+   the dispatched source IS the section-rehydrated catalog entry (object identity), re-based to the run
+   root — never a reconstructed twin. Status: predicted (PR 1; the step-7 acceptance restated).
+2. **The doctored miss refuses.** Hand-edit one slot URI to a name the catalog never held: the run fails
+   with the typed verdict naming the URI, the destination is never created, and no disk contact results
+   from the miss. Status: predicted (PR 1).
+3. **The string-promise refusal.** A declared-string producer's promise feeds a `*Regular` slot: refused
+   at `ValidateGraph` if the plan-time narrowing is ruled in, at dispatch otherwise — pinned wherever the
+   implementing PR decides, and pinned that it is never silently minted. Status: predicted (PR 1 rules
+   the mirror).
+
+**B. Discover and resolve**
+
+4. **Discover after exec.** The literal path, the empty catalog section, the ordering edge. Status:
+   **authored red** — `test_judgment_discover_after_exec.star`, wired skipped as
+   `TestJudgmentDiscoverAfterExec` (full record above).
+5. **Kind assertion sharpens the verdict.** `discover(path, kind="regular")` over a directory fails AT
+   the discover node with the kind-mismatch verdict; the consumer never dispatches. Status: predicted.
+6. **The entry default is permissive.** `discover(path)` of a directory feeding a `*Regular` slot:
+   discover succeeds and the failure is the consumer's conversion — the knowingly-carried cost pinned as
+   designed behavior, not a defect. Status: predicted.
+7. **The lstat/stat pair.** One rel, a symlink to a regular file: `discover` interns the LINK (kind
+   symbolic-link), `resolve` interns the REGULAR the chain designates, and a copy fed by the resolution
+   reads the target's content. Status: predicted.
+8. **Resolve refuses the broken and the escaping.** A dangling chain stops at the resolve node; a link
+   targeting outside the run root refuses with the CONFINEMENT verdict, not a raw I/O error. Status:
+   predicted.
+9. **The rebase in both directions.** The exec prints `$PWD/report.txt` (cwd anchors at the run root):
+   the absolute-under-root input rebases and the catalog identity IS the rel; an outside-root input
+   refuses; a promise delivering `../outside` refuses with the grammar's verdict. Status: predicted.
+
+**C. Mediation — discoveries join the model**
+
+10. **Claimed and discovered — one identity.** A path claimed at plan time by one unit and discovered
+    mid-run by another dedups to ONE catalog entry with both consumers linked — the catalog mediating
+    across the two doors. Status: predicted.
+11. **Discovered, then destroyed.** Discover interns; a typed remove destroys the file; the discovery's
+    consumer fails on the narrated guard verdict ("destroyed by unit N"), never on its own I/O —
+    discoveries get the same protection claims do. Status: predicted.
+12. **Claims are true when made — kind-honest activation.** A `*Regular` claim over a symlink (second
+    direction: over a directory) fails pre-flight with the kind verdict at activation — not a swallowed
+    Etag error, not a mid-run surprise. Status: predicted; red by design until the door-one fix lands
+    (PR 3).
+
+**D. Plan-time refusals**
+
+13. **The `Entry` slot refuses authored strings.** An authored literal into an `Entry`-typed parameter
+    draws the shaped plan-time refusal ("state the kind or feed a discovery"), never an incidental
+    construction error. Status: predicted.
+
+Existing green coverage — scenario 1, pre-flight fail-fast, promise ordering, scoped claims, gone
+tolerance — pins the phase's remaining edges; scenario 2 (relocate + reconcile) stays deferred to the
+closure era.
 
 ## Open questions — all ruled 2026-08-20
 
