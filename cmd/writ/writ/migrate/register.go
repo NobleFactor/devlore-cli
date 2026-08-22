@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
+	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/deploy"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/plan"
@@ -111,8 +112,16 @@ func buildRegistrationGraph(
 
 	var registerInvocation *op.Invocation
 	if useMove {
+		// The claim types *Regular while the source is a directory tree; dispatch observes the actual
+		// kind (candidateOfMode) and the rename handles either. Kind-honest claims for directory moves
+		// ride the method-classification work (3.6). The consumed source is a claimed resource, so it is
+		// authored in plan space — the rel against the planning environment's root.
+		sourceRel, relErr := deploy.PlanSpacePath(environment, sourceRoot)
+		if relErr != nil {
+			return nil, relErr
+		}
 		registerInvocation, err = planProvider.Plan(file.Move, nil, map[string]any{
-			"source_path":      sourceRoot,
+			"source":           sourceRel,
 			"destination_path": layerDir,
 		})
 	} else {

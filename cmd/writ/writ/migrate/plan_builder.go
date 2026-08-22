@@ -74,7 +74,7 @@ func (p *planBuilder) Copy(source, path string) *op.Invocation {
 // Rename plans a file-move invocation (git mv when possible).
 func (p *planBuilder) Rename(source, path string) *op.Invocation {
 	return p.add(file.Move, map[string]any{
-		"source_path":      source,
+		"source":           source,
 		"destination_path": path,
 	})
 }

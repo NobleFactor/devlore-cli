@@ -292,7 +292,7 @@ func TestMove_IntoSubdirectory(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	result, _, err := p.Move(testActivation(t, p.RuntimeEnvironment()), src, dst)
+	result, _, err := p.Move(testActivation(t, p.RuntimeEnvironment()), mustDiscoverRegular(t, p, src), dst, op.MissingResourcePolicyStop)
 	if err != nil {
 		t.Fatalf("Move() error = %v", err)
 	}
@@ -325,7 +325,7 @@ func TestMove_OverwritesExistingDestination(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	_, receipt, err := p.Move(testActivation(t, p.RuntimeEnvironment()), src, dst)
+	_, receipt, err := p.Move(testActivation(t, p.RuntimeEnvironment()), mustDiscoverRegular(t, p, src), dst, op.MissingResourcePolicyStop)
 	if err != nil {
 		t.Fatalf("Move() error = %v", err)
 	}
@@ -352,7 +352,7 @@ func TestMove_MissingSource_ReturnsError(t *testing.T) {
 	dst := filepath.Join(tmp, "dest.txt")
 
 	p := testProvider(t, tmp)
-	_, _, err := p.Move(testActivation(t, p.RuntimeEnvironment()), src, dst)
+	_, _, err := p.Move(testActivation(t, p.RuntimeEnvironment()), mustDiscoverRegular(t, p, src), dst, op.MissingResourcePolicyStop)
 	if err == nil {
 		t.Fatal("Move() error = nil; want an error for a missing source")
 	}
@@ -380,7 +380,7 @@ func TestRemoveAll_NestedTree_RoundTrip(t *testing.T) {
 	writeTestFile(t, filepath.Join(tree, "b", "c"), "deep.txt", "deep-data")
 
 	p := testProvider(t, tmp)
-	_, receipt, err := p.RemoveAll(testActivation(t, p.RuntimeEnvironment()), tree, false, "")
+	_, receipt, err := p.RemoveAll(testActivation(t, p.RuntimeEnvironment()), mustDiscoverDirectory(t, p, tree), op.MissingResourcePolicyStop, false, "")
 	if err != nil {
 		t.Fatalf("RemoveAll() error = %v", err)
 	}
@@ -414,19 +414,28 @@ func TestRemoveAll_NestedTree_RoundTrip(t *testing.T) {
 
 // TestRemoveAll_NonExistentPath_IsNoOp verifies that removing a non-existent target is a no-op: no product, no
 // receipt, no error.
-func TestRemoveAll_NonExistentPath_IsNoOp(t *testing.T) {
+func TestRemoveAll_MissingTarget_FollowsThePolicy(t *testing.T) {
+
+	// Mirrors the Remove and Unlink policy pins: Stop errors on a missing target; Ignore makes the call a
+	// recorded no-op (§3, ruled 2026-08-22).
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
 
-	product, receipt, err := p.RemoveAll(testActivation(t, p.RuntimeEnvironment()), filepath.Join(tmp, "ghost"), false, "")
+	if _, _, err := p.RemoveAll(testActivation(t, p.RuntimeEnvironment()),
+		mustDiscoverDirectory(t, p, filepath.Join(tmp, "ghost")), op.MissingResourcePolicyStop, false, ""); err == nil {
+		t.Fatal("RemoveAll(stop) on a missing target must error")
+	}
+
+	product, receipt, err := p.RemoveAll(testActivation(t, p.RuntimeEnvironment()),
+		mustDiscoverDirectory(t, p, filepath.Join(tmp, "ghost")), op.MissingResourcePolicyIgnore, false, "")
 	if err != nil {
-		t.Fatalf("RemoveAll(missing) error = %v, want nil (no-op)", err)
+		t.Fatalf("RemoveAll(ignore) error = %v", err)
 	}
 	if product != nil {
-		t.Errorf("RemoveAll(missing) product = %v, want nil", product)
+		t.Errorf("product = %v, want nil for the ignored no-op", product)
 	}
 	if receipt != nil {
-		t.Errorf("RemoveAll(missing) receipt = %v, want nil", receipt)
+		t.Errorf("receipt = %v, want nil (no mutation to compensate)", receipt)
 	}
 }
 

@@ -104,7 +104,12 @@ func (p *Provider) Backup(
 	timestamp := time.Now().Format("20060102-150405")
 	backupPath := sourceAbs + backupSuffix + "." + timestamp
 
-	return p.Move(activationRecord, sourcePath, backupPath)
+	source, err := DiscoverRegular(p.RuntimeEnvironment(), sourcePath)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return p.Move(activationRecord, source, backupPath, op.MissingResourcePolicyStop)
 }
 
 // Copy copies `source`'s contents to a new file at `destinationPath` with the given mode and ownership.
@@ -449,34 +454,45 @@ func (p *Provider) compensateMakeDir(receipt *Receipt) (err error) {
 	return nil
 }
 
-// Move moves the entry at `sourcePath` to `destinationPath`, archiving any existing destination first.
+// Move moves the file `source` to `destinationPath`, archiving any existing destination first.
 //
-// Takes paths, not resources (step 23, ruling 2): a move renames — it never reads content. The destination
-// product is minted as the moved entry's observed kind (the mutator is at execution time with the disk in hand),
-// and the source identity rides the receipt so compensation can move the entry back. The destination's parents
-// are created when absent. When an entry already exists at `destinationPath` it is archived for compensation; a
-// failed rename attempts to restore that archived destination before returning the error.
+// The source is a consumed resource (mutation targets are resource-typed consumers — ruled 2026-08-20; a
+// move destroys the source location): its literal claim enters the graph's catalog as required intent,
+// gated per call by `onMissing` (§3, the claims taxonomy), and its catalog entry is marked [op.Gone] with
+// the destroyer stamp on success. The destination product is minted as the moved entry's observed kind
+// (the mutator is at execution time with the disk in hand), and the source identity rides the receipt so
+// compensation can move the entry back. The destination's parents are created when absent. When an entry
+// already exists at `destinationPath` it is archived for compensation; a failed rename attempts to restore
+// that archived destination before returning the error.
 //
 // Parameters:
 //   - `activationRecord`: the dispatch activation; its `Unit` stamps the produced [Entry]'s producerID.
-//   - `sourcePath`: the path of the entry to move.
+//   - `source`: the file to move — a consumed, claimed resource.
 //   - `destinationPath`: the path to move the entry to.
+//   - `onMissing`: the [op.MissingResourcePolicy] for an absent source; defaults to stop.
 //
 // Returns:
-//   - `Entry`: the destination resource, minted as the source's observed kind, resolved.
+//   - `Entry`: the destination resource, minted as the source's observed kind, resolved; nil on an
+//     ignored missing source.
 //   - `*Receipt`: the compensation receipt recording the source and any archived destination for undo.
-//   - `error`: non-nil when the source does not exist, or on construction, write preparation, rename, or resolve
-//     failure.
+//   - `error`: non-nil when the source is missing under stop, or on construction, write preparation,
+//     rename, or resolve failure.
+//
+// +devlore:defaults onMissing=stop
 func (p *Provider) Move(
 	activationRecord *op.ActivationRecord,
-	sourcePath string,
+	source *Regular,
 	destinationPath string,
+	onMissing op.MissingResourcePolicy,
 ) (product Entry, receipt *Receipt, err error) {
 
-	sourceAbs := p.RuntimeEnvironment().Root().NewPath(sourcePath).Abs()
+	sourceAbs := source.SourcePath.Abs()
 
 	sourceInfo, err := p.lstat(sourceAbs)
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) && onMissing == op.MissingResourcePolicyIgnore {
+			return nil, nil, nil
+		}
 		return nil, nil, fmt.Errorf("move: source %s: %w", sourceAbs, err)
 	}
 
@@ -487,7 +503,7 @@ func (p *Provider) Move(
 
 	// The receipt's source is an unlinked identity handle — compensation renames by path; no catalog claim. The
 	// handle is a variant candidate (the sealed Entry set excludes the base), kinded by the same observation.
-	source, err := candidateOfMode(p.RuntimeEnvironment(), sourceAbs, sourceInfo.Mode())
+	sourceHandle, err := candidateOfMode(p.RuntimeEnvironment(), sourceAbs, sourceInfo.Mode())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -501,7 +517,7 @@ func (p *Provider) Move(
 	if err != nil {
 		return nil, nil, err
 	}
-	receipt = NewReceipt(spec.WithSource(source))
+	receipt = NewReceipt(spec.WithSource(sourceHandle))
 
 	if err = p.rename(sourceAbs, product.Path().Abs()); err != nil {
 		// Attempt to restore destination on failure if we archived it.
@@ -511,6 +527,10 @@ func (p *Provider) Move(
 		}
 		return nil, nil, err
 	}
+
+	// The consumed source is destroyed at its location: Gone, destroyer-stamped, so a later consumer sees
+	// the narrated verdict rather than rediscovering the loss.
+	p.markEntryGone(activationRecord, source)
 
 	if err := product.Resolve(); err != nil {
 		return product, receipt, err
@@ -715,34 +735,44 @@ func (p *Provider) Remove(
 	return nil, receipt, nil
 }
 
-// RemoveAll removes `resource` and any children it contains, archiving the subtree for compensation.
+// RemoveAll removes the directory `target` and any children it contains, archiving the subtree for
+// compensation.
 //
-// Unlike [Provider.Remove], a non-empty directory is removed recursively. Takes a path and discharges the delete
-// invariants (step 23, rulings 2 and 3): the entry is interned via its Discover constructor as the observed kind,
-// moved to the recovery site, and its catalog entry marked [op.Gone] on success. A non-existent target is a no-op.
-// When `prune` is set, now-empty parents up to `boundary` are removed afterward.
+// Unlike [Provider.Remove], a non-empty directory is removed recursively. The target is a consumed
+// resource (mutation targets are resource-typed consumers — ruled 2026-08-20): its literal claim enters
+// the graph's catalog as required intent, gated per call by `onMissing` (§3, the claims taxonomy). At
+// dispatch the entry is observed at its actual kind, moved to the recovery site, and its catalog entry
+// marked [op.Gone] on success. A missing target follows the policy — Stop errors, Ignore no-ops. When
+// `prune` is set, now-empty parents up to `boundary` are removed afterward.
 //
 // Parameters:
 //   - `activationRecord`: the dispatch activation (the required floor for compensable actions — step 27).
-//   - `path`: the path of the entry to remove recursively.
+//   - `target`: the directory to remove recursively — a consumed, claimed resource.
+//   - `onMissing`: the [op.MissingResourcePolicy] for an absent target; defaults to stop.
 //   - `prune`: whether to remove now-empty parent directories up to `boundary`.
 //   - `boundary`: the path at which parent pruning stops; empty prunes to the scoped root.
 //
 // Returns:
 //   - `Entry`: always nil — RemoveAll produces no resource.
 //   - `*Receipt`: the compensation receipt recording the recovery archive for undo.
-//   - `error`: non-nil on archive failure.
+//   - `error`: non-nil when the target is missing under stop, or on archive failure.
+//
+// +devlore:defaults onMissing=stop, prune=false, boundary=""
 func (p *Provider) RemoveAll(
 	activationRecord *op.ActivationRecord,
-	path string,
+	target *Directory,
+	onMissing op.MissingResourcePolicy,
 	prune bool,
 	boundary string,
 ) (product Entry, receipt *Receipt, err error) {
 
-	abs := p.RuntimeEnvironment().Root().NewPath(path).Abs()
+	abs := target.SourcePath.Abs()
 
 	entry, err := p.discoverEntryAt(abs)
 	if errors.Is(err, os.ErrNotExist) {
+		if onMissing == op.MissingResourcePolicyStop {
+			return nil, nil, fmt.Errorf("file.RemoveAll: target %s does not exist", abs)
+		}
 		return nil, nil, nil
 	}
 	if err != nil {

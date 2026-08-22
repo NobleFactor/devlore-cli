@@ -99,7 +99,7 @@ func TestWaitUntil_BodyErrorFailsImmediately(t *testing.T) {
 		planProvider := plan.NewProvider(environment)
 		// A move whose source never exists: the body's dispatch errors on every poll.
 		crash, err := planProvider.Plan(file.Move, nil, map[string]any{
-			"source_path":      filepath.Join(tmp, "never-exists"),
+			"source":           "never-exists",
 			"destination_path": filepath.Join(tmp, "unreachable"),
 		})
 		if err != nil {
