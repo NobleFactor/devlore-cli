@@ -185,21 +185,11 @@ func (s *Subgraph) Execute(
 		return nil, err
 	}
 
-	// Resume (pseudo replay): replay or adopt against this subgraph's prior stamped stack on the parent stack. A
-	// completed stack (nil Err) prunes the whole subtree — return its cached result. An error stack is the in-progress
-	// spine (in a resumable trace the only error stacks are paused subgraphs): the stamped stack IS this subgraph's
-	// child stack, so adopt it (re-parented here) — the completed children are present and the descent resumes at the
-	// frontier — and supersede the stale entry so the fresh completion replaces it. "Has an error" is the serialize-safe
-	// signal — a reloaded error is a plain message, so errors.Is against the ErrPaused sentinel would not match. On a
-	// fresh run there is no prior stack, so this is a no-op.
-	var adoptedStack *RecoveryStack
-	if priorStack, ok := stack.NestedStackByUnitID(subgraphID); ok {
-		if priorStack.Err() == nil {
-			return priorStack.Result(), nil
-		}
-		adoptedStack = priorStack
-		adoptedStack.parent = stack
-		stack.supersede(subgraphID)
+	// Resume (pseudo replay): replay or adopt against this subgraph's prior stamped stack — see
+	// [Subgraph.adoptPriorStack]. A completed prior stack short-circuits with its cached result.
+	cached, pruned, adoptedStack := s.adoptPriorStack(stack)
+	if pruned {
+		return cached, nil
 	}
 
 	action := s.Action()
@@ -252,6 +242,17 @@ func (s *Subgraph) Execute(
 	activationRecord.Variables = variables
 	activationRecord.Slots = slots
 	activationRecord.executor = childExecutor
+
+	// Scoped pre-flight (§3, ruled 2026-08-22): before this scope dispatches, its executor verifies the
+	// claims its own units consume. The root subgraph and a choose case pass through this same seam — a
+	// graph is an object holding a root subgraph, so every starting line is a scope's starting line, and
+	// an unreached scope never judges its claims.
+	if verifyErr := childExecutor.verifyScopeClaims(subgraphID, s.Children()); verifyErr != nil {
+		verifyErr = executor.joinAuditStamp(s, stack, slots, nil, verifyErr, action)
+		executor.hooks.FireSubgraphComplete(runtimeEnvironment, subgraphID, verifyErr)
+		return nil, fmt.Errorf("subgraph %s: %w", subgraphID, verifyErr)
+	}
+
 	result, compensator, err := action.Do(activationRecord)
 
 	// Bubble-up (phase-8 step 41 slice 17b): a non-failure condition the body recorded on its child executor — a
@@ -386,6 +387,39 @@ func (s *Subgraph) addChild(child ExecutableUnit) {
 
 	s.executableUnitsByID[child.ID()] = child
 	child.stampParentID(s.ID())
+}
+
+// adoptPriorStack replays or adopts this subgraph's prior stamped stack on the parent stack.
+//
+// A completed stack (nil Err) prunes the whole subtree — the cached result returns with `pruned` true. An
+// error stack is the in-progress spine (in a resumable trace the only error stacks are paused subgraphs):
+// the stamped stack IS this subgraph's child stack, so it is adopted (re-parented here) — the completed
+// children are present and the descent resumes at the frontier — and the stale entry superseded so the
+// fresh completion replaces it. "Has an error" is the serialize-safe signal — a reloaded error is a plain
+// message, so errors.Is against the ErrPaused sentinel would not match. On a fresh run there is no prior
+// stack: all three results are zero.
+//
+// Parameters:
+//   - `stack`: the parent recovery stack carrying any prior stamped stack for this subgraph.
+//
+// Returns:
+//   - `cached`: the completed prior run's result, when `pruned`.
+//   - `pruned`: true when a completed prior stack short-circuits this subgraph.
+//   - `adopted`: the in-progress prior stack to resume into, or nil.
+func (s *Subgraph) adoptPriorStack(stack *RecoveryStack) (cached any, pruned bool, adopted *RecoveryStack) {
+
+	priorStack, ok := stack.NestedStackByUnitID(s.ID())
+	if !ok {
+		return nil, false, nil
+	}
+
+	if priorStack.Err() == nil {
+		return priorStack.Result(), true, nil
+	}
+
+	priorStack.parent = stack
+	stack.supersede(s.ID())
+	return nil, false, priorStack
 }
 
 // setEdges replaces this subgraph's edge list with `edges`.

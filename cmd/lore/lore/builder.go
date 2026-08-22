@@ -146,7 +146,11 @@ func Build(cfg BuildConfig) (*BuildResult, error) {
 		"settings": cfg.Settings,
 	}))
 
-	graph, err := op.NewGraph(op.NewGraphSpec().WithOrigin(origin).WithUnits(phases...))
+	// The catalog travels with the graph (§5.4): the planning session interned this graph's claims
+	// into the environment's catalog — a fresh one here would strand them (the empty-section defect
+	// scoped verification exposed, 2026-08-22).
+	graph, err := op.NewGraph(op.NewGraphSpec().WithOrigin(origin).WithUnits(phases...).
+		WithResourceCatalog(sharedEnvironment.ResourceCatalog))
 	if err != nil {
 		return nil, fmt.Errorf("lore.Build: %w", err)
 	}

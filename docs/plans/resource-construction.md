@@ -319,6 +319,35 @@ Items 1–3 of the original docket (string → pending, promise → recorded, st
 
 Surviving directive set: `+devlore:defaults`, `+devlore:property`, `+devlore:root` — everything else
 derives from types, signatures, names, and graph structure.
+
+**PR B record (2026-08-22) — scoped verification lands; the fail-fast scenario flips green; a stranded
+catalog exposed.**
+
+- `MissingResourcePolicy` ships (`pkg/op/missing_resource_policy.go`): explicit values, Stop = 0 fail-safe,
+  canonical lowercase document forms, `UnmarshalText` for authored strings; round-trip pinned.
+- The pre-flight pass splits: `bindPendingResources` (binding only, every entry) stays at Run's start;
+  **verification moved to `Subgraph.Execute`** — `verifyScopeClaims` walks the scope's own units' immediate
+  resource slots, warns on every detection, and fails the scope under Stop with a reason-carrying failure
+  (`ReasonPreflightFailed`). The root graph passes through the same seam — one starting line for every
+  scope, exactly the ruled uniformity.
+- **Acceptance delivered: `TestJudgmentPreflightFailFast` un-skipped and green** — the copy's missing
+  source fails the run with the catalog's verdict before any dispatch. The new scoped-claims scenario
+  (`test_judgment_scoped_claims.star`) pins the other direction: an unreached choose case's missing claim
+  is never judged and the run succeeds.
+- **The headline catch: five Go-side assemblers stranded their catalogs.** writ deploy/upgrade/
+  decommission/encrypt and lore's builder assembled via `op.NewGraph(...)`, which supplies a FRESH catalog
+  — every claim interned during planning stayed in the environment's catalog, and the serialized graphs
+  carried empty `resources` sections since phase 1. Scoped verification exposed it (verify saw slot
+  resources the binding pass never touched: "file already closed"). All five now attach the planning
+  environment's catalog; writ and lore graphs finally travel with their claims.
+- The deliberately strict case bit two star fixtures authored as promise-less name-coincidence ordering
+  (`test_source.star`, `test_write_and_read.star`) — both re-authored legal (pre-existing file; promise-fed
+  read), each carrying the refusal's why.
+- The old global-pass pin split into two ruled pins: claim-driven probing (consumed probed once; unconsumed
+  never; unenrolled never) and the Stop consequence (unmet intent, `preflight_failed` terminal, pristine
+  planning catalog).
+- Gate: make check 103 ok / 0 fail, GOOS=windows vet clean. Skip/Ignore behavior at dispatch is PR C/D
+  work (the mutators gain the policy parameter in C; the guard honors it in D).
 4. Consequence for phase 1's stored section: every stored entry is Pending by construction. **RULED
    2026-08-21: the stored row drops `state` entirely** — the intent row becomes its own `{id, uri}` type
    (presence IS the pending claim), splitting from the trace's `LedgerEntrySnapshot`, whose

@@ -51,8 +51,8 @@ func TestRun_BindsPendingResourcesToTheRunRoot(t *testing.T) {
 }
 
 // TestRun_APendingRelAbsentUnderTheRunRootIsGone pins the inverse: the rel exists only under the PLAN
-// root, so the run marks the entry Gone (pre-flight marks, phase 3 owns the failing consequence) and the
-// dispatch fails to find it.
+// root, so the scoped pre-flight (§3, ruled 2026-08-22) marks the entry Gone and fails the scope with the
+// catalog's verdict — the required claim is unmet intent, and no unit dispatches.
 func TestRun_APendingRelAbsentUnderTheRunRootIsGone(t *testing.T) {
 
 	planRoot := t.TempDir()
@@ -66,8 +66,12 @@ func TestRun_APendingRelAbsentUnderTheRunRootIsGone(t *testing.T) {
 
 	executor := op.NewGraphExecutor(graph, runSpec(runRoot))
 
-	if _, err := executor.Run(context.Background(), nil); err == nil {
+	_, err := executor.Run(context.Background(), nil)
+	if err == nil {
 		t.Fatal("Run succeeded although the claimed rel does not exist under the run root")
+	}
+	if !strings.Contains(err.Error(), "verify existence") {
+		t.Fatalf("run failure is not the catalog's verdict: %v", err)
 	}
 
 	assertTraceBinding(t, executor, runRoot, op.Gone)

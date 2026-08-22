@@ -3,24 +3,21 @@
 
 # test_source.star — Use plan.file.read_text to read an existing file.
 #
-# 1. Write a file (via shell to avoid plan.file edge coupling)
-# 2. Read it back via plan.file.read_text
+# The file exists BEFORE the run (written by the harness, outside the graph), so the read's claim is honest
+# required intent: pre-flight verifies it under the run's root and the read consumes it. The former shape —
+# a shell unit creating the file for a later read by name, with no promise between them — is refused by
+# scoped pre-flight, by design (§3: ordering-by-coincidence).
 #
 # Validates: plan.file.read_text
 
 dest = t.tmp("source_input.txt")
+t.write(dest, "source test")
 
-# Use shell to create the file outside the graph's file provider,
-# so plan.file.read_text reads it independently.
-# The destination is single-quoted for the shell, but passed raw to file.read_text: the first is a command
-# string sh will parse, where a native path's backslashes read as escapes, and the second is a path argument
-# that must stay in the platform's own form.
 graph = plan.assemble_definition([
-    plan.shell.exec(command="printf 'source test' > '" + dest + "'"),
     plan.file.read_text(resource=dest),
 ])
 
 t.expect_file(dest, content="source test")
-t.expect_unit_count(2)  # shell.exec + file.read_text
+t.expect_unit_count(1)  # file.read_text
 
 t.run(graph)

@@ -294,24 +294,26 @@ func TestRun_CleanUnwind_ReachesExecutionFailed(t *testing.T) {
 	}
 }
 
-// TestRun_PreflightResolvesPendingResources proves the pre-flight resolve pass (phase-8 step 22 slice C).
+// TestRun_ScopedPreflightVerifiesConsumedClaims proves the scoped pre-flight (§3, ruled 2026-08-22).
 //
-// Pending entries of a participating type are probed exactly once through Resource.Exists, a non-enrolled type is never
-// probed (the staged-rollout gate), a missing resource marks Gone without failing the run, and the graph's planning
-// catalog stays pristine (the pass runs on the per-run clone).
-func TestRun_PreflightResolvesPendingResources(t *testing.T) {
+// Verification is claim-driven: a scope probes exactly the resources its own units' immediate slots carry.
+// A consumed present entry is probed once and activates; an entry consumed by NOTHING is never probed —
+// even when Pending in the catalog — and neither is a non-enrolled type (the staged-rollout gate). The
+// graph's planning catalog stays pristine (the pass runs on the per-run clone). The Stop consequence for a
+// consumed MISSING claim is pinned separately below.
+func TestRun_ScopedPreflightVerifiesConsumedClaims(t *testing.T) {
 
 	presentBase, err := NewResourceBase(nil, "test:///present", reflect.TypeFor[*lifecycleResource]())
 	if err != nil {
 		t.Fatalf("NewResourceBase(present): %v", err)
 	}
-	missingBase, err := NewResourceBase(nil, "test:///missing", reflect.TypeFor[*lifecycleResource]())
+	unconsumedBase, err := NewResourceBase(nil, "test:///unconsumed", reflect.TypeFor[*lifecycleResource]())
 	if err != nil {
-		t.Fatalf("NewResourceBase(missing): %v", err)
+		t.Fatalf("NewResourceBase(unconsumed): %v", err)
 	}
 
 	present := &lifecycleResource{ResourceBase: presentBase, addressingMode: AddressingLocation, present: true}
-	missing := &lifecycleResource{ResourceBase: missingBase, addressingMode: AddressingLocation, present: false}
+	unconsumed := &lifecycleResource{ResourceBase: unconsumedBase, addressingMode: AddressingLocation, present: true}
 	unenrolled := newLifecycle("test:///unenrolled", AddressingLocation) // bare base: type id "", not enrolled
 
 	// Enroll the fixture type in the staged-rollout gate for the duration of this test.
@@ -321,14 +323,15 @@ func TestRun_PreflightResolvesPendingResources(t *testing.T) {
 
 	catalog := NewResourceCatalog()
 	catalog.Resolve(present)
-	catalog.Resolve(missing)
+	catalog.Resolve(unconsumed)
 	catalog.Resolve(unenrolled)
 
 	produceAction, err := ReceiverRegistry().BuildAction("compensationCleanFixture.produce")
 	if err != nil {
 		t.Fatalf("BuildAction(produce): %v", err)
 	}
-	producer, err := NewNode(NewNodeSpec().WithID("producer").WithAction(produceAction))
+	producer, err := NewNode(NewNodeSpec().WithID("producer").WithAction(produceAction).
+		WithSlot("claim", NewImmediateBinding(present)))
 	if err != nil {
 		t.Fatalf("NewNode(producer): %v", err)
 	}
@@ -341,15 +344,16 @@ func TestRun_PreflightResolvesPendingResources(t *testing.T) {
 		WithApplication(&application.Application{Name: "test"}))
 
 	if _, err := executor.Run(context.Background(), nil); err != nil {
-		t.Fatalf("Run: %v — a Gone resource is a recorded fact; the pass must mark, not fail", err)
+		t.Fatalf("Run: %v — a present consumed claim must verify and the scope proceed", err)
 	}
 
 	if present.existsCalls != 1 {
-		t.Errorf("present.existsCalls = %d, want 1 (a pending participating entry is probed once)", present.existsCalls)
+		t.Errorf("present.existsCalls = %d, want 1 (a consumed claim is probed once, at its scope's start)",
+			present.existsCalls)
 	}
-	if missing.existsCalls != 1 {
-		t.Errorf("missing.existsCalls = %d, want 1 (a missing resource is probed, marked Gone, and the run proceeds)",
-			missing.existsCalls)
+	if unconsumed.existsCalls != 0 {
+		t.Errorf("unconsumed.existsCalls = %d, want 0 (verification is claim-driven — an entry no unit consumes is never judged)",
+			unconsumed.existsCalls)
 	}
 	if unenrolled.existsCalls != 0 {
 		t.Errorf("unenrolled.existsCalls = %d, want 0 (the staging gate must skip non-enrolled types)",
@@ -360,6 +364,54 @@ func TestRun_PreflightResolvesPendingResources(t *testing.T) {
 	if got := catalog.State(present.ID()); got != Pending {
 		t.Errorf("planning catalog State(present) = %v, want Pending (transitions must land on the clone only)", got)
 	}
+}
+
+// TestRun_ScopedPreflightFailsOnConsumedMissingClaim proves the Stop consequence (§3, ruled 2026-08-22): a
+// consumed claim that fails its existence predicate fails the scope as unmet intent — before any dispatch —
+// and lands the preflight_failed terminal. The planning catalog stays pristine.
+func TestRun_ScopedPreflightFailsOnConsumedMissingClaim(t *testing.T) {
+
+	missingBase, err := NewResourceBase(nil, "test:///missing", reflect.TypeFor[*lifecycleResource]())
+	if err != nil {
+		t.Fatalf("NewResourceBase(missing): %v", err)
+	}
+	missing := &lifecycleResource{ResourceBase: missingBase, addressingMode: AddressingLocation, present: false}
+
+	typeID := missing.ResourceType()
+	existenceVerifiableTypes[typeID] = struct{}{}
+	t.Cleanup(func() { delete(existenceVerifiableTypes, typeID) })
+
+	catalog := NewResourceCatalog()
+	catalog.Resolve(missing)
+
+	produceAction, err := ReceiverRegistry().BuildAction("compensationCleanFixture.produce")
+	if err != nil {
+		t.Fatalf("BuildAction(produce): %v", err)
+	}
+	consumer, err := NewNode(NewNodeSpec().WithID("consumer").WithAction(produceAction).
+		WithSlot("claim", NewImmediateBinding(missing)))
+	if err != nil {
+		t.Fatalf("NewNode(consumer): %v", err)
+	}
+	graph, err := NewGraph(NewGraphSpec().WithOrigin(OriginBase{}).WithUnits(consumer).WithResourceCatalog(catalog))
+	if err != nil {
+		t.Fatalf("NewGraph: %v", err)
+	}
+
+	executor := NewGraphExecutor(graph, NewRuntimeEnvironmentSpec("test").
+		WithApplication(&application.Application{Name: "test"}))
+
+	_, runErr := executor.Run(context.Background(), nil)
+	if runErr == nil {
+		t.Fatal("Run succeeded although a consumed required claim is missing")
+	}
+	if !strings.Contains(runErr.Error(), "unmet intent") {
+		t.Errorf("failure does not name unmet intent: %v", runErr)
+	}
+	if got := executor.RunStatus().Reason; got != ReasonPreflightFailed {
+		t.Errorf("terminal reason = %v, want ReasonPreflightFailed", got)
+	}
+
 	if got := catalog.State(missing.ID()); got != Pending {
 		t.Errorf("planning catalog State(missing) = %v, want Pending (transitions must land on the clone only)", got)
 	}
