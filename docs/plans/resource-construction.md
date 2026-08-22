@@ -1,9 +1,9 @@
 ---
 title: "Resource construction: the catalog mediates everything"
 issue: https://github.com/NobleFactor/devlore-cli/issues/581
-status: draft
+status: in-progress
 created: 2026-08-20
-updated: 2026-08-20
+updated: 2026-08-22
 ---
 
 # Plan: Resource construction — the catalog mediates everything
@@ -80,6 +80,9 @@ assertions):
 | Run time re-derives resources from strings via prefix-strip at Convert | pkg/op/provider/file/helpers.go:106; pkg/op/convert.go step 6 |
 | The plan-time output-claiming design parked as "design only — not implemented" | docs/architecture/4-resource-management.md Appendix A |
 
+*Status 2026-08-22: rows 1, 2, 4, and 6 are resolved (phases 0–3); rows 3 and 5 — products interning into
+the discarded per-run clone, and run-time string re-parsing at Convert — are phase 4's subject.*
+
 ## Epic and issue placement
 
 **Epic: #444 — The resource model (`Epic:ResourceModel`).**
@@ -134,7 +137,7 @@ Windows known-failures.
 4. Round-trip pin: pack → unpack → pack byte-identical, including the empty section.
 5. Windows baseline expectation: unchanged (3).
 
-### Phase 2 — portable file identity: rel, bound to the run's root (#546/#547) — status: complete 2026-08-21 (PR 1 `92c18eb1`; PR 2 `2c5f6e6a`; PR 3 in review — the completing PR)
+### Phase 2 — portable file identity: rel, bound to the run's root (#546/#547) — status: complete 2026-08-21 (PR 1 #596 `92c18eb1`; PR 2 #600 `2c5f6e6a`; PR 3 #601 `70d540c6` — all merged)
 
 **RULED 2026-08-20: named resources are computed relative to some fsroot, and the fsroot is not known until
 the run.** The motivating cases are the product's own scopes: a **home**-scope graph binds to the account
@@ -269,7 +272,7 @@ sweep completed across PRs 1–3: readback (PR 1), providers already on the acce
 (this PR). Windows expectation: green stays green — the baseline is now zero. **The Windows CI leg went
 28 → 0 during this phase; #547 closed.**
 
-### Phase 3 — plan-time claiming: inputs only, pending only — status: complete 2026-08-22 (PRs A #602, B #603, C #604, D #605 merged; C2 in review — the closing PR)
+### Phase 3 — plan-time claiming: inputs only, pending only — status: complete 2026-08-22 (PRs A #602, B #603, C #604, D #605, C2 #606 — all merged)
 
 **NOTE (USER, 2026-08-22): two e2e lore scenarios join this phase's development — Docker and Go Toolchain,
 each covering deployment, upgrade, reconcile, and decommission. Docker first. Expected to take many passes;
@@ -319,6 +322,12 @@ Items 1–3 of the original docket (string → pending, promise → recorded, st
 
 Surviving directive set: `+devlore:defaults`, `+devlore:property`, `+devlore:root` — everything else
 derives from types, signatures, names, and graph structure.
+
+**Execution status (2026-08-22): rulings recorded, removals not yet executed.** The wire-vocabulary rename
+ran (zero matches remain in the tree). Still present: `+devlore:planner` at its four flow uses,
+`+devlore:struct_param` at its two `cmd/star` declaration sites, and the `Lifetime` machinery
+(`pkg/op/provider/lifetime.go`). These are sized-at-execution work awaiting scheduling; `+devlore:access`
+retires separately per 3.6, as ruled.
 
 **PR B record (2026-08-22) — scoped verification lands; the fail-fast scenario flips green; a stranded
 catalog exposed.**
@@ -390,7 +399,7 @@ catalog exposed.**
 - Gate: make check 103 ok / 0 fail, GOOS=windows vet clean. Phase-3 remainder: C2 (Move's source,
   RemoveAll) chartered.
 
-**C2 record (2026-08-22) — the last mutators; phase 3 closes without remainder.**
+**C2 record (2026-08-22, merged as #606) — the last mutators; phase 3 closes without remainder.**
 
 - `file.Move(source *Regular, destination_path, on_missing)` — a move destroys the source location, so the
   source claims, and success marks it Gone with the destroyer stamp. `file.RemoveAll(target *Directory,
@@ -412,6 +421,8 @@ catalog exposed.**
    `state == "pending"` flip to asserting the field's absence; the Go catalog pin keeps presence/absence
    and drops its state assertion; writ readback is untouched (it reads the trace). Known boundary: lenient
    decoding means a stray hand-edited `state:` is ignored, not refused — a codec-wide property, noted.
+   **Delivered — PR A #602:** `IntentEntry{ID, URI}` is its own type, the round-trip pins re-pinned, and
+   the star assertions flipped to asserting the field's absence.
 5. Acceptance: **both pins flip green with corrected assertions** — the stored document carries
    `original.txt` (pending), and asserts `duplicate.txt` **absent**, pinning the product ruling in both
    directions. **Delivered early — the pins flipped with phase 1**: planning already interned the
@@ -419,7 +430,8 @@ catalog exposed.**
    true. Phase 3's remaining substance shrank on audit (2026-08-20): `Discover` already performs no
    existence I/O — its body says so and the executor's pre-flight owns transitions — so phase 3 is the
    promise grammar verified plus pins for the no-I/O rule and the pre-flight transition-failure semantics
-   (a pending resource that does not exist under the run's root fails the run — Q1 ruling).
+   (a pending resource that does not exist under the run's root fails the run — Q1 ruling). **Delivered —
+   the fail-fast pin flipped green in PR B #603.**
 
 ### Phase 4 — run time consumes the catalog, never strings — status: pending
 
@@ -432,9 +444,11 @@ catalog exposed.**
 
 ### Phase 5 — closure — status: pending
 
-1. Sketches removed per phase 0's disposition; `docs/architecture` statuses updated; the transport plan's
-   supersession note finalized.
-2. The two demonstration pins graduate from local red to committed green (they land with phase 3's PR).
+1. Sketches removed per phase 0's disposition — the deletions themselves landed with phase 0 (#592), so
+   what remains is the `docs/architecture` statuses updated and the transport plan's supersession note
+   finalized.
+2. ~~The two demonstration pins graduate from local red to committed green~~ — done: scenario 1's pin
+   landed green with phase 1, and the fail-fast pin flipped green in PR B #603.
 3. `4-resource-management.status.md` records the completed convergence.
 
 ## Verification
@@ -489,7 +503,10 @@ phase-3 claiming-grammar work (#585), after which this scenario's single entry c
 links. Refined the same day: **the second consumer sees Gone** — the copy fails on the catalog's verdict, not
 by rediscovering the loss through its own I/O. Evidence of today's gap: the manual run's receipt shows the
 entry still `pending` after the failed run — nothing transitions it yet; #585 closes both halves (the
-behavior-matrix consumption table in 4-resource-management.md §3 records the ruled semantics). Placement
+behavior-matrix consumption table in 4-resource-management.md §3 records the ruled semantics). **Both
+halves delivered 2026-08-22 (PRs C #604, D #605):** the typed target transitions the entry with the
+destroyer stamp, and the scenario asserts the narrated verdict
+(`expect_error("file.copy.*destroyed by")`) end to end. Placement
 ruled the same day: the guard lives in the action dispatch seam — after `Method.Invoke`'s slot-to-argument
 conversion, before the forward method call — the earliest point the complete consumed set exists (promises
 resolve only at slot-fill), shared by graph and immediate dispatch; the catalog-resolve verdict is the
@@ -545,7 +562,8 @@ destination never created); the error-shape expectation fails because today's ru
 `file.copy: openat vanishes.txt: no such file or directory` — the copy **dispatched** and rediscovered the
 loss through its own I/O. `resolvePendingResources` says so itself: "Mark, don't fail." Wired as
 `TestJudgmentPreflightFailFast` with a `t.Skip` naming the gap; #585 un-skips it, and the scenario flipping
-green is the phase's acceptance evidence.
+green is the phase's acceptance evidence. **Flipped green 2026-08-22 (PR B #603):** un-skipped — the run
+fails on the catalog's verdict before any dispatch, the destination never created.
 
 ## Open questions — all ruled 2026-08-20
 

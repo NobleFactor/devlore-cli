@@ -89,10 +89,13 @@ status := executor.RunStatus() // phase × condition × reason
 trace := executor.Trace()
 ```
 
-`Run` builds a fresh per-run `RuntimeEnvironment` from the spec, clones the graph's planning catalog onto it, resolves
-the variable surface (`Graph.Parameters()` against the application's sources, with caller-supplied `variables` layered
-on top), dispatches the root, and tears the environment down. Each subgraph dispatch executes under its **own child
-executor** that owns its recovery stack, sharing the parent's environment and control plane. On failure the recovery
+`Run` builds a fresh per-run `RuntimeEnvironment` from the spec, clones the graph's planning catalog onto it, binds
+every pending resource to the run's root (the pre-flight resolve pass —
+[4-resource-management.md](4-resource-management.md) §5.5), resolves the variable surface (`Graph.Parameters()`
+against the application's sources, with caller-supplied `variables` layered on top), dispatches the root, and tears
+the environment down. Each subgraph dispatch executes under its **own child executor** that owns its recovery stack
+and verifies the claims its own units consume when its scope starts
+([4-resource-management.md](4-resource-management.md) §3), sharing the parent's environment and control plane. On failure the recovery
 stack unwinds — every completed compensable action has `Compensate` called with its receipt
 ([2.2](2.2-phase-execution.md), [5-graph-trace-integrity](5-graph-trace-integrity.md)).
 
