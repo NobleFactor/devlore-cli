@@ -693,7 +693,7 @@ func TestUnlink_RemovesSymlink(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	_, receipt, err := p.Unlink(testActivation(t, p.RuntimeEnvironment()), linkPath, false, "")
+	_, receipt, err := p.Unlink(testActivation(t, p.RuntimeEnvironment()), mustDiscoverSymbolicLink(t, p, linkPath), op.MissingResourcePolicyStop, false, "")
 	if err != nil {
 		t.Fatalf("Unlink() error = %v", err)
 	}
@@ -706,21 +706,30 @@ func TestUnlink_RemovesSymlink(t *testing.T) {
 	}
 }
 
-func TestUnlink_AlreadyGone(t *testing.T) {
+func TestUnlink_MissingTarget_FollowsThePolicy(t *testing.T) {
 
+	// Mirrors the Remove policy pin: Stop errors on a missing target; Ignore makes the call a recorded
+	// no-op (§3, ruled 2026-08-22).
 	tmp := t.TempDir()
 	linkPath := filepath.Join(tmp, "nonexistent")
 
 	p := testProvider(t, tmp)
-	product, receipt, err := p.Unlink(testActivation(t, p.RuntimeEnvironment()), linkPath, false, "")
+
+	if _, _, err := p.Unlink(testActivation(t, p.RuntimeEnvironment()), mustDiscoverSymbolicLink(t, p, linkPath),
+		op.MissingResourcePolicyStop, false, ""); err == nil {
+		t.Fatal("Unlink(stop) on a missing target must error")
+	}
+
+	product, receipt, err := p.Unlink(testActivation(t, p.RuntimeEnvironment()), mustDiscoverSymbolicLink(t, p, linkPath),
+		op.MissingResourcePolicyIgnore, false, "")
 	if err != nil {
-		t.Fatalf("Unlink() error = %v", err)
+		t.Fatalf("Unlink(ignore) error = %v", err)
 	}
 	if product != nil {
-		t.Errorf("product = %+v, want nil for already-gone", product)
+		t.Errorf("product = %+v, want nil for the ignored no-op", product)
 	}
 	if receipt != (nil) {
-		t.Errorf("receipt = %+v, want empty Receipt (no-op)", receipt)
+		t.Errorf("receipt = %+v, want nil (no mutation to compensate)", receipt)
 	}
 }
 
@@ -733,7 +742,7 @@ func TestUnlink_NotASymlink_ReturnsError(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	_, _, err := p.Unlink(testActivation(t, p.RuntimeEnvironment()), path, false, "")
+	_, _, err := p.Unlink(testActivation(t, p.RuntimeEnvironment()), mustDiscoverSymbolicLink(t, p, path), op.MissingResourcePolicyStop, false, "")
 	if err == nil {
 		t.Fatal("Unlink() on regular file should return error")
 	}
@@ -753,7 +762,7 @@ func TestRemove_RemovesFile(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	_, receipt, err := p.Remove(testActivation(t, p.RuntimeEnvironment()), path, false, "")
+	_, receipt, err := p.Remove(testActivation(t, p.RuntimeEnvironment()), mustDiscoverRegular(t, p, path), op.MissingResourcePolicyStop, false, "")
 	if err != nil {
 		t.Fatalf("Remove() error = %v", err)
 	}
@@ -769,21 +778,30 @@ func TestRemove_RemovesFile(t *testing.T) {
 	}
 }
 
-func TestRemove_AlreadyGone(t *testing.T) {
+func TestRemove_MissingTarget_FollowsThePolicy(t *testing.T) {
 
+	// The missing-resource policy at the provider (§3, ruled 2026-08-22): Stop errors — a required target
+	// that is not there is unmet intent rediscovered at dispatch; Ignore makes the call a recorded no-op.
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "nonexistent")
 
 	p := testProvider(t, tmp)
-	product, receipt, err := p.Remove(testActivation(t, p.RuntimeEnvironment()), path, false, "")
+
+	if _, _, err := p.Remove(testActivation(t, p.RuntimeEnvironment()), mustDiscoverRegular(t, p, path),
+		op.MissingResourcePolicyStop, false, ""); err == nil {
+		t.Fatal("Remove(stop) on a missing target must error")
+	}
+
+	product, receipt, err := p.Remove(testActivation(t, p.RuntimeEnvironment()), mustDiscoverRegular(t, p, path),
+		op.MissingResourcePolicyIgnore, false, "")
 	if err != nil {
-		t.Fatalf("Remove() error = %v", err)
+		t.Fatalf("Remove(ignore) error = %v", err)
 	}
 	if product != nil {
-		t.Errorf("product = %+v, want nil for already-gone", product)
+		t.Errorf("product = %+v, want nil for the ignored no-op", product)
 	}
 	if receipt != (nil) {
-		t.Errorf("receipt = %+v, want empty Receipt (no-op)", receipt)
+		t.Errorf("receipt = %+v, want nil (no mutation to compensate)", receipt)
 	}
 }
 
@@ -1745,7 +1763,7 @@ func TestRemove_NonEmptyDirectory_ReturnsError(t *testing.T) {
 	writeTestFile(t, dir, "child.txt", "data")
 
 	p := testProvider(t, tmp)
-	_, _, err := p.Remove(testActivation(t, p.RuntimeEnvironment()), dir, false, "")
+	_, _, err := p.Remove(testActivation(t, p.RuntimeEnvironment()), mustDiscoverRegular(t, p, dir), op.MissingResourcePolicyStop, false, "")
 	if err == nil {
 		t.Fatal("Remove() on non-empty directory should return error")
 	}
@@ -1766,7 +1784,7 @@ func TestRemove_RoundTrip(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	_, state, err := p.Remove(testActivation(t, p.RuntimeEnvironment()), path, false, "")
+	_, state, err := p.Remove(testActivation(t, p.RuntimeEnvironment()), mustDiscoverRegular(t, p, path), op.MissingResourcePolicyStop, false, "")
 	if err != nil {
 		t.Fatalf("Remove() error = %v", err)
 	}
@@ -1829,7 +1847,7 @@ func TestCompensateRemove_RoundTrip(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	_, state, err := p.Remove(testActivation(t, p.RuntimeEnvironment()), path, false, "")
+	_, state, err := p.Remove(testActivation(t, p.RuntimeEnvironment()), mustDiscoverRegular(t, p, path), op.MissingResourcePolicyStop, false, "")
 	if err != nil {
 		t.Fatalf("Remove() error = %v", err)
 	}
@@ -1917,7 +1935,7 @@ func TestCompensateUnlink_RoundTrip(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	_, state, err := p.Unlink(testActivation(t, p.RuntimeEnvironment()), linkPath, false, "")
+	_, state, err := p.Unlink(testActivation(t, p.RuntimeEnvironment()), mustDiscoverSymbolicLink(t, p, linkPath), op.MissingResourcePolicyStop, false, "")
 	if err != nil {
 		t.Fatalf("Unlink() error = %v", err)
 	}
@@ -2514,4 +2532,30 @@ func TestWriteText_RejectsUnresolvableUser(t *testing.T) {
 	if err == nil {
 		t.Fatal("WriteText with an unresolvable user: want error, got nil")
 	}
+}
+
+// mustDiscoverRegular discovers the typed Remove target for a direct provider call, failing the test on a
+// construction error.
+func mustDiscoverRegular(t *testing.T, p Provider, path string) *Regular {
+
+	t.Helper()
+
+	target, err := DiscoverRegular(p.RuntimeEnvironment(), path)
+	if err != nil {
+		t.Fatalf("DiscoverRegular(%s): %v", path, err)
+	}
+	return target
+}
+
+// mustDiscoverSymbolicLink discovers the typed Unlink target for a direct provider call, failing the test
+// on a construction error.
+func mustDiscoverSymbolicLink(t *testing.T, p Provider, path string) *SymbolicLink {
+
+	t.Helper()
+
+	target, err := DiscoverSymbolicLink(p.RuntimeEnvironment(), path)
+	if err != nil {
+		t.Fatalf("DiscoverSymbolicLink(%s): %v", path, err)
+	}
+	return target
 }

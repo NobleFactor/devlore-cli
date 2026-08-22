@@ -33,7 +33,7 @@ file.link(txt_path, link_target)
 result_link_exists = file.exists(link_target)
 
 # --- remove ---
-file.remove(copy_dest, False, test_dir)
+file.remove(target=copy_dest, prune=False, boundary=test_dir)
 result_removed = file.exists(copy_dest) == False
 
 # --- defaults: write_text without mode ---
@@ -50,7 +50,7 @@ result_defaults_mkdir = file.is_dir(defaults_dir)
 result_defaults_glob = file.glob(file.join(test_dir, "*.txt"))
 
 # --- defaults: remove without prune/boundary ---
-file.remove(defaults_txt)
+file.remove(target=defaults_txt)
 result_defaults_remove = file.exists(defaults_txt) == False
 
 # --- find: recursive ** pattern ---

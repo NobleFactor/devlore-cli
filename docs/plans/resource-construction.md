@@ -348,6 +348,30 @@ catalog exposed.**
   planning catalog).
 - Gate: make check 103 ok / 0 fail, GOOS=windows vet clean. Skip/Ignore behavior at dispatch is PR C/D
   work (the mutators gain the policy parameter in C; the guard honors it in D).
+
+**PR C record (2026-08-22) — the mutators go resource-typed; scenario 1 completes its ruled shape.**
+
+- `file.Remove(target *Regular, onMissing MissingResourcePolicy, …)` and
+  `file.Unlink(target *SymbolicLink, onMissing, …)`: the target is a consumed, claimed resource; a missing
+  target follows the policy (Stop errors; Ignore/Skip no-op at the provider — Skip's do-not-dispatch half
+  is PR D's guard). Both policy directions pinned. `on_missing?=stop` defaults via a new capability the
+  change forced: `parseDefaultExpression` learned named-type text vocabulary (TextUnmarshaler before the
+  kind switch), so an enum default is spelled `stop`, never an ordinal.
+- **Scenario 1's single entry now carries both consumer links** — the remove's target and the copy's source
+  claim and deduplicate to the one row the star asserts; the interim note in the scenario retires.
+- The sweep: writ decommission emits plan-space rels with **`on_missing="ignore"`** (the ruled posture —
+  Ignore over Skip so the run RECORDS the no-op; a hand-removed target decommissions as history, not
+  silence); writ migrate's builder renames its key; four star scripts and the file provider's direct-call
+  tests move to typed targets.
+- **Second latent catch: `SymbolicLink.Exists` followed the link.** Claim verification statted THROUGH a
+  deployed link to a target outside the run's root and falsely marked the LINK Gone — decommission then
+  refused its own unlink at conversion ("resource is known-gone"). A link's existence is the link:
+  `SymbolicLink` now overrides `Exists` with lstat semantics. Second kind-semantics defect exposed by
+  turning verification on.
+- Deferred to PR D as chartered: the dispatch guard (Discover's hit-Gone verdict routed through the
+  consumer's policy; the destroyer stamp). `Move`'s source and `RemoveAll` stay path-typed — chartered as
+  the C2 follow-up rather than folded, per the sizing rule.
+- Gate: make check 103 ok / 0 fail, GOOS=windows vet clean.
 4. Consequence for phase 1's stored section: every stored entry is Pending by construction. **RULED
    2026-08-21: the stored row drops `state` entirely** — the intent row becomes its own `{id, uri}` type
    (presence IS the pending claim), splitting from the trace's `LedgerEntrySnapshot`, whose

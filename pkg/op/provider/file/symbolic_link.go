@@ -27,6 +27,18 @@ type SymbolicLink struct {
 	Resource
 }
 
+// Exists reports whether the symlink itself exists, without following it — a link's existence is the link,
+// not its target (the claim-verification defect this fixes: a deployed link whose target sits outside the
+// run's root verified through Stat, followed the link out of confinement, and was falsely marked Gone).
+//
+// Returns:
+//   - `bool`: true when the link entry exists; false when the lstat fails for any reason.
+func (r *SymbolicLink) Exists() bool {
+	root := r.RuntimeEnvironment().Root()
+	_, err := root.Lstat(root.NewPath(r.SourcePath.Abs()))
+	return err == nil
+}
+
 // sealedEntry marks SymbolicLink as a member of the closed [Entry] set (step 23, slice 4).
 func (*SymbolicLink) sealedEntry() {}
 

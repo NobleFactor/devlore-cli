@@ -79,10 +79,10 @@ func (p *planBuilder) Rename(source, path string) *op.Invocation {
 	})
 }
 
-// Remove plans a file/directory-removal invocation.
+// Remove plans a file-removal invocation; the target is a consumed, claimed resource.
 func (p *planBuilder) Remove(path string) *op.Invocation {
 	return p.add(file.Remove, map[string]any{
-		"path": path,
+		"target": path,
 	})
 }
 

@@ -650,36 +650,46 @@ func (p *Provider) compensateRemoveDir(receipt *Receipt) error {
 	return p.mkdirAll(resource.Path().Abs(), 0o750)
 }
 
-// Remove deletes the file or empty directory at `path`, archiving it for compensation.
+// Remove deletes the file `target`, archiving it for compensation.
 //
-// Takes a path (step 23, ruling 2) and discharges the delete invariants itself (ruling 3): the entry is interned
-// via its Discover constructor as the observed kind (termination, not production — no producer stamp), moved to
-// the recovery site, and its catalog entry marked [op.Gone] on success. A non-existent target is a no-op (nil
-// product, nil receipt, nil error). A non-empty directory is an error — use [Provider.RemoveAll] for recursive
-// deletion. When `prune` is set, now-empty parents up to `boundary` are removed.
+// The target is a consumed resource (mutation targets are resource-typed consumers — ruled 2026-08-20): its
+// literal claim enters the graph's catalog as required intent, gated per call by `onMissing`
+// (4-resource-management.md §3, the claims taxonomy). At dispatch the delete invariants discharge here: the
+// observed entry is moved to the recovery site and its catalog entry marked [op.Gone] on success. A missing
+// target follows the policy — Stop errors (mid-run loss rediscovered at dispatch; scope verification covers
+// the starting line), Ignore and Skip no-op (Skip's do-not-dispatch half is the executor guard's). A
+// directory is an error — use [Provider.RemoveAll] for recursive deletion. When `prune` is set, now-empty
+// parents up to `boundary` are removed.
 //
 // Parameters:
 //   - `activationRecord`: the dispatch activation (the required floor for compensable actions — step 27).
-//   - `path`: the path of the entry to delete.
+//   - `target`: the file to delete — a consumed, claimed resource.
+//   - `onMissing`: the [op.MissingResourcePolicy] for an absent target; defaults to stop.
 //   - `prune`: whether to remove now-empty parent directories up to `boundary`.
 //   - `boundary`: the path at which parent pruning stops; empty prunes to the scoped root.
 //
 // Returns:
 //   - `Entry`: always nil — Remove produces no resource.
 //   - `*Receipt`: the compensation receipt recording the recovery archive for undo.
-//   - `error`: non-nil when the target is a non-empty directory, or on stat or archive failure.
+//   - `error`: non-nil when the target is a directory, missing under stop, or on stat or archive failure.
+//
+// +devlore:defaults onMissing=stop, prune=false, boundary=""
 func (p *Provider) Remove(
 	activationRecord *op.ActivationRecord,
-	path string,
+	target *Regular,
+	onMissing op.MissingResourcePolicy,
 	prune bool,
 	boundary string,
 ) (product Entry, receipt *Receipt, err error) {
 
-	abs := p.RuntimeEnvironment().Root().NewPath(path).Abs()
+	abs := target.SourcePath.Abs()
 
 	nonEmptyDirectory, err := p.isDirAndNotEmpty(abs)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
+			if onMissing == op.MissingResourcePolicyStop {
+				return nil, nil, fmt.Errorf("file.Remove: target %s does not exist", abs)
+			}
 			return nil, nil, nil
 		}
 		return nil, nil, err
@@ -752,33 +762,43 @@ func (p *Provider) RemoveAll(
 
 // Unlink removes the symlink at `path`, archiving it for compensation.
 //
-// Takes a path and discharges the delete invariants (step 23, rulings 2 and 3): the link is interned via
-// [DiscoverSymbolicLink] (the kind is fixed by Unlink's own semantics), moved to the recovery site, and its
-// catalog entry marked [op.Gone] on success. A non-existent target is a no-op. A target that exists but is not a
-// symlink is an error. When `prune` is set, now-empty parents up to `boundary` are removed afterward.
+// The target is a consumed resource (mutation targets are resource-typed consumers — ruled 2026-08-20;
+// the kind is fixed by Unlink's own semantics): its literal claim enters the graph's catalog as required
+// intent, gated per call by `onMissing` (§3, the claims taxonomy). At dispatch the delete invariants
+// discharge here: the link is moved to the recovery site and its catalog entry marked [op.Gone] on
+// success. A missing target follows the policy — Stop errors, Ignore and Skip no-op. A target that exists
+// but is not a symlink is an error. When `prune` is set, now-empty parents up to `boundary` are removed.
 //
 // Parameters:
 //   - `activationRecord`: the dispatch activation (the required floor for compensable actions — step 27).
-//   - `path`: the path of the symlink to remove.
+//   - `target`: the symlink to remove — a consumed, claimed resource.
+//   - `onMissing`: the [op.MissingResourcePolicy] for an absent target; defaults to stop.
 //   - `prune`: whether to remove now-empty parent directories up to `boundary`.
 //   - `boundary`: the path at which parent pruning stops; empty prunes to the scoped root.
 //
 // Returns:
 //   - `Entry`: always nil — Unlink produces no resource.
 //   - `*Receipt`: the compensation receipt recording the recovery archive for undo.
-//   - `error`: non-nil when the target exists but is not a symlink, or on stat or archive failure.
+//   - `error`: non-nil when the target exists but is not a symlink, is missing under stop, or on stat or
+//     archive failure.
+//
+// +devlore:defaults onMissing=stop, prune=false, boundary=""
 func (p *Provider) Unlink(
 	activationRecord *op.ActivationRecord,
-	path string,
+	target *SymbolicLink,
+	onMissing op.MissingResourcePolicy,
 	prune bool,
 	boundary string,
 ) (product Entry, receipt *Receipt, err error) {
 
-	abs := p.RuntimeEnvironment().Root().NewPath(path).Abs()
+	abs := target.SourcePath.Abs()
 
 	info, err := p.lstat(abs)
 	if errors.Is(err, os.ErrNotExist) {
-		return nil, nil, nil // Already gone — no change
+		if onMissing == op.MissingResourcePolicyStop {
+			return nil, nil, fmt.Errorf("file.Unlink: target %s does not exist", abs)
+		}
+		return nil, nil, nil // Already gone — recorded by the warning at detection
 	}
 
 	if err != nil {

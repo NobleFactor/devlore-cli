@@ -27,7 +27,7 @@ t.expect_equal(len([e for e in entries if "vanishes.txt" in str(e)]), 1)
 t.expect_equal(len([e for e in entries if "state" in e]), 0)  # stateless rows: presence IS the pending claim
 
 # Intent breaks before the run starts.
-file.remove(path=src, prune=False, boundary="")
+file.remove(target=src, prune=False, boundary="")
 
 t.expect_error("verify existence")
 t.expect_no_file(dst)

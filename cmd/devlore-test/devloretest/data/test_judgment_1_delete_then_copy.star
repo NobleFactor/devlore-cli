@@ -5,9 +5,9 @@
 #
 # Two operations against the same named file, no promise between them: delete it, then copy from it. The
 # prediction, authored before implementation: the stored catalog carries exactly one pending file entry with
-# two consumers (ruled 2026-08-20: mutation targets are resource-typed consumers; until #585 migrates
-# file.remove's path-typed signature, the entry is minted by the copy's source alone and the count is the
-# same); pre-flight passes because intent was satisfied at the starting line; the run fails at the copy — under
+# two consumers (ruled 2026-08-20: mutation targets are resource-typed consumers — delivered by #585 PR C:
+# the remove's target and the copy's source both claim, deduplicating to the single entry asserted below);
+# pre-flight passes because intent was satisfied at the starting line; the run fails at the copy — under
 # the ruled shape the copy sees the catalog's Gone verdict (the remove, as consumer, transitioned the entry);
 # until #585 it rediscovers the loss through its own I/O; the failure unwinds and the delete's receipt restores
 # the file. The graph says what
@@ -19,7 +19,7 @@ doc = t.tmp("graph.json")
 
 t.write(src, "the original bytes")
 
-deleted = plan.file.remove(path=src, prune=False, boundary="")
+deleted = plan.file.remove(target=src, prune=False, boundary="")
 copied  = plan.file.copy(source=src, destination_path=dst, mode=0o600)
 
 graph = plan.assemble_definition([deleted, copied])
