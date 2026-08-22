@@ -493,7 +493,11 @@ func buildScopeGraph(
 			"files":       fileMetas,
 		}))
 
-		graph, err := op.NewGraph(op.NewGraphSpec().WithOrigin(origin).WithUnits(units...))
+		// The catalog travels with the graph (§5.4): the planning session interned this graph's claims
+		// into the environment's catalog — a fresh one here would strand them (the empty-section defect
+		// scoped verification exposed, 2026-08-22).
+		graph, err := op.NewGraph(op.NewGraphSpec().WithOrigin(origin).WithUnits(units...).
+			WithResourceCatalog(environment.ResourceCatalog))
 		if err != nil {
 			return nil, fmt.Errorf("assemble scope %q: %w", scope, err)
 		}

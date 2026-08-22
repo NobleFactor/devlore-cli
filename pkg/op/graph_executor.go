@@ -530,11 +530,11 @@ func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) 
 		e.stack = NewRecoveryStack()
 	}
 
-	// The pre-flight resolve pass (phase-8 step 22): plan-time resources were introduced as [Pending]; now that the
-	// catalog is live on the per-run environment, verify each participating entry's existence and drive the
-	// [Pending] → [Active]/[Gone] transition. Runs for fresh and resumed runs alike, and in dry-run too — the probes
-	// are read-only (stat-class).
-	e.resolvePendingResources()
+	// The pre-flight binding pass: every pending entry re-bases onto the run's environment and binds
+	// rel-first to the run's root. VERIFICATION is not here — it is scoped (§3, ruled 2026-08-22): each
+	// subgraph executor verifies the claims its own units consume when its scope starts, the root subgraph
+	// included, inside [Subgraph.Execute]. Runs for fresh and resumed runs alike, and in dry-run too.
+	e.bindPendingResources()
 
 	// preparing → running: construction + environment build + variable binding (the preflight) run in
 	// [PhasePreparing]; the phase enters [PhaseRunning] here, at the first dispatch. A preflight failure above lands a
@@ -1067,6 +1067,89 @@ func (e *GraphExecutor) bindVariables(graph *Graph, callerVariables map[string]V
 // operations against a not-yet-existent path is legitimate (`file.exists` on a missing file answers false; a producer
 // revives a [Gone] URI via shadow), and consumers of a genuinely missing resource fail at their own dispatch (the Q2
 // "dependents fail on their own" precedent). The probes are read-only (stat-class), so the pass also runs in dry-run.
+// verifyScopeClaims verifies the claims a scope's own units consume — the scoped pre-flight (§3, ruled
+// 2026-08-22).
+//
+// A claim is an immediate resource-valued slot on one of the scope's direct units (a promise-fed slot is
+// not a claim, and deeper units belong to deeper scopes). Verification drives the [Pending] → [Active] /
+// [Gone] transition through [ResourceCatalog.VerifyExistence]; a warning is produced on every detection of
+// a missing resource, under every policy. The consequence follows the unit's [MissingResourcePolicy]
+// (fail-safe default [MissingResourcePolicyStop]): Stop fails the scope with [ReasonPreflightFailed];
+// Ignore and Skip let the scope proceed — their behavior applies at the consumer's dispatch.
+//
+// Parameters:
+//   - `scopeID`: the verifying scope's unit id, for the warning and the failure.
+//   - `units`: the scope's direct units.
+//
+// Returns:
+//   - `error`: a reason-carrying dispatch failure for the first unmet required claim; nil otherwise.
+func (e *GraphExecutor) verifyScopeClaims(scopeID string, units []ExecutableUnit) error {
+
+	catalog := e.environment.ResourceCatalog
+	if catalog == nil {
+		return nil
+	}
+
+	for _, unit := range units {
+
+		policy := unitMissingResourcePolicy(unit)
+
+		for _, binding := range unit.Slots() {
+
+			immediate, ok := binding.(ImmediateBinding)
+			if !ok {
+				continue
+			}
+
+			resource, ok := immediate.Resolve(nil, nil).(Resource)
+			if !ok || !participatesInExistenceVerification(resource) {
+				continue
+			}
+
+			verifyErr := catalog.VerifyExistence(resource)
+			if verifyErr == nil {
+				continue
+			}
+
+			if e.environment.Status != nil {
+				e.environment.Status.Warn(fmt.Sprintf(
+					"%s: %s: missing resource (policy %s): %v", scopeID, unit.ID(), policy, verifyErr))
+			}
+
+			if policy == MissingResourcePolicyStop {
+				return &dispatchFailure{reason: ReasonPreflightFailed,
+					cause: fmt.Errorf("%s: unmet intent: %w", unit.ID(), verifyErr)}
+			}
+		}
+	}
+
+	return nil
+}
+
+// unitMissingResourcePolicy returns the unit's declared [MissingResourcePolicy] — its immediate
+// policy-typed slot value — or the fail-safe default [MissingResourcePolicyStop].
+//
+// The parameter's type is the declaration (§3): no directive names the slot, so the policy is found by
+// its type among the unit's immediate bindings.
+//
+// Parameters:
+//   - `unit`: the unit whose policy is read.
+//
+// Returns:
+//   - `MissingResourcePolicy`: the declared policy, or Stop when none is declared.
+func unitMissingResourcePolicy(unit ExecutableUnit) MissingResourcePolicy {
+
+	for _, binding := range unit.Slots() {
+		if immediate, ok := binding.(ImmediateBinding); ok {
+			if policy, ok := immediate.Resolve(nil, nil).(MissingResourcePolicy); ok {
+				return policy
+			}
+		}
+	}
+
+	return MissingResourcePolicyStop
+}
+
 // captureLedgerSnapshot records the resource ledger and the run's bound root for the trace.
 //
 // The binding half of the trace record: file identities are root-relative (#584), so the snapshot names
@@ -1084,7 +1167,7 @@ func (e *GraphExecutor) captureLedgerSnapshot() {
 	}
 }
 
-func (e *GraphExecutor) resolvePendingResources() {
+func (e *GraphExecutor) bindPendingResources() {
 
 	catalog := e.environment.ResourceCatalog
 	if catalog == nil {
@@ -1095,21 +1178,14 @@ func (e *GraphExecutor) resolvePendingResources() {
 
 		// The activation binding (§5.5): the run, not the construction session, owns location. Every
 		// pending entry re-bases onto the run's environment, and a root-relative scheme re-binds its path
-		// rel-first against the run's root through the [RootBinder] seam — so the existence check below,
-		// and every later observation, read the run's world rather than the environment that happened to
-		// construct or rehydrate the object (the run-from-elsewhere defect).
+		// rel-first against the run's root through the [RootBinder] seam — so scoped verification, and
+		// every later observation, read the run's world rather than the environment that happened to
+		// construct or rehydrate the object (the run-from-elsewhere defect). Existence is NOT checked
+		// here: verification is scoped per subgraph executor ([GraphExecutor.verifyScopeClaims]).
 		resource.resourceBase().runtimeEnvironment = e.environment
 		if binder, ok := resource.(RootBinder); ok && e.environment.HasRoot() {
 			binder.BindRoot(e.environment.Root())
 		}
-
-		if !participatesInExistenceVerification(resource) {
-			continue
-		}
-		// Mark, don't fail: VerifyExistence records Gone on a missing resource; the error is informational
-		// here (phase 3 of the resource-construction plan owns the transition-failure consequence).
-		//nolint:errcheck // diagnose-ignored-error: records Gone; see docs/architecture/2.8-eventing-infrastructure.md
-		_ = catalog.VerifyExistence(resource)
 	}
 }
 

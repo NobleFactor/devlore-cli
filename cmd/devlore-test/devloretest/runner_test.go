@@ -445,9 +445,11 @@ func TestJudgmentScenario1_DeleteThenCopy(t *testing.T) {
 }
 
 func TestJudgmentPreflightFailFast(t *testing.T) {
-	t.Skip("phase-3 acceptance pin (#585): resolvePendingResources marks Gone without failing the run; " +
-		"un-skip when pre-flight fails on unmet intent")
 	runScript(t, "test_judgment_preflight_fail_fast.star")
+}
+
+func TestJudgmentScopedClaims(t *testing.T) {
+	runScript(t, "test_judgment_scoped_claims.star")
 }
 
 func TestJudgmentPromiseOrdering(t *testing.T) {
