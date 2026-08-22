@@ -459,3 +459,10 @@ func TestJudgmentGoneTolerance(t *testing.T) {
 func TestJudgmentPromiseOrdering(t *testing.T) {
 	runScript(t, "test_judgment_promise_ordering.star")
 }
+
+func TestJudgmentDiscoverAfterExec(t *testing.T) {
+	t.Skip("file.discover is not yet implemented and the exec→discover ordering-edge mechanism is " +
+		"undecided — docs/plans/resource-construction.md phase 4, explicit-conversion docket; the " +
+		"implementing PR completes the ordering edge and un-skips")
+	runScript(t, "test_judgment_discover_after_exec.star")
+}

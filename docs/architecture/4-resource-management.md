@@ -56,6 +56,9 @@ executed on many machines:
   units consume when its scope starts, by the scheme's existence predicate (for file resources: the rel
   under the run's root) — §3; dispatch results — products included — become catalog facts on the per-run
   clone, recorded by the trace.
+- **Dispatch resolves by identity** — at run time a string may be a **key, never a constructor**: a
+  resource-typed slot value resolves against the run catalog, retrieving the claimed entry or refusing;
+  run-computed paths enter through the explicit discovery/resolution actions (§5.6–§5.7).
 
 **`Resource`** (`pkg/op/resource.go`) — an interface sealed by an unexported method; only types embedding
 `ResourceBase` implement it. The base carries identity (`uri`, catalog `id`, `producerID` — empty for discovered,
@@ -331,6 +334,65 @@ satisfy its scheme's existence predicate when its consuming scope starts — for
 exist under the run's root.** The judgment scenarios that pin this split live in the plan's "Judgment
 scenarios" section.
 
+### 5.6 Run time consumes the catalog — a string is a key, never a constructor
+
+Ruled 2026-08-22 (the sketch's rule made precise; implementation
+[#609](https://github.com/NobleFactor/devlore-cli/issues/609)/[#610](https://github.com/NobleFactor/devlore-cli/issues/610)
+under [#586](https://github.com/NobleFactor/devlore-cli/issues/586)): **no string-to-resource conversion
+ever happens at run time — at graph dispatch a string may be a key, never a constructor.** A resource-typed slot value —
+captured object or rehydrated URI string alike — resolves against the run catalog, and resolution
+retrieves the entry the plan already claimed or refuses with a typed error naming the URI; it never mints.
+The refusal is enforceable because the catalog is complete by construction (§5.1): a dispatch miss can
+only mean a doctored document or a defect. Construction from strings survives in exactly two places:
+load-time rehydration — a provider decoding its own emitted identity, the inverse of its serialization (an
+identity decode, not a conversion) — and immediate mode (§9 item 3). Production and discovery are the
+sanctioned channels for resources that come into being at run time; the dispatch seam only ever looks up.
+
+### 5.7 Explicit discovery and resolution — run-computed paths
+
+A run-computed path — a regex over tool output, an opaque command's side-effect file — cannot be claimed
+(its value does not exist at plan time) and must not convert at dispatch (§5.6). The sanctioned channel is
+a pair of explicit file actions (ruled 2026-08-22; implementation
+[#611](https://github.com/NobleFactor/devlore-cli/issues/611) under
+[#586](https://github.com/NobleFactor/devlore-cli/issues/586)):
+
+- **`file.discover(path, kind?="entry")`** — lstat: interns the entry at the path itself, no follow.
+- **`file.resolve(path, kind?="entry")`** — stat: interns what the chain designates, which is never a
+  link; confinement-judged.
+
+The rules, each ruled 2026-08-22:
+
+1. **Stop-only.** A missing target, kind mismatch, dangling chain, or confinement escape is the action's
+   own error at its own node. No `on_missing`: an Ignore would return nothing and put a nil promise in
+   every downstream slot — the cost that had Skip dropped from `MissingResourcePolicy`. Tolerance stays
+   structural (probe + choose) or at the consumer.
+2. **`kind` is opt-in strictness.** A named enum (`entry`, `regular`, `directory`, `symbolic_link`);
+   `entry` is the default — the short spelling is permissive, and asserting a kind sharpens the verdict
+   at the action's own node. Results intern as discoveries: observed facts, no production claim.
+3. **The runtime path grammar is plan-space plus an under-root rebase.** Rels and anchored spellings
+   normalize as authored; escapes and `@name` refuse as authored; a machine-absolute input rebases to its
+   rel when it falls under the bound run root and refuses as a confinement violation otherwise. Run time
+   may speak absolutes because the root is bound — machine-absoluteness arises only from the run's root
+   choice (§5.2), and these actions sit on the far side of that choice.
+4. **The literal-path discriminator.** A file that must exist when the run starts is claimed (§5.1 —
+   pre-flight's verdict); a file that comes into being mid-run — an opaque command's side effect at a
+   known path — is discovered. Guidance, not enforcement: no plan-time test can tell the cases apart.
+5. **The follow doctrine.** Kinds are lstat-strict at consumption (a symlink to a regular file is kind
+   symbolic-link, never regular), and the parameter type is the follow-policy declaration:
+   `*Regular`/`*Directory` demand that kind, no follow; `*SymbolicLink` is the link itself; `Entry`
+   accepts any kind, the method assuming kind-switch, confinement judgment, and interning duties for any
+   follow it performs. Implicit follow at the dispatch seam never happens: a silent follow aliases one
+   disk entity under two catalog identities — mediation cannot see the join — and a symlink is the disk's
+   `../`, escaping the confinement the grammar enforces. The kernel resolves names implicitly at open;
+   this model resolves designation explicitly at a unit.
+6. **An authored string into an `Entry`-typed slot refuses at plan time.** A claim asserts a kind and
+   `Entry` asserts none; the author states the kind or feeds a discovery.
+7. **The fail-fast boundary.** Pre-flight's verdict covers claims — unmet intent fails before any
+   dispatch. A discovery verifies at its own node, the earliest moment the fact exists: discover/resolve
+   failures are mid-run by nature. And nothing stops an out-of-band actor deleting a file under a running
+   graph, short of a lockdown on the targeted fsroot directory — the observation layer and reconciliation
+   are the designed response, not prevention.
+
 ## 6. Recovery — Receipts and the Recovery Site
 
 The pre-`op` `Tombstone` family is gone (phase-8 steps 40/42): the undo record is the **receipt**
@@ -387,6 +449,18 @@ is uniform: `p.RuntimeEnvironment()` for the root, catalog, platform, recovery s
 14. **Mutation targets are resource-typed consumers** (ruled 2026-08-20; delivered 2026-08-22, #585) — the
     mutator claims its target, destruction stamps the destroyer, and the consumed-Gone guard at the
     dispatch seam narrates the verdict (§3).
+15. **A string is a key, never a constructor** (ruled 2026-08-22) — dispatch resolves resource-typed slot
+    values by identity against the run catalog; a miss refuses; conversion survives only in load-time
+    rehydration (an identity decode) and immediate mode (§5.6).
+16. **Conversion is explicit** (ruled 2026-08-22) — run-computed paths enter through
+    `file.discover`/`file.resolve`: Stop-only, kind enum with `entry` default, runtime grammar with the
+    under-root rebase, the starting-line/mid-run discriminator (§5.7).
+17. **The follow doctrine** (ruled 2026-08-22) — kinds are lstat-strict at consumption; the parameter type
+    declares follow policy; implicit follow never happens; `Entry`-typed slots refuse authored strings at
+    plan time (§5.7).
+18. **Claims are true when made** (ruled 2026-08-22) — falseness is a mediation failure with four doors;
+    kind-honest activation (per-kind `Exists`; the activation capture kind-mismatch becomes a verdict) is
+    chartered in the plan's phase-4 docket.
 
 ## 10. Open Questions
 
