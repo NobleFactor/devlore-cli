@@ -17,6 +17,6 @@ func init() {
 		op.RoleModule,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
 		map[string]op.MethodMetadata{
-			"Analyze": {ParameterNames: []string{"files", "cfg?"}},
+			"Analyze": {ParameterNames: []string{"files", "cfg"}},
 		})
 }

@@ -97,8 +97,6 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 // A zero-case choose (default only) carries no guarded edges and takes the ordinary run-all walk — defined behavior,
 // per the switch-statement precedent: the single default child runs and its result is the choose result.
 //
-// +devlore:planner=ChoosePlanner
-//
 // Parameters:
 //   - `activation`: the per-dispatch record; `activation.CallerID` is the choose `*op.Subgraph` and `activation.Stack` is
 //     the executor-owned recovery stack.
@@ -176,8 +174,6 @@ func (p *Provider) CompensateChoose(activation *op.ActivationRecord, stack *op.R
 //
 // On any iteration error Gather does not self-unwind: it returns the stamped stack as the compensator alongside the
 // error, so the executor rolls it back (or, on ErrPaused, checkpoints it) — the same contract as Subgraph.
-//
-// +devlore:planner=GatherPlanner
 //
 // Parameters:
 //   - `activation`: the per-dispatch record; cancellation flows through `activation.Context` and a scoped child is
@@ -338,8 +334,6 @@ func (p *Provider) CompensateGather(activation *op.ActivationRecord, stack *op.R
 // `items` iteration is not yet implemented; passing a non-empty `items=` to `plan.subgraph(...)` is
 // an error today. The pure-container shape (children walk only) is what this method supports.
 //
-// +devlore:planner=SubgraphPlanner
-//
 // Parameters:
 //   - `activation`: the per-dispatch [*op.ActivationRecord] the executor built. `activation.CallerID` must
 //     type-assert to [*op.Subgraph]; `activation.DispatchChild` must be installed (both invariants are
@@ -444,8 +438,6 @@ func (p *Provider) CompensateSubgraph(activation *op.ActivationRecord, stack *op
 // error fails immediately (a crashed probe is not "not ready"). Resume: a completed wait_until replays its stamped
 // result upstream like any unit; an interrupted one left nothing behind and re-enters fresh with its full budget
 // (settled 2026-07-02).
-//
-// +devlore:planner=WaitUntilPlanner
 //
 // Parameters:
 //   - `activation`: the per-dispatch record; `activation.CallerID` is the wait-until [*op.Subgraph] and

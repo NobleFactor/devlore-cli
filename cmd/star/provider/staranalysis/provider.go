@@ -58,8 +58,6 @@ func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 }
 
 // Analyze performs a combined analysis of all files.
-//
-// +devlore:struct_param cfg=AnalysisConfig
 func (p *Provider) Analyze(files []string, cfg AnalysisConfig) (*AnalysisReport, error) {
 	if cfg.CyclomaticThreshold <= 0 {
 		cfg.CyclomaticThreshold = 10

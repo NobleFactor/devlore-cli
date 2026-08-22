@@ -5,5 +5,5 @@
 #
 # Validates: staranalysis.analyze (callable with empty input)
 
-result = staranalysis.analyze(files=[])
+result = staranalysis.analyze(files=[], cfg={})
 t.expect_unit_count(0)

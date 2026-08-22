@@ -14,7 +14,7 @@ import (
 
 func init() {
 	op.AnnounceType(reflect.TypeFor[provider.Sources](), map[string]op.MethodMetadata{
-		"Analyze": {ParameterNames: []string{"cfg?"}},
+		"Analyze": {ParameterNames: []string{"cfg"}},
 		"Count":   {ParameterNames: []string{}},
 		"Index":   {ParameterNames: []string{"with_docstrings?=true", "with_globals?=true"}},
 		"Paths":   {ParameterNames: []string{}},

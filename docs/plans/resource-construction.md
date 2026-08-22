@@ -323,11 +323,16 @@ Items 1–3 of the original docket (string → pending, promise → recorded, st
 Surviving directive set: `+devlore:defaults`, `+devlore:property`, `+devlore:root` — everything else
 derives from types, signatures, names, and graph structure.
 
-**Execution status (2026-08-22): rulings recorded, removals not yet executed.** The wire-vocabulary rename
-ran (zero matches remain in the tree). Still present: `+devlore:planner` at its four flow uses,
-`+devlore:struct_param` at its two `cmd/star` declaration sites, and the `Lifetime` machinery
-(`pkg/op/provider/lifetime.go`). These are sized-at-execution work awaiting scheduling; `+devlore:access`
-retires separately per 3.6, as ruled.
+**Execution status (2026-08-22): EXECUTED — the removals are in the tree.** The wire-vocabulary rename ran
+earlier (zero matches). The removals landed the same day: `+devlore:planner` retired — the generator links
+planners by convention (a package type named `<MethodName>Planner` is the method's planner), and the flow
+gen file is byte-identical under inference, proving the convention reproduces the directive;
+`+devlore:struct_param` removed — one premise correction: "zero readers" was false (the generator read it,
+and its one surviving effect was `cfg`'s optionality), so `cfg` is now required per the required-by-default
+posture and the one omitting fixture passes `cfg={}`; `+devlore:lifetime` removed with the dormant
+`Lifetime` machinery and the generator's parsing (3.1-provider-loading.md records the ruling and marks its
+lifetime sections rejected). `+devlore:access` retires separately per 3.6, as ruled. Gate: make check
+103 ok / 0 fail, vet clean under linux/darwin/windows.
 
 **PR B record (2026-08-22) — scoped verification lands; the fail-fast scenario flips green; a stranded
 catalog exposed.**

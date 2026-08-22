@@ -155,8 +155,6 @@ func (s *Sources) Stats(withBytes, withLOC bool) (*starstats.Stats, error) {
 
 // Analyze performs a combined analysis of all captured files.
 //
-// +devlore:struct_param cfg=staranalysis.AnalysisConfig
-//
 // Parameters:
 //   - `cfg`: the analysis configuration.
 //
