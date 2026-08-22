@@ -49,7 +49,7 @@ t.expect_equal(file.exists(path=dst), False)
 t.expect_equal(file.exists(path=moved), True)
 
 # Remove
-file.remove(path=moved, prune=False, boundary="")
+file.remove(target=moved, prune=False, boundary="")
 t.expect_equal(file.exists(path=moved), False)
 
 # Glob — returns a list

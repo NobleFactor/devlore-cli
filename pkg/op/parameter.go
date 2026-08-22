@@ -4,6 +4,7 @@
 package op
 
 import (
+	"encoding"
 	"fmt"
 	"reflect"
 	"strconv"
@@ -164,6 +165,33 @@ func parseNamedToken(raw string, paramType reflect.Type) (Parameter, error) {
 	return Parameter{Name: name, Type: paramType, Optional: true, Default: defaultValue}, nil
 }
 
+// parseTextDefault parses a default for a named type that absorbs text — the typed-value rule at the
+// announce boundary: an enumeration's default is spelled in its own vocabulary (`on_missing=stop`), never
+// as a bare ordinal. Tried before the kind switch so an int-kinded named type is not forced through
+// ParseInt.
+//
+// Parameters:
+//   - `expr`: the default expression text.
+//   - `target`: the parameter's Go type.
+//
+// Returns:
+//   - `any`: the parsed value, when handled.
+//   - `bool`: true when `target` absorbs text and this parser applied.
+//   - `error`: non-nil when the text is not in the type's vocabulary.
+func parseTextDefault(expr string, target reflect.Type) (value any, handled bool, err error) {
+
+	unmarshaler, ok := reflect.New(target).Interface().(encoding.TextUnmarshaler)
+	if !ok {
+		return nil, false, nil
+	}
+
+	if err := unmarshaler.UnmarshalText([]byte(expr)); err != nil {
+		return nil, true, fmt.Errorf("parse default %q as %s: %w", expr, target, err)
+	}
+
+	return reflect.ValueOf(unmarshaler).Elem().Interface(), true, nil
+}
+
 // parseDefaultExpression converts a directive's literal default value text to a Go value of target's named type.
 //
 // The text comes from a +devlore:defaults directive (e.g., the "0o666" in `+devlore:defaults mode=0o666`). It is a
@@ -199,6 +227,10 @@ func parseDefaultExpression(expr string, target reflect.Type) (any, error) {
 		return parseDeferred(expr)
 	}
 
+	if value, handled, err := parseTextDefault(expr, target); handled {
+		return value, err
+	}
+
 	switch target.Kind() {
 
 	case reflect.Bool:
@@ -210,41 +242,11 @@ func parseDefaultExpression(expr string, target reflect.Type) (any, error) {
 
 		return reflect.ValueOf(v).Convert(target).Interface(), nil
 
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr,
+		reflect.Float32, reflect.Float64, reflect.Complex64, reflect.Complex128:
 
-		v, err := strconv.ParseInt(expr, 0, target.Bits())
-		if err != nil {
-			return nil, fmt.Errorf("parse default %q as %s: %w", expr, target, err)
-		}
-
-		return reflect.ValueOf(v).Convert(target).Interface(), nil
-
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
-
-		v, err := strconv.ParseUint(expr, 0, target.Bits())
-		if err != nil {
-			return nil, fmt.Errorf("parse default %q as %s: %w", expr, target, err)
-		}
-
-		return reflect.ValueOf(v).Convert(target).Interface(), nil
-
-	case reflect.Float32, reflect.Float64:
-
-		v, err := strconv.ParseFloat(expr, target.Bits())
-		if err != nil {
-			return nil, fmt.Errorf("parse default %q as %s: %w", expr, target, err)
-		}
-
-		return reflect.ValueOf(v).Convert(target).Interface(), nil
-
-	case reflect.Complex64, reflect.Complex128:
-
-		v, err := strconv.ParseComplex(expr, target.Bits())
-		if err != nil {
-			return nil, fmt.Errorf("parse default %q as %s: %w", expr, target, err)
-		}
-
-		return reflect.ValueOf(v).Convert(target).Interface(), nil
+		return parseNumericDefault(expr, target)
 
 	case reflect.String:
 
@@ -261,6 +263,38 @@ func parseDefaultExpression(expr string, target reflect.Type) (any, error) {
 			target.Kind(),
 		)
 	}
+}
+
+// parseNumericDefault parses a numeric default (int, uint, float, or complex kinds) and widens it to
+// `target`'s named type.
+//
+// Parameters:
+//   - `expr`: the default expression text.
+//   - `target`: the parameter's numeric Go type.
+//
+// Returns:
+//   - `value`: the parsed, widened value.
+//   - `err`: non-nil when the text does not parse in the kind's syntax.
+func parseNumericDefault(expr string, target reflect.Type) (value any, err error) {
+
+	var parsed any
+
+	switch target.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		parsed, err = strconv.ParseInt(expr, 0, target.Bits())
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		parsed, err = strconv.ParseUint(expr, 0, target.Bits())
+	case reflect.Float32, reflect.Float64:
+		parsed, err = strconv.ParseFloat(expr, target.Bits())
+	default:
+		parsed, err = strconv.ParseComplex(expr, target.Bits())
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("parse default %q as %s: %w", expr, target, err)
+	}
+
+	return reflect.ValueOf(parsed).Convert(target).Interface(), nil
 }
 
 // stripOptionalQuotes returns the inner content of a double-quoted string, or `s` itself if there are no quotes.

@@ -19,6 +19,7 @@ import (
 	"sort"
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
+	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/deploy"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/readback"
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
@@ -185,10 +186,19 @@ func buildScopeGraph(
 				action = file.Unlink
 			}
 
+			// The target is a consumed, claimed resource in plan space; on_missing=ignore is the ruled
+			// decommission posture — a target the user removed by hand decommissions as a recorded no-op
+			// instead of failing the plan (§3, the claims taxonomy).
+			rel, err := deploy.PlanSpacePath(environment, entry.Target)
+			if err != nil {
+				return nil, err
+			}
+
 			invocation, err := provider.Plan(action, nil, map[string]any{
-				"path":     entry.Target,
-				"prune":    cfg.Prune,
-				"boundary": targetRoot,
+				"target":     rel,
+				"on_missing": "ignore",
+				"prune":      cfg.Prune,
+				"boundary":   targetRoot,
 			})
 			if err != nil {
 				return nil, fmt.Errorf("plan %s %s: %w", action, entry.Target, err)
