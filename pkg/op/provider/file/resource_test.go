@@ -17,7 +17,7 @@ import (
 // --- Interface guards ---
 
 func TestResource_ImplementsInterface(t *testing.T) {
-	var _ op.Resource = (*entry)(nil)
+	var _ op.Resource = (*resource)(nil)
 }
 
 func TestReceipt_ImplementsInterface(t *testing.T) {

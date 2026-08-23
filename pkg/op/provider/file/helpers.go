@@ -71,7 +71,7 @@ func applyOwnership(path, user, group string) error {
 	return nil
 }
 
-// buildCandidateAs validates `value`, parses any file URI per RFC 8089, and constructs the [entry] base.
+// buildCandidateAs validates `value`, parses any file URI per RFC 8089, and constructs the [resource] base.
 //
 // The shared trunk of the variant constructors (phase-8 step 23): the returned base is embedded into the variant by
 // the caller, so the minted [op.ResourceBase] must already carry the variant's canonical type id — the key the
@@ -87,13 +87,13 @@ func applyOwnership(path, user, group string) error {
 //   - `resourceType`: the concrete variant pointer type (e.g. `reflect.TypeFor[*Regular]()`) minted into the base.
 //
 // Returns:
-//   - `*entry`: the constructed candidate base, ready for embedding. Not interned in the catalog.
+//   - `*resource`: the constructed candidate base, ready for embedding. Not interned in the catalog.
 //   - `error`: non-nil if `value` is not a string or [op.NewResourceBase] fails.
 func buildCandidateAs(
 	runtimeEnvironment *op.RuntimeEnvironment,
 	value any,
 	resourceType reflect.Type,
-) (resource *entry, err error) {
+) (candidate *resource, err error) {
 
 	path, ok := value.(string)
 	if !ok {
@@ -120,7 +120,7 @@ func buildCandidateAs(
 		return nil, err
 	}
 
-	return &entry{
+	return &resource{
 		ResourceBase: base,
 		SourcePath:   sourcePath,
 	}, nil
@@ -137,9 +137,9 @@ func buildCandidateAs(
 //   - `mode`: the observed [os.FileMode] choosing the variant.
 //
 // Returns:
-//   - `Entry`: the unlinked variant candidate.
+//   - `Resource`: the unlinked variant candidate.
 //   - `error`: an unsupported entry kind, or a construction failure.
-func candidateOfMode(runtimeEnvironment *op.RuntimeEnvironment, abs string, mode os.FileMode) (Entry, error) {
+func candidateOfMode(runtimeEnvironment *op.RuntimeEnvironment, abs string, mode os.FileMode) (Resource, error) {
 
 	switch {
 	case mode&os.ModeSymlink != 0:
@@ -147,19 +147,19 @@ func candidateOfMode(runtimeEnvironment *op.RuntimeEnvironment, abs string, mode
 		if err != nil {
 			return nil, err
 		}
-		return &SymbolicLink{entry: *base}, nil
+		return &SymbolicLink{resource: *base}, nil
 	case mode.IsDir():
 		base, err := buildCandidateAs(runtimeEnvironment, abs, reflect.TypeFor[*Directory]())
 		if err != nil {
 			return nil, err
 		}
-		return &Directory{entry: *base}, nil
+		return &Directory{resource: *base}, nil
 	case mode.IsRegular():
 		base, err := buildCandidateAs(runtimeEnvironment, abs, reflect.TypeFor[*Regular]())
 		if err != nil {
 			return nil, err
 		}
-		return &Regular{entry: *base}, nil
+		return &Regular{resource: *base}, nil
 	default:
 		return nil, fmt.Errorf("file: %s: unsupported entry kind %s (no taxonomy variant)", abs, mode)
 	}
@@ -239,7 +239,7 @@ func contentDigest(root fsroot.Dir, abs string) (digest op.Digest, err error) {
 // Returns:
 //   - `E`: the canonical catalog entry (or the unlinked candidate when no catalog is present).
 //   - `error`: a catalog assertion failure, or a cross-kind collision on the URI.
-func internEntry[E Entry](
+func internEntry[E Resource](
 	runtimeEnvironment *op.RuntimeEnvironment,
 	producerID string,
 	claim bool,

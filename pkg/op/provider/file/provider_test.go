@@ -359,7 +359,7 @@ func TestCompensateLink_NewSymlink_RemovesOnCompensate(t *testing.T) {
 	}
 
 	// Receipt with no recovery path — symlink didn't exist before.
-	resource := &SymbolicLink{entry: entry{SourcePath: fsroot.NewPath("", linkPath)}}
+	resource := &SymbolicLink{resource: resource{SourcePath: fsroot.NewPath("", linkPath)}}
 	state := NewReceipt(NewReceiptSpec(resource, MutationCreateFile))
 
 	p := testProvider(t, tmp)
@@ -391,7 +391,7 @@ func TestCompensateLink_ExistedBefore_RestoresFromRecovery(t *testing.T) {
 	}
 
 	// entry preserves true identity (linkPath); TransactionID is the recovery key.
-	resource := &Regular{entry: entry{SourcePath: fsroot.NewPath("", linkPath)}}
+	resource := &Regular{resource: resource{SourcePath: fsroot.NewPath("", linkPath)}}
 	state := NewReceipt(NewReceiptSpec(resource, MutationUpdateFile).WithRecovery(recoveryID, op.Digest{}))
 
 	p := testProvider(t, tmp)
@@ -485,7 +485,7 @@ func TestCompensateCopy_NewFile_RemovesOnCompensate(t *testing.T) {
 	}
 
 	// Receipt with no recovery path = file didn't exist before, just remove it.
-	resource := &Regular{entry: entry{SourcePath: fsroot.NewPath("", path)}}
+	resource := &Regular{resource: resource{SourcePath: fsroot.NewPath("", path)}}
 	state := NewReceipt(NewReceiptSpec(resource, MutationCreateFile))
 
 	p := testProvider(t, tmp)
@@ -515,7 +515,7 @@ func TestCompensateCopy_Overwrite_RestoresOriginal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resource := &Regular{entry: entry{SourcePath: fsroot.NewPath("", path)}}
+	resource := &Regular{resource: resource{SourcePath: fsroot.NewPath("", path)}}
 	state := NewReceipt(NewReceiptSpec(resource, MutationUpdateFile).WithRecovery(recoveryID, op.Digest{}))
 
 	p := testProvider(t, tmp)
@@ -572,7 +572,7 @@ func TestBackup_MovesFileToTimestampedBackup(t *testing.T) {
 
 	// Receipt resource preserves destination path.
 	// TransactionID is the recovery key for the moved data (backup location).
-	resourcePath := state.Resource().(Entry).Path().Abs()
+	resourcePath := state.Resource().(Resource).Path().Abs()
 	if resourcePath != result.Path().Abs() {
 		t.Errorf("receipt resource path = %q, want %q (destination path)", resourcePath, result.Path().Abs())
 	}
@@ -615,8 +615,8 @@ func TestCompensateBackup_RestoresOriginal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	product := &Regular{entry: entry{SourcePath: fsroot.NewPath("", backupPath)}}
-	source := &Regular{entry: entry{SourcePath: fsroot.NewPath("", originalPath)}}
+	product := &Regular{resource: resource{SourcePath: fsroot.NewPath("", backupPath)}}
+	source := &Regular{resource: resource{SourcePath: fsroot.NewPath("", originalPath)}}
 	state := NewReceipt(NewReceiptSpec(product, MutationCreateFile).WithSource(source))
 
 	p := testProvider(t, tmp)
@@ -658,8 +658,8 @@ func TestCompensateBackup_ChecksumMismatch_ReturnsError(t *testing.T) {
 	h := sha256.Sum256([]byte("original content"))
 	wrongDigest := op.Digest{Algorithm: "sha256", Bytes: h[:]}
 
-	product := &Regular{entry: entry{SourcePath: fsroot.NewPath("", backupPath)}}
-	source := &Regular{entry: entry{SourcePath: fsroot.NewPath("", originalPath)}}
+	product := &Regular{resource: resource{SourcePath: fsroot.NewPath("", backupPath)}}
+	source := &Regular{resource: resource{SourcePath: fsroot.NewPath("", originalPath)}}
 	state := NewReceipt(NewReceiptSpec(product, MutationUpdateFile).
 		WithSource(source).WithRecovery(recoveryID, wrongDigest))
 
@@ -885,7 +885,7 @@ func TestMove_MovesFileToDestination(t *testing.T) {
 
 	// Receipt resource preserves destination path.
 	// TransactionID is the recovery key for the moved data (destination).
-	resourcePath := state.Resource().(Entry).Path().Abs()
+	resourcePath := state.Resource().(Resource).Path().Abs()
 	if resourcePath != dst {
 		t.Errorf("receipt resource path = %q, want %q (destination path)", resourcePath, dst)
 	}
@@ -936,8 +936,8 @@ func TestCompensateMove_ChecksumMismatch_ReturnsError(t *testing.T) {
 	h := sha256.Sum256([]byte("original"))
 	wrongDigest := op.Digest{Algorithm: "sha256", Bytes: h[:]}
 
-	product := &Regular{entry: entry{SourcePath: fsroot.NewPath("", dst)}}
-	source := &Regular{entry: entry{SourcePath: fsroot.NewPath("", src)}}
+	product := &Regular{resource: resource{SourcePath: fsroot.NewPath("", dst)}}
+	source := &Regular{resource: resource{SourcePath: fsroot.NewPath("", src)}}
 	state := NewReceipt(NewReceiptSpec(product, MutationUpdateFile).
 		WithSource(source).WithRecovery(recoveryID, wrongDigest))
 
@@ -1853,8 +1853,8 @@ func TestCompensateRemove_RoundTrip(t *testing.T) {
 	}
 
 	// Receipt preserves true identity — the path is the original home.
-	if state.Resource().(Entry).Path().Abs() != path {
-		t.Errorf("receipt resource path = %q, want %q (true identity)", state.Resource().(Entry).Path().Abs(), path)
+	if state.Resource().(Resource).Path().Abs() != path {
+		t.Errorf("receipt resource path = %q, want %q (true identity)", state.Resource().(Resource).Path().Abs(), path)
 	}
 
 	// Verify recovery site holds the data; TransactionID is the recovery key.
@@ -1896,8 +1896,8 @@ func TestCompensateRemoveAll_RoundTrip(t *testing.T) {
 	}
 
 	// Receipt preserves true identity — SourcePath is the original home.
-	if state.Resource().(Entry).Path().Abs() != dir {
-		t.Errorf("receipt resource path = %q, want %q (true identity)", state.Resource().(Entry).Path().Abs(), dir)
+	if state.Resource().(Resource).Path().Abs() != dir {
+		t.Errorf("receipt resource path = %q, want %q (true identity)", state.Resource().(Resource).Path().Abs(), dir)
 	}
 
 	// TransactionID is the recovery key.

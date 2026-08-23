@@ -17,14 +17,14 @@ import (
 //
 // The kind is declared intent, never stat-assigned (ruling 1): planning is offline, so the assertion is verified at
 // use rather than at construction — [Regular.Digest] and [Regular.Etag] observe the disk with lstat semantics and
-// error with a kind mismatch when the entry is anything else (ruling 5e). Identity is the embedded [entry] (URI +
+// error with a kind mismatch when the entry is anything else (ruling 5e). Identity is the embedded [resource] (URI +
 // SourcePath); runtime-observed metadata lives on [*Observation], exactly as for the base.
 type Regular struct {
-	entry
+	resource
 }
 
-// sealedEntry marks Regular as a member of the closed [Entry] set (step 23, slice 4).
-func (*Regular) sealedEntry() {}
+// sealedResource marks Regular as a member of the closed [Resource] set (step 23, slice 4).
+func (*Regular) sealedResource() {}
 
 // Exists reports whether a REGULAR FILE exists at this resource's path — lstat plus kind test
 // (kind-honest activation, ruled 2026-08-22; step 23 ruling 5e).
@@ -66,7 +66,7 @@ func NewRegular(runtimeEnvironment *op.RuntimeEnvironment, producerID string, va
 		return nil, err
 	}
 
-	return internEntry(runtimeEnvironment, producerID, true, &Regular{entry: *base})
+	return internEntry(runtimeEnvironment, producerID, true, &Regular{resource: *base})
 }
 
 // DiscoverRegular registers a [file.Regular] via [op.ResourceCatalog.Discover] without claiming production.
@@ -89,7 +89,7 @@ func DiscoverRegular(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Reg
 		return nil, err
 	}
 
-	return internEntry(runtimeEnvironment, "", false, &Regular{entry: *base})
+	return internEntry(runtimeEnvironment, "", false, &Regular{resource: *base})
 }
 
 // region EXPORTED METHODS
@@ -222,7 +222,7 @@ func (*Regular) ConvertFrom(value any) (any, error) {
 		return nil, fmt.Errorf("file.Regular.ConvertFrom: source must be string, got %T", value)
 	}
 
-	return &Regular{entry: entry{SourcePath: fsroot.NewPath("", str)}}, nil
+	return &Regular{resource: resource{SourcePath: fsroot.NewPath("", str)}}, nil
 }
 
 // UnmarshalJSON populates the receiver from a JSON-encoded string (a file path or file URI).

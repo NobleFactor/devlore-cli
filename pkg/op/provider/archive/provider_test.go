@@ -176,7 +176,7 @@ func createZip(t *testing.T, archivePath string, entries map[string]string) {
 }
 
 // extractInto creates a fresh `out` prefix under tmp, discovers the source archive, and runs Extract.
-func extractInto(t *testing.T, tmp, archivePath string) (*Provider, string, []file.Entry, *op.RecoveryStack) {
+func extractInto(t *testing.T, tmp, archivePath string) (*Provider, string, []file.Resource, *op.RecoveryStack) {
 	t.Helper()
 
 	prefix := filepath.Join(tmp, "out")

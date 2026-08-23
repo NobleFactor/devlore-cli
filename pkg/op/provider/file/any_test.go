@@ -14,13 +14,13 @@ import (
 
 // region TEST FUNCTIONS
 
-// TestAnyEntry_Exists_IsPermissiveButTaxonomyBounded pins the unasserted claim's predicate
+// TestAny_Exists_IsPermissiveButTaxonomyBounded pins the unasserted claim's predicate
 // (docs/plans/any-entry-claims.md, ruled 2026-08-23): every taxonomy kind admits, and nothing else does.
 //
 // The two sharp rows are the dangling link — present, because the LINK is the entry, and a following
 // stat would wrongly call it absent — and the missing path. The FIFO row (an entry the taxonomy has no
 // variant for) is pinned separately in the unix-only file, since it needs mkfifo.
-func TestAnyEntry_Exists_IsPermissiveButTaxonomyBounded(t *testing.T) {
+func TestAny_Exists_IsPermissiveButTaxonomyBounded(t *testing.T) {
 
 	dir := t.TempDir()
 	environment := testEnvironment(t, dir)
@@ -52,17 +52,17 @@ func TestAnyEntry_Exists_IsPermissiveButTaxonomyBounded(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := anyEntryAt(t, environment, tc.path).Exists(); got != tc.want {
+			if got := anyAt(t, environment, tc.path).Exists(); got != tc.want {
 				t.Errorf("Exists() = %t, want %t", got, tc.want)
 			}
 		})
 	}
 }
 
-// TestAnyEntry_ContentIdentityDelegatesToTheObservedKind pins that an unasserted claim still owes content
+// TestAny_ContentIdentityDelegatesToTheObservedKind pins that an unasserted claim still owes content
 // identity: Digest and Etag answer as whatever the disk holds answers, so drift detection is not lost
 // while the claim is unresolved.
-func TestAnyEntry_ContentIdentityDelegatesToTheObservedKind(t *testing.T) {
+func TestAny_ContentIdentityDelegatesToTheObservedKind(t *testing.T) {
 
 	dir := t.TempDir()
 	environment := testEnvironment(t, dir)
@@ -71,17 +71,17 @@ func TestAnyEntry_ContentIdentityDelegatesToTheObservedKind(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	unasserted := anyEntryAt(t, environment, "regular.txt")
+	unasserted := anyAt(t, environment, "regular.txt")
 
 	kindedBase, err := buildCandidateAs(environment, "regular.txt", reflect.TypeFor[*Regular]())
 	if err != nil {
 		t.Fatalf("candidate: %v", err)
 	}
-	kinded := &Regular{entry: *kindedBase}
+	kinded := &Regular{resource: *kindedBase}
 
 	unassertedDigest, err := unasserted.Digest()
 	if err != nil {
-		t.Fatalf("AnyEntry.Digest: %v", err)
+		t.Fatalf("Any.Digest: %v", err)
 	}
 	kindedDigest, err := kinded.Digest()
 	if err != nil {
@@ -93,7 +93,7 @@ func TestAnyEntry_ContentIdentityDelegatesToTheObservedKind(t *testing.T) {
 
 	unassertedEtag, err := unasserted.Etag()
 	if err != nil {
-		t.Fatalf("AnyEntry.Etag: %v", err)
+		t.Fatalf("Any.Etag: %v", err)
 	}
 	kindedEtag, err := kinded.Etag()
 	if err != nil {
@@ -104,16 +104,16 @@ func TestAnyEntry_ContentIdentityDelegatesToTheObservedKind(t *testing.T) {
 	}
 }
 
-// TestAnyEntry_ContentIdentityOnAMissingPathErrors pins the delegation's failure direction: there is no
+// TestAny_ContentIdentityOnAMissingPathErrors pins the delegation's failure direction: there is no
 // observed kind to delegate to, so the tiers report the lstat failure rather than inventing an identity.
-func TestAnyEntry_ContentIdentityOnAMissingPathErrors(t *testing.T) {
+func TestAny_ContentIdentityOnAMissingPathErrors(t *testing.T) {
 
 	environment := testEnvironment(t, t.TempDir())
 
-	if _, err := anyEntryAt(t, environment, "absent.txt").Digest(); err == nil {
+	if _, err := anyAt(t, environment, "absent.txt").Digest(); err == nil {
 		t.Error("Digest() over a missing path returned no error")
 	}
-	if _, err := anyEntryAt(t, environment, "absent.txt").Etag(); err == nil {
+	if _, err := anyAt(t, environment, "absent.txt").Etag(); err == nil {
 		t.Error("Etag() over a missing path returned no error")
 	}
 }
@@ -122,18 +122,18 @@ func TestAnyEntry_ContentIdentityOnAMissingPathErrors(t *testing.T) {
 
 // region HELPER FUNCTIONS
 
-// anyEntryAt builds an UNLINKED [*AnyEntry] for `rel` — no interning, so a test may probe several kinds
+// anyAt builds an UNLINKED [*Any] for `rel` — no interning, so a test may probe several kinds
 // at several paths under one environment without tripping the catalog's cross-kind claim rule.
-func anyEntryAt(t *testing.T, environment *op.RuntimeEnvironment, rel string) *AnyEntry {
+func anyAt(t *testing.T, environment *op.RuntimeEnvironment, rel string) *Any {
 
 	t.Helper()
 
-	base, err := buildCandidateAs(environment, rel, reflect.TypeFor[*AnyEntry]())
+	base, err := buildCandidateAs(environment, rel, reflect.TypeFor[*Any]())
 	if err != nil {
 		t.Fatalf("candidate %s: %v", rel, err)
 	}
 
-	return &AnyEntry{entry: *base}
+	return &Any{resource: *base}
 }
 
 // endregion

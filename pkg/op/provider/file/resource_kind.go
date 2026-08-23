@@ -13,27 +13,27 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
 )
 
-// EntryKind is the kind a discovery or resolution asserts (4-resource-management.md §5.7, ruled
+// ResourceKind is the kind a discovery or resolution asserts (4-resource-management.md §5.7, ruled
 // 2026-08-22).
 //
 // The `entry` zero value is the permissive default: the short spelling accepts whatever kind the disk
 // holds, and asserting a specific kind is opt-in strictness whose verdict sharpens at the asserting
 // action's own node. Kinds are lstat-strict (step 23, ruling 5e): a symbolic link to a regular file is
 // kind symbolic-link, never regular — [Provider.Resolve] is the explicit follow.
-type EntryKind int
+type ResourceKind int
 
 const (
-	// EntryKindEntry is the zero value and the default — permissive: any taxonomy kind is accepted.
-	EntryKindEntry EntryKind = 0
+	// ResourceKindAny is the zero value and the default — permissive: any taxonomy kind is accepted.
+	ResourceKindAny ResourceKind = 0
 
-	// EntryKindRegular asserts a regular file.
-	EntryKindRegular EntryKind = 1
+	// ResourceKindRegular asserts a regular file.
+	ResourceKindRegular ResourceKind = 1
 
-	// EntryKindDirectory asserts a directory.
-	EntryKindDirectory EntryKind = 2
+	// ResourceKindDirectory asserts a directory.
+	ResourceKindDirectory ResourceKind = 2
 
-	// EntryKindSymbolicLink asserts a symbolic link — the link itself, lstat semantics.
-	EntryKindSymbolicLink EntryKind = 3
+	// ResourceKindSymbolicLink asserts a symbolic link — the link itself, lstat semantics.
+	ResourceKindSymbolicLink ResourceKind = 3
 )
 
 // region EXPORTED METHODS
@@ -44,33 +44,33 @@ const (
 // Returns:
 //   - `[]byte`: the JSON string form.
 //   - `error`: any error from the underlying marshal.
-func (k EntryKind) MarshalJSON() ([]byte, error) { return json.Marshal(k.String()) }
+func (k ResourceKind) MarshalJSON() ([]byte, error) { return json.Marshal(k.String()) }
 
 // MarshalYAML serializes the kind as its canonical lowercase string scalar.
 //
 // Returns:
 //   - `any`: the string form.
 //   - `error`: always nil.
-func (k EntryKind) MarshalYAML() (any, error) { return k.String(), nil }
+func (k ResourceKind) MarshalYAML() (any, error) { return k.String(), nil }
 
 // String returns the canonical lowercase rendering of the kind.
 //
 // Returns:
-//   - `string`: "entry", "regular", "directory", or "symbolic_link".
-func (k EntryKind) String() string {
+//   - `string`: "any", "regular", "directory", or "symbolic_link".
+func (k ResourceKind) String() string {
 
 	switch k {
-	case EntryKindEntry:
-		return "entry"
-	case EntryKindRegular:
+	case ResourceKindAny:
+		return "any"
+	case ResourceKindRegular:
 		return "regular"
-	case EntryKindDirectory:
+	case ResourceKindDirectory:
 		return "directory"
-	case EntryKindSymbolicLink:
+	case ResourceKindSymbolicLink:
 		return "symbolic_link"
 	}
 
-	assert.Unreachable(fmt.Sprintf("file.EntryKind.String: invalid kind value %d", int(k)))
+	assert.Unreachable(fmt.Sprintf("file.ResourceKind.String: invalid kind value %d", int(k)))
 	return ""
 }
 
@@ -81,11 +81,11 @@ func (k EntryKind) String() string {
 //
 // Returns:
 //   - `error`: non-nil on a non-string value or an unknown kind.
-func (k *EntryKind) UnmarshalJSON(data []byte) error {
+func (k *ResourceKind) UnmarshalJSON(data []byte) error {
 
 	var s string
 	if err := json.Unmarshal(data, &s); err != nil {
-		return fmt.Errorf("file.EntryKind: %w", err)
+		return fmt.Errorf("file.ResourceKind: %w", err)
 	}
 	return k.parse(s)
 }
@@ -99,7 +99,7 @@ func (k *EntryKind) UnmarshalJSON(data []byte) error {
 //
 // Returns:
 //   - `error`: non-nil on an unknown kind.
-func (k *EntryKind) UnmarshalText(text []byte) error { return k.parse(string(text)) }
+func (k *ResourceKind) UnmarshalText(text []byte) error { return k.parse(string(text)) }
 
 // UnmarshalYAML deserializes the canonical string scalar form.
 //
@@ -108,11 +108,11 @@ func (k *EntryKind) UnmarshalText(text []byte) error { return k.parse(string(tex
 //
 // Returns:
 //   - `error`: non-nil on a non-scalar node or an unknown kind.
-func (k *EntryKind) UnmarshalYAML(value *yaml.Node) error {
+func (k *ResourceKind) UnmarshalYAML(value *yaml.Node) error {
 
 	var s string
 	if err := value.Decode(&s); err != nil {
-		return fmt.Errorf("file.EntryKind: %w", err)
+		return fmt.Errorf("file.ResourceKind: %w", err)
 	}
 	return k.parse(s)
 }
@@ -132,16 +132,16 @@ func (k *EntryKind) UnmarshalYAML(value *yaml.Node) error {
 //
 // Returns:
 //   - `bool`: true when the observed kind satisfies the assertion.
-func (k EntryKind) admits(mode os.FileMode) bool {
+func (k ResourceKind) admits(mode os.FileMode) bool {
 
 	switch k {
-	case EntryKindEntry:
+	case ResourceKindAny:
 		return mode&os.ModeSymlink != 0 || mode.IsDir() || mode.IsRegular()
-	case EntryKindRegular:
+	case ResourceKindRegular:
 		return mode.IsRegular()
-	case EntryKindDirectory:
+	case ResourceKindDirectory:
 		return mode.IsDir()
-	case EntryKindSymbolicLink:
+	case ResourceKindSymbolicLink:
 		return mode&os.ModeSymlink != 0
 	}
 
@@ -155,19 +155,19 @@ func (k EntryKind) admits(mode os.FileMode) bool {
 //
 // Returns:
 //   - `error`: non-nil when `s` is not a canonical kind.
-func (k *EntryKind) parse(s string) error {
+func (k *ResourceKind) parse(s string) error {
 
 	switch s {
-	case "entry":
-		*k = EntryKindEntry
+	case "any":
+		*k = ResourceKindAny
 	case "regular":
-		*k = EntryKindRegular
+		*k = ResourceKindRegular
 	case "directory":
-		*k = EntryKindDirectory
+		*k = ResourceKindDirectory
 	case "symbolic_link":
-		*k = EntryKindSymbolicLink
+		*k = ResourceKindSymbolicLink
 	default:
-		return fmt.Errorf("file.EntryKind: unknown kind %q (want entry, regular, directory, or symbolic_link)", s)
+		return fmt.Errorf("file.ResourceKind: unknown kind %q (want any, regular, directory, or symbolic_link)", s)
 	}
 
 	return nil
