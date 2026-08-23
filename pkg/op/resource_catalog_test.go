@@ -87,9 +87,7 @@ func TestCatalog_Resolve_ReturnsShadowedVersionAfterShadow(t *testing.T) {
 	c := NewResourceCatalog()
 	shadowed := newFake("file:///etc/foo", 0, "")
 
-	if _, err := c.Shadow(shadowed, "node-A"); err != nil {
-		t.Fatalf("Shadow: %v", err)
-	}
+	c.Shadow(shadowed, "node-A")
 
 	lookup := newFake("file:///etc/foo", 0, "")
 	canonical, _ := c.Resolve(lookup)
@@ -134,10 +132,7 @@ func TestCatalog_Shadow_StampsProducerAndID(t *testing.T) {
 	c := NewResourceCatalog()
 	r := newFake("file:///etc/foo", 0, "")
 
-	id, err := c.Shadow(r, "node-A")
-	if err != nil {
-		t.Fatalf("Shadow: %v", err)
-	}
+	id := c.Shadow(r, "node-A")
 
 	if id == "" {
 		t.Fatalf("Shadow: want non-empty id")
@@ -160,10 +155,7 @@ func TestCatalog_Shadow_EmptyProducerAcceptedAsDiscovery(t *testing.T) {
 	c := NewResourceCatalog()
 	r := newFake("file:///etc/foo", 0, "")
 
-	id, err := c.Shadow(r, "")
-	if err != nil {
-		t.Fatalf("Shadow with empty producer: %v", err)
-	}
+	id := c.Shadow(r, "")
 	if id == "" {
 		t.Fatalf("Shadow with empty producer: want non-empty catalog id, got %q", id)
 	}
@@ -179,48 +171,76 @@ func TestCatalog_Shadow_EmptyProducerDefersToExistingClaim(t *testing.T) {
 
 	c := NewResourceCatalog()
 
-	claimedID, err := c.Shadow(newFake("file:///etc/foo", 0, ""), "node-A")
-	if err != nil {
-		t.Fatalf("claiming Shadow: %v", err)
-	}
+	claimedID := c.Shadow(newFake("file:///etc/foo", 0, ""), "node-A")
 
-	deferredID, err := c.Shadow(newFake("file:///etc/foo", 0, ""), "")
-	if err != nil {
-		t.Fatalf("empty-producer Shadow over existing claim: %v", err)
-	}
+	deferredID := c.Shadow(newFake("file:///etc/foo", 0, ""), "")
 	if deferredID != claimedID {
 		t.Fatalf("empty-producer Shadow: want catalog id %q (defer), got %q", claimedID, deferredID)
 	}
 }
 
-func TestCatalog_Shadow_ConflictOnDifferentProducer(t *testing.T) {
+// TestCatalog_Shadow_DifferentProducersAppendGenerations pins run-time versioning (§4, revised
+// 2026-08-20): two producers writing one URI are generations in the ledger — a fresh entry per producer,
+// the namespace repointed to the newest, the prior generation surviving as history. The former
+// write-write conflict error was the superseded plan-time output model's residue.
+func TestCatalog_Shadow_DifferentProducersAppendGenerations(t *testing.T) {
 
 	c := NewResourceCatalog()
 
-	if _, err := c.Shadow(newFake("file:///etc/foo", 0, ""), "node-A"); err != nil {
-		t.Fatalf("first Shadow: %v", err)
-	}
+	firstID := c.Shadow(newFake("file:///etc/foo", 0, ""), "node-A")
+	secondID := c.Shadow(newFake("file:///etc/foo", 0, ""), "node-B")
 
-	_, err := c.Shadow(newFake("file:///etc/foo", 0, ""), "node-B")
-	if err == nil {
-		t.Fatalf("second Shadow with different producer: want error, got nil")
+	if secondID == firstID {
+		t.Fatalf("second producer's Shadow: want a fresh generation, got the first id %q", firstID)
 	}
-
-	if !strings.Contains(err.Error(), "conflict") {
-		t.Fatalf("second Shadow: want error mentioning conflict, got %q", err.Error())
+	if got := c.Current("file:///etc/foo"); got != secondID {
+		t.Fatalf("namespace after second Shadow: want %q (the newest generation), got %q", secondID, got)
+	}
+	if first, ok := c.Lookup(firstID); !ok || first.ProducerID() != "node-A" {
+		t.Fatalf("first generation must survive as history with its producer stamp; ok=%v", ok)
+	}
+	if c.Len() != 2 {
+		t.Fatalf("ledger length = %d, want 2 (both generations)", c.Len())
 	}
 }
 
-func TestCatalog_Shadow_SameProducerAllowed(t *testing.T) {
+func TestCatalog_Shadow_SameProducerAppendsGeneration(t *testing.T) {
 
 	c := NewResourceCatalog()
 
-	if _, err := c.Shadow(newFake("file:///etc/foo", 0, ""), "node-A"); err != nil {
-		t.Fatalf("first Shadow: %v", err)
-	}
+	firstID := c.Shadow(newFake("file:///etc/foo", 0, ""), "node-A")
+	secondID := c.Shadow(newFake("file:///etc/foo", 0, ""), "node-A")
 
-	if _, err := c.Shadow(newFake("file:///etc/foo", 0, ""), "node-A"); err != nil {
-		t.Fatalf("second Shadow with same producer: %v", err)
+	if secondID == firstID {
+		t.Fatalf("same-producer re-production: want a fresh generation, got the first id %q", firstID)
+	}
+	if c.Len() != 2 {
+		t.Fatalf("ledger length = %d, want 2 (idempotent re-claim appends)", c.Len())
+	}
+}
+
+// TestCatalog_Shadow_ProducerlessOverGoneAppends pins the deference's Gone guard: a producerless act
+// never adopts a Gone generation — Gone is terminal, so revival always appends a fresh generation and
+// repoints the namespace (§3's production matrix).
+func TestCatalog_Shadow_ProducerlessOverGoneAppends(t *testing.T) {
+
+	c := NewResourceCatalog()
+
+	first := newFake("file:///etc/foo", 0, "")
+	firstID := c.Shadow(first, "node-A")
+	c.markActive(first)
+	c.markGone(first)
+
+	revivedID := c.Shadow(newFake("file:///etc/foo", 0, ""), "")
+
+	if revivedID == firstID {
+		t.Fatalf("producerless Shadow over a Gone entry adopted it; want a fresh revival generation")
+	}
+	if got := c.Current("file:///etc/foo"); got != revivedID {
+		t.Fatalf("namespace after revival = %q, want %q", got, revivedID)
+	}
+	if c.State(firstID) != Gone {
+		t.Fatalf("the Gone generation's state = %v, want Gone (history is never rewritten)", c.State(firstID))
 	}
 }
 
@@ -229,10 +249,7 @@ func TestCatalog_Shadow_SupersedesDiscovery(t *testing.T) {
 	c := NewResourceCatalog()
 	_, discoveryID := c.Resolve(newFake("file:///etc/foo", 0, ""))
 
-	shadowID, err := c.Shadow(newFake("file:///etc/foo", 0, ""), "node-A")
-	if err != nil {
-		t.Fatalf("Shadow over discovery: %v", err)
-	}
+	shadowID := c.Shadow(newFake("file:///etc/foo", 0, ""), "node-A")
 
 	if shadowID == discoveryID {
 		t.Fatalf("Shadow over discovery: want new id, got same id %q", shadowID)
@@ -303,8 +320,8 @@ func TestCatalog_Clone_NilReceiverReturnsNil(t *testing.T) {
 func TestCatalog_Clone_CopiesLedgerAndNamespace(t *testing.T) {
 
 	src := NewResourceCatalog()
-	_, _ = src.Shadow(newFake("file:///a", 0, ""), "node-A")
-	_, _ = src.Shadow(newFake("file:///b", 0, ""), "node-B")
+	src.Shadow(newFake("file:///a", 0, ""), "node-A")
+	src.Shadow(newFake("file:///b", 0, ""), "node-B")
 
 	clone := src.Clone()
 
@@ -346,16 +363,12 @@ func TestCatalog_Clone_StatesAreIndependent(t *testing.T) {
 func TestCatalog_Clone_IsIndependent(t *testing.T) {
 
 	src := NewResourceCatalog()
-	_, _ = src.Shadow(newFake("file:///shared", 0, ""), "src-producer")
+	src.Shadow(newFake("file:///shared", 0, ""), "src-producer")
 
 	clone := src.Clone()
 
-	if _, err := src.Shadow(newFake("file:///src-only", 0, ""), "src-producer"); err != nil {
-		t.Fatalf("post-Clone Shadow on src: %v", err)
-	}
-	if _, err := clone.Shadow(newFake("file:///clone-only", 0, ""), "clone-producer"); err != nil {
-		t.Fatalf("post-Clone Shadow on clone: %v", err)
-	}
+	src.Shadow(newFake("file:///src-only", 0, ""), "src-producer")
+	clone.Shadow(newFake("file:///clone-only", 0, ""), "clone-producer")
 
 	if clone.Current("file:///src-only") != "" {
 		t.Error("clone should not see entries added to src after Clone")
@@ -837,9 +850,7 @@ func TestCatalog_Shadow_StampsActiveAndProducer(t *testing.T) {
 	c := NewResourceCatalog()
 	r := newLifecycle("file:///out", AddressingLocation)
 
-	if _, err := c.Shadow(r, "node-A"); err != nil {
-		t.Fatalf("Shadow: %v", err)
-	}
+	c.Shadow(r, "node-A")
 	c.markActive(r)
 
 	if c.State(r.ID()) != Active {
@@ -859,9 +870,7 @@ func TestCatalog_GetOrCreate_CASHit_ReturnsExisting(t *testing.T) {
 
 	c := NewResourceCatalog()
 	first := newLifecycle("tag:..:sha256:abc#mem", AddressingContent)
-	if _, err := c.Shadow(first, "node-A"); err != nil {
-		t.Fatalf("Shadow: %v", err)
-	}
+	c.Shadow(first, "node-A")
 	c.markActive(first)
 
 	probe := newLifecycle("tag:..:sha256:abc#mem", AddressingContent)
@@ -882,15 +891,14 @@ func TestCatalog_GetOrCreate_LocationHit_Shadows(t *testing.T) {
 
 	c := NewResourceCatalog()
 	first := newLifecycle("file:///out", AddressingLocation)
-	if _, err := c.Shadow(first, "node-A"); err != nil {
-		t.Fatalf("Shadow first: %v", err)
-	}
+	c.Shadow(first, "node-A")
 	c.markActive(first)
 
-	// Same URI, second producer. Should shadow.
+	// Same URI, second producer: production at an occupied location shadows (§3's production matrix) —
+	// a fresh generation is canonical, the first survives as history.
 	second := newLifecycle("file:///out", AddressingLocation)
 
-	got, err := c.GetOrCreate("", second.URI(), func() (Resource, error) { return second, nil })
+	got, err := c.GetOrCreate("node-B", second.URI(), func() (Resource, error) { return second, nil })
 	if err != nil {
 		t.Fatalf("GetOrCreate: %v", err)
 	}
@@ -901,15 +909,41 @@ func TestCatalog_GetOrCreate_LocationHit_Shadows(t *testing.T) {
 	if c.State(got.ID()) != Active {
 		t.Errorf("new entry state = %v, want Active", c.State(got.ID()))
 	}
+	if c.Len() != 2 {
+		t.Errorf("ledger length = %d, want 2 (the first generation survives as history)", c.Len())
+	}
+}
+
+// TestCatalog_GetOrCreate_ProducerlessHitAdoptsCanonical pins the deference's fixed identity: a
+// producerless GetOrCreate over a produced, non-Gone entry returns the EXISTING canonical — never the
+// raw candidate (pre-fix, the un-interned candidate leaked out and Active was stamped under an empty id).
+func TestCatalog_GetOrCreate_ProducerlessHitAdoptsCanonical(t *testing.T) {
+
+	c := NewResourceCatalog()
+	first := newLifecycle("file:///out", AddressingLocation)
+	c.Shadow(first, "node-A")
+	c.markActive(first)
+
+	candidate := newLifecycle("file:///out", AddressingLocation)
+
+	got, err := c.GetOrCreate("", candidate.URI(), func() (Resource, error) { return candidate, nil })
+	if err != nil {
+		t.Fatalf("GetOrCreate: %v", err)
+	}
+
+	if got != Resource(first) {
+		t.Error("producerless hit must adopt the existing canonical, not hand out the raw candidate")
+	}
+	if c.Len() != 1 {
+		t.Errorf("ledger length = %d, want 1 (adoption appends nothing)", c.Len())
+	}
 }
 
 func TestCatalog_GetOrCreate_GoneHit_RevivesByShadow(t *testing.T) {
 
 	c := NewResourceCatalog()
 	first := newLifecycle("tag:..:sha256:abc#mem", AddressingContent)
-	if _, err := c.Shadow(first, "node-A"); err != nil {
-		t.Fatalf("Shadow first: %v", err)
-	}
+	c.Shadow(first, "node-A")
 	c.markActive(first)
 	c.markGone(first)
 

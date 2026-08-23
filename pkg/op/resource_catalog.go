@@ -274,13 +274,13 @@ func (c *ResourceCatalog) Discover(uri string, factory func() (Resource, error))
 // discovery-vs-production split documented on [ResourceCatalog].
 //
 // Cache-hit behavior branches on the existing entry's [Addressing] × [ResourceState] per
-// docs/architecture/4-resource-management.md §6.2's behavior matrix. The factory is invoked on cache miss, on
+// docs/architecture/4-resource-management.md §3's behavior matrix. The factory is invoked on cache miss, on
 // location-based hits (any state), and on Gone hits (either addressing — Gone is terminal, so revival appends a new
 // ledger entry via [Shadow]). Content-addressable hits on Pending or Active return the existing entry without invoking
-// the factory (singleton). The new or revived entry transitions to Active via [markActive] before returning.
+// the factory (singleton). The current generation transitions to Active via [markActive] before returning.
 //
-// A non-nil factory error short-circuits without touching the catalog. A different producer claiming the same URI
-// surfaces as a Shadow conflict (write-write detection).
+// A non-nil factory error short-circuits without touching the catalog. A different producer at an occupied
+// URI appends a generation (§4, revised 2026-08-20) — run-time versioning, never a conflict.
 //
 // Parameters:
 //   - `producerID`: the producing caller's id (`activation.CallerID` — a unit id or a starlark call-site), or ""
@@ -292,8 +292,7 @@ func (c *ResourceCatalog) Discover(uri string, factory func() (Resource, error))
 //
 // Returns:
 //   - `Resource`: the canonical catalog entry for `uri`, in state Active.
-//   - `error`: any factory error (returned untouched), or a [Shadow] conflict if a different producer already claimed
-//     the same URI.
+//   - `error`: any factory error (returned untouched).
 //
 // Panics with an [*assert.AssertionError] when any precondition is violated — these are programming errors at the call
 // site, not runtime conditions.
@@ -302,9 +301,9 @@ func (c *ResourceCatalog) GetOrCreate(producerID, uri string, factory func() (Re
 	assert.True("uri not empty", uri != "")
 	assert.True("factory required", factory != nil)
 
-	// Cache hit: content-addressable singletons return existing for non-Gone states (Rule 6). Location-based — and Gone on
-	// either addressing — fall through to shadow (Rules 7 and "Gone is terminal, revive via shadow"). See
-	// docs/architecture/4-resource-management.md §6.2.
+	// Cache hit: content-addressable singletons return existing for non-Gone states. Location-based — and Gone on
+	// either addressing — fall through to shadow ("Gone is terminal, revive via shadow"). See
+	// docs/architecture/4-resource-management.md §3's production matrix.
 	if id := c.Current(uri); id != "" {
 		if existing, ok := c.Lookup(id); ok {
 			if existing.Addressing() == AddressingContent && c.State(id) != Gone {
@@ -319,11 +318,17 @@ func (c *ResourceCatalog) GetOrCreate(producerID, uri string, factory func() (Re
 		return nil, err
 	}
 
-	if _, err := c.Shadow(candidate, producerID); err != nil {
-		return nil, err
+	// The canonical is whatever generation Shadow leaves current — the appended candidate, or the adopted
+	// existing generation on the producerless deference — never the raw candidate by fiat: marking and
+	// returning the candidate when Shadow adopted would hand the producer an un-interned, state-less
+	// object and stamp Active under an empty id.
+	id := c.Shadow(candidate, producerID)
+	canonical, ok := c.Lookup(id)
+	if !ok {
+		return nil, fmt.Errorf("get-or-create %q: shadow returned unknown catalog id %q", uri, id)
 	}
-	c.markActive(candidate)
-	return candidate, nil
+	c.markActive(canonical)
+	return canonical, nil
 }
 
 // Len returns the number of entries in the ledger.
@@ -471,55 +476,50 @@ func (c *ResourceCatalog) Resolve(r Resource) (canonical Resource, id string) {
 	return canonical, id
 }
 
-// Shadow catalogs a new resource version under the given producer and updates the namespace to point to it.
+// Shadow appends a new generation for r's URI and repoints the namespace at it — run-time versioning
+// (4-resource-management.md §4, revised 2026-08-20).
 //
-// Shadow is the plan-time output registration operation: a node's Planned companion constructs the identity of the
-// resource the node will produce, and the planner hands that identity to Shadow so subsequent [ResourceCatalog.Resolve]
-// calls for the same URI return the shadowed version — wiring downstream readers to the producer via the stamped
-// `producerID`.
+// The prior generation survives in the ledger as history; the trace tells the story "this URI was
+// version N, and the run made it version N+1." Two producers writing one URI are generations, not a
+// conflict — legal versioning when the plan ordered them, an authoring race when it did not (the former
+// write-write conflict error was the superseded plan-time output model's residue). Shadowing is how
+// production lands at an occupied URI (§3's production matrix, via [ResourceCatalog.GetOrCreate]) and how
+// a [Gone] URI revives.
 //
-// `producerID` may be empty. An empty `producerID` denotes a non-claiming dispatch — typically a bridge-side or test
-// [ActivationRecord] whose Unit is nil. Non-claiming dispatches defer to any existing claim on the same URI and never
-// produce a write-write conflict.
-//
-// Conflict, supersede, and defer semantics:
-//   - both empty, no existing entry → append a discovery entry, point namespace at it
-//   - both empty, existing also empty → idempotent re-discovery (append new ledger entry, repoint namespace)
-//   - incoming non-empty over existing empty → silently supersede (discovery yields to the producer claim)
-//   - incoming non-empty matches existing non-empty → idempotent re-claim (append new ledger entry)
-//   - incoming non-empty differs from existing non-empty → conflict error
-//   - incoming empty over existing non-empty → defer to the existing claim (no new entry, no namespace change)
+// One deference: an empty `producerID` — a non-graph caller — over a produced, non-Gone entry adopts the
+// existing generation rather than minting an anonymous one; a Gone entry is never adopted, so revival
+// always appends.
 //
 // Parameters:
-//   - `r`: the resource whose identity should be shadowed. URI must be set.
-//   - `producerID`: the node ID claiming ownership of the URI, or empty for a non-claiming dispatch.
+//   - `r`: the resource to catalog as the URI's new current generation. URI must be set.
+//   - `producerID`: the producing caller's stamp, or empty for a non-graph caller.
 //
 // Returns:
-//   - `string`: the catalog ID of either the newly-shadowed entry or the existing claim deferred to.
-//   - `error`: non-nil only on a non-empty/non-empty mismatch.
-func (c *ResourceCatalog) Shadow(r Resource, producerID string) (string, error) {
+//   - `string`: the catalog id of the URI's current generation — the appended one, or the adopted
+//     existing one on the producerless deference.
+func (c *ResourceCatalog) Shadow(r Resource, producerID string) string {
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	uri := r.URI()
-
 	if existingID, ok := c.ns[namespaceKey(r)]; ok {
 		if idx, ok := c.byID[existingID]; ok {
+			// The one deference: a producerless act over a produced, non-Gone entry adopts the existing
+			// generation rather than minting an anonymous one (the documented [ResourceCatalog.GetOrCreate]
+			// contract for non-graph callers). A Gone entry is never adopted — revival appends (§3's
+			// production matrix).
 			existingProducer := c.entries[idx].resourceBase().producerID
-			switch {
-			case existingProducer != "" && producerID == "":
-				return existingID, nil
-			case existingProducer != "" && producerID != "" && existingProducer != producerID:
-				return "", fmt.Errorf(
-					"resource conflict: URI %q is targeted by both %q and %q",
-					uri, existingProducer, producerID,
-				)
+			if existingProducer != "" && producerID == "" && c.states[existingID] != Gone {
+				return existingID
 			}
 		}
 	}
 
-	return c.catalogLocked(r, producerID), nil
+	// Same-URI production appends a generation and repoints the namespace — run-time versioning
+	// (4-resource-management.md §4, revised 2026-08-20): two producers writing one URI are generations in
+	// the ledger, legal versioning when the plan ordered them and an authoring race when it did not. The
+	// former write-write conflict error was the superseded plan-time model's residue.
+	return c.catalogLocked(r, producerID)
 }
 
 // Snapshot projects the catalog into a serializable [*ResourceLedgerSnapshot] — every generation, keyed by id.
@@ -607,7 +607,7 @@ func (c *ResourceCatalog) State(id string) ResourceState {
 //
 // An entry already resolved to [Active] is left as-is (no re-check); otherwise the resource's [Resource.Exists]
 // predicate drives the catalog-owned transition — [markActive] when the resource exists, [markGone] plus an error when
-// it does not — so a [Pending] entry becomes [Active] or [Gone] per §6.2 of
+// it does not — so a [Pending] entry becomes [Active] or [Gone] per §3 of
 // docs/architecture/4-resource-management.md. The caller owns the reaction to a missing resource: the executor's
 // pre-flight resolve pass records the [Gone] mark and decides independently whether the run proceeds (a `Gone`
 // resource is a recorded fact; consumers of it fail on their own).

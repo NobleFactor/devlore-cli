@@ -6,10 +6,50 @@ package op
 import (
 	"encoding/json"
 	"errors"
+	"reflect"
 	"testing"
 
 	"gopkg.in/yaml.v3"
 )
+
+// TestResolveRecordedResource_HitReturnsTheCanonical pins the rearm's identity decode
+// (4-resource-management.md §5.6): a reloaded producer result — the resource's URI string — resolves
+// against the rehydrated catalog to the restored generation, never a fresh construction.
+func TestResolveRecordedResource_HitReturnsTheCanonical(t *testing.T) {
+
+	catalog := NewResourceCatalog()
+	entry := newLifecycle("test:///produced", AddressingLocation)
+	catalog.Resolve(entry)
+
+	environment := &RuntimeEnvironment{ResourceCatalog: catalog}
+
+	canonical, resolved := resolveRecordedResource(environment, "test:///produced", reflect.TypeFor[*lifecycleResource]())
+	if !resolved {
+		t.Fatal("resolveRecordedResource(hit) did not resolve")
+	}
+	if canonical != Resource(entry) {
+		t.Errorf("resolved %p is not the catalog's canonical %p", canonical, entry)
+	}
+}
+
+// TestResolveRecordedResource_MissAndNonStringFallThrough pins the rearm's documented tolerance: an
+// unknown URI and a non-string result both fall through unresolved — the value is left as-is, and a
+// consumer that needed the concrete type meets the dispatch seam's refusal at its own dispatch.
+func TestResolveRecordedResource_MissAndNonStringFallThrough(t *testing.T) {
+
+	environment := &RuntimeEnvironment{ResourceCatalog: NewResourceCatalog()}
+	target := reflect.TypeFor[*lifecycleResource]()
+
+	if _, resolved := resolveRecordedResource(environment, "test:///unknown", target); resolved {
+		t.Error("a catalog miss must fall through unresolved (the rearm tolerates, dispatch refuses)")
+	}
+	if _, resolved := resolveRecordedResource(environment, 42, target); resolved {
+		t.Error("a non-string result must fall through unresolved")
+	}
+	if _, resolved := resolveRecordedResource(environment, "test:///x", reflect.TypeFor[string]()); resolved {
+		t.Error("a non-resource product type must fall through unresolved")
+	}
+}
 
 func TestRecoveryStack_Unwind_LIFO(t *testing.T) {
 	s := NewRecoveryStack()

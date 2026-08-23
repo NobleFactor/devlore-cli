@@ -495,6 +495,10 @@ Steps:
    end on the run clone: a product at a claimed URI reaches the claimed entry (touch → Etag refresh; real
    change → shadow with `producerID`); a product at a fresh URI appends Active with the producer stamp;
    the trace tells the story. Fix what the audit contradicts; pin both directions.
+   **Corrected by the PR 2 audit (2026-08-22): the parenthetical conflated §4.1's Resolve cascade with
+   production.** The ruled matrix is unconditional for location production: a product at an occupied URI
+   — claimed, produced, or Gone — SHADOWS (fresh generation, producer stamp, prior generation as
+   history); the touch/Etag-refresh cascade is `Resolve`'s cache-hit behavior, not production's.
 6. **Immediate mode unchanged, pinned.** The session string path stays: immediate file ops construct and
    `Discover`-intern into the session catalog; the step-2 refusal never fires there.
 7. **Acceptance.** New judgment scenario — *save, reload, run*: every resource-typed slot dispatches the
@@ -583,8 +587,8 @@ and resolution — the seven rules), and §9 items 15–18.
    is exempt: its records are plan-authored data that may carry claimed resources (the writ-adopt shape),
    and the dispatch seam backstops the string case.
 
-**PR 1 record (2026-08-22, complete in tree — uncommitted) — the dispatch seam lands on the activation;
-the refusal's first catches; steps 1–4 delivered.**
+**PR 1 record (2026-08-22, merged as #613 — develop `4fd1cd64`; #609 closed) — the dispatch seam lands on
+the activation; the refusal's first catches; steps 1–4 delivered.**
 
 - **The seam**: `Method.Invoke`'s slot conversion routes resource-typed parameters through
   `resolveDispatchResource`, gated by `activation.Graph` — the per-dispatch frame carries dispatch kind
@@ -628,6 +632,39 @@ the refusal's first catches; steps 1–4 delivered.**
   the backstop.
 - Gate: make check 103 ok / 0 fail; vet clean under darwin, windows, and linux; gofmt clean. PR 1's
   docket is complete.
+
+**PR 2 record (2026-08-22, complete in tree — uncommitted) — the production audit; two residues of the
+superseded model fixed; steps 5–6 delivered.**
+
+- **The audit's headline: `Shadow` still carried the superseded model's write-write conflict.** §4
+  (revised 2026-08-20) rules same-URI production as run-time generations — "legal versioning when the
+  plan ordered them, an authoring race when it did not" — but a different producer at an occupied URI
+  ERRORED ("resource conflict: URI targeted by both"). The error is gone: different producers append
+  generations, the namespace repoints, history survives; the dead error return retired with it
+  (`Shadow(r, producerID) → id`; §2's surface listing updated). Shadow's doc header — which still
+  described "the plan-time output registration operation" verbatim — rewritten to the ruled semantics.
+- **The second catch: `GetOrCreate` returned the raw candidate.** It ignored Shadow's returned id,
+  marked the CANDIDATE active (stamping Active under an empty id on the deference path), and handed
+  producers an un-interned object whenever Shadow adopted an existing generation. Now it looks up and
+  returns the canonical for whatever generation Shadow leaves current; and the producerless deference no
+  longer adopts a Gone entry — revival always appends, per the matrix.
+- **Step 5's parenthetical corrected** (noted at the step): production at an occupied location shadows
+  unconditionally; the touch/Etag-refresh cascade is `Resolve`'s cache-hit behavior (§4.1), never
+  production's.
+- **The pins.** Catalog level: different-producers-append-generations (replacing the conflict pin — a
+  pin of the superseded model), same-producer-appends, location-hit-shadows re-pinned with a REAL
+  producer (the old pin passed "" and pinned the raw-candidate bug), producerless-adopts-canonical.
+  Run-clone end to end (`pkg/op/provider/plan/production_matrix_test.go`): fresh-URI production (Active
+  + producer stamp in the trace), claimed-URI production (the claim's activated generation plus the
+  writer's shadow generation, both told by the trace), Gone revival (destroyer stamp on the Gone
+  generation, the writer's Active revival). Immediate mode (step 6): the session product interns, and
+  session-side Convert still constructs and claims — §5.6's second carve-out pinned. The coverage
+  self-audit added three more: producerless-over-Gone appends (the deference's Gone guard), the pristine
+  pin extended to products (a run's products never leak into the planning catalog), and
+  `resolveRecordedResource` unit pins (hit returns the canonical; miss, non-string, and non-resource
+  product types fall through unresolved — the rearm's tolerance, backstopped by the dispatch refusal).
+- Doc hygiene: stale §6.2 references → §3; GetOrCreate's conflict sentence retired.
+- Gate: make check 103 ok / 0 fail; vet clean under darwin, windows, and linux; gofmt clean.
 
 **PR slicing (task issues filed 2026-08-22, indexed by #586):** PR 1
 ([#609](https://github.com/NobleFactor/devlore-cli/issues/609)) — steps 1–4, the dispatch seam (opening

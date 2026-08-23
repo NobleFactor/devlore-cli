@@ -72,7 +72,7 @@ namespace. Its surface (tree-verified 2026-07-22):
 Discover(uri, factory)             ← observation: read-or-introduce, no production claim
 GetOrCreate(producerID, uri, factory) ← production: claim the URI for a producing unit
 Resolve(r) → (canonical, id)       ← return the canonical entry for a caller-built resource
-Shadow(r, producerID) → (id, err)  ← new version at an occupied URI; namespace repointed
+Shadow(r, producerID) → id         ← new generation at an occupied URI; namespace repointed (§4)
 Current(uri) → id                  ← the namespace's current version
 Lookup(id) / Len / Link            ← ledger access; Link interns an entry
 State(id) / MarkGone(r) / VerifyExistence(r) ← the state machine (below)
