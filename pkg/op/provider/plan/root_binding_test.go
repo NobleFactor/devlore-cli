@@ -139,3 +139,51 @@ func assertTraceBinding(t *testing.T, executor *op.GraphExecutor, runRoot string
 
 	t.Fatalf("trace carries no entry for the claimed rel; entries: %+v", trace.Catalog.Entries)
 }
+
+// TestRun_PlanningCatalogStaysPristineInLocation pins the copy-on-bind ruling (phase 4 step 4,
+// 2026-08-22): the run binds a COPY of each pending entry onto its clone, so after a run under another
+// root the planning session's own object still binds the root it was constructed against, and its state
+// is still the pending intent it was planned as — nothing about a run leaks backward into the plan.
+func TestRun_PlanningCatalogStaysPristineInLocation(t *testing.T) {
+
+	planRoot := t.TempDir()
+	runRoot := t.TempDir()
+
+	if err := os.WriteFile(filepath.Join(runRoot, "data.txt"), []byte("bound under the run root"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	graph := planReadText(t, planRoot)
+
+	if _, err := op.NewGraphExecutor(graph, runSpec(runRoot)).Run(context.Background(), nil); err != nil {
+		t.Fatalf("Run under the run root: %v", err)
+	}
+
+	catalog := graph.ResourceCatalog()
+	snapshot := catalog.Snapshot()
+	if snapshot == nil || len(snapshot.Entries) != 1 {
+		t.Fatalf("planning catalog snapshot = %+v, want exactly one entry", snapshot)
+	}
+
+	row := snapshot.Entries[0]
+	if catalog.State(row.ID) != op.Pending {
+		t.Errorf("planning entry state = %v after the run, want Pending (the clone ran, not the plan)", catalog.State(row.ID))
+	}
+
+	entry, ok := catalog.Lookup(row.ID)
+	if !ok {
+		t.Fatalf("planning catalog does not hold its own entry %s", row.ID)
+	}
+	regular, ok := entry.(*file.Regular)
+	if !ok {
+		t.Fatalf("planning entry is %T, want *file.Regular", entry)
+	}
+
+	abs := regular.SourcePath.Abs()
+	if !strings.HasPrefix(abs, planRoot) {
+		t.Errorf("planning object binds %q, want the PLAN root %q — the run re-rooted a shared object", abs, planRoot)
+	}
+	if strings.HasPrefix(abs, runRoot) {
+		t.Errorf("planning object binds the RUN root %q — copy-on-bind failed to sever the aliasing", runRoot)
+	}
+}

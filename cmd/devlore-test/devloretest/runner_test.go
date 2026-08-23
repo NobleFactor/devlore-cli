@@ -466,3 +466,19 @@ func TestJudgmentDiscoverAfterExec(t *testing.T) {
 		"implementing PR completes the ordering edge and un-skips")
 	runScript(t, "test_judgment_discover_after_exec.star")
 }
+
+func TestJudgmentReloadDispatch(t *testing.T) {
+	runScript(t, "test_judgment_reload_dispatch.star")
+}
+
+func TestJudgmentDoctoredChecksum(t *testing.T) {
+	runScript(t, "test_judgment_doctored_checksum.star")
+}
+
+func TestJudgmentDispatchMiss(t *testing.T) {
+	runScript(t, "test_judgment_dispatch_miss.star")
+}
+
+func TestJudgmentStringPromiseRefusal(t *testing.T) {
+	runScript(t, "test_judgment_string_promise_refusal.star")
+}

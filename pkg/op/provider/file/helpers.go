@@ -103,6 +103,9 @@ func buildCandidateAs(
 	// The input is a filesystem path. One internal round-trip also lands here: catalog rehydration hands
 	// back this provider's own emitted identity specific ("file:" + rel) — strip our own prefix and it is
 	// a path again. No URI parsing: the provider decodes only what it mints (readback does the same).
+	// Graph dispatch never reaches this seam (4-resource-management.md §5.6): resource-typed slot values
+	// resolve by identity at the dispatch seam and a run-catalog miss refuses there, so the strip serves
+	// exactly two callers — load-time rehydration (the identity decode) and session-side construction.
 	path = strings.TrimPrefix(path, "file:")
 	sourcePath := runtimeEnvironment.Root().NewPath(path)
 	var base op.ResourceBase

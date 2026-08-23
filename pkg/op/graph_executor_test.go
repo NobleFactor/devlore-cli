@@ -312,8 +312,10 @@ func TestRun_ScopedPreflightVerifiesConsumedClaims(t *testing.T) {
 		t.Fatalf("NewResourceBase(unconsumed): %v", err)
 	}
 
-	present := &lifecycleResource{ResourceBase: presentBase, addressingMode: AddressingLocation, present: true}
-	unconsumed := &lifecycleResource{ResourceBase: unconsumedBase, addressingMode: AddressingLocation, present: true}
+	present := &lifecycleResource{
+		ResourceBase: presentBase, addressingMode: AddressingLocation, present: true, existsCalls: new(int)}
+	unconsumed := &lifecycleResource{
+		ResourceBase: unconsumedBase, addressingMode: AddressingLocation, present: true, existsCalls: new(int)}
 	unenrolled := newLifecycle("test:///unenrolled", AddressingLocation) // bare base: type id "", not enrolled
 
 	// Enroll the fixture type in the staged-rollout gate for the duration of this test.
@@ -347,17 +349,17 @@ func TestRun_ScopedPreflightVerifiesConsumedClaims(t *testing.T) {
 		t.Fatalf("Run: %v — a present consumed claim must verify and the scope proceed", err)
 	}
 
-	if present.existsCalls != 1 {
+	if *present.existsCalls != 1 {
 		t.Errorf("present.existsCalls = %d, want 1 (a consumed claim is probed once, at its scope's start)",
-			present.existsCalls)
+			*present.existsCalls)
 	}
-	if unconsumed.existsCalls != 0 {
+	if *unconsumed.existsCalls != 0 {
 		t.Errorf("unconsumed.existsCalls = %d, want 0 (verification is claim-driven — an entry no unit consumes is never judged)",
-			unconsumed.existsCalls)
+			*unconsumed.existsCalls)
 	}
-	if unenrolled.existsCalls != 0 {
+	if *unenrolled.existsCalls != 0 {
 		t.Errorf("unenrolled.existsCalls = %d, want 0 (the staging gate must skip non-enrolled types)",
-			unenrolled.existsCalls)
+			*unenrolled.existsCalls)
 	}
 
 	// The pass ran on the per-run clone; the graph's planning catalog stays pristine for "plan once, run many."
@@ -375,7 +377,8 @@ func TestRun_ScopedPreflightFailsOnConsumedMissingClaim(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewResourceBase(missing): %v", err)
 	}
-	missing := &lifecycleResource{ResourceBase: missingBase, addressingMode: AddressingLocation, present: false}
+	missing := &lifecycleResource{
+		ResourceBase: missingBase, addressingMode: AddressingLocation, present: false, existsCalls: new(int)}
 
 	typeID := missing.ResourceType()
 	existenceVerifiableTypes[typeID] = struct{}{}

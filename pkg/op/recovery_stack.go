@@ -649,9 +649,59 @@ func (s *RecoveryStack) retypeStampedResult(runtimeEnvironment *RuntimeEnvironme
 		return
 	}
 
+	if canonical, resolved := resolveRecordedResource(runtimeEnvironment, s.result, productType); resolved {
+		s.result = canonical
+		return
+	}
+
 	if retyped, err := Convert(runtimeEnvironment, s.result, productType); err == nil {
 		s.result = retyped
 	}
+}
+
+// resolveRecordedResource resolves a reloaded resource-producing result by identity — the rearm's half
+// of load-time rehydration (4-resource-management.md §5.6): a recorded producer result reloads as the
+// resource's tag-URI string, and resume rehydrates the paused run's ledger into the live catalog, so the
+// string resolves as the key it is to the restored generation. An identity decode, never a conversion —
+// the [Convert] cascade would construct a fresh, state-less object from the URI text. A miss leaves the
+// value untouched (the rearm's documented tolerance): a consumer of an unresolvable result meets the
+// dispatch seam's refusal at its own dispatch.
+//
+// Parameters:
+//   - `runtimeEnvironment`: the resumed run's environment, holding the rehydrated catalog.
+//   - `result`: the reloaded result value.
+//   - `productType`: the recorded produced type.
+//
+// Returns:
+//   - `any`: the catalog's canonical entry on a hit.
+//   - `bool`: true when the result resolved (string identity, resource product type, catalog hit).
+func resolveRecordedResource(runtimeEnvironment *RuntimeEnvironment, result any, productType reflect.Type) (any, bool) {
+
+	if runtimeEnvironment == nil || runtimeEnvironment.ResourceCatalog == nil {
+		return nil, false
+	}
+	if !productType.Implements(resourceInterfaceType) {
+		return nil, false
+	}
+
+	uri, isString := result.(string)
+	if !isString {
+		return nil, false
+	}
+
+	catalog := runtimeEnvironment.ResourceCatalog
+
+	id := catalog.Current(uri)
+	if id == "" {
+		return nil, false
+	}
+
+	canonical, ok := catalog.Lookup(id)
+	if !ok || !reflect.TypeOf(canonical).AssignableTo(productType) {
+		return nil, false
+	}
+
+	return canonical, true
 }
 
 // supersede removes the top-most entry for `unitID` from this stack.
@@ -935,6 +985,13 @@ func retypeResult(runtimeEnvironment *RuntimeEnvironment, receipt Receipt) error
 
 	productType, ok := ReceiverRegistry().ProductTypeByID(receipt.ResultType())
 	if !ok {
+		return nil
+	}
+
+	// A resource-producing result resolves by identity against the rehydrated catalog first — the
+	// decode, not a conversion; see [resolveRecordedResource].
+	if canonical, resolved := resolveRecordedResource(runtimeEnvironment, result, productType); resolved {
+		receipt.receiptBase().result = canonical
 		return nil
 	}
 
