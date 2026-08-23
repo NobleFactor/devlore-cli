@@ -37,21 +37,21 @@ func TestExists_IsKindHonest(t *testing.T) {
 		if err != nil {
 			t.Fatalf("candidate %s: %v", path, err)
 		}
-		return &Regular{Resource: *base}
+		return &Regular{resource: *base}
 	}
 	directoryAt := func(path string) *Directory {
 		base, err := buildCandidateAs(environment, path, reflect.TypeFor[*Directory]())
 		if err != nil {
 			t.Fatalf("candidate %s: %v", path, err)
 		}
-		return &Directory{Resource: *base}
+		return &Directory{resource: *base}
 	}
 	linkAt := func(path string) *SymbolicLink {
 		base, err := buildCandidateAs(environment, path, reflect.TypeFor[*SymbolicLink]())
 		if err != nil {
 			t.Fatalf("candidate %s: %v", path, err)
 		}
-		return &SymbolicLink{Resource: *base}
+		return &SymbolicLink{resource: *base}
 	}
 
 	cases := []struct {

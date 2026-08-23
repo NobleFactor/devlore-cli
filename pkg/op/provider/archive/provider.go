@@ -79,7 +79,7 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 //   - `prefixPath`: the extraction directory path. Must exist as a directory; Extract does not create it.
 //
 // Returns:
-//   - `[]file.Entry`: one entry per file the extraction created or replaced, in extraction order.
+//   - `[]file.Resource`: one entry per file the extraction created or replaced, in extraction order.
 //   - `*op.RecoveryStack`: a recovery stack carrying one self-describing [file.Receipt] per created file or directory,
 //     in extraction order, so a failed run unwinds it in reverse.
 //   - `error`: any error from format detection, extraction, archive-on-displace, or catalog/receipt construction.
@@ -87,7 +87,7 @@ func (p *Provider) Extract(
 	activationRecord *op.ActivationRecord,
 	source *file.Regular,
 	prefixPath string,
-) (products []file.Entry, stack *op.RecoveryStack, err error) {
+) (products []file.Resource, stack *op.RecoveryStack, err error) {
 
 	reader, err := p.openArchive(source.SourcePath.Abs())
 	if err != nil {
@@ -114,14 +114,14 @@ func (p *Provider) Extract(
 //   - `prefixPath`: the existing directory the archive extracts into.
 //
 // Returns:
-//   - `[]file.Entry`: one entry per file, symlink, or hardlink copy the extraction created or replaced.
+//   - `[]file.Resource`: one entry per file, symlink, or hardlink copy the extraction created or replaced.
 //   - `*op.RecoveryStack`: one self-describing [file.Receipt] per created entry, in extraction order.
 //   - `error`: any error from sniffing, spooling, extraction, or receipt construction.
 func (p *Provider) ExtractStream(
 	activationRecord *op.ActivationRecord,
 	src io.Reader,
 	prefixPath string,
-) (products []file.Entry, stack *op.RecoveryStack, err error) {
+) (products []file.Resource, stack *op.RecoveryStack, err error) {
 
 	reader, err := openArchiveStream(activationRecord.RuntimeEnvironment.Scratch(), src)
 	if err != nil {
@@ -142,14 +142,14 @@ func (p *Provider) ExtractStream(
 //   - `prefixPath`: the existing directory the archive extracts into.
 //
 // Returns:
-//   - `[]file.Entry`: the produced entries, in extraction order.
+//   - `[]file.Resource`: the produced entries, in extraction order.
 //   - `*op.RecoveryStack`: the receipts, in extraction order.
 //   - `error`: any validation, guard, extraction, or receipt failure.
 func (p *Provider) extractEntries(
 	activationRecord *op.ActivationRecord,
 	reader archiveReader,
 	prefixPath string,
-) (products []file.Entry, stack *op.RecoveryStack, err error) {
+) (products []file.Resource, stack *op.RecoveryStack, err error) {
 
 	defer iox.Close(&err, reader)
 
@@ -377,12 +377,12 @@ func resolveExtractPrefix(runtimeEnvironment *op.RuntimeEnvironment, prefixPath 
 //   - `target`: the entry's contained target path.
 //
 // Returns:
-//   - `file.Entry`: the produced entry; nil for a policy no-op.
+//   - `file.Resource`: the produced entry; nil for a policy no-op.
 //   - `*file.Receipt`: the mutation receipt; nil for a no-change outcome.
 //   - `error`: non-nil on any guard or mutation failure.
 func extractEntry(
 	activationRecord *op.ActivationRecord, fileProvider *file.Provider, prefix string, entry archiveEntry, target string,
-) (file.Entry, *file.Receipt, error) {
+) (file.Resource, *file.Receipt, error) {
 
 	switch entry.Kind {
 	case entryDir:
@@ -427,12 +427,12 @@ func extractEntry(
 //   - `target`: the entry's contained target path.
 //
 // Returns:
-//   - `file.Entry`: the produced entry; nil for a policy no-op.
+//   - `file.Resource`: the produced entry; nil for a policy no-op.
 //   - `*file.Receipt`: the mutation receipt; nil for a no-change outcome.
 //   - `error`: non-nil on a guard, open, write, or close failure.
 func copyHardlinkEntry(
 	activationRecord *op.ActivationRecord, fileProvider *file.Provider, prefix string, entry archiveEntry, target string,
-) (file.Entry, *file.Receipt, error) {
+) (file.Resource, *file.Receipt, error) {
 
 	referent, refErr := containedTarget(prefix, entry.Linkname)
 	if refErr != nil {

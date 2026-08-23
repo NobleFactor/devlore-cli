@@ -1051,8 +1051,17 @@ func collectFieldInfo(t reflect.Type, prefix []int, info *typeInfo) {
 	for i := range t.NumField() {
 
 		f := t.Field(i)
+		path := append(append([]int{}, prefix...), i)
 
+		// An unexported EMBEDDED struct is invisible as an attribute but still promotes its exported
+		// fields — the surface mirrors Go's promotion rules, under which `outer.Field` resolves through
+		// an unexported embed. Reflection agrees: the read-only flag that blocks reads through an
+		// unexported NAMED field is deliberately not set for an anonymous one, so the promoted value is
+		// readable. An unexported named field is simply skipped.
 		if !f.IsExported() {
+			if f.Anonymous {
+				collectEmbeddedFieldInfo(f, path, info)
+			}
 			continue
 		}
 
@@ -1068,18 +1077,30 @@ func collectFieldInfo(t reflect.Type, prefix []int, info *typeInfo) {
 			name = op.CamelToSnake(f.Name)
 		}
 
-		path := append(append([]int{}, prefix...), i)
 		info.fields = append(info.fields, fieldInfo{index: path, starName: name})
 
 		if f.Anonymous {
-			embedded := f.Type
-			for embedded.Kind() == reflect.Pointer {
-				embedded = embedded.Elem()
-			}
-			if embedded.Kind() == reflect.Struct {
-				collectFieldInfo(embedded, path, info)
-			}
+			collectEmbeddedFieldInfo(f, path, info)
 		}
+	}
+}
+
+// collectEmbeddedFieldInfo descends into an anonymous field's struct type, promoting its fields into
+// `info` under `path`.
+//
+// Parameters:
+//   - `f`: the anonymous field to descend into; pointer types are dereferenced to their element.
+//   - `path`: the field index path from the root struct to `f`.
+//   - `info`: the accumulator.
+func collectEmbeddedFieldInfo(f reflect.StructField, path []int, info *typeInfo) {
+
+	embedded := f.Type
+	for embedded.Kind() == reflect.Pointer {
+		embedded = embedded.Elem()
+	}
+
+	if embedded.Kind() == reflect.Struct {
+		collectFieldInfo(embedded, path, info)
 	}
 }
 

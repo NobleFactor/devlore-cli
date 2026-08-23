@@ -38,7 +38,7 @@ func TestWalkTree_FoldsEntriesInDepthFirstOrder(t *testing.T) {
 		t.Fatalf("DiscoverDirectory: %v", err)
 	}
 
-	fold := func(initial any, entry Entry, relativePath string, stack *op.RecoveryStack) (any, error) {
+	fold := func(initial any, entry Resource, relativePath string, stack *op.RecoveryStack) (any, error) {
 		order, _ := initial.([]string)
 		return append(order, relativePath), nil
 	}
@@ -139,7 +139,7 @@ func TestWalkTree_ReducerError_StackHoldsCompletedReceipts(t *testing.T) {
 
 	// The reducer records a committed receipt for each entry it completes and fails on c.txt without recording one,
 	// so the returned stack must hold receipts for a.txt and b.txt only.
-	fold := func(initial any, entry Entry, relativePath string, stack *op.RecoveryStack) (any, error) {
+	fold := func(initial any, entry Resource, relativePath string, stack *op.RecoveryStack) (any, error) {
 		if relativePath == "c.txt" {
 			return nil, errors.New("reducer boom on c.txt")
 		}
@@ -175,7 +175,7 @@ func TestWalkTree_ReducerError_StackHoldsCompletedReceipts(t *testing.T) {
 	// whole path — the mismatch #547 exists to remove, here in a test that only wants a file name.
 	got := map[string]bool{}
 	for _, receipt := range receipts {
-		got[filepath.Base(receipt.Result().(Entry).Path().Abs())] = true
+		got[filepath.Base(receipt.Result().(Resource).Path().Abs())] = true
 	}
 	if !got["a.txt"] || !got["b.txt"] {
 		t.Errorf("stack receipts name %v, want a.txt and b.txt", got)
@@ -446,7 +446,7 @@ func collectWalk(t *testing.T, p Provider, root *Directory, includeGitignored bo
 	t.Helper()
 
 	visited := map[string]bool{}
-	fold := func(initial any, entry Entry, relativePath string, stack *op.RecoveryStack) (any, error) {
+	fold := func(initial any, entry Resource, relativePath string, stack *op.RecoveryStack) (any, error) {
 		visited[relativePath] = true
 		return nil, nil
 	}

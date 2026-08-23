@@ -22,9 +22,9 @@ import (
 // use rather than at construction — [SymbolicLink.Digest] and [SymbolicLink.Etag] observe the disk with lstat
 // semantics and error with a kind mismatch when the entry is anything else (ruling 5e). A dangling link is legal
 // everywhere: the link is the resource, not its referent, which has its own resource identity. Identity is the
-// embedded [Resource] (URI + SourcePath); runtime-observed metadata lives on [*Observation].
+// embedded [resource] (URI + SourcePath); runtime-observed metadata lives on [*Observation].
 type SymbolicLink struct {
-	Resource
+	resource
 }
 
 // Exists reports whether the symlink itself exists, without following it — a link's existence is the link,
@@ -40,8 +40,8 @@ func (r *SymbolicLink) Exists() bool {
 	return err == nil && info.Mode()&fs.ModeSymlink != 0
 }
 
-// sealedEntry marks SymbolicLink as a member of the closed [Entry] set (step 23, slice 4).
-func (*SymbolicLink) sealedEntry() {}
+// sealedResource marks SymbolicLink as a member of the closed [Resource] set (step 23, slice 4).
+func (*SymbolicLink) sealedResource() {}
 
 // NewSymbolicLink constructs a [file.SymbolicLink] and claims production via [op.ResourceCatalog.GetOrCreate].
 //
@@ -71,7 +71,7 @@ func NewSymbolicLink(
 		return nil, err
 	}
 
-	return internEntry(runtimeEnvironment, producerID, true, &SymbolicLink{Resource: *base})
+	return internEntry(runtimeEnvironment, producerID, true, &SymbolicLink{resource: *base})
 }
 
 // DiscoverSymbolicLink registers a [file.SymbolicLink] via [op.ResourceCatalog.Discover] without claiming production.
@@ -94,7 +94,7 @@ func DiscoverSymbolicLink(runtimeEnvironment *op.RuntimeEnvironment, value any) 
 		return nil, err
 	}
 
-	return internEntry(runtimeEnvironment, "", false, &SymbolicLink{Resource: *base})
+	return internEntry(runtimeEnvironment, "", false, &SymbolicLink{resource: *base})
 }
 
 // region EXPORTED METHODS
@@ -138,7 +138,7 @@ func (r *SymbolicLink) Digest() (op.Digest, error) {
 
 // Equal reports whether `r` and `other` identify the same symbolic-link resource.
 //
-// Strict equality mirroring [Resource.Equal]: `other` must be a *file.SymbolicLink — the same URI held by another
+// Strict equality mirroring [entry.Equal]: `other` must be a *file.SymbolicLink — the same URI held by another
 // kind (or by the catch-all base) does not match. Once the type check passes, URI comparison is delegated to
 // [op.ResourceBase.Equal].
 //
@@ -218,7 +218,7 @@ func (*SymbolicLink) CanConvertFrom(source reflect.Type) bool {
 
 // ConvertFrom projects `value` into a fresh [*SymbolicLink].
 //
-// Mirrors [Resource.ConvertFrom]: the returned value carries the path under SourcePath but is NOT catalog-interned
+// Mirrors [entry.ConvertFrom]: the returned value carries the path under SourcePath but is NOT catalog-interned
 // at this layer; receiving provider methods intern via their own [NewSymbolicLink]/[DiscoverSymbolicLink] path.
 //
 // Parameters:
@@ -234,12 +234,12 @@ func (*SymbolicLink) ConvertFrom(value any) (any, error) {
 		return nil, fmt.Errorf("file.SymbolicLink.ConvertFrom: source must be string, got %T", value)
 	}
 
-	return &SymbolicLink{Resource: Resource{SourcePath: fsroot.NewPath("", str)}}, nil
+	return &SymbolicLink{resource: resource{SourcePath: fsroot.NewPath("", str)}}, nil
 }
 
 // Resolve rebinds the source path to the execution fsroot and verifies the link itself exists.
 //
-// Shadows [Resource.Resolve], whose existence check goes through [fsroot.Dir]'s Stat and therefore FOLLOWS the
+// Shadows [entry.Resolve], whose existence check goes through [fsroot.Dir]'s Stat and therefore FOLLOWS the
 // link — an escaping or absolute target would turn the check into the kernel's containment refusal even though
 // the link itself landed exactly as asked (#556). The link is the resource, not its referent (ruling 5b), so the
 // check here is lstat: a dangling or escaping target is a legal on-disk state, and any follow is judged by the

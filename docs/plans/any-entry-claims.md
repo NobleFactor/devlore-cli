@@ -196,6 +196,35 @@ existence, not kind*.
 4. `AnyEntry`'s content identity delegates to the observed kind at call time (lstat, then the kinded
    `Digest`/`Etag`), so an unasserted claim does not silently lose drift detection before it resolves.
 
+**Phase 1 record (2026-08-23, complete in tree — uncommitted) — the taxonomy reshape; one finding made it
+not behavior-neutral after all.**
+
+- `file.Resource` → unexported `file.entry` across the package; `AnyEntry` lands in `any_entry.go`
+  (embeds `entry`, declares `sealedEntry()`, `DiscoverAnyEntry` as its constructor). The generator
+  recognized it with no prompting — a resource type is identified by an exported
+  `func(*op.RuntimeEnvironment, any) (*T, error)`, so `any_entry.gen.go` was emitted automatically, and
+  the base stays unannounced because it has no such constructor.
+- **The finding: unexporting the base silently removed every promoted field from the Starlark surface.**
+  `TestLintCopyright` failed with `"Regular" object has no attribute "source_path"` — the bridge's
+  `collectFieldInfo` skipped any unexported field, anonymous ones included, so an unexported embed took
+  its whole field set out of the attribute surface. Fixed at the bridge, where the defect lives: the
+  surface now mirrors **Go's** promotion rules, under which `outer.Field` resolves through an unexported
+  embed. Verified empirically before writing the fix — reflection's read-only flag, which blocks reads
+  through an unexported NAMED field, is deliberately not set for an anonymous one, so the promoted value
+  is readable (`CanInterface() == true`). Pinned in `go_receiver_test.go`.
+- Two other over-reaches from the mechanical rename, caught by the compiler and fixed: `receipt.Resource()`
+  and `state.Resource()` are `op.Receipt`'s method, not the local type; and `helpers.go`'s error text
+  named the now-unexported type.
+- Pins: the permissive predicate's full matrix (regular, directory, link, **dangling link → present**,
+  missing → absent) with the taxonomy bound pinned unix-only via mkfifo (a FIFO exists but no variant
+  could resolve to it); content-identity delegation to the observed kind, and its failure direction on a
+  missing path.
+- **Open, not decided:** `entry` now lives in `resource.go`, which no longer names its type. The package
+  is one-type-per-file and `entry.go` already holds the `Entry` interface. Merging the base into
+  `entry.go` (the interface and its shared implementation together) is the obvious move but is a
+  structure decision, so it waits.
+- Gate: make check 103 ok / 0 fail; vet clean under darwin, windows, and linux; gofmt clean.
+
 ### Phase 2 — kind resolution at the transition — status: pending
 
 1. A seam shaped like `op.RootBinder`: a resource that can resolve its own kind implements it

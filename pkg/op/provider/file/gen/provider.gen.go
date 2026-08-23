@@ -19,7 +19,7 @@ func init() {
 		map[string]op.MethodMetadata{
 			"Backup":        {ParameterNames: []string{"source_path", "backup_suffix"}},
 			"Copy":          {ParameterNames: []string{"source", "destination_path", "mode?={{ umask 0o755 }}", "user?=\"\"", "group?=\"\""}},
-			"Discover":      {ParameterNames: []string{"path", "kind?=entry", "after?"}},
+			"Discover":      {ParameterNames: []string{"path", "kind?=any", "after?"}},
 			"Exists":        {ParameterNames: []string{"path"}},
 			"Find":          {ParameterNames: []string{"pattern", "include_gitignored?=false"}},
 			"Glob":          {ParameterNames: []string{"pattern", "include_gitignored?=false"}},
@@ -37,7 +37,7 @@ func init() {
 			"ReadText":      {ParameterNames: []string{"resource"}},
 			"Remove":        {ParameterNames: []string{"target", "on_missing?=stop", "prune?=false", "boundary?=\"\""}},
 			"RemoveAll":     {ParameterNames: []string{"target", "on_missing?=stop", "prune?=false", "boundary?=\"\""}},
-			"Resolve":       {ParameterNames: []string{"path", "kind?=entry", "after?"}},
+			"Resolve":       {ParameterNames: []string{"path", "kind?=any", "after?"}},
 			"Root":          {ParameterNames: []string{}},
 			"Unlink":        {ParameterNames: []string{"target", "on_missing?=stop", "prune?=false", "boundary?=\"\""}},
 			"WalkTree":      {ParameterNames: []string{"root", "fn", "include_gitignored?=false"}},

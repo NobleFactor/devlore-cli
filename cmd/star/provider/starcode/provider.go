@@ -179,7 +179,7 @@ func (p *Provider) captureRecursive(absRoot, pattern string, includeGitignored b
 
 	var files []string
 
-	visitor := file.Reducer(func(initial any, entry file.Entry, relPath string, _ *op.RecoveryStack) (any, error) {
+	visitor := file.Reducer(func(initial any, entry file.Resource, relPath string, _ *op.RecoveryStack) (any, error) {
 		if _, isDirectory := entry.(*file.Directory); isDirectory {
 			return initial, nil
 		}

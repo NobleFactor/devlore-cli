@@ -20,14 +20,14 @@ import (
 //
 // The kind is declared intent, never stat-assigned (ruling 1): planning is offline, so the assertion is verified at
 // use rather than at construction — [Directory.Digest] and [Directory.Etag] observe the disk with lstat semantics
-// and error with a kind mismatch when the entry is anything else (ruling 5e). Identity is the embedded [Resource]
+// and error with a kind mismatch when the entry is anything else (ruling 5e). Identity is the embedded [resource]
 // (URI + SourcePath); runtime-observed metadata lives on [*Observation], exactly as for the base.
 type Directory struct {
-	Resource
+	resource
 }
 
-// sealedEntry marks Directory as a member of the closed [Entry] set (step 23, slice 4).
-func (*Directory) sealedEntry() {}
+// sealedResource marks Directory as a member of the closed [Resource] set (step 23, slice 4).
+func (*Directory) sealedResource() {}
 
 // Exists reports whether a DIRECTORY exists at this resource's path — lstat plus kind test (kind-honest
 // activation, ruled 2026-08-22; step 23 ruling 5e).
@@ -69,7 +69,7 @@ func NewDirectory(runtimeEnvironment *op.RuntimeEnvironment, producerID string, 
 		return nil, err
 	}
 
-	return internEntry(runtimeEnvironment, producerID, true, &Directory{Resource: *base})
+	return internEntry(runtimeEnvironment, producerID, true, &Directory{resource: *base})
 }
 
 // DiscoverDirectory registers a [file.Directory] via [op.ResourceCatalog.Discover] without claiming production.
@@ -92,7 +92,7 @@ func DiscoverDirectory(runtimeEnvironment *op.RuntimeEnvironment, value any) (*D
 		return nil, err
 	}
 
-	return internEntry(runtimeEnvironment, "", false, &Directory{Resource: *base})
+	return internEntry(runtimeEnvironment, "", false, &Directory{resource: *base})
 }
 
 // region EXPORTED METHODS
@@ -106,7 +106,7 @@ func DiscoverDirectory(runtimeEnvironment *op.RuntimeEnvironment, value any) (*D
 // an unambiguous record: one kind marker byte ('f' regular file, 'd' directory, 'l' symlink), the entry name, a NUL
 // delimiter, and the entry's 32-byte digest. A regular file digests by content (streamed sha256); a symlink digests
 // by the sha256 of its literal readlink target, never following (matching ruling 5a); a subdirectory digests by its
-// own Merkle root, recursively. Entry names carry no path separators, so the serialization is identical on every
+// own Merkle root, recursively. Resource names carry no path separators, so the serialization is identical on every
 // platform, and only the tree's own shape and content participate — the enclosing absolute path does not.
 //
 // The root covers everything (ruling 5d): no gitignore filtering and no `.git` skip — a digest that skips content
@@ -136,7 +136,7 @@ func (r *Directory) Digest() (op.Digest, error) {
 
 // Equal reports whether `r` and `other` identify the same directory resource.
 //
-// Strict equality mirroring [Resource.Equal]: `other` must be a *file.Directory — the same URI held by another kind
+// Strict equality mirroring [entry.Equal]: `other` must be a *file.Directory — the same URI held by another kind
 // (or by the catch-all base) does not match. Once the type check passes, URI comparison is delegated to
 // [op.ResourceBase.Equal].
 //
@@ -216,7 +216,7 @@ func (*Directory) CanConvertFrom(source reflect.Type) bool {
 
 // ConvertFrom projects `value` into a fresh [*Directory].
 //
-// Mirrors [Resource.ConvertFrom]: the returned value carries the path under SourcePath but is NOT catalog-interned
+// Mirrors [entry.ConvertFrom]: the returned value carries the path under SourcePath but is NOT catalog-interned
 // at this layer; receiving provider methods intern via their own [NewDirectory]/[DiscoverDirectory] path.
 //
 // Parameters:
@@ -232,7 +232,7 @@ func (*Directory) ConvertFrom(value any) (any, error) {
 		return nil, fmt.Errorf("file.Directory.ConvertFrom: source must be string, got %T", value)
 	}
 
-	return &Directory{Resource: Resource{SourcePath: fsroot.NewPath("", str)}}, nil
+	return &Directory{resource: resource{SourcePath: fsroot.NewPath("", str)}}, nil
 }
 
 // UnmarshalJSON populates the receiver from a JSON-encoded string (a file path or file URI).

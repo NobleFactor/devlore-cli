@@ -11,10 +11,10 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-// Observation captures the runtime-observed state of a [*Resource] at the moment it was observed.
+// Observation captures the runtime-observed state of a [*resource] at the moment it was observed.
 //
-// Distinct from [Resource], which carries identity only. An observation is a point-in-time metadata snapshot record —
-// not a [Resource], never cataloged — whose identity comes from the resource it references
+// Distinct from [resource], which carries identity only. An observation is a point-in-time metadata snapshot record —
+// not a [resource], never cataloged — whose identity comes from the resource it references
 // ([op.ObservationBase.OfResource], by pointer value). It embeds [op.ObservationBase] (the back-link +
 // [op.ObservationBase.Exists]) and adds the file-specific measurement fields: `Size`, `Mode`, `ModTime`, `Inode`,
 // `Device`.
@@ -42,7 +42,7 @@ type Observation struct {
 // NewObservation constructs a *Observation anchored to the resource it observes.
 //
 // Parameters:
-//   - `ofResource`: the [Entry] this observation is of. Must be non-nil (asserted by [op.NewObservationBase]).
+//   - `ofResource`: the [Resource] this observation is of. Must be non-nil (asserted by [op.NewObservationBase]).
 //   - `exists`: true when the file existed at observation time.
 //   - `size`: file size at observation time.
 //   - `mode`: file mode bits at observation time.
@@ -53,7 +53,7 @@ type Observation struct {
 // Returns:
 //   - `*Observation`: the constructed observation.
 func NewObservation(
-	ofResource Entry,
+	ofResource Resource,
 	exists bool,
 	size int64,
 	mode os.FileMode,
