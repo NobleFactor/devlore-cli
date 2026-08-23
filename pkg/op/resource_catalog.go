@@ -627,12 +627,56 @@ func (c *ResourceCatalog) VerifyExistence(resource Resource) error {
 	}
 
 	if resource.Exists() {
-		c.markActive(resource)
+		c.markActive(c.resolveKind(resource))
 		return nil
 	}
 
+	// The Gone branch resolves nothing: nothing was observed, so an unasserted claim has nothing to
+	// become and stays unasserted — an honest record of intent the world did not meet.
 	c.markGone(resource)
 	return fmt.Errorf("verify existence: resource %q does not exist", resource.URI())
+}
+
+// resolveKind replaces an unasserted entry with the kind the observation names — the [KindResolver]
+// seam's catalog half (docs/plans/any-entry-claims.md, ruled 2026-08-23).
+//
+// Identity crosses the swap and is stamped HERE rather than by the implementation, because identity is
+// the catalog's business: the resolved resource is freshly built and uninterned, so it arrives with no
+// catalog id and no producer stamp. Carrying both forward keeps `byID`, the state map, and the recovery
+// stack's id references pointing at the same row they always did — only the object standing in that row
+// changes, and with it the URI's type fragment, which is how the trace comes to say `Regular` where the
+// graph's intent said `Any`. The namespace is untouched: location addressing keys on the
+// fragment-stripped URI, so both spellings name one identity.
+//
+// A resource that does not implement [KindResolver], a resolver that returns nothing, and a resolver
+// that fails are all left exactly as they were — a resolution failure is not an existence failure, and
+// the entry has already been observed to exist.
+//
+// Parameters:
+//   - `resource`: the entry whose existence was just confirmed.
+//
+// Returns:
+//   - `Resource`: the resolved entry when one was produced; `resource` itself otherwise.
+func (c *ResourceCatalog) resolveKind(resource Resource) Resource {
+
+	resolver, ok := resource.(KindResolver)
+	if !ok {
+		return resource
+	}
+
+	resolved, err := resolver.ResolveKind()
+	if err != nil || resolved == nil {
+		return resource
+	}
+
+	existing := resource.resourceBase()
+	base := resolved.resourceBase()
+	base.id = existing.id
+	base.producerID = existing.producerID
+
+	c.rebindEntry(resource, resolved)
+
+	return resolved
 }
 
 // rebindEntry replaces `old`'s ledger slot with `bound` — the activation binding's copy-on-bind swap

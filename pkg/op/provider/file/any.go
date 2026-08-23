@@ -98,6 +98,22 @@ func (r *Any) Exists() bool {
 
 // endregion
 
+// ResolveKind returns the taxonomy variant the disk currently holds — the promise to observe, come due
+// (4-resource-management.md; [op.KindResolver]).
+//
+// An unasserted claim asserts existence and defers the kind; pre-flight's Pending → Active transition is
+// where the model first looks, so it is where the deferral ends. The returned variant is freshly built
+// and uninterned: the catalog stamps identity across the swap, because identity is the catalog's
+// business, not this resource's.
+//
+// Returns:
+//   - `op.Resource`: the observed-kind variant at this path.
+//   - `error`: an lstat failure, or an entry kind the taxonomy has no variant for.
+func (r *Any) ResolveKind() (op.Resource, error) {
+
+	return r.observed()
+}
+
 // endregion
 
 // region UNEXPORTED METHODS
