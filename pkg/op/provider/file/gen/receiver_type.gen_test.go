@@ -116,6 +116,7 @@ func TestReceiverType_Methods(t *testing.T) {
 	expected := []string{
 		"Backup",
 		"Copy",
+		"Discover",
 		"Exists",
 		"Find",
 		"Glob",
@@ -125,6 +126,7 @@ func TestReceiverType_Methods(t *testing.T) {
 		"Link",
 		"Mkdir",
 		"Move",
+		"MoveDirectory",
 		"Name",
 		"Observe",
 		"Parent",
@@ -132,6 +134,7 @@ func TestReceiverType_Methods(t *testing.T) {
 		"ReadText",
 		"Remove",
 		"RemoveAll",
+		"Resolve",
 		"Root",
 		"Unlink",
 		"WalkTree",

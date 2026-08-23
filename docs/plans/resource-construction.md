@@ -438,7 +438,7 @@ catalog exposed.**
    (a pending resource that does not exist under the run's root fails the run — Q1 ruling). **Delivered —
    the fail-fast pin flipped green in PR B #603.**
 
-### Phase 4 — run time consumes the catalog, never strings (#586) — status: pending (in review 2026-08-22; explicit-conversion docket fully ruled)
+### Phase 4 — run time consumes the catalog, never strings (#586) — status: PRs 1–2 merged (#613, #614); PR 3 complete in tree — the suite is 13/13 green
 
 **The rule this phase implements** (the sketch's :41 rule, now 4-resource-management.md §2/§5): **no
 string-to-resource conversion ever happens at run time** — made precise: at graph dispatch a string may be
@@ -633,8 +633,8 @@ the activation; the refusal's first catches; steps 1–4 delivered.**
 - Gate: make check 103 ok / 0 fail; vet clean under darwin, windows, and linux; gofmt clean. PR 1's
   docket is complete.
 
-**PR 2 record (2026-08-22, complete in tree — uncommitted) — the production audit; two residues of the
-superseded model fixed; steps 5–6 delivered.**
+**PR 2 record (2026-08-22, merged as #614 — develop `f03e9389`; #610 closed) — the production audit; two
+residues of the superseded model fixed; steps 5–6 delivered.**
 
 - **The audit's headline: `Shadow` still carried the superseded model's write-write conflict.** §4
   (revised 2026-08-20) rules same-URI production as run-time generations — "legal versioning when the
@@ -665,6 +665,50 @@ superseded model fixed; steps 5–6 delivered.**
   product types fall through unresolved — the rearm's tolerance, backstopped by the dispatch refusal).
 - Doc hygiene: stale §6.2 references → §3; GetOrCreate's conflict sentence retired.
 - Gate: make check 103 ok / 0 fail; vet clean under darwin, windows, and linux; gofmt clean.
+
+**PR 3 record (2026-08-22, complete in tree — uncommitted) — the explicit-conversion docket delivered;
+suite items 4–13 green; phase 4's code is done.**
+
+- **The two actions land as ruled**: `file.discover(path, kind?="entry", after?)` — lstat, no follow —
+  and `file.resolve(path, kind?="entry", after?)` — stat, full chain, terminus identity, confinement
+  judged against the RESOLVED root (macOS's symlinked temp roots would otherwise false-refuse).
+  `EntryKind` is the named enum with explicit values and the full marshal/unmarshal surface; results
+  intern as discoveries and transition Active through `VerifyExistence` (a discovery of a claimed path
+  reaches the claimed entry — one identity, both doors). Stop-only throughout.
+- **The ordering edge earned its type.** The scenario's sharp assertion caught `after any` silently not
+  ordering: an invocation bound to an any-typed parameter captures the flow-combinator convention (the
+  unit), not its promise. `op.OrderingEdge` carries the contract — the promise is the edge, the value
+  discards by type — recorded as §5.7 rule 8. En route, the generator's defaults vocabulary was made
+  uniform (`name=nil` always emits the bare-optional token for every type; the old behavior panicked the
+  generator on struct-kinded nil defaults, hand-patched once to bootstrap regeneration).
+- **The runtime grammar**: `NormalizeRuntimePath` = plan-space plus `fsroot.RelWithin`'s under-root
+  rebase (the capability added to fsroot, where path/root questions live); the leading-slash sharpening
+  is §5.7 rule 9. Per-OS Go table pins cover the machine-absolute directions; the star covers the
+  promise-delivered escape.
+- **Kind-honest activation (door one closed)**: per-kind `Exists` — lstat plus kind test on all three
+  kinds (`SymbolicLink`'s lstat-only predicate was itself kind-blind; a regular at the path answered
+  true). The writ audit's find: migrate's layer registration moved a DIRECTORY through a `*Regular`
+  claim — the C2-recorded kind-looseness, refused at pre-flight the moment Exists became honest — fixed
+  by `file.MoveDirectory` (`*Directory`-claimed sibling over the shared kind-agnostic move core) with
+  writ migrate switched onto it.
+- **The Entry-slot refusal** lands at `bindPresentValue` (shaped: "a claim asserts a kind and an
+  interface asserts none"); `t.symlink` joins the harness as the OUT-OF-BAND actor (plain os.Symlink, no
+  provider, no catalog) — exactly door four, which the kind-honest activation scenario needs at the
+  starting line.
+- **Suite items 4–13 all flipped green** (statuses and evidence in the suite section; item 2 of the
+  authoring round: `shell.Result` does not convert to string, so the escape scenario's promise rides
+  `file.read_text`). Go pins: the runtime-dialect table (per-OS), `RelWithin`, `EntryKind` round-trip +
+  lstat-strict admits, and the kind-honest `Exists` matrix (the symlink-to-regular row is the door-one
+  fix pinned).
+- **CI re-diagnosis (2026-08-22): one catch, and a Windows note worth recording.** The quality gate
+  flagged the new code — the Entry-slot refusal pushed `bindPresentValue` to cognitive complexity 26, so
+  the authored (non-Invocation, non-Variable) arm extracted to `bindAuthoredValue`; behavior identical.
+  The Windows legs went green FIRST TIME on a change set full of symlink scenarios (`t.symlink`, the
+  lstat/stat pair, the dangling and escaping resolves, kind-honest activation) — the platform where
+  symlink semantics diverge most; the identity work of phase 2 plus lstat-strict kinds is what makes
+  that unremarkable.
+- Gate: make check 103 ok / 0 fail; vet clean under darwin, windows, and linux; gofmt clean. Windows
+  expectation: green stays green; any red is re-diagnosed, not assumed.
 
 **PR slicing (task issues filed 2026-08-22, indexed by #586):** PR 1
 ([#609](https://github.com/NobleFactor/devlore-cli/issues/609)) — steps 1–4, the dispatch seam (opening
@@ -858,41 +902,58 @@ progresses. Items 1–3 ride phase 4's PRs 1–2; items 4–13 are PR 3's accept
 **B. Discover and resolve**
 
 4. **Discover after exec.** The literal path, the empty catalog section, the ordering edge. Status:
-   **authored red** — `test_judgment_discover_after_exec.star`, wired skipped as
-   `TestJudgmentDiscoverAfterExec` (full record above).
+   **green** (2026-08-22, PR 3) — the `after=ran` edge completed and the skip lifted; the sharp
+   assertion earned its keep twice: it exposed the `any`-type ordering collision (→ `op.OrderingEdge`)
+   and a fixture gap (a raw shell redirect creates no parents).
 5. **Kind assertion sharpens the verdict.** `discover(path, kind="regular")` over a directory fails AT
-   the discover node with the kind-mismatch verdict; the consumer never dispatches. Status: predicted.
+   the discover node with the kind-mismatch verdict; the consumer never dispatches. Status: **green**
+   (2026-08-22, PR 3) — `test_judgment_discover_kind_verdict.star`.
 6. **The entry default is permissive.** `discover(path)` of a directory feeding a `*Regular` slot:
    discover succeeds and the failure is the consumer's conversion — the knowingly-carried cost pinned as
-   designed behavior, not a defect. Status: predicted.
+   designed behavior, not a defect. Status: **green** (2026-08-22, PR 3) —
+   `test_judgment_entry_default_consumer_mismatch.star` ("cannot fill").
 7. **The lstat/stat pair.** One rel, a symlink to a regular file: `discover` interns the LINK (kind
    symbolic-link), `resolve` interns the REGULAR the chain designates, and a copy fed by the resolution
-   reads the target's content. Status: predicted.
+   reads the target's content. Status: **green** (2026-08-22, PR 3) —
+   `test_judgment_lstat_stat_pair.star`.
 8. **Resolve refuses the broken and the escaping.** A dangling chain stops at the resolve node; a link
    targeting outside the run root refuses with the CONFINEMENT verdict, not a raw I/O error. Status:
-   predicted.
-9. **The rebase in both directions.** The exec prints `$PWD/report.txt` (cwd anchors at the run root):
-   the absolute-under-root input rebases and the catalog identity IS the rel; an outside-root input
-   refuses; a promise delivering `../outside` refuses with the grammar's verdict. Status: predicted.
+   **green** (2026-08-22, PR 3) — `test_judgment_resolve_dangling.star` (the target destroyed between
+   link and resolve) and `test_judgment_resolve_escape.star` (a link to `..` — the root's parent, always
+   present and always outside).
+9. **The rebase in both directions.** Refined at authoring: `$PWD` is not portable through the star
+   shell on Windows (MSYS spellings), so the machine-absolute directions — under-root rebase,
+   outside-root refusal, volume and UNC spellings, the per-platform leading-slash reading — are pinned
+   in Go (`TestNormalizeRuntimePath_TheRuntimeDialect`, running on all three CI platforms), and the star
+   pins the promise-delivered escape (`test_judgment_runtime_escape_refusal.star`, the path riding a
+   `read_text` promise — a second authoring finding: `shell.Result` does not convert to string).
+   Status: **green** (2026-08-22, PR 3), split as described.
 
 **C. Mediation — discoveries join the model**
 
 10. **Claimed and discovered — one identity.** A path claimed at plan time by one unit and discovered
     mid-run by another dedups to ONE catalog entry with both consumers linked — the catalog mediating
-    across the two doors. Status: predicted.
+    across the two doors. Status: **green** (2026-08-22, PR 3) —
+    `test_judgment_claimed_and_discovered.star` (the stored intent carries exactly the one claim; the
+    discovery reaches the claimed entry and the consumer reads through it).
 11. **Discovered, then destroyed.** Discover interns; a typed remove destroys the file; the discovery's
     consumer fails on the narrated guard verdict ("destroyed by unit N"), never on its own I/O —
-    discoveries get the same protection claims do. Status: predicted.
+    discoveries get the same protection claims do. Status: **green** (2026-08-22, PR 3) —
+    `test_judgment_discovered_then_destroyed.star`.
 12. **Claims are true when made — kind-honest activation.** A `*Regular` claim over a symlink (second
     direction: over a directory) fails pre-flight with the kind verdict at activation — not a swallowed
-    Etag error, not a mid-run surprise. Status: predicted; red by design until the door-one fix lands
-    (PR 3).
+    Etag error, not a mid-run surprise. Status: **green** (2026-08-22, PR 3) —
+    `test_judgment_kind_honest_activation.star`, with the link created OUT-OF-BAND by the harness's new
+    `t.symlink` (plain os call, no provider, no catalog — door four at the starting line; an in-model
+    link would be seen coming). The directory direction and the symlink-to-regular row ride the Go
+    matrix (`TestExists_IsKindHonest`).
 
 **D. Plan-time refusals**
 
 13. **The `Entry` slot refuses authored strings.** An authored literal into an `Entry`-typed parameter
     draws the shaped plan-time refusal ("state the kind or feed a discovery"), never an incidental
-    construction error. Status: predicted.
+    construction error. Status: **green** (2026-08-22, PR 3) —
+    `test_judgment_entry_slot_refusal.star` (`plan.file.observe(resource="some/path")`).
 
 Existing green coverage — scenario 1, pre-flight fail-fast, promise ordering, scoped claims, gone
 tolerance — pins the phase's remaining edges; scenario 2 (relocate + reconcile) stays deferred to the

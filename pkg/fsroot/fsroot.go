@@ -585,6 +585,35 @@ func NewPath(root, rel string) Path {
 	return Path{root: root, rel: canonicalRel(rel), abs: filepath.Join(root, rel)}
 }
 
+// RelWithin reports whether the machine-absolute `path` lies within the root anchored at `rootName`,
+// and when it does, the slash-canonical rel that names it there.
+//
+// The judgment is lexical (Clean + Rel) — no symlink resolution and no disk contact; a caller that needs
+// follow semantics resolves both sides first. A path on another volume, an escaping traversal, and the
+// root itself all answer false.
+//
+// Parameters:
+//   - `rootName`: the root's absolute path (matches [os.Root.Name]).
+//   - `path`: the machine-absolute path to judge.
+//
+// Returns:
+//   - `string`: the slash-canonical rel naming `path` under the root; empty when not within.
+//   - `bool`: true when `path` lies strictly within the root.
+func RelWithin(rootName, path string) (string, bool) {
+
+	rel, err := filepath.Rel(rootName, filepath.Clean(path))
+	if err != nil {
+		return "", false
+	}
+
+	canonical := canonicalRel(rel)
+	if canonical == "." || canonical == ".." || strings.HasPrefix(canonical, "../") {
+		return "", false
+	}
+
+	return canonical, true
+}
+
 // region EXPORTED METHODS
 
 // region State management

@@ -1216,6 +1216,12 @@ def compute_param_names_list(method):
             # Go source string literal.
             escaped = default.replace("\\", "\\\\").replace("\"", "\\\"")
             name += "?=" + escaped
+        elif default == "nil":
+            # The nil marker means "optional; an absent slot fills with the Go zero value" — for EVERY
+            # type, not only the composite kinds is_simple_defaultable_type screens: the runtime cannot
+            # parse the literal "nil" against any kind, and an absent optional slot zeroes at fill
+            # (op.Convert step 0). Named struct params (e.g. op.OrderingEdge) land here.
+            name += "?"
         elif default and is_simple_defaultable_type(p.get("type", "")):
             # Go-string-escape the default expression: backslash first (so subsequent escapes don't double-back),
             # then double-quote. Preserves literal quotes from directives like `severity="warning"` when the

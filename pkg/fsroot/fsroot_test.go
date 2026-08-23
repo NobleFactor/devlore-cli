@@ -838,3 +838,23 @@ func writeFixture(t *testing.T, dir, name, content string) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 }
+
+// RelWithin's lexical judgment (phase 4 PR 3/#611): within → the slash-canonical rel; another volume,
+// an escaping traversal, and the root itself all answer false.
+func TestRelWithin(t *testing.T) {
+
+	root := t.TempDir()
+
+	if rel, ok := fsroot.RelWithin(root, filepath.Join(root, "sub", "file.txt")); !ok || rel != "sub/file.txt" {
+		t.Fatalf("under the root = %q, %t; want sub/file.txt, true", rel, ok)
+	}
+	if _, ok := fsroot.RelWithin(root, filepath.Dir(root)); ok {
+		t.Fatal("the root's parent must answer false")
+	}
+	if _, ok := fsroot.RelWithin(root, root); ok {
+		t.Fatal("the root itself must answer false")
+	}
+	if _, ok := fsroot.RelWithin(root, filepath.Join(filepath.Dir(root), "sibling")); ok {
+		t.Fatal("a sibling must answer false")
+	}
+}

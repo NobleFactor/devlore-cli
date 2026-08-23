@@ -9,18 +9,23 @@
 # Stop-only) as a discovery — an observed fact, not intent — so the stored graph catalog carries NO claim
 # for it; the consumer receives the discovered entry through the promise and reads the content the command
 # wrote. The sharp assertion is the ordering edge: list position does not order execution (the
-# promise-ordering scenario's proof), so the exec → discover sequencing must be an explicit edge. The
-# mechanism for a pure ordering edge is the implementing PR's decision (explicit-conversion docket,
-# item 6); this script gains that edge and un-skips there.
+# promise-ordering scenario's proof), so the exec → discover sequencing is the explicit `after` edge —
+# the pure ordering parameter ruled at PR 3/#611: an upstream promise consumed solely for sequencing,
+# its delivered value discarded.
 
-out = t.tmp("report.txt")
+outdir = t.tmp("toolout")
+out = t.tmp("toolout/report.txt")
 dst = t.tmp("copied.txt")
 doc = t.tmp("graph.json")
 
+# The tool's own output directory: a raw shell redirect creates no parents (unlike the file provider's
+# writes), so the harness makes the directory the opaque command writes into.
+t.mkdir(outdir)
+
 ran = plan.shell.exec(command="printf 'written by the tool' > " + out)
-# ORDERING EDGE REQUIRED: `found` must sequence after `ran` — the mechanism is decided at the
-# implementing PR; as authored, nothing orders these two units.
-found = plan.file.discover(path=out)
+# The pure ordering edge (ruled at PR 3/#611): `after=ran` binds the exec's promise solely to sequence
+# the discovery after it — the delivered value is discarded; only the edge matters.
+found = plan.file.discover(path=out, after=ran)
 copied = plan.file.copy(source=found, destination_path=dst, mode=0o600)
 
 # Consumer-first list: only edges may order execution.

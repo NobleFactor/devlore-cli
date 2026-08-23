@@ -137,6 +137,12 @@ The root executor verifies unconditional claims at the run's starting line; a ch
 subgraph) verifies its claims only when it is hit, by which point mid-run production may already have
 satisfied them. Unreached scopes never judge their claims.
 
+**`Exists` is kind-honest** (ruled 2026-08-22, phase 4 PR 3/#611): each file taxonomy kind's predicate is
+lstat plus a kind test — a `*Regular` claim over a directory or a symbolic link answers false, so a
+wrong-kind claim fails verification at the starting line ("claims are true when made") instead of
+activating kind-blind. The mutator family is kind-honest with it: `file.move_directory` moves a
+directory under a `*Directory` claim (retiring the #585 C2 kind-looseness).
+
 | Entry state | `Exists()` | Result |
 |---|---|---|
 | `Pending` | true | `Pending` → `Active` |
@@ -392,6 +398,15 @@ The rules, each ruled 2026-08-22:
    failures are mid-run by nature. And nothing stops an out-of-band actor deleting a file under a running
    graph, short of a lockdown on the targeted fsroot directory — the observation layer and reconciliation
    are the designed response, not prevention.
+8. **The pure ordering edge** (decided at PR 3/#611): `after`, typed `op.OrderingEdge`, consumes an
+   upstream invocation's promise solely for sequencing — the edge orders, and the delivered value is
+   discarded BY TYPE (every source converts to the empty edge). The dedicated type exists because `any`
+   cannot carry the contract: an invocation bound to an any-typed parameter captures the
+   flow-combinator convention — the unit itself — instead of its promise.
+9. **The runtime dialect's leading-slash sharpening** (decided at PR 3/#611): on unix a leading slash is
+   ambiguous between the anchored spelling and machine-absoluteness, and at run time the machine reading
+   wins — tools emit machine absolutes; the two readings agree under the root, and an out-of-root
+   absolute refuses rather than silently confining. Authors of literals write bare rels.
 
 ## 6. Recovery — Receipts and the Recovery Site
 

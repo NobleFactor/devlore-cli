@@ -4,8 +4,12 @@
 package file
 
 import (
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 )
 
 // The plan-space little language (#584, ruled 2026-08-20): `foo/bar` ≡ `/foo/bar`; volume, UNC, and
@@ -68,4 +72,84 @@ func TestNormalizePlanSpacePath_TheLittleLanguage(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The runtime dialect (phase 4 PR 3/#611, ruled 2026-08-22): rels and the plan-space refusals as
+// authored; a machine-absolute under the bound root rebases to its rel; outside the root — other
+// volumes and UNC spellings included — refuses as confinement. On unix a leading slash reads as
+// machine-absolute (the dialect sharpening): the two readings agree under the root, and an
+// out-of-root absolute refuses rather than silently confining.
+
+func TestNormalizeRuntimePath_TheRuntimeDialect(t *testing.T) {
+
+	rootDir := t.TempDir()
+	root, err := fsroot.OpenConfined(rootDir)
+	if err != nil {
+		t.Fatalf("fsroot.OpenConfined: %v", err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+
+	t.Run("bare rel passes as authored", func(t *testing.T) {
+		got, err := NormalizeRuntimePath(root, "foo/bar")
+		if err != nil || got != "foo/bar" {
+			t.Fatalf("= %q, %v; want foo/bar, nil", got, err)
+		}
+	})
+
+	t.Run("machine-absolute under the root rebases to its rel", func(t *testing.T) {
+		got, err := NormalizeRuntimePath(root, filepath.Join(rootDir, "sub", "report.txt"))
+		if err != nil || got != "sub/report.txt" {
+			t.Fatalf("= %q, %v; want sub/report.txt, nil", got, err)
+		}
+	})
+
+	t.Run("machine-absolute outside the root refuses as confinement", func(t *testing.T) {
+		_, err := NormalizeRuntimePath(root, filepath.Dir(rootDir))
+		if err == nil || !strings.Contains(err.Error(), "outside the run's root") {
+			t.Fatalf("err = %v, want the confinement refusal", err)
+		}
+	})
+
+	t.Run("an escape refuses as authored", func(t *testing.T) {
+		_, err := NormalizeRuntimePath(root, "../outside.txt")
+		if err == nil || !strings.Contains(err.Error(), "escapes") {
+			t.Fatalf("err = %v, want the escape refusal", err)
+		}
+	})
+
+	t.Run("the reserved root-qualified spelling refuses as authored", func(t *testing.T) {
+		_, err := NormalizeRuntimePath(root, "@name/x")
+		if err == nil || !strings.Contains(err.Error(), "root-qualified") {
+			t.Fatalf("err = %v, want the reservation refusal", err)
+		}
+	})
+
+	t.Run("a foreign volume refuses on every platform", func(t *testing.T) {
+		_, err := NormalizeRuntimePath(root, `Q:\x`)
+		if err == nil {
+			t.Fatal("want a refusal for a foreign volume spelling")
+		}
+	})
+
+	t.Run("a UNC spelling refuses on every platform", func(t *testing.T) {
+		_, err := NormalizeRuntimePath(root, `\\server\share`)
+		if err == nil {
+			t.Fatal("want a refusal for a UNC spelling")
+		}
+	})
+
+	t.Run("a leading slash reads per platform", func(t *testing.T) {
+		got, err := NormalizeRuntimePath(root, "/definitely/outside")
+		if runtime.GOOS == "windows" {
+			// Not machine-absolute on Windows (no volume): the plan-space anchored reading holds.
+			if err != nil || got != "definitely/outside" {
+				t.Fatalf("= %q, %v; want the anchored rel on windows", got, err)
+			}
+			return
+		}
+		// Machine-absolute on unix: the machine reading wins, and this one is outside the root.
+		if err == nil || !strings.Contains(err.Error(), "outside the run's root") {
+			t.Fatalf("err = %v, want the confinement refusal on unix", err)
+		}
+	})
 }

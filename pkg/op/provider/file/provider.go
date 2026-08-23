@@ -486,7 +486,61 @@ func (p *Provider) Move(
 	onMissing op.MissingResourcePolicy,
 ) (product Entry, receipt *Receipt, err error) {
 
-	sourceAbs := source.SourcePath.Abs()
+	return p.moveEntry(activationRecord, source, destinationPath, onMissing)
+}
+
+// MoveDirectory moves the directory `source` to `destinationPath` — the kind-honest sibling of
+// [Provider.Move] (kind-honest activation, ruled 2026-08-22): a directory claim is a `*Directory`, so
+// verification judges the claimed kind at the starting line instead of a directory riding a
+// regular-file claim (the kind-looseness the #585 C2 record deferred). Mechanics, receipt, and the
+// destroyer stamp are [Provider.Move]'s exactly.
+//
+// Parameters:
+//   - `activationRecord`: the dispatch activation; its caller stamps the produced [Entry]'s producerID.
+//   - `source`: the directory to move — a consumed, claimed resource.
+//   - `destinationPath`: the path to move the entry to.
+//   - `onMissing`: the [op.MissingResourcePolicy] for an absent source; defaults to stop.
+//
+// Returns:
+//   - `Entry`: the destination resource, minted as the source's observed kind, resolved; nil on an
+//     ignored missing source.
+//   - `*Receipt`: the compensation receipt recording the source and any archived destination for undo.
+//   - `error`: non-nil when the source is missing under stop, or on construction, write preparation,
+//     rename, or resolve failure.
+//
+// +devlore:defaults onMissing=stop
+func (p *Provider) MoveDirectory(
+	activationRecord *op.ActivationRecord,
+	source *Directory,
+	destinationPath string,
+	onMissing op.MissingResourcePolicy,
+) (product Entry, receipt *Receipt, err error) {
+
+	return p.moveEntry(activationRecord, source, destinationPath, onMissing)
+}
+
+// moveEntry is the shared move core: kind-agnostic mechanics behind the kind-honest typed fronts
+// ([Provider.Move], [Provider.MoveDirectory]) — the claim's TYPE is the declaration; the body observes
+// the disk.
+//
+// Parameters:
+//   - `activationRecord`: the dispatch activation.
+//   - `source`: the consumed entry to move.
+//   - `destinationPath`: the path to move the entry to.
+//   - `onMissing`: the missing-source policy.
+//
+// Returns:
+//   - `Entry`: the destination resource; nil on an ignored missing source.
+//   - `*Receipt`: the compensation receipt.
+//   - `error`: as documented on the typed fronts.
+func (p *Provider) moveEntry(
+	activationRecord *op.ActivationRecord,
+	source Entry,
+	destinationPath string,
+	onMissing op.MissingResourcePolicy,
+) (product Entry, receipt *Receipt, err error) {
+
+	sourceAbs := source.Path().Abs()
 
 	sourceInfo, err := p.lstat(sourceAbs)
 	if err != nil {
@@ -1078,6 +1132,157 @@ func (p *Provider) WriteText(
 }
 
 // Fallible actions
+
+// Discover interns the entry at `path` — lstat, the entry itself, no follow — as a discovery: an
+// observed runtime fact, no production claim (4-resource-management.md §5.7, ruled 2026-08-22).
+//
+// The path is run-computed input — a promise's value, a literal naming a mid-run fact (an opaque
+// command's side effect at a known path), or anything the conversion cascade renders to a string —
+// normalized through the runtime dialect of the plan-space grammar ([NormalizeRuntimePath]): rels as
+// authored, a machine-absolute under the bound root rebased to its rel, everything else refused. A file
+// that must exist when the run starts is CLAIMED instead (§5.1 — pre-flight's verdict); discover is for
+// facts that come into being mid-run.
+//
+// `kind` is opt-in strictness (default `entry`): a specific kind must match the lstat-observed kind and
+// the verdict lands at this node — kinds are lstat-strict, so a symbolic link to a regular file is kind
+// symbolic-link and [Provider.Resolve] is the explicit follow. Stop-only: a missing target, a kind
+// mismatch, or a grammar refusal is this action's error; there is no on_missing (an Ignore would hand
+// nil promises downstream — the cost that had Skip dropped from the policy enum).
+//
+// `after` is the pure ordering edge (ruled at PR 3/#611): bind an upstream invocation to sequence this
+// discovery after it — only the promise edge matters, and the delivered value is discarded.
+//
+// Parameters:
+//   - `path`: the run-computed path, in any spelling the runtime dialect admits.
+//   - `kind`: the asserted [EntryKind]; `entry` (the default) admits any taxonomy kind.
+//   - `after`: an optional upstream invocation consumed solely as an ordering edge ([op.OrderingEdge]);
+//     nil means no edge.
+//
+// Returns:
+//   - `Entry`: the discovered entry, interned Active in the catalog as its observed kind.
+//   - `error`: a grammar refusal, an lstat failure (including not-exist), a kind mismatch, or the
+//     catalog's verdict (a known-Gone entry does not re-discover).
+//
+// +devlore:defaults kind=entry, after=nil
+func (p *Provider) Discover(path string, kind EntryKind, after op.OrderingEdge) (product Entry, err error) {
+
+	_ = after // the ordering edge: consumed for sequencing only, never for its value
+
+	runtimeEnvironment := p.RuntimeEnvironment()
+	root := runtimeEnvironment.Root()
+
+	rel, err := NormalizeRuntimePath(root, path)
+	if err != nil {
+		return nil, err
+	}
+
+	abs := root.NewPath(rel).Abs()
+
+	info, err := p.lstat(abs)
+	if err != nil {
+		return nil, fmt.Errorf("file.discover %s: %w", rel, err)
+	}
+	if !kind.admits(info.Mode()) {
+		return nil, fmt.Errorf(
+			"file.discover %s: the observed kind (mode %s) does not satisfy the %s assertion — kinds are "+
+				"lstat-strict; file.resolve is the explicit follow", rel, info.Mode(), kind)
+	}
+
+	entry, err := p.discoverEntryOfMode(abs, info.Mode())
+	if err != nil {
+		return nil, err
+	}
+
+	// A discovery is an observed fact: the catalog-owned seam transitions the interned entry to Active —
+	// or confirms it, when the discovery reaches a claimed, already-verified path (one identity, both
+	// doors).
+	if runtimeEnvironment.ResourceCatalog != nil {
+		if verifyErr := runtimeEnvironment.ResourceCatalog.VerifyExistence(entry); verifyErr != nil {
+			return nil, fmt.Errorf("file.discover %s: %w", rel, verifyErr)
+		}
+	}
+
+	return entry, nil
+}
+
+// Resolve interns what the chain at `path` designates — stat, the full follow — as a discovery: the
+// terminus entity, which is never a symbolic link (4-resource-management.md §5.7, ruled 2026-08-22).
+//
+// The kernel resolves names implicitly at open; this model resolves designation explicitly at this node.
+// The chain from `path` follows to its terminus; the terminus must lie within the run's root —
+// confinement judges the FOLLOW, because a symbolic link is the disk's "../" — and the interned identity
+// is the TERMINUS's rel: the designated entity, not the link. Resolving a non-link is the harmless
+// identity follow. A dangling chain is this action's error, as is an escaping one. `kind` asserts the
+// terminus's kind (default `entry`); asserting `symbolic_link` can never satisfy. `after` is the pure
+// ordering edge, exactly as on [Provider.Discover]. Stop-only, like its sibling.
+//
+// Parameters:
+//   - `path`: the run-computed path, in any spelling the runtime dialect admits.
+//   - `kind`: the asserted [EntryKind] of the terminus; `entry` (the default) admits any taxonomy kind.
+//   - `after`: an optional upstream invocation consumed solely as an ordering edge ([op.OrderingEdge]);
+//     nil means no edge.
+//
+// Returns:
+//   - `Entry`: the designated entry, interned Active in the catalog under the terminus's identity.
+//   - `error`: a grammar refusal, a dangling or escaping chain, a kind mismatch, or the catalog's verdict.
+//
+// +devlore:defaults kind=entry, after=nil
+func (p *Provider) Resolve(path string, kind EntryKind, after op.OrderingEdge) (product Entry, err error) {
+
+	_ = after // the ordering edge: consumed for sequencing only, never for its value
+
+	runtimeEnvironment := p.RuntimeEnvironment()
+	root := runtimeEnvironment.Root()
+
+	rel, err := NormalizeRuntimePath(root, path)
+	if err != nil {
+		return nil, err
+	}
+
+	// Both sides of the confinement judgment resolve: the root's own spelling may traverse links (macOS
+	// /tmp), so the terminus is judged against the RESOLVED root — and the interned identity is the
+	// terminus's rel joined back under the run root's own spelling.
+	resolvedRoot, err := filepath.EvalSymlinks(root.Name())
+	if err != nil {
+		return nil, fmt.Errorf("file.resolve %s: resolve the run root: %w", rel, err)
+	}
+	terminus, err := filepath.EvalSymlinks(root.NewPath(rel).Abs())
+	if err != nil {
+		return nil, fmt.Errorf("file.resolve %s: %w", rel, err)
+	}
+
+	terminusRel, within := fsroot.RelWithin(resolvedRoot, terminus)
+	if !within {
+		return nil, fmt.Errorf(
+			"file.resolve %s: the chain designates %q, outside the run's root — confinement admits no "+
+				"resource beyond the root, and a follow is judged like any other traversal", rel, terminus)
+	}
+
+	abs := root.NewPath(terminusRel).Abs()
+
+	info, err := p.lstat(abs)
+	if err != nil {
+		return nil, fmt.Errorf("file.resolve %s: %w", terminusRel, err)
+	}
+	if !kind.admits(info.Mode()) {
+		return nil, fmt.Errorf(
+			"file.resolve %s: the designated kind (mode %s) does not satisfy the %s assertion",
+			terminusRel, info.Mode(), kind)
+	}
+
+	entry, err := p.discoverEntryOfMode(abs, info.Mode())
+	if err != nil {
+		return nil, err
+	}
+
+	if runtimeEnvironment.ResourceCatalog != nil {
+		if verifyErr := runtimeEnvironment.ResourceCatalog.VerifyExistence(entry); verifyErr != nil {
+			return nil, fmt.Errorf("file.resolve %s: %w", terminusRel, verifyErr)
+		}
+	}
+
+	return entry, nil
+}
 
 // Exists reports whether an entry exists at `path`, examining the link itself (lstat semantics).
 //

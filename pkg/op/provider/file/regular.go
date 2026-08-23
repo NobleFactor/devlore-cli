@@ -26,6 +26,22 @@ type Regular struct {
 // sealedEntry marks Regular as a member of the closed [Entry] set (step 23, slice 4).
 func (*Regular) sealedEntry() {}
 
+// Exists reports whether a REGULAR FILE exists at this resource's path — lstat plus kind test
+// (kind-honest activation, ruled 2026-08-22; step 23 ruling 5e).
+//
+// Kinds are lstat-strict: a symbolic link or a directory at the path is not this resource, so a
+// *Regular claim over one fails verification at the starting line — "claims are true when made" — rather
+// than activating kind-blind and failing later at observation or I/O.
+//
+// Returns:
+//   - `bool`: true when the path holds a regular file; false on any lstat error or any other kind.
+func (r *Regular) Exists() bool {
+
+	root := r.RuntimeEnvironment().Root()
+	info, err := root.Lstat(root.NewPath(r.SourcePath.Abs()))
+	return err == nil && info.Mode().IsRegular()
+}
+
 // NewRegular constructs a [file.Regular] and claims production via [op.ResourceCatalog.GetOrCreate].
 //
 // Use NewRegular from a producer dispatch context; the returned Regular is the canonical

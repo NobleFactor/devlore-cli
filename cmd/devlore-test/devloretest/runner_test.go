@@ -461,9 +461,6 @@ func TestJudgmentPromiseOrdering(t *testing.T) {
 }
 
 func TestJudgmentDiscoverAfterExec(t *testing.T) {
-	t.Skip("file.discover is not yet implemented and the exec→discover ordering-edge mechanism is " +
-		"undecided — docs/plans/resource-construction.md phase 4, explicit-conversion docket; the " +
-		"implementing PR completes the ordering edge and un-skips")
 	runScript(t, "test_judgment_discover_after_exec.star")
 }
 
@@ -481,4 +478,44 @@ func TestJudgmentDispatchMiss(t *testing.T) {
 
 func TestJudgmentStringPromiseRefusal(t *testing.T) {
 	runScript(t, "test_judgment_string_promise_refusal.star")
+}
+
+func TestJudgmentDiscoverKindVerdict(t *testing.T) {
+	runScript(t, "test_judgment_discover_kind_verdict.star")
+}
+
+func TestJudgmentEntryDefaultConsumerMismatch(t *testing.T) {
+	runScript(t, "test_judgment_entry_default_consumer_mismatch.star")
+}
+
+func TestJudgmentLstatStatPair(t *testing.T) {
+	runScript(t, "test_judgment_lstat_stat_pair.star")
+}
+
+func TestJudgmentResolveDangling(t *testing.T) {
+	runScript(t, "test_judgment_resolve_dangling.star")
+}
+
+func TestJudgmentResolveEscape(t *testing.T) {
+	runScript(t, "test_judgment_resolve_escape.star")
+}
+
+func TestJudgmentRuntimeEscapeRefusal(t *testing.T) {
+	runScript(t, "test_judgment_runtime_escape_refusal.star")
+}
+
+func TestJudgmentClaimedAndDiscovered(t *testing.T) {
+	runScript(t, "test_judgment_claimed_and_discovered.star")
+}
+
+func TestJudgmentDiscoveredThenDestroyed(t *testing.T) {
+	runScript(t, "test_judgment_discovered_then_destroyed.star")
+}
+
+func TestJudgmentKindHonestActivation(t *testing.T) {
+	runScript(t, "test_judgment_kind_honest_activation.star")
+}
+
+func TestJudgmentEntrySlotRefusal(t *testing.T) {
+	runScript(t, "test_judgment_entry_slot_refusal.star")
 }
