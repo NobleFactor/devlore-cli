@@ -1088,45 +1088,71 @@ func (e *GraphExecutor) verifyScopeClaims(scopeID string, units []ExecutableUnit
 		policy := unitMissingResourcePolicy(unit)
 
 		for _, binding := range unit.Slots() {
-
-			immediate, ok := binding.(ImmediateBinding)
-			if !ok {
-				continue
-			}
-
-			resource, ok := immediate.Resolve(nil, nil).(Resource)
-			if !ok {
-				continue
-			}
-
-			// The slot holds the planning session's object; the run's world lives in the clone's ledger,
-			// where the activation binding installed the run-bound COPY (the step-4 ruling). Verification
-			// probes the canonical entry, never the slot's pristine capture.
-			if id := catalog.Current(resource.URI()); id != "" {
-				if canonical, found := catalog.Lookup(id); found {
-					resource = canonical
-				}
-			}
-
-			if !participatesInExistenceVerification(resource) {
-				continue
-			}
-
-			verifyErr := catalog.VerifyExistence(resource)
-			if verifyErr == nil {
-				continue
-			}
-
-			if e.environment.Status != nil {
-				e.environment.Status.Warn(fmt.Sprintf(
-					"%s: %s: missing resource (policy %s): %v", scopeID, unit.ID(), policy, verifyErr))
-			}
-
-			if policy == MissingResourcePolicyStop {
-				return &dispatchFailure{reason: ReasonPreflightFailed,
-					cause: fmt.Errorf("%s: unmet intent: %w", unit.ID(), verifyErr)}
+			if err := e.verifyClaimBinding(scopeID, unit, policy, binding); err != nil {
+				return err
 			}
 		}
+	}
+
+	return nil
+}
+
+// verifyClaimBinding verifies one slot binding's claim, when it carries one.
+//
+// An immediate resource-valued slot resolves to the run clone's canonical entry first — the slot holds
+// the planning session's object, and the activation binding installed the run-bound COPY in the ledger
+// (the step-4 ruling), so verification probes the canonical, never the slot's pristine capture. The
+// canonical is probed through [ResourceCatalog.VerifyExistence]; a warning is produced on every
+// detection; the consequence follows `policy` — Stop fails the scope with [ReasonPreflightFailed],
+// Ignore lets the scope proceed.
+//
+// Parameters:
+//   - `scopeID`: the verifying scope's unit id, for the warning.
+//   - `unit`: the consuming unit.
+//   - `policy`: the unit's declared [MissingResourcePolicy].
+//   - `binding`: the slot binding under consideration.
+//
+// Returns:
+//   - `error`: the reason-carrying dispatch failure for an unmet required claim; nil otherwise.
+func (e *GraphExecutor) verifyClaimBinding(
+	scopeID string, unit ExecutableUnit, policy MissingResourcePolicy, binding Binding,
+) error {
+
+	catalog := e.environment.ResourceCatalog
+
+	immediate, ok := binding.(ImmediateBinding)
+	if !ok {
+		return nil
+	}
+
+	resource, ok := immediate.Resolve(nil, nil).(Resource)
+	if !ok {
+		return nil
+	}
+
+	if id := catalog.Current(resource.URI()); id != "" {
+		if canonical, found := catalog.Lookup(id); found {
+			resource = canonical
+		}
+	}
+
+	if !participatesInExistenceVerification(resource) {
+		return nil
+	}
+
+	verifyErr := catalog.VerifyExistence(resource)
+	if verifyErr == nil {
+		return nil
+	}
+
+	if e.environment.Status != nil {
+		e.environment.Status.Warn(fmt.Sprintf(
+			"%s: %s: missing resource (policy %s): %v", scopeID, unit.ID(), policy, verifyErr))
+	}
+
+	if policy == MissingResourcePolicyStop {
+		return &dispatchFailure{reason: ReasonPreflightFailed,
+			cause: fmt.Errorf("%s: unmet intent: %w", unit.ID(), verifyErr)}
 	}
 
 	return nil
@@ -1520,7 +1546,7 @@ func shallowCopyResource(r Resource) Resource {
 	copied := reflect.New(v.Elem().Type())
 	copied.Elem().Set(v.Elem())
 
-	return copied.Interface().(Resource)
+	return assert.Type[Resource]("resource copy", copied.Interface())
 }
 
 // endregion

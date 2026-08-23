@@ -616,6 +616,16 @@ the refusal's first catches; steps 1–4 delivered.**
   2 refined into two walls during authoring: the integrity gate catches hand-alteration before the seam
   can, so the in-model miss is authored through the item-frame backstop). Four new judgment stars wired;
   Go pins in `pkg/op/method_test.go` and the pristine-location pin beside the root-binding pair.
+- **First CI re-diagnosis (2026-08-22): two catches, neither assumed.** The quality gate flagged the new
+  code itself — an unchecked type assertion in `shallowCopyResource` (now the house `assert.Type`) and
+  `verifyScopeClaims` over the cognitive-complexity limit (the per-binding body extracted to
+  `verifyClaimBinding`). The Windows test leg exposed the retired step-6 probe's THIRD client: the
+  resume rearm retypes reloaded producer results through `Convert`, and without the probe the tag-URI
+  string fell through to fresh construction — darwin silently swallowed the garbage stat, Windows'
+  fsroot refused the colon-bearing rel ("path escapes from parent"). Fixed at the right layer: the
+  rearm resolves recorded resource results by identity against the rehydrated catalog
+  (`resolveRecordedResource` — rehydration's decode, §5.6), miss-tolerance intact, the dispatch seam
+  the backstop.
 - Gate: make check 103 ok / 0 fail; vet clean under darwin, windows, and linux; gofmt clean. PR 1's
   docket is complete.
 
