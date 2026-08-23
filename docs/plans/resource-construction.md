@@ -1,7 +1,7 @@
 ---
 title: "Resource construction: the catalog mediates everything"
 issue: https://github.com/NobleFactor/devlore-cli/issues/581
-status: in-progress
+status: complete
 created: 2026-08-20
 updated: 2026-08-22
 ---
@@ -80,8 +80,9 @@ assertions):
 | Run time re-derives resources from strings via prefix-strip at Convert | pkg/op/provider/file/helpers.go:106; pkg/op/convert.go step 6 |
 | The plan-time output-claiming design parked as "design only — not implemented" | docs/architecture/4-resource-management.md Appendix A |
 
-*Status 2026-08-22: rows 1, 2, 4, and 6 are resolved (phases 0–3); rows 3 and 5 — products interning into
-the discarded per-run clone, and run-time string re-parsing at Convert — are phase 4's subject.*
+*Status 2026-08-22: **every row is resolved.** Rows 1, 2, 4, and 6 closed with phases 0–3; rows 3 and 5 —
+products interning into the discarded per-run clone, and run-time string re-parsing at Convert — closed
+with phase 4 (#613/#614/#615). The divergence table is history.*
 
 ## Epic and issue placement
 
@@ -438,7 +439,7 @@ catalog exposed.**
    (a pending resource that does not exist under the run's root fails the run — Q1 ruling). **Delivered —
    the fail-fast pin flipped green in PR B #603.**
 
-### Phase 4 — run time consumes the catalog, never strings (#586) — status: PRs 1–2 merged (#613, #614); PR 3 complete in tree — the suite is 13/13 green
+### Phase 4 — run time consumes the catalog, never strings (#586) — status: complete 2026-08-22 (PRs 1 #613, 2 #614, 3 #615 — all merged; #609/#610/#611 closed; the explicit-conversion suite is 13/13 green)
 
 **The rule this phase implements** (the sketch's :41 rule, now 4-resource-management.md §2/§5): **no
 string-to-resource conversion ever happens at run time** — made precise: at graph dispatch a string may be
@@ -666,8 +667,8 @@ residues of the superseded model fixed; steps 5–6 delivered.**
 - Doc hygiene: stale §6.2 references → §3; GetOrCreate's conflict sentence retired.
 - Gate: make check 103 ok / 0 fail; vet clean under darwin, windows, and linux; gofmt clean.
 
-**PR 3 record (2026-08-22, complete in tree — uncommitted) — the explicit-conversion docket delivered;
-suite items 4–13 green; phase 4's code is done.**
+**PR 3 record (2026-08-22, merged as #615 — develop `516db840`; #611 closed) — the explicit-conversion
+docket delivered; suite items 4–13 green; phase 4's code is done.**
 
 - **The two actions land as ruled**: `file.discover(path, kind?="entry", after?)` — lstat, no follow —
   and `file.resolve(path, kind?="entry", after?)` — stat, full chain, terminus identity, confinement
@@ -729,14 +730,25 @@ declared-string producer into a resource-typed slot refuses at `ValidateGraph`, 
 undeclared producers, decided at the implementing PR. The key-versus-constructor sentence and the docket's
 rules landed in 4-resource-management.md (§2, §5.6–5.7, §9 items 15–18) on 2026-08-22.
 
-### Phase 5 — closure — status: pending
+### Phase 5 — closure — status: complete 2026-08-22 (#587)
 
 1. Sketches removed per phase 0's disposition — the deletions themselves landed with phase 0 (#592), so
    what remains is the `docs/architecture` statuses updated and the transport plan's supersession note
-   finalized.
+   finalized. **Done:** `4-resource-management.md`'s header note now reads *implementation complete*
+   (the §5.6/§5.7 rules named); `3.5.4-file-provider.md` gains `file.discover` / `file.resolve` in the
+   observer table, `file.move_directory` beside `file.move`, and the kind-honest-claims paragraph;
+   `3.5.4-file-provider.status.md` records the new surface and its coverage; the transport plan's note
+   is finalized — what replaced "recreate from slot URIs" is named (a slot URI is a key, never a
+   constructor), so the Goal's "run it on another host" now holds for every addressing, not only the
+   content-addressed ones.
 2. ~~The two demonstration pins graduate from local red to committed green~~ — done: scenario 1's pin
-   landed green with phase 1, and the fail-fast pin flipped green in PR B #603.
-3. `4-resource-management.status.md` records the completed convergence.
+   landed green with phase 1, and the fail-fast pin flipped green in PR B #603. A third joined them:
+   `test_judgment_discover_after_exec.star`, authored red in #612 and flipped green in #615.
+3. `4-resource-management.status.md` records the completed convergence. **Done:** the state paragraph
+   declares it — *the design and the tree agree, and the campaign's divergence table has no surviving
+   row* — with per-PR completion rows for #609/#610/#611 and an Outstanding list carrying only what
+   genuinely outlives the campaign (the staged per-type rollout, the remote-execution abstraction,
+   run-start claiming, and judgment scenario 2's wait for a drivable reconcile surface).
 
 ## Verification
 
