@@ -249,7 +249,7 @@ func (r *resource) IsDir() bool {
 
 // Path returns the canonicalized absolute path handle on the disk.
 //
-// The [Resource] accessor: mixed-kind holders (an Resource from enumeration or a walker callback) reach the path without
+// The [Resource] accessor: mixed-kind holders (a Resource from enumeration or a walker callback) reach the path without
 // asserting a concrete variant. The handle is the construction-time [fsroot.Path]; [entry.Resolve] rebinds it to
 // the live execution fsroot.
 //

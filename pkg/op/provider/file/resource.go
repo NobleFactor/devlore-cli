@@ -8,13 +8,14 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-// Resource is the mixed-kind currency for "any file resource" — the interface the taxonomy's variants implement.
+// Resource is this provider's resource type — the sealed interface the taxonomy's variants implement.
 //
-// Modeled after the standard library's fs.DirEntry precedent (phase-8 step 23, ruling 4): contexts that legitimately
-// traffic in mixed or observed kinds — enumeration returns, per-entry walker callbacks, observation minting — accept
-// or return an Resource rather than a concrete variant. Contexts whose semantics fix the kind use the concrete variant
-// ([*Regular], [*Directory], [*SymbolicLink]) directly, and a plain string path is the currency for
-// create/update/delete parameters (ruling 2 — the resource is the product of a mutation, never its input).
+// Every provider names its resource type `Resource`; file's is an interface rather than a struct because file is the
+// one provider with a kind axis. Modeled after the standard library's fs.DirEntry precedent (phase-8 step 23,
+// ruling 4): contexts that legitimately traffic in mixed or observed kinds — enumeration returns, per-entry walker
+// callbacks, observation minting, kind-indifferent mutation — accept or return a Resource rather than a concrete
+// variant. Contexts whose semantics fix the kind use the variant ([*Regular], [*Directory], [*SymbolicLink])
+// directly; [*Any] is the variant that asserts existence without asserting kind.
 type Resource interface {
 	op.Resource
 
@@ -22,14 +23,15 @@ type Resource interface {
 	Path() fsroot.Path
 
 	// sealedResource marks the closed set of Resource implementations (step 23, slice 4): each taxonomy variant — and
-	// only a variant — declares it. The catch-all base deliberately does not, so a hand-built base value cannot
+	// only a variant — declares it. The unexported base deliberately does not, so a hand-built base value cannot
 	// enter any taxonomy signature, and packages outside this one cannot add implementations.
 	sealedResource()
 }
 
-// Interface guards: the three taxonomy variants are the only Resource implementations — the seal excludes the
-// catch-all base by construction (it lacks the marker).
+// Interface guards: the four taxonomy variants are the only Resource implementations — the seal excludes the
+// unexported base by construction (it lacks the marker).
 var (
+	_ Resource = (*Any)(nil)
 	_ Resource = (*Regular)(nil)
 	_ Resource = (*Directory)(nil)
 	_ Resource = (*SymbolicLink)(nil)
