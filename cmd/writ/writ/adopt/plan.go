@@ -80,11 +80,19 @@ func BuildGraph(env *op.RuntimeEnvironment, items []Item) (*op.Graph, error) {
 		invocations = append(invocations, mkdir)
 	}
 
-	// The gather items: one record per adoption.
+	// The gather items: one record per adoption. The consumed source is CLAIMED at plan time
+	// (4-resource-management.md §5.1 — the item paths are plan-known intent): [file.DiscoverRegular]
+	// mints the identity with no disk contact and interns it pending, and the record carries the claimed
+	// resource, whose identity the dispatch seam resolves through the run catalog (§5.6). A raw path
+	// string here would refuse at dispatch — a string is a key, never a constructor.
 	records := make([]any, 0, len(items))
 	for _, item := range items {
+		source, err := file.DiscoverRegular(env, item.Source)
+		if err != nil {
+			return nil, fmt.Errorf("adopt.BuildGraph: claim source %s: %w", item.Source, err)
+		}
 		records = append(records, map[string]any{
-			"source":    item.Source,
+			"source":    source,
 			"dest_path": item.DestPath,
 		})
 	}

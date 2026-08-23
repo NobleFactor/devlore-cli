@@ -471,6 +471,16 @@ Steps:
    IS the run clone's entry: re-based, state-carrying, the same row pre-flight verified. First discovery
    of the implementing PR: where the seam lives (slot-fill vs a step-6 refinement) and how the environment
    names run-vs-session mode (an existing distinction on `RuntimeEnvironment`, or a new bit).
+   **Discovery resolved (2026-08-22, USER-corrected): the seam is slot-fill at `Method.Invoke`, keyed off
+   the activation.** `ActivationRecord` already carries dispatch kind as documented contract — `Graph` is
+   non-nil exactly during graph dispatch (`Stack` and `CallerID` agree) — so the discrimination lives on
+   the per-dispatch frame, NOT on the environment (a first cut added a `GraphDispatch` bit to
+   `RuntimeEnvironment` and was reverted: the environment stays orthogonal ambient capability — the
+   session/dispatch distinction is the activation's to carry) and NOT inside `Convert`'s cascade (which
+   stays context-blind, serving planning and immediate mode unchanged). `WithCatalog` renamed
+   `WithResourceCatalog` in passing (builder names its field). Known boundary, accepted: a resource-typed
+   field nested inside a struct-hydrated parameter would convert inside `Convert`'s recursion, below the
+   seam — no such parameter exists today; recorded like §5.4's lenient-decoding boundary.
 2. **The miss becomes a refusal.** With the catalog complete by construction (every resource-typed input
    claimed at plan time), a graph-dispatch catalog miss is a typed error naming the URI — the catalog's
    verdict, before any disk contact. The fall-through to fresh construction gates on immediate mode only.
@@ -563,6 +573,51 @@ and resolution — the seven rules), and §9 items 15–18.
    Companion fact of life, owned in the same breath (item 7's fourth door): nothing stops an out-of-band
    actor deleting a file under a running graph, short of a lockdown on the targeted fsroot directory —
    the observation layer and reconciliation are the designed response, not prevention.
+9. **Run-start claiming for variable-fed resource slots (RULED 2026-08-22 — sequenced after phase 4).**
+   A variable is resolvable the way a promise is: binding occurs only after execution has begun, so its
+   claim belongs to the run's pre-flight — the chartered pass normalizes variable-fed resource slots
+   through the grammar, mints pending entries into the run clone at the consuming subgraph's pre-flight,
+   and verifies them with the scope's claims. Until it lands, the interim posture (PR 1/#609):
+   `ValidateGraph` refuses a PLAIN variable into a resource-typed slot — flag/config/environment sources
+   are string-valued by construction, so it can never succeed — while the reserved gather frame (`item`)
+   is exempt: its records are plan-authored data that may carry claimed resources (the writ-adopt shape),
+   and the dispatch seam backstops the string case.
+
+**PR 1 record (2026-08-22, complete in tree — uncommitted) — the dispatch seam lands on the activation;
+the refusal's first catches; steps 1–4 delivered.**
+
+- **The seam**: `Method.Invoke`'s slot conversion routes resource-typed parameters through
+  `resolveDispatchResource`, gated by `activation.Graph` — the per-dispatch frame carries dispatch kind
+  (step 1's resolved discovery; the environment stays orthogonal). A Resource value resolves by its URI;
+  a string resolves as the key it is; any other type refuses; a run-catalog miss refuses with the §5.6
+  verdict. Step 6's reload probe retired with it (its job moved to the seam), `Convert` stays
+  context-blind, and `buildCandidateAs`'s prefix strip is documented as serving exactly rehydration and
+  session construction.
+- **Step 4 ruled copy-on-bind**: `bindPendingResources` binds a kind-preserving shallow copy and swaps it
+  into the run clone (`ResourceCatalog.rebindEntry`); scoped verification resolves the canonical before
+  probing (`VerifyExistence` probes the object it is handed — the slot's pristine capture would read the
+  construction root); the planning session's objects stay pristine. The `lifecycleResource` pin's counter
+  became a shared cell so probes through the copy stay observable.
+- **The plan-time mirror landed as leaned**: `checkPromiseTypes` refuses a declared-string producer into
+  a resource-typed slot; `checkVariableResourceSlots` is its variable twin (interim, item-exempt — docket
+  item 9).
+- **The refusal's first catches — writ adopt, both authoring surfaces.** The Go builder fed `file.move`
+  run-computed machine-absolute strings through its gather records — migrated to plan-time claims
+  (`file.DiscoverRegular`: identity minted with no disk contact, interned pending; the records carry the
+  claimed resources, and the item projection delivers them to the seam). The two star fixtures bound the
+  source via `plan.variable` — re-authored to authored claims, and the variable question produced the
+  run-start-claiming ruling (docket item 9).
+- **Executor hygiene as discovered**: the stale `resolvePendingResources` doc block removed (the function
+  retired with scoped verification); the executor takes a value copy of the host's spec before stamping
+  the run catalog, so run-only state never lands on the caller's object; `WithCatalog` renamed
+  `WithResourceCatalog` (USER precision ruling; `WithWorkflowDispatcher` dissolved with the reverted
+  environment bit).
+- **Acceptance delivered — suite items 1–3 flip green** (statuses and evidence in the suite section; item
+  2 refined into two walls during authoring: the integrity gate catches hand-alteration before the seam
+  can, so the in-model miss is authored through the item-frame backstop). Four new judgment stars wired;
+  Go pins in `pkg/op/method_test.go` and the pristine-location pin beside the root-binding pair.
+- Gate: make check 103 ok / 0 fail; vet clean under darwin, windows, and linux; gofmt clean. PR 1's
+  docket is complete.
 
 **PR slicing (task issues filed 2026-08-22, indexed by #586):** PR 1
 ([#609](https://github.com/NobleFactor/devlore-cli/issues/609)) — steps 1–4, the dispatch seam (opening
@@ -576,8 +631,7 @@ the plan's standing gate: `make check` (103/0), `make vet-all`, `gofmt -l`.
 
 **Flagged, not decided:** the phase-3 note chartered the Docker and Go Toolchain e2e lore scenarios to run
 alongside the campaign — they have not started, and phase 4 is the natural host if they are to move now;
-step 1's run-vs-session distinction may already exist on `RuntimeEnvironment` or may need a bit — the
-implementing PR's first discovery either way; the plan-time mirror of the step-2 refusal
+the plan-time mirror of the step-2 refusal
 (`checkPromiseTypes` / `typesAreInterconvertible` are documented as agreeing with dispatch,
 pkg/op/validate.go:238, and step 2 changes dispatch's side) — leaning: graph-context narrowing so a
 declared-string producer into a resource-typed slot refuses at `ValidateGraph`, step 2 the backstop for
@@ -737,14 +791,22 @@ progresses. Items 1–3 ride phase 4's PRs 1–2; items 4–13 are PR 3's accept
 
 1. **Save, reload, run — identity all the way through.** Plan with a claimed source, save, reload, run:
    the dispatched source IS the section-rehydrated catalog entry (object identity), re-based to the run
-   root — never a reconstructed twin. Status: predicted (PR 1; the step-7 acceptance restated).
-2. **The doctored miss refuses.** Hand-edit one slot URI to a name the catalog never held: the run fails
-   with the typed verdict naming the URI, the destination is never created, and no disk contact results
-   from the miss. Status: predicted (PR 1).
+   root — never a reconstructed twin. Status: **green** (2026-08-22, PR 1) —
+   `test_judgment_reload_dispatch.star` (the reloaded slot string resolves and the copy flows) plus the
+   Go pins: `resolveDispatchResource`'s canonical-pointer assertions (`pkg/op/method_test.go`) and
+   `TestRun_PlanningCatalogStaysPristineInLocation` (the planning object still binds the plan root after
+   a run under another root — copy-on-bind severed the aliasing).
+2. **The miss refuses — two walls (refined during authoring).** Wall 1: a hand-doctored document never
+   reaches the seam — slots live inside the canonical bytes, so the integrity gate refuses at load
+   (`test_judgment_doctored_checksum.star`, "checksum mismatch"). Wall 2: an in-model miss — a gather
+   item record carrying a raw string into a resource-typed slot (the item-frame backstop) — fails at
+   dispatch with the §5.6 verdict, destination never created (`test_judgment_dispatch_miss.star`,
+   "not in the run catalog"; the seam's own mechanics pinned in `pkg/op/method_test.go`). Status:
+   **green** (2026-08-22, PR 1), both walls.
 3. **The string-promise refusal.** A declared-string producer's promise feeds a `*Regular` slot: refused
-   at `ValidateGraph` if the plan-time narrowing is ruled in, at dispatch otherwise — pinned wherever the
-   implementing PR decides, and pinned that it is never silently minted. Status: predicted (PR 1 rules
-   the mirror).
+   at `ValidateGraph` — the plan-time narrowing landed as leaned
+   (`test_judgment_string_promise_refusal.star`, "returns a string, but the slot is resource-typed");
+   undeclared producers meet the dispatch refusal (wall 2). Status: **green** (2026-08-22, PR 1).
 
 **B. Discover and resolve**
 

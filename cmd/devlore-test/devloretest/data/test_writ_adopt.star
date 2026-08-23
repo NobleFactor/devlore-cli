@@ -25,7 +25,11 @@ t.set_flags({
 })
 
 mkdir = plan.file.mkdir(path=plan.variable("dest_dir"), mode=0o755)
-move  = plan.file.move(source=plan.variable("source_path"), destination_path=plan.variable("dest_path"))
+# The consumed source is an authored plan-space path — a plan-time claim (§5.1). A variable cannot bind a
+# resource-typed slot (interim ruling 2026-08-22): its value arrives at run start, and a string is a key,
+# never a constructor at dispatch; run-start claiming — variables resolved the way promises are — is
+# chartered to lift this. String-typed parameters keep the variable model this fixture exists to pin.
+move  = plan.file.move(source=src_path, destination_path=plan.variable("dest_path"))
 link  = plan.file.link(source_path=plan.variable("dest_path"), target_path=plan.variable("source_path"))
 
 graph = plan.assemble_definition([mkdir, move, link])

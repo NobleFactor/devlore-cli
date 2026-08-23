@@ -635,6 +635,27 @@ func (c *ResourceCatalog) VerifyExistence(resource Resource) error {
 	return fmt.Errorf("verify existence: resource %q does not exist", resource.URI())
 }
 
+// rebindEntry replaces `old`'s ledger slot with `bound` — the activation binding's copy-on-bind swap
+// (the step-4 ruling, 2026-08-22).
+//
+// Identity, id, state, and the namespace are untouched: the copy carries the same URI and recorded id,
+// so only the object the ledger hands out changes. [GraphExecutor.bindPendingResources] is the sole
+// caller — the run's clone swaps in the run-bound copy so the planning session's shared object stays
+// pristine.
+//
+// Parameters:
+//   - `old`: the entry being replaced; located by its stamped catalog id.
+//   - `bound`: the run-bound copy that takes its ledger slot.
+func (c *ResourceCatalog) rebindEntry(old, bound Resource) {
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if i, ok := c.byID[old.resourceBase().id]; ok {
+		c.entries[i] = bound
+	}
+}
+
 // lookupOrCatalog performs the namespace lookup under the catalog mutex.
 //
 // On hit returns the canonical entry; on miss interns r as a discovery entry and returns it. Caller must run any

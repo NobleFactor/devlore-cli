@@ -539,7 +539,12 @@ type lifecycleResource struct {
 	resolveErr     error
 	resolveCalls   int
 	present        bool
-	existsCalls    int
+
+	// existsCalls counts Exists probes through a shared cell: the activation binding probes a
+	// kind-preserving COPY of the entry (the step-4 copy-on-bind ruling), so a plain int field would
+	// count on the copy while the test's original read zero. Allocated at construction; a fixture built
+	// without a cell fails loudly on first probe.
+	existsCalls *int
 }
 
 // Addressing returns the caller-supplied [AddressingMode] for this fixture.
@@ -564,7 +569,7 @@ func (r *lifecycleResource) Resolve() error {
 //   - `bool`: the configured presence.
 func (r *lifecycleResource) Exists() bool {
 
-	r.existsCalls++
+	*r.existsCalls++
 	return r.present
 }
 
@@ -581,6 +586,7 @@ func newLifecycle(uri string, mode AddressingMode) *lifecycleResource {
 	return &lifecycleResource{
 		ResourceBase:   ResourceBase{uri: uri},
 		addressingMode: mode,
+		existsCalls:    new(int),
 	}
 }
 
@@ -756,8 +762,8 @@ func TestCatalog_VerifyExistence_ActiveShortCircuits(t *testing.T) {
 	if err := c.VerifyExistence(r); err != nil {
 		t.Fatalf("second VerifyExistence() error = %v", err)
 	}
-	if r.existsCalls != 1 {
-		t.Errorf("existsCalls = %d, want 1 (an Active entry is not re-checked)", r.existsCalls)
+	if *r.existsCalls != 1 {
+		t.Errorf("existsCalls = %d, want 1 (an Active entry is not re-checked)", *r.existsCalls)
 	}
 }
 

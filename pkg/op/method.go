@@ -399,7 +399,7 @@ func (m *Method) Invoke(activation *ActivationRecord, receiver any) (Result, Com
 			value = resolved
 		}
 
-		val, err := Convert(activation.RuntimeEnvironment, value, p.Type)
+		val, err := convertSlotValue(activation, value, p.Type)
 		if err != nil {
 			return nil, nil, fmt.Errorf("param %s: %w", p.Name, err)
 		}
@@ -632,6 +632,33 @@ const (
 
 // region HELPER FUNCTIONS
 
+// convertSlotValue converts one resolved slot value toward its parameter type, routing resource-typed
+// parameters through graph dispatch's identity resolution first.
+//
+// At graph dispatch a string is a key, never a constructor (4-resource-management.md §5.6): when the
+// activation is a graph dispatch (`activation.Graph` non-nil — the per-dispatch frame carries dispatch
+// kind) and the parameter is resource-typed, the slot value resolves through the run catalog via
+// [resolveDispatchResource] and a miss is the catalog's refusal, never fresh construction. Every other
+// dispatch — immediate mode's nil-Graph activations — and every non-resource parameter follows
+// [Convert]'s cascade unchanged.
+//
+// Parameters:
+//   - `activation`: the per-dispatch record carrying dispatch kind and the runtime environment.
+//   - `value`: the resolved slot value.
+//   - `target`: the parameter's declared Go type.
+//
+// Returns:
+//   - `any`: the converted (or catalog-resolved) value.
+//   - `error`: non-nil when resolution refuses or no conversion path succeeds.
+func convertSlotValue(activation *ActivationRecord, value any, target reflect.Type) (any, error) {
+
+	if v, applied, err := resolveDispatchResource(activation, value, target); applied {
+		return v, err
+	}
+
+	return Convert(activation.RuntimeEnvironment, value, target)
+}
+
 // guardConsumedGone applies the consumed-Gone guard to the converted arguments (§3's consumption table).
 //
 // Each catalog-resident resource among the arguments is checked against the run catalog's state; a [Gone]
@@ -686,6 +713,73 @@ func guardConsumedGone(activation *ActivationRecord, goArgs []any) error {
 	}
 
 	return nil
+}
+
+// resolveDispatchResource is graph dispatch's identity resolution — the §5.6 seam.
+//
+// Applies only when `activation` is a graph dispatch with a run catalog and `target` implements
+// [Resource]. A [Resource] value resolves by its URI — the dispatched object must BE the run clone's
+// entry (re-based, state-carrying, the row pre-flight verified), never the captured planning object. A
+// string is the rehydrated identity a reload leaves in the slot and resolves as the key it is. Any other
+// value cannot name a resource at dispatch. A miss is the catalog's verdict: the catalog is complete by
+// construction (§5.1), so nothing constructs here — construction from strings survives only in load-time
+// rehydration and immediate mode.
+//
+// Parameters:
+//   - `activation`: the per-dispatch record; its Graph and the environment's catalog gate the step.
+//   - `value`: the resolved slot value.
+//   - `target`: the parameter's declared Go type.
+//
+// Returns:
+//   - `any`: the run clone's canonical entry on a hit.
+//   - `bool`: true when this step applied (regardless of error).
+//   - `error`: the refusal on a miss, a non-identity value, or an entry that cannot fill `target`.
+func resolveDispatchResource(activation *ActivationRecord, value any, target reflect.Type) (resolved any, applied bool, err error) {
+
+	if activation == nil || activation.Graph == nil {
+		return nil, false, nil
+	}
+	environment := activation.RuntimeEnvironment
+	if environment == nil || environment.ResourceCatalog == nil {
+		return nil, false, nil
+	}
+	if !target.Implements(resourceInterfaceType) {
+		return nil, false, nil
+	}
+
+	var key string
+	switch v := value.(type) {
+	case Resource:
+		key = v.URI()
+	case string:
+		key = v
+	case nil:
+		return nil, false, nil
+	default:
+		return nil, true, fmt.Errorf(
+			"graph dispatch: a %T cannot name a resource — a string is a key, never a constructor (4-resource-management.md §5.6)",
+			value)
+	}
+
+	catalog := environment.ResourceCatalog
+
+	id := catalog.Current(key)
+	if id == "" {
+		return nil, true, fmt.Errorf(
+			"graph dispatch: %q is not in the run catalog — a string is a key, never a constructor; nothing constructs at dispatch (4-resource-management.md §5.6)",
+			key)
+	}
+
+	canonical, ok := catalog.Lookup(id)
+	if !ok {
+		return nil, true, fmt.Errorf("graph dispatch: run catalog names %q as %s but holds no entry", key, id)
+	}
+	if !reflect.TypeOf(canonical).AssignableTo(target) {
+		return nil, true, fmt.Errorf(
+			"graph dispatch: run catalog entry %q is %T, which cannot fill a %s slot", key, canonical, target)
+	}
+
+	return canonical, true, nil
 }
 
 // verdictForGone renders the catalog's verdict for a consumed-Gone entry, naming both units when the

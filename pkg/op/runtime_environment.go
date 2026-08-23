@@ -856,7 +856,7 @@ type RuntimeEnvironmentSpec struct {
 	//
 	// When nil, [NewRuntimeEnvironment] creates a fresh empty [ResourceCatalog]. Callers that need to seed the
 	// environment with a pre-built catalog — typically [GraphExecutor.Run] cloning the graph's planning catalog
-	// onto the per-run environment — set this via [WithCatalog].
+	// onto the per-run environment — set this via [WithResourceCatalog].
 	ResourceCatalog *ResourceCatalog
 
 	// Platform classifies the host (OS, arch, distro, version) and gives access to the managers available to providers.
@@ -922,7 +922,8 @@ func (c *RuntimeEnvironmentSpec) WithApplication(app *application.Application) *
 	return c
 }
 
-// WithCatalog seeds the constructed runtime environment with the supplied [*ResourceCatalog] instead of a fresh one.
+// WithResourceCatalog seeds the constructed runtime environment with the supplied [*ResourceCatalog]
+// instead of a fresh one.
 //
 // Used by [GraphExecutor.Run] to clone the planning graph's catalog onto the per-run environment, so the
 // per-run env is born with the right catalog instead of having one created and immediately replaced.
@@ -933,7 +934,7 @@ func (c *RuntimeEnvironmentSpec) WithApplication(app *application.Application) *
 //
 // Returns:
 //   - *RuntimeEnvironmentSpec: the config for method chaining.
-func (c *RuntimeEnvironmentSpec) WithCatalog(catalog *ResourceCatalog) *RuntimeEnvironmentSpec {
+func (c *RuntimeEnvironmentSpec) WithResourceCatalog(catalog *ResourceCatalog) *RuntimeEnvironmentSpec {
 
 	c.ResourceCatalog = catalog
 	return c

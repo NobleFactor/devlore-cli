@@ -28,7 +28,9 @@ t.set_flags({
 # Phase 1 plan-doc captures the intent here so the bubble-up contract is exercised at the .star level.
 sg = plan.subgraph(body=[
     plan.file.mkdir(path=plan.variable("dest_dir"), mode=0o755),
-    plan.file.move(source=plan.variable("source_path"), destination_path=plan.variable("dest_path")),
+    # The consumed source is an authored plan-space path — a plan-time claim (§5.1); a variable cannot
+    # bind a resource-typed slot (interim ruling 2026-08-22, run-start claiming chartered to lift it).
+    plan.file.move(source=src_path, destination_path=plan.variable("dest_path")),
     plan.file.link(source_path=plan.variable("dest_path"), target_path=plan.variable("source_path")),
 ])
 

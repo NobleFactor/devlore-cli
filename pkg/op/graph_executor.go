@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
@@ -304,7 +305,9 @@ func (e *GraphExecutor) ResumeUnwind(ctx context.Context) error {
 		return fmt.Errorf("ResumeUnwind: graph carries no resource catalog — mandatory even when empty")
 	}
 
-	environment, buildErr := NewRuntimeEnvironment(ctx, e.spec.WithCatalog(e.graph.ResourceCatalog().Clone()))
+	// A value copy of the host's spec: run-only state (the cloned catalog) never lands on the caller's object.
+	runSpec := *e.spec
+	environment, buildErr := NewRuntimeEnvironment(ctx, runSpec.WithResourceCatalog(e.graph.ResourceCatalog().Clone()))
 	if buildErr != nil {
 		return fmt.Errorf("ResumeUnwind: build runtime environment: %w", buildErr)
 	}
@@ -498,7 +501,9 @@ func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) 
 		return nil, fmt.Errorf("Run: graph carries no resource catalog — mandatory even when empty")
 	}
 
-	environment, buildErr := NewRuntimeEnvironment(ctx, e.spec.WithCatalog(e.graph.ResourceCatalog().Clone()))
+	// A value copy of the host's spec: run-only state (the cloned catalog) never lands on the caller's object.
+	runSpec := *e.spec
+	environment, buildErr := NewRuntimeEnvironment(ctx, runSpec.WithResourceCatalog(e.graph.ResourceCatalog().Clone()))
 	if buildErr != nil {
 		e.status = RunStatus{Phase: PhaseStopped, Condition: ConditionExecutionFailed,
 			Reason: ReasonPreflightFailed, Message: "runtime environment build failed"}
@@ -1055,18 +1060,6 @@ func (e *GraphExecutor) bindVariables(graph *Graph, callerVariables map[string]V
 	return nil
 }
 
-// resolvePendingResources drives the discovery-side Pending → Active/Gone transition at pre-flight (phase-8 step 22).
-//
-// Plan-time resources are introduced into the graph's catalog as [Pending] — deliberately unresolved — and are
-// expected to resolve here, once the catalog is cloned onto the per-run [RuntimeEnvironment] and the executor owns it.
-// Each [Pending] entry whose type participates in existence verification (see [participatesInExistenceVerification] —
-// the staged rollout's gate) is verified through [ResourceCatalog.VerifyExistence], which reads [Resource.Exists] and
-// applies the catalog-owned transition.
-//
-// The pass marks and never fails the run: a [Gone] resource is a recorded fact, not a stop — planning and running
-// operations against a not-yet-existent path is legitimate (`file.exists` on a missing file answers false; a producer
-// revives a [Gone] URI via shadow), and consumers of a genuinely missing resource fail at their own dispatch (the Q2
-// "dependents fail on their own" precedent). The probes are read-only (stat-class), so the pass also runs in dry-run.
 // verifyScopeClaims verifies the claims a scope's own units consume — the scoped pre-flight (§3, ruled
 // 2026-08-22).
 //
@@ -1102,7 +1095,20 @@ func (e *GraphExecutor) verifyScopeClaims(scopeID string, units []ExecutableUnit
 			}
 
 			resource, ok := immediate.Resolve(nil, nil).(Resource)
-			if !ok || !participatesInExistenceVerification(resource) {
+			if !ok {
+				continue
+			}
+
+			// The slot holds the planning session's object; the run's world lives in the clone's ledger,
+			// where the activation binding installed the run-bound COPY (the step-4 ruling). Verification
+			// probes the canonical entry, never the slot's pristine capture.
+			if id := catalog.Current(resource.URI()); id != "" {
+				if canonical, found := catalog.Lookup(id); found {
+					resource = canonical
+				}
+			}
+
+			if !participatesInExistenceVerification(resource) {
 				continue
 			}
 
@@ -1180,12 +1186,18 @@ func (e *GraphExecutor) bindPendingResources() {
 		// pending entry re-bases onto the run's environment, and a root-relative scheme re-binds its path
 		// rel-first against the run's root through the [RootBinder] seam — so scoped verification, and
 		// every later observation, read the run's world rather than the environment that happened to
-		// construct or rehydrate the object (the run-from-elsewhere defect). Existence is NOT checked
+		// construct or rehydrate the object (the run-from-elsewhere defect). The run binds a COPY (the
+		// step-4 ruling, 2026-08-22): [ResourceCatalog.Clone] shares Resource pointers with the planning
+		// catalog, so binding in place would re-root the planning session's own objects; the bound copy
+		// replaces the clone's ledger entry instead, dispatch reaches it through identity resolution
+		// ([resolveDispatchResource]), and the planning catalog stays pristine. Existence is NOT checked
 		// here: verification is scoped per subgraph executor ([GraphExecutor.verifyScopeClaims]).
-		resource.resourceBase().runtimeEnvironment = e.environment
-		if binder, ok := resource.(RootBinder); ok && e.environment.HasRoot() {
+		bound := shallowCopyResource(resource)
+		bound.resourceBase().runtimeEnvironment = e.environment
+		if binder, ok := bound.(RootBinder); ok && e.environment.HasRoot() {
 			binder.BindRoot(e.environment.Root())
 		}
+		catalog.rebindEntry(resource, bound)
 	}
 }
 
@@ -1483,6 +1495,32 @@ func participatesInExistenceVerification(resource Resource) bool {
 
 	_, ok := existenceVerifiableTypes[resource.resourceBase().ResourceType()]
 	return ok
+}
+
+// shallowCopyResource returns a kind-preserving shallow copy of `r` — a fresh value of r's concrete
+// struct type holding the same field values.
+//
+// The activation binding copies before it re-bases (the step-4 ruling, 2026-08-22): [ResourceCatalog.Clone]
+// shares Resource pointers with the planning catalog, and [RootBinder.BindRoot] assigns a fresh
+// SourcePath rather than mutating shared path state, so a shallow copy of the concrete struct fully
+// severs the bound entry from the planning session's object.
+//
+// Parameters:
+//   - `r`: the resource to copy; expected to be a pointer to its concrete struct (every sealed resource is).
+//
+// Returns:
+//   - `Resource`: the copy, of the same concrete type; `r` itself when it is not a pointer.
+func shallowCopyResource(r Resource) Resource {
+
+	v := reflect.ValueOf(r)
+	if v.Kind() != reflect.Pointer || v.IsNil() {
+		return r
+	}
+
+	copied := reflect.New(v.Elem().Type())
+	copied.Elem().Set(v.Elem())
+
+	return copied.Interface().(Resource)
 }
 
 // endregion

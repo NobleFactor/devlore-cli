@@ -6,6 +6,7 @@ package op
 import (
 	"errors"
 	"fmt"
+	"reflect"
 )
 
 // ValidateGraph asserts the assembled graph satisfies the plan-time invariants every executable unit
@@ -56,10 +57,68 @@ func ValidateGraph(g *Graph) error {
 	violations = checkRequiredParams(violations, g)
 	violations = checkBubbleUpConsistency(violations, g)
 	violations = checkPromiseTypes(violations, g)
+	violations = checkVariableResourceSlots(violations, g)
 	violations = checkEdges(violations, g)
 	violations = checkItemProjectionScope(violations, g)
 
 	return errors.Join(violations...)
+}
+
+// checkVariableResourceSlots refuses a plain [VariableBinding] into a resource-typed slot — the interim
+// posture while run-start claiming is chartered (ruled 2026-08-22: a variable binds the way a promise
+// does, only after execution begins, so its claim belongs to the run's pre-flight; until that pass
+// exists, a variable-fed resource slot would reach dispatch as a string and refuse there — this check
+// moves the refusal to plan time, the variable mirror of [checkPromiseSlot]'s declared-string narrowing).
+//
+// Plain variables only: flag / config / override / environment sources are string-valued by
+// construction, so a plain variable can never deliver a resource. The reserved gather frame (`item`) is
+// exempt — its records are plan-authored data that may carry CLAIMED resources (the writ-adopt shape),
+// which the dispatch seam resolves by identity; an item field that turns out to be a string meets the
+// dispatch refusal instead.
+//
+// Parameters:
+//   - `violations`: the accumulating violation slice.
+//   - `g`: the graph to walk.
+//
+// Returns:
+//   - []error: the (possibly-extended) violation slice.
+func checkVariableResourceSlots(violations []error, g *Graph) []error {
+
+	for id, unit := range indexUnitsByID(g) {
+
+		action := unit.Action()
+		if action == nil {
+			continue
+		}
+		method := action.Method()
+		if method == nil {
+			continue
+		}
+
+		for slotName, slotValue := range unit.Slots() {
+
+			binding, ok := slotValue.(VariableBinding)
+			if !ok || binding.Name() == "item" {
+				continue
+			}
+
+			param, present := method.ParameterByName(slotName)
+			if !present || param.Type == nil {
+				continue
+			}
+
+			if param.Type.Implements(resourceInterfaceType) {
+				violations = append(violations, fmt.Errorf(
+					"op.ValidateGraph: unit %q slot %q: a variable binds a resource-typed slot (%s) — a variable's "+
+						"value arrives at run start, and a string is a key, never a constructor at dispatch; author "+
+						"the path (a plan-time claim) or feed a producer's promise (run-start claiming is chartered: "+
+						"4-resource-management.md §5.6)",
+					id, slotName, param.Type))
+			}
+		}
+	}
+
+	return violations
 }
 
 // checkItemProjectionScope flags item-field projections outside a gather body (phase-8 step 45).
@@ -326,6 +385,20 @@ func checkPromiseSlot(
 	targetType := param.Type
 	if targetType == nil {
 		return nil
+	}
+
+	// Graph dispatch resolves resource-typed slots by identity and never constructs (§5.6), so a producer
+	// whose DECLARED result is a string can only miss the run catalog — a run-computed string is not a
+	// recorded identity. The binding refuses here, at plan time, rather than at dispatch; undeclared
+	// producers (nil ResultType) pass above and meet the dispatch refusal instead. The general
+	// [typesAreInterconvertible] relation still admits string→Resource for its other uses (bubble-up
+	// dedup, immediate mode), so this narrowing is the graph-context mirror of the dispatch seam.
+	if targetType.Implements(resourceInterfaceType) && sourceType.Kind() == reflect.String {
+		return fmt.Errorf(
+			"op.ValidateGraph: unit %q slot %q: producer %q returns a string, but the slot is resource-typed (%s) — "+
+				"a string is a key, never a constructor at dispatch; produce a resource, or route the run-computed "+
+				"path through an explicit discovery (4-resource-management.md §5.6–5.7)",
+			id, slotName, edge.From, targetType)
 	}
 
 	if typesAreInterconvertible(sourceType, targetType) {
