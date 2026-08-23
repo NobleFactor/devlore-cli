@@ -9,13 +9,21 @@ updated: 2026-06-07
 
 # Function-resource slots + content-resource transport
 
-> **Superseded in part, 2026-08-20** ([resource-construction](../../resource-construction.md), feature
+> **Superseded in part, 2026-08-20; the supersession is complete as of 2026-08-22**
+> ([resource-construction](../../resource-construction.md), feature
 > [#581](https://github.com/NobleFactor/devlore-cli/issues/581)): step 3's scoping of graph-document
 > transport to content-addressed resources — with references left to "recreate from slot URIs" — was too
 > narrow; this Goal's own "including on another host" requires the ledger. The graph document now carries a
 > mandatory catalog section: every entry as pending intent, content entries additionally carrying their
 > packed bytes. The content-transport mechanism this plan landed is unchanged; only the exclusion of
 > reference entries is withdrawn.
+>
+> What replaced "recreate from slot URIs", now landed: a slot's URI is a **key, never a constructor** at
+> graph dispatch — it resolves against the run catalog rehydrated from the document's section, and a miss
+> refuses ([4-resource-management.md](../../../architecture/4-resource-management.md) §5.6). Reference
+> entries therefore travel as intent rows and arrive as verified, run-bound entries; nothing is recreated
+> from a string mid-run. The Goal's "save the graph and run it many times, including on another host" is
+> satisfied for every addressing, not only the content-addressed ones.
 
 ## Goal
 

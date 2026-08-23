@@ -5,13 +5,14 @@
 > [#581](https://github.com/NobleFactor/devlore-cli/issues/581)): the catalog is input intent and travels with
 > the graph (§5), plan-space file paths follow the git model, file identity is root-relative, and **the
 > declared-output-spec proposal is rejected** — products are runtime facts, so the former Appendix A is
-> removed rather than preserved (§9 item 8). Implementation: phases 0–3
-> ([#582](https://github.com/NobleFactor/devlore-cli/issues/582)–[#585](https://github.com/NobleFactor/devlore-cli/issues/585),
-> delivered 2026-08-20..22) are in the tree — the serialized section is enforced, file identity is the rel
-> with run-bound activation, and plan-time claiming, scoped verification, `MissingResourcePolicy`, and the
-> consumed-Gone guard are live; [#586](https://github.com/NobleFactor/devlore-cli/issues/586) (run time
-> consumes the catalog at dispatch) and [#587](https://github.com/NobleFactor/devlore-cli/issues/587)
-> (closure) remain. Companion: [`4-resource-management.status.md`](4-resource-management.status.md).
+> removed rather than preserved (§9 item 8). **Implementation complete 2026-08-22**
+> ([#582](https://github.com/NobleFactor/devlore-cli/issues/582)–[#586](https://github.com/NobleFactor/devlore-cli/issues/586)):
+> the serialized section is enforced; file identity is the rel with run-bound activation; plan-time
+> claiming, scoped verification, `MissingResourcePolicy`, and the consumed-Gone guard are live; and
+> dispatch resolves resource slots by identity against the run catalog — a string is a key, never a
+> constructor (§5.6), with run-computed paths entering through `file.discover` / `file.resolve` (§5.7).
+> The design and the tree agree. Companion:
+> [`4-resource-management.status.md`](4-resource-management.status.md).
 
 This document describes resource management in `pkg/op`: how providers track external state through typed resource
 handles, how the catalog resolves URI-based identity across the execution graph, and how recovery unifies under
