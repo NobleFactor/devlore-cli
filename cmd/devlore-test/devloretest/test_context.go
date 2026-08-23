@@ -235,6 +235,7 @@ func (tc *TestContext) StarlarkValue() starlark.Value {
 		"tmp":                       starlark.NewBuiltin("t.tmp", tc.starTmp),
 		"mkdir":                     starlark.NewBuiltin("t.mkdir", tc.starMkdir),
 		"write":                     starlark.NewBuiltin("t.write", tc.starWrite),
+		"symlink":                   starlark.NewBuiltin("t.symlink", tc.starSymlink),
 		"expect_file":               starlark.NewBuiltin("t.expect_file", tc.starExpectFile),
 		"expect_no_file":            starlark.NewBuiltin("t.expect_no_file", tc.starExpectNoFile),
 		"expect_unit_count":         starlark.NewBuiltin("t.expect_unit_count", tc.starExpectUnitCount),
@@ -562,6 +563,35 @@ func (tc *TestContext) starWrite(
 
 	if err := os.WriteFile(abs, []byte(content), 0o600); err != nil {
 		return nil, fmt.Errorf("t.write: %w", err)
+	}
+
+	return starlark.None, nil
+}
+
+// starSymlink implements t.symlink(target, link) — an OUT-OF-BAND symbolic link: the harness writes the
+// disk directly (plain [os.Symlink]; no provider, no catalog), standing in for the world outside the
+// model. Kind-honest activation scenarios need exactly this — a claim's disk reality changed behind the
+// model's back, which no provider call can produce (providers intern what they touch).
+func (tc *TestContext) starSymlink(
+	_ *starlark.Thread,
+	_ *starlark.Builtin,
+	args starlark.Tuple,
+	kwargs []starlark.Tuple,
+) (starlark.Value, error) {
+
+	var target, link string
+	if err := starlark.UnpackPositionalArgs("t.symlink", args, kwargs, 2, &target, &link); err != nil {
+		return nil, err
+	}
+
+	linkAbs := tc.resolve(link)
+
+	if err := os.MkdirAll(filepath.Dir(linkAbs), 0o750); err != nil {
+		return nil, fmt.Errorf("t.symlink: %w", err)
+	}
+
+	if err := os.Symlink(tc.resolve(target), linkAbs); err != nil {
+		return nil, fmt.Errorf("t.symlink: %w", err)
 	}
 
 	return starlark.None, nil

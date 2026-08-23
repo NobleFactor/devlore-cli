@@ -381,6 +381,21 @@ func bindPresentValue(invocator PlanInvocator, spec *NodeSpec, actionName string
 
 	default:
 
+		// An authored string cannot bind an interface-typed resource slot (4-resource-management.md §5.7
+		// rule 6, ruled 2026-08-22): a claim asserts a kind — "claims are true when made" needs a kind to
+		// be true about — and an interface asserts none. The author states the kind, or feeds a
+		// discovery's promise; mechanically, plan-time claiming constructs the parameter's type, and an
+		// interface cannot be instantiated.
+		if param.Type != nil && param.Type.Kind() == reflect.Interface && param.Type.Implements(resourceInterfaceType) {
+			if _, isString := value.(string); isString {
+				return fmt.Errorf(
+					"op.ActionPlanner.Plan: %s: param %q: an authored string cannot bind the interface-typed "+
+						"resource slot %s — a claim asserts a kind and an interface asserts none; state the kind, "+
+						"or feed a discovery (4-resource-management.md §5.7)",
+					actionName, param.Name, param.Type)
+			}
+		}
+
 		value, err := normalizePlanSpaceValue(actionName, param, value)
 		if err != nil {
 			return err

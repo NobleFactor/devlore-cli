@@ -5,6 +5,7 @@ package file
 
 import (
 	"fmt"
+	"path/filepath"
 	"reflect"
 
 	// Aliased: plan-space paths are a slash-form language on every platform; their canonical form comes
@@ -12,6 +13,7 @@ import (
 	slashpath "path"
 	"strings"
 
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -88,6 +90,43 @@ func NormalizePlanSpacePath(path string) (string, error) {
 	return cleaned, nil
 }
 
+// NormalizeRuntimePath renders a run-computed path into the slash-canonical rel the run catalog speaks —
+// the runtime dialect of the plan-space grammar (4-resource-management.md §5.7 rule 3, ruled 2026-08-22).
+//
+// Rels normalize exactly as authored plan-space paths do, with the same refusals: escapes, the reserved
+// @name spelling, the bare root, backslashes. The dialect's one addition: a machine-absolute input is
+// interpretable here because the run's root is bound — machine-absoluteness arises only from the run's
+// root choice (§5.2), and the discovery actions sit on the far side of that choice — so an absolute path
+// under `root` rebases to its rel, and one outside `root` (another volume and UNC spellings included)
+// refuses as a confinement violation.
+//
+// Dialect sharpening, recorded at PR 3: on unix a leading slash is ambiguous between the plan-space
+// anchored spelling and machine-absoluteness — at run time the machine reading wins (tools emit machine
+// absolutes), so the two readings agree under the root and an out-of-root absolute refuses rather than
+// silently confining. Authors of literals write bare rels.
+//
+// Parameters:
+//   - `root`: the run's bound root.
+//   - `path`: the run-computed path in any spelling.
+//
+// Returns:
+//   - `string`: the slash-canonical rel.
+//   - `error`: the dialect's refusal.
+func NormalizeRuntimePath(root fsroot.Dir, path string) (string, error) {
+
+	if isMachineAbsolute(path) {
+		rel, within := fsroot.RelWithin(root.Name(), path)
+		if !within {
+			return "", fmt.Errorf(
+				"file: runtime path %q lies outside the run's root %q — confinement admits no resource beyond the root",
+				path, root.Name())
+		}
+		return rel, nil
+	}
+
+	return NormalizePlanSpacePath(path)
+}
+
 // isASCIILetter reports whether b is an ASCII letter — the drive-letter half of a volume spelling.
 //
 // Parameters:
@@ -97,4 +136,24 @@ func NormalizePlanSpacePath(path string) (string, error) {
 //   - `bool`: true for A-Z and a-z.
 func isASCIILetter(b byte) bool {
 	return (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
+}
+
+// isMachineAbsolute reports whether `path` is machine-absolute in any spelling a host tool might emit —
+// the platform's own IsAbs judgment, a volume spelling, or a UNC spelling (the latter two matter
+// off-Windows, where [filepath.IsAbs] does not recognize them).
+//
+// Parameters:
+//   - `path`: the path to judge.
+//
+// Returns:
+//   - `bool`: true for any machine-absolute spelling.
+func isMachineAbsolute(path string) bool {
+
+	if filepath.IsAbs(path) {
+		return true
+	}
+	if len(path) >= 2 && path[1] == ':' && isASCIILetter(path[0]) {
+		return true
+	}
+	return strings.HasPrefix(path, `\\`)
 }

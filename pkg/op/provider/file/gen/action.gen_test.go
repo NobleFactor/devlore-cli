@@ -19,6 +19,7 @@ func TestActionNames(t *testing.T) {
 	names := []op.ActionName{
 		provider.Backup,
 		provider.Copy,
+		provider.Discover,
 		provider.Exists,
 		provider.Find,
 		provider.Glob,
@@ -28,6 +29,7 @@ func TestActionNames(t *testing.T) {
 		provider.Link,
 		provider.Mkdir,
 		provider.Move,
+		provider.MoveDirectory,
 		provider.Name,
 		provider.Observe,
 		provider.Parent,
@@ -35,6 +37,7 @@ func TestActionNames(t *testing.T) {
 		provider.ReadText,
 		provider.Remove,
 		provider.RemoveAll,
+		provider.Resolve,
 		provider.Root,
 		provider.Unlink,
 		provider.WalkTree,
@@ -55,6 +58,7 @@ func TestRegister(t *testing.T) {
 	expected := []op.ActionName{
 		provider.Backup,
 		provider.Copy,
+		provider.Discover,
 		provider.Exists,
 		provider.Find,
 		provider.Glob,
@@ -64,6 +68,7 @@ func TestRegister(t *testing.T) {
 		provider.Link,
 		provider.Mkdir,
 		provider.Move,
+		provider.MoveDirectory,
 		provider.Name,
 		provider.Observe,
 		provider.Parent,
@@ -71,6 +76,7 @@ func TestRegister(t *testing.T) {
 		provider.ReadText,
 		provider.Remove,
 		provider.RemoveAll,
+		provider.Resolve,
 		provider.Root,
 		provider.Unlink,
 		provider.WalkTree,
@@ -124,6 +130,29 @@ func TestCopyAction_DryRun(t *testing.T) {
 	}
 
 	wantSubstring := "[dry-run] " + string(provider.Copy)
+	if !strings.Contains(buf.String(), wantSubstring) {
+		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
+	}
+}
+
+func TestDiscoverAction_DryRun(t *testing.T) {
+
+	action := getAction(t, provider.Discover)
+	ctx, buf := dryRunCtx(t)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
+
+	result, undo, err := action.Do(activationRecord)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	if result != nil {
+		t.Errorf("dry-run result = %v, want nil", result)
+	}
+	if undo != nil {
+		t.Errorf("dry-run undo = %v, want nil", undo)
+	}
+
+	wantSubstring := "[dry-run] " + string(provider.Discover)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -336,6 +365,29 @@ func TestMoveAction_DryRun(t *testing.T) {
 	}
 }
 
+func TestMoveDirectoryAction_DryRun(t *testing.T) {
+
+	action := getAction(t, provider.MoveDirectory)
+	ctx, buf := dryRunCtx(t)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
+
+	result, undo, err := action.Do(activationRecord)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	if result != nil {
+		t.Errorf("dry-run result = %v, want nil", result)
+	}
+	if undo != nil {
+		t.Errorf("dry-run undo = %v, want nil", undo)
+	}
+
+	wantSubstring := "[dry-run] " + string(provider.MoveDirectory)
+	if !strings.Contains(buf.String(), wantSubstring) {
+		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
+	}
+}
+
 func TestNameAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Name)
@@ -492,6 +544,29 @@ func TestRemoveAllAction_DryRun(t *testing.T) {
 	}
 
 	wantSubstring := "[dry-run] " + string(provider.RemoveAll)
+	if !strings.Contains(buf.String(), wantSubstring) {
+		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
+	}
+}
+
+func TestResolveAction_DryRun(t *testing.T) {
+
+	action := getAction(t, provider.Resolve)
+	ctx, buf := dryRunCtx(t)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
+
+	result, undo, err := action.Do(activationRecord)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	if result != nil {
+		t.Errorf("dry-run result = %v, want nil", result)
+	}
+	if undo != nil {
+		t.Errorf("dry-run undo = %v, want nil", undo)
+	}
+
+	wantSubstring := "[dry-run] " + string(provider.Resolve)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}

@@ -29,6 +29,22 @@ type Directory struct {
 // sealedEntry marks Directory as a member of the closed [Entry] set (step 23, slice 4).
 func (*Directory) sealedEntry() {}
 
+// Exists reports whether a DIRECTORY exists at this resource's path — lstat plus kind test (kind-honest
+// activation, ruled 2026-08-22; step 23 ruling 5e).
+//
+// Kinds are lstat-strict: a regular file or a symbolic link at the path is not this resource, so a
+// *Directory claim over one fails verification at the starting line — "claims are true when made" —
+// rather than activating kind-blind and failing later at observation or I/O.
+//
+// Returns:
+//   - `bool`: true when the path holds a directory; false on any lstat error or any other kind.
+func (r *Directory) Exists() bool {
+
+	root := r.RuntimeEnvironment().Root()
+	info, err := root.Lstat(root.NewPath(r.SourcePath.Abs()))
+	return err == nil && info.Mode().IsDir()
+}
+
 // NewDirectory constructs a [file.Directory] and claims production via [op.ResourceCatalog.GetOrCreate].
 //
 // Use NewDirectory from a producer dispatch context; the returned Directory is the

@@ -32,11 +32,12 @@ type SymbolicLink struct {
 // run's root verified through Stat, followed the link out of confinement, and was falsely marked Gone).
 //
 // Returns:
-//   - `bool`: true when the link entry exists; false when the lstat fails for any reason.
+//   - `bool`: true when the path holds a symbolic link (lstat plus kind test — kind-honest activation,
+//     ruled 2026-08-22); false on any lstat error or any other kind.
 func (r *SymbolicLink) Exists() bool {
 	root := r.RuntimeEnvironment().Root()
-	_, err := root.Lstat(root.NewPath(r.SourcePath.Abs()))
-	return err == nil
+	info, err := root.Lstat(root.NewPath(r.SourcePath.Abs()))
+	return err == nil && info.Mode()&fs.ModeSymlink != 0
 }
 
 // sealedEntry marks SymbolicLink as a member of the closed [Entry] set (step 23, slice 4).

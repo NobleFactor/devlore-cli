@@ -112,15 +112,15 @@ func buildRegistrationGraph(
 
 	var registerInvocation *op.Invocation
 	if useMove {
-		// The claim types *Regular while the source is a directory tree; dispatch observes the actual
-		// kind (candidateOfMode) and the rename handles either. Kind-honest claims for directory moves
-		// ride the method-classification work (3.6). The consumed source is a claimed resource, so it is
-		// authored in plan space — the rel against the planning environment's root.
+		// The source is a directory tree, and the claim says so: file.move_directory takes a *Directory
+		// (kind-honest activation, ruled 2026-08-22 — the C2-recorded kind-looseness retired). The
+		// consumed source is a claimed resource, authored in plan space — the rel against the planning
+		// environment's root.
 		sourceRel, relErr := deploy.PlanSpacePath(environment, sourceRoot)
 		if relErr != nil {
 			return nil, relErr
 		}
-		registerInvocation, err = planProvider.Plan(file.Move, nil, map[string]any{
+		registerInvocation, err = planProvider.Plan(file.MoveDirectory, nil, map[string]any{
 			"source":           sourceRel,
 			"destination_path": layerDir,
 		})
