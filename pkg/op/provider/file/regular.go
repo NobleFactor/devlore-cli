@@ -17,10 +17,10 @@ import (
 //
 // The kind is declared intent, never stat-assigned (ruling 1): planning is offline, so the assertion is verified at
 // use rather than at construction — [Regular.Digest] and [Regular.Etag] observe the disk with lstat semantics and
-// error with a kind mismatch when the entry is anything else (ruling 5e). Identity is the embedded [Resource] (URI +
+// error with a kind mismatch when the entry is anything else (ruling 5e). Identity is the embedded [entry] (URI +
 // SourcePath); runtime-observed metadata lives on [*Observation], exactly as for the base.
 type Regular struct {
-	Resource
+	entry
 }
 
 // sealedEntry marks Regular as a member of the closed [Entry] set (step 23, slice 4).
@@ -66,7 +66,7 @@ func NewRegular(runtimeEnvironment *op.RuntimeEnvironment, producerID string, va
 		return nil, err
 	}
 
-	return internEntry(runtimeEnvironment, producerID, true, &Regular{Resource: *base})
+	return internEntry(runtimeEnvironment, producerID, true, &Regular{entry: *base})
 }
 
 // DiscoverRegular registers a [file.Regular] via [op.ResourceCatalog.Discover] without claiming production.
@@ -89,7 +89,7 @@ func DiscoverRegular(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Reg
 		return nil, err
 	}
 
-	return internEntry(runtimeEnvironment, "", false, &Regular{Resource: *base})
+	return internEntry(runtimeEnvironment, "", false, &Regular{entry: *base})
 }
 
 // region EXPORTED METHODS
@@ -128,7 +128,7 @@ func (r *Regular) Digest() (op.Digest, error) {
 
 // Equal reports whether `r` and `other` identify the same regular-file resource.
 //
-// Strict equality mirroring [Resource.Equal]: `other` must be a *file.Regular — the same URI held by another kind
+// Strict equality mirroring [entry.Equal]: `other` must be a *file.Regular — the same URI held by another kind
 // (or by the catch-all base) does not match. Once the type check passes, URI comparison is delegated to
 // [op.ResourceBase.Equal].
 //
@@ -206,7 +206,7 @@ func (*Regular) CanConvertFrom(source reflect.Type) bool {
 
 // ConvertFrom projects `value` into a fresh [*Regular].
 //
-// Mirrors [Resource.ConvertFrom]: the returned value carries the path under SourcePath but is NOT catalog-interned
+// Mirrors [entry.ConvertFrom]: the returned value carries the path under SourcePath but is NOT catalog-interned
 // at this layer; receiving provider methods intern via their own [NewRegular]/[DiscoverRegular] path.
 //
 // Parameters:
@@ -222,7 +222,7 @@ func (*Regular) ConvertFrom(value any) (any, error) {
 		return nil, fmt.Errorf("file.Regular.ConvertFrom: source must be string, got %T", value)
 	}
 
-	return &Regular{Resource: Resource{SourcePath: fsroot.NewPath("", str)}}, nil
+	return &Regular{entry: entry{SourcePath: fsroot.NewPath("", str)}}, nil
 }
 
 // UnmarshalJSON populates the receiver from a JSON-encoded string (a file path or file URI).

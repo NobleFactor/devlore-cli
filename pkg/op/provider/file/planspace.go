@@ -25,7 +25,7 @@ func init() {
 		reflect.TypeFor[*Regular](),
 		reflect.TypeFor[*Directory](),
 		reflect.TypeFor[*SymbolicLink](),
-		reflect.TypeFor[*Resource](),
+		reflect.TypeFor[*entry](),
 	} {
 		op.RegisterPlanPathNormalizer(t, NormalizePlanSpacePath)
 	}

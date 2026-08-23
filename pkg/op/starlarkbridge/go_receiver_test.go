@@ -258,3 +258,59 @@ for _ in range(3):
 }
 
 // endregion
+
+// unexportedEmbedBase is the shared implementation half of the promotion fixture: unexported, so it can
+// never be named or hand-built outside its package, while its exported fields still promote.
+type unexportedEmbedBase struct {
+	SourcePath string
+	Size       int
+}
+
+// PromotingOuter embeds an unexported base, the shape every file-taxonomy variant uses.
+type PromotingOuter struct {
+	unexportedEmbedBase
+	Kind string
+}
+
+// TestCollectFieldInfo_PromotesThroughAnUnexportedEmbed pins that the attribute surface mirrors Go's
+// promotion rules: `outer.Field` resolves through an unexported embedded struct in Go, so the same field
+// must be reachable from Starlark.
+//
+// The embed itself is NOT an attribute — it has no exported name to expose — but its exported fields
+// are. Reflection cooperates: the read-only flag that blocks reads through an unexported NAMED field is
+// deliberately not set for an anonymous one, so the promoted value is readable.
+func TestCollectFieldInfo_PromotesThroughAnUnexportedEmbed(t *testing.T) {
+
+	var info typeInfo
+	collectFieldInfo(reflect.TypeOf(PromotingOuter{}), nil, &info)
+
+	names := make(map[string]bool, len(info.fields))
+	for _, f := range info.fields {
+		names[f.starName] = true
+	}
+
+	for _, want := range []string{"source_path", "size", "kind"} {
+		if !names[want] {
+			t.Errorf("attribute %q missing; the unexported embed's fields must promote", want)
+		}
+	}
+	if names["unexported_embed_base"] {
+		t.Error("the unexported embed is exposed as an attribute; it has no exported name to expose")
+	}
+
+	value := reflect.ValueOf(PromotingOuter{
+		unexportedEmbedBase: unexportedEmbedBase{SourcePath: "a.txt", Size: 7}, Kind: "regular"})
+
+	for _, f := range info.fields {
+		if f.starName != "source_path" {
+			continue
+		}
+		field := value.FieldByIndex(f.index)
+		if !field.CanInterface() {
+			t.Fatal("the promoted field is not readable through reflection")
+		}
+		if got := field.Interface(); got != "a.txt" {
+			t.Errorf("promoted value = %v, want a.txt", got)
+		}
+	}
+}

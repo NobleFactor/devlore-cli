@@ -1438,7 +1438,7 @@ func (p *Provider) findWalkFunc(
 	}
 }
 
-// Glob returns the [Resource] entries for filesystem paths matching `pattern` via [filepath.Glob].
+// Glob returns the [entry] entries for filesystem paths matching `pattern` via [filepath.Glob].
 //
 // Unlike [Provider.Find], matching is non-recursive (no `**`). Gitignored matches are dropped unless
 // `includeGitignored` is set; a gitignore tracker that fails to construct degrades to returning all matches.
@@ -1819,13 +1819,13 @@ func (p *Provider) pruneTowardBoundary(current, boundaryPath string) error {
 	return nil
 }
 
-// discoverResources constructs a discovered [Resource] for each input path without claiming production.
+// discoverResources constructs a discovered [entry] for each input path without claiming production.
 //
 // Parameters:
 //   - `paths`: the absolute paths to build catalog handles for.
 //
 // Returns:
-//   - `[]*Resource`: the discovered resources, one per input path, in order.
+//   - `[]*entry`: the discovered resources, one per input path, in order.
 //   - `error`: non-nil on any resource discovery failure.
 func (p *Provider) discoverEntries(paths []string) (product []Entry, err error) {
 

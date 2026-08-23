@@ -18,19 +18,19 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-// Resource represents a handle to a file on the disk identified by its path.
+// entry represents a handle to a file on the disk identified by its path.
 //
-// Resource carries identity only: the URI (derived from the absolute path) and the [fsroot.Path] handle.
+// entry carries identity only: the URI (derived from the absolute path) and the [fsroot.Path] handle.
 // Runtime-observed state — size, mode, mod-time, inode, device, existence — lives on a separate [*Observation] minted
 // by [Provider.Observe]; the framework owns observation storage so a buggy provider cannot corrupt the catalog by
-// mutating fields on a shared [*Resource] pointer.
-type Resource struct {
+// mutating fields on a shared [*entry] pointer.
+type entry struct {
 	op.ResourceBase
 
 	// SourcePath is the bound location triad (§5.5): Rel() is the identity verbatim, Root() the bound
 	// fsroot, Abs() derived and OS-native for I/O. Set at construction against the constructing session's
-	// root; re-bound REL-FIRST to the run's root by [Resource.BindRoot] at the executor's pre-flight
-	// resolve pass (the op.RootBinder seam) and by [Resource.Resolve].
+	// root; re-bound REL-FIRST to the run's root by [entry.BindRoot] at the executor's pre-flight
+	// resolve pass (the op.RootBinder seam) and by [entry.Resolve].
 	SourcePath fsroot.Path
 }
 
@@ -43,7 +43,7 @@ type Resource struct {
 //
 // Parameters:
 //   - `root`: the run's bound fsroot.
-func (r *Resource) BindRoot(root fsroot.Dir) {
+func (r *entry) BindRoot(root fsroot.Dir) {
 	r.SourcePath = root.NewPath(r.SourcePath.Rel())
 }
 
@@ -61,10 +61,10 @@ func (r *Resource) BindRoot(root fsroot.Dir) {
 //   - `value`: a string file path or file URI.
 //
 // Returns:
-//   - `*Resource`: the canonical catalog entry (or the unlinked candidate when no catalog is present).
+//   - `*entry`: the canonical catalog entry (or the unlinked candidate when no catalog is present).
 //   - `error`: if `value` is not a string, or the input violates RFC 8089 when in file URI form, or
 //     [op.ResourceCatalog.Discover]'s strict assertions fail.
-func discoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Resource, error) {
+func discoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*entry, error) {
 
 	candidate, err := buildCandidate(runtimeEnvironment, value)
 	if err != nil {
@@ -82,9 +82,9 @@ func discoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Re
 		return nil, err
 	}
 
-	canonical, ok := got.(*Resource)
+	canonical, ok := got.(*entry)
 	if !ok {
-		return nil, fmt.Errorf("file.discoverResource: catalog entry for %q is %T, want *file.Resource",
+		return nil, fmt.Errorf("file.discoverResource: catalog entry for %q is %T, want *file.entry",
 			candidate.URI(),
 			got)
 	}
@@ -92,7 +92,7 @@ func discoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Re
 	return canonical, nil
 }
 
-// buildCandidate validates value, parses any file URI per RFC 8089, and constructs a [file.Resource].
+// buildCandidate validates value, parses any file URI per RFC 8089, and constructs a [file.entry].
 //
 // This function does not touch the resource catalog. It is shared by [discoverResource] and internal helpers that
 // need a base handle without interning. The body lives in [buildCandidateAs] — the variant-parameterized trunk the
@@ -104,40 +104,40 @@ func discoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Re
 //   - `value`: an `any` carrying a string file path or file URI; other dynamic types are rejected.
 //
 // Returns:
-//   - `*Resource`: the constructed candidate. Not interned in the catalog — callers route it through
+//   - `*entry`: the constructed candidate. Not interned in the catalog — callers route it through
 //     [op.ResourceCatalog] themselves.
 //   - `error`: non-nil if `value` is not a string, the input violates RFC 8089 when in file URI form (non-file scheme,
 //     userinfo, non-localhost host, query, fragment, or opaque form), or [op.NewResourceBase] fails.
-func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (resource *Resource, err error) {
+func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (resource *entry, err error) {
 
-	return buildCandidateAs(runtimeEnvironment, value, reflect.TypeFor[*Resource]())
+	return buildCandidateAs(runtimeEnvironment, value, reflect.TypeFor[*entry]())
 }
 
 // region EXPORTED METHODS
 
 // region State management
 
-// Addressing reports that file.Resource is location-keyed.
+// Addressing reports that file.entry is location-keyed.
 //
 // Identity is the path on the disk, and bytes at that path are mutable. The catalog uses [op.AddressingLocation]
 // semantics. Content drift triggers shadow chains, not new URIs.
 //
 // Returns:
 //   - `AddressingMode`: always [op.AddressingLocation].
-func (r *Resource) Addressing() op.AddressingMode {
+func (r *entry) Addressing() op.AddressingMode {
 	return op.AddressingLocation
 }
 
 // Digest returns the honest content hash: sha256 of the file's bytes, streamed (no full-file allocation).
 //
 // Always fresh: opens and reads the file at call time. Errors with [op.ErrUnimplemented] for directories: the base
-// file.Resource pre-dates the taxonomic split into Regular / Directory / SymbolicLink variants; directory hashing now
+// file.entry pre-dates the taxonomic split into Regular / Directory / SymbolicLink variants; directory hashing now
 // lives on [Directory.Digest] (the Merkle root over the tree), so a directory is represented by a file.Directory.
 //
 // Returns:
 //   - `op.Digest`: sha256 algorithm with 32 raw bytes.
 //   - `error`: a stat error, [op.ErrUnimplemented] for directories, or any read error.
-func (r *Resource) Digest() (digest op.Digest, err error) {
+func (r *entry) Digest() (digest op.Digest, err error) {
 
 	root := r.RuntimeEnvironment().Root()
 	path := root.NewPath(r.SourcePath.Abs())
@@ -146,24 +146,24 @@ func (r *Resource) Digest() (digest op.Digest, err error) {
 
 	info, err = root.Stat(path)
 	if err != nil {
-		return op.Digest{}, fmt.Errorf("file.Resource: digest stat %s: %w", r.SourcePath.Abs(), err)
+		return op.Digest{}, fmt.Errorf("file.entry: digest stat %s: %w", r.SourcePath.Abs(), err)
 	}
 
 	if info.IsDir() {
-		return op.Digest{}, fmt.Errorf("file.Resource: digest of directory %s: %w", r.SourcePath.Abs(), op.ErrUnimplemented)
+		return op.Digest{}, fmt.Errorf("file.entry: digest of directory %s: %w", r.SourcePath.Abs(), op.ErrUnimplemented)
 	}
 
 	var f fs.File
 
 	f, err = root.Open(path)
 	if err != nil {
-		return op.Digest{}, fmt.Errorf("file.Resource: digest open %s: %w", r.SourcePath.Abs(), err)
+		return op.Digest{}, fmt.Errorf("file.entry: digest open %s: %w", r.SourcePath.Abs(), err)
 	}
 	defer iox.Close(&err, f)
 
 	h := sha256.New()
 	if _, err = io.Copy(h, f); err != nil {
-		return op.Digest{}, fmt.Errorf("file.Resource: digest read %s: %w", r.SourcePath.Abs(), err)
+		return op.Digest{}, fmt.Errorf("file.entry: digest read %s: %w", r.SourcePath.Abs(), err)
 	}
 
 	return op.Digest{Algorithm: "sha256", Bytes: h.Sum(nil)}, nil
@@ -171,22 +171,22 @@ func (r *Resource) Digest() (digest op.Digest, err error) {
 
 // Equal reports whether `r` and `other` identify the same file resource.
 //
-// Strict equality: `other` must be a *file.Resource (not merely an [op.Resource] with the same URI). Once the type
+// Strict equality: `other` must be a *file.entry (not merely an [op.Resource] with the same URI). Once the type
 // check passes, URI comparison is delegated to [op.ResourceBase.Equal]. A cross-type URI collision (e.g., a file URI
 // embedded in an appnet.Resource) fails at the type check rather than matching spuriously.
 //
 // Parameters:
-//   - `other`: the value to compare against; may be `any`, including nil or a non-Resource.
+//   - `other`: the value to compare against; may be `any`, including nil or a non-entry.
 //
 // Returns:
-//   - `bool`: true if `other` is a *file.Resource with the same URI as `r`.
-func (r *Resource) Equal(other any) bool {
+//   - `bool`: true if `other` is a *file.entry with the same URI as `r`.
+func (r *entry) Equal(other any) bool {
 
 	if other == nil {
 		return false
 	}
 
-	if _, ok := other.(*Resource); !ok {
+	if _, ok := other.(*entry); !ok {
 		return false
 	}
 
@@ -196,19 +196,19 @@ func (r *Resource) Equal(other any) bool {
 // Etag returns an inexpensive stat-derived change-detection token.
 //
 // Always fresh: stats the file at call time. The catalog uses Etag as an inexpensive signal that triggers a full
-// [Resource.Digest] comparison. It is a sha256 of (size, mtime_ns, ino) packed into a little-endian byte array encoded
+// [entry.Digest] comparison. It is a sha256 of (size, mtime_ns, ino) packed into a little-endian byte array encoded
 // as a lowercase hex string.
 //
 // Returns:
 //   - `string`: lowercase hex sha256 of the packed stat tuple.
 //   - `error`: any stat error (file gone, permission denied, etc.).
-func (r *Resource) Etag() (string, error) {
+func (r *entry) Etag() (string, error) {
 
 	root := r.RuntimeEnvironment().Root()
 
 	info, err := root.Stat(root.NewPath(r.SourcePath.Abs()))
 	if err != nil {
-		return "", fmt.Errorf("file.Resource: etag stat %s: %w", r.SourcePath.Abs(), err)
+		return "", fmt.Errorf("file.entry: etag stat %s: %w", r.SourcePath.Abs(), err)
 	}
 
 	return statTupleEtag(info), nil
@@ -221,7 +221,7 @@ func (r *Resource) Etag() (string, error) {
 //
 // Returns:
 //   - `bool`: true when the file exists; false when the stat returns [os.ErrNotExist] or any other error.
-func (r *Resource) Exists() bool {
+func (r *entry) Exists() bool {
 	root := r.RuntimeEnvironment().Root()
 	_, err := root.Stat(root.NewPath(r.SourcePath.Abs()))
 	return err == nil
@@ -235,7 +235,7 @@ func (r *Resource) Exists() bool {
 //
 // Returns:
 //   - `bool`: true when the file exists and is a directory; false otherwise.
-func (r *Resource) IsDir() bool {
+func (r *entry) IsDir() bool {
 
 	root := r.RuntimeEnvironment().Root()
 	info, err := root.Stat(root.NewPath(r.SourcePath.Abs()))
@@ -250,25 +250,25 @@ func (r *Resource) IsDir() bool {
 // Path returns the canonicalized absolute path handle on the disk.
 //
 // The [Entry] accessor: mixed-kind holders (an Entry from enumeration or a walker callback) reach the path without
-// asserting a concrete variant. The handle is the construction-time [fsroot.Path]; [Resource.Resolve] rebinds it to
+// asserting a concrete variant. The handle is the construction-time [fsroot.Path]; [entry.Resolve] rebinds it to
 // the live execution fsroot.
 //
 // Returns:
 //   - `fsroot.Path`: the canonicalized absolute path handle.
-func (r *Resource) Path() fsroot.Path {
+func (r *entry) Path() fsroot.Path {
 	return r.SourcePath
 }
 
 // String returns a debug-oriented single-line representation of the resource.
 //
 // Suitable for log lines and IDE debug windows. Identity-only — observation-shaped data (size, mode, mod-time) is not
-// on the Resource. Use [Provider.Observe] to capture observation values and log those alongside the Resource when
+// on the entry. Use [Provider.Observe] to capture observation values and log those alongside the entry when
 // needed.
 //
 // Returns:
-//   - `string`: `file.Resource{uri=<URI>, source_path=<path>}`.
-func (r *Resource) String() string {
-	return fmt.Sprintf("file.Resource{uri=%s, source_path=%s}", r.URI(), r.SourcePath.Abs())
+//   - `string`: `file.entry{uri=<URI>, source_path=<path>}`.
+func (r *entry) String() string {
+	return fmt.Sprintf("file.entry{uri=%s, source_path=%s}", r.URI(), r.SourcePath.Abs())
 }
 
 // endregion
@@ -289,7 +289,7 @@ func (r *Resource) String() string {
 // Returns:
 //   - `any`: the absolute source path (as a Go string) when `target` is string.
 //   - `error`: non-nil if `target` is not a recognized conversion.
-func (r *Resource) ConvertTo(target reflect.Type) (any, error) {
+func (r *entry) ConvertTo(target reflect.Type) (any, error) {
 
 	if target == reflect.TypeFor[string]() {
 		return r.SourcePath.Abs(), nil
@@ -298,17 +298,17 @@ func (r *Resource) ConvertTo(target reflect.Type) (any, error) {
 	return r.ResourceBase.ConvertTo(target)
 }
 
-// CanConvertFrom reports whether `source` can be projected into a [*Resource] via [Resource.ConvertFrom].
+// CanConvertFrom reports whether `source` can be projected into a [*entry] via [entry.ConvertFrom].
 //
-// Opts the file Resource into the framework's [op.TargetConverter] contract: the [op.Convert] cascade routes `source →
-// *Resource` slot-fill through [Resource.ConvertFrom] at dispatch time (step 6 of the cascade), and
+// Opts the file entry into the framework's [op.TargetConverter] contract: the [op.Convert] cascade routes `source →
+// *entry` slot-fill through [entry.ConvertFrom] at dispatch time (step 6 of the cascade), and
 // [op.typesAreInterconvertible] consults the same probe at plan time so [op.Subgraph.mergeBubbled] does not flag a
-// variable bound to both a `string` slot and a `*Resource` slot as a collision. Today's accepted source shape is
+// variable bound to both a `string` slot and a `*entry` slot as a collision. Today's accepted source shape is
 // `string` — interpreted as a filesystem path under the active fsroot. Other source shapes (file URI strings, Path
-// values) can be added by extending this probe; the conversion body in [Resource.ConvertFrom] must accept the
+// values) can be added by extending this probe; the conversion body in [entry.ConvertFrom] must accept the
 // corresponding type.
 //
-// Cheap-probe contract: this method is called against a nil-or-zero `*Resource` receiver by
+// Cheap-probe contract: this method is called against a nil-or-zero `*entry` receiver by
 // [op.typesAreInterconvertible] during plan-time bubble-up checks. It MUST NOT dereference receiver fields.
 //
 // Parameters:
@@ -316,33 +316,33 @@ func (r *Resource) ConvertTo(target reflect.Type) (any, error) {
 //
 // Returns:
 //   - `bool`: true when `source` is `string`.
-func (*Resource) CanConvertFrom(source reflect.Type) bool {
+func (*entry) CanConvertFrom(source reflect.Type) bool {
 
 	return source != nil && source.Kind() == reflect.String
 }
 
-// ConvertFrom projects `value` into a fresh [*Resource].
+// ConvertFrom projects `value` into a fresh [*entry].
 //
 // Today's accepted shape is `string` — interpreted as a filesystem path under the active fsroot. The returned
-// [*Resource] carries the path under [Resource.SourcePath] but is NOT catalog-interned at this layer; provider methods
-// that receive the projected Resource are responsible for interning via their own taxonomy constructor
-// path. This mirrors the inline `&Resource{SourcePath: fsroot.NewPath("", str)}` pattern used at writ adopt call sites
+// [*entry] carries the path under [entry.SourcePath] but is NOT catalog-interned at this layer; provider methods
+// that receive the projected entry are responsible for interning via their own taxonomy constructor
+// path. This mirrors the inline `&entry{SourcePath: fsroot.NewPath("", str)}` pattern used at writ adopt call sites
 // pre-13.0(n) — the slot-fill cascade absorbs the pattern uniformly.
 //
 // Parameters:
 //   - `value`: the source value; must be `string`.
 //
 // Returns:
-//   - `any`: the constructed unlinked [*Resource].
+//   - `any`: the constructed unlinked [*entry].
 //   - `error`: non-nil when `value` is not a `string`.
-func (*Resource) ConvertFrom(value any) (any, error) {
+func (*entry) ConvertFrom(value any) (any, error) {
 
 	str, ok := value.(string)
 	if !ok {
-		return nil, fmt.Errorf("file.Resource.ConvertFrom: source must be string, got %T", value)
+		return nil, fmt.Errorf("file.entry.ConvertFrom: source must be string, got %T", value)
 	}
 
-	return &Resource{SourcePath: fsroot.NewPath("", str)}, nil
+	return &entry{SourcePath: fsroot.NewPath("", str)}, nil
 }
 
 // Resolve rebinds the source path to the execution fsroot and verifies the file exists.
@@ -351,12 +351,12 @@ func (*Resource) ConvertFrom(value any) (any, error) {
 // file does not exist, Resolve returns nil — existence is observation, not identity, and `not-exist` is a valid
 // observation outcome. Other stat failures (permission denied, I/O error) surface as errors.
 //
-// Resolve does not populate any observation-shaped metadata on the Resource. Callers that need metadata call
+// Resolve does not populate any observation-shaped metadata on the entry. Callers that need metadata call
 // [Provider.Observe] to get an [Observation] value the framework can catalog.
 //
 // Returns:
 //   - `error`: any stat error other than not-exist.
-func (r *Resource) Resolve() error {
+func (r *entry) Resolve() error {
 
 	root := r.RuntimeEnvironment().Root()
 
@@ -386,10 +386,10 @@ func (r *Resource) Resolve() error {
 // Returns:
 //   - `error`: non-nil if the RuntimeEnvironment is missing, the JSON does not decode as a string, or resource
 //     construction fails.
-func (r *Resource) UnmarshalJSON(data []byte) error {
+func (r *entry) UnmarshalJSON(data []byte) error {
 
 	if r.RuntimeEnvironment() == nil {
-		return errors.New("file.Resource: UnmarshalJSON requires RuntimeEnvironment on receiver")
+		return errors.New("file.entry: UnmarshalJSON requires RuntimeEnvironment on receiver")
 	}
 
 	var uri string
@@ -417,10 +417,10 @@ func (r *Resource) UnmarshalJSON(data []byte) error {
 //
 // Returns:
 //   - `error`: non-nil if the RuntimeEnvironment is missing or resource construction fails.
-func (r *Resource) UnmarshalText(text []byte) error {
+func (r *entry) UnmarshalText(text []byte) error {
 
 	if r.RuntimeEnvironment() == nil {
-		return errors.New("file.Resource: UnmarshalText requires RuntimeEnvironment on receiver")
+		return errors.New("file.entry: UnmarshalText requires RuntimeEnvironment on receiver")
 	}
 
 	built, err := discoverResource(r.RuntimeEnvironment(), string(text))
@@ -443,10 +443,10 @@ func (r *Resource) UnmarshalText(text []byte) error {
 // Returns:
 //   - `error`: non-nil if the RuntimeEnvironment is missing, the YAML node does not decode as a string, or resource
 //     construction fails.
-func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
+func (r *entry) UnmarshalYAML(unmarshal func(any) error) error {
 
 	if r.RuntimeEnvironment() == nil {
-		return errors.New("file.Resource: UnmarshalYAML requires RuntimeEnvironment on receiver")
+		return errors.New("file.entry: UnmarshalYAML requires RuntimeEnvironment on receiver")
 	}
 
 	var uri string

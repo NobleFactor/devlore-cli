@@ -11,10 +11,10 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-// Observation captures the runtime-observed state of a [*Resource] at the moment it was observed.
+// Observation captures the runtime-observed state of a [*entry] at the moment it was observed.
 //
-// Distinct from [Resource], which carries identity only. An observation is a point-in-time metadata snapshot record —
-// not a [Resource], never cataloged — whose identity comes from the resource it references
+// Distinct from [entry], which carries identity only. An observation is a point-in-time metadata snapshot record —
+// not a [entry], never cataloged — whose identity comes from the resource it references
 // ([op.ObservationBase.OfResource], by pointer value). It embeds [op.ObservationBase] (the back-link +
 // [op.ObservationBase.Exists]) and adds the file-specific measurement fields: `Size`, `Mode`, `ModTime`, `Inode`,
 // `Device`.

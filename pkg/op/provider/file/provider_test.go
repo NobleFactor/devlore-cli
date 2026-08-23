@@ -112,7 +112,7 @@ func assertOwnerOnlyAndReadable(t *testing.T, path string) {
 	}
 }
 
-// testFileResource creates a Resource backed by a temp file in `dir` with the given content.
+// testFileResource creates a entry backed by a temp file in `dir` with the given content.
 //
 // The directory is the caller's because a provider's root confines it: a source in some other temp tree is a
 // cross-tree read, which is exactly what a confined root refuses.
@@ -359,7 +359,7 @@ func TestCompensateLink_NewSymlink_RemovesOnCompensate(t *testing.T) {
 	}
 
 	// Receipt with no recovery path — symlink didn't exist before.
-	resource := &SymbolicLink{Resource: Resource{SourcePath: fsroot.NewPath("", linkPath)}}
+	resource := &SymbolicLink{entry: entry{SourcePath: fsroot.NewPath("", linkPath)}}
 	state := NewReceipt(NewReceiptSpec(resource, MutationCreateFile))
 
 	p := testProvider(t, tmp)
@@ -390,8 +390,8 @@ func TestCompensateLink_ExistedBefore_RestoresFromRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Resource preserves true identity (linkPath); TransactionID is the recovery key.
-	resource := &Regular{Resource: Resource{SourcePath: fsroot.NewPath("", linkPath)}}
+	// entry preserves true identity (linkPath); TransactionID is the recovery key.
+	resource := &Regular{entry: entry{SourcePath: fsroot.NewPath("", linkPath)}}
 	state := NewReceipt(NewReceiptSpec(resource, MutationUpdateFile).WithRecovery(recoveryID, op.Digest{}))
 
 	p := testProvider(t, tmp)
@@ -485,7 +485,7 @@ func TestCompensateCopy_NewFile_RemovesOnCompensate(t *testing.T) {
 	}
 
 	// Receipt with no recovery path = file didn't exist before, just remove it.
-	resource := &Regular{Resource: Resource{SourcePath: fsroot.NewPath("", path)}}
+	resource := &Regular{entry: entry{SourcePath: fsroot.NewPath("", path)}}
 	state := NewReceipt(NewReceiptSpec(resource, MutationCreateFile))
 
 	p := testProvider(t, tmp)
@@ -515,7 +515,7 @@ func TestCompensateCopy_Overwrite_RestoresOriginal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resource := &Regular{Resource: Resource{SourcePath: fsroot.NewPath("", path)}}
+	resource := &Regular{entry: entry{SourcePath: fsroot.NewPath("", path)}}
 	state := NewReceipt(NewReceiptSpec(resource, MutationUpdateFile).WithRecovery(recoveryID, op.Digest{}))
 
 	p := testProvider(t, tmp)
@@ -615,8 +615,8 @@ func TestCompensateBackup_RestoresOriginal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	product := &Regular{Resource: Resource{SourcePath: fsroot.NewPath("", backupPath)}}
-	source := &Regular{Resource: Resource{SourcePath: fsroot.NewPath("", originalPath)}}
+	product := &Regular{entry: entry{SourcePath: fsroot.NewPath("", backupPath)}}
+	source := &Regular{entry: entry{SourcePath: fsroot.NewPath("", originalPath)}}
 	state := NewReceipt(NewReceiptSpec(product, MutationCreateFile).WithSource(source))
 
 	p := testProvider(t, tmp)
@@ -658,8 +658,8 @@ func TestCompensateBackup_ChecksumMismatch_ReturnsError(t *testing.T) {
 	h := sha256.Sum256([]byte("original content"))
 	wrongDigest := op.Digest{Algorithm: "sha256", Bytes: h[:]}
 
-	product := &Regular{Resource: Resource{SourcePath: fsroot.NewPath("", backupPath)}}
-	source := &Regular{Resource: Resource{SourcePath: fsroot.NewPath("", originalPath)}}
+	product := &Regular{entry: entry{SourcePath: fsroot.NewPath("", backupPath)}}
+	source := &Regular{entry: entry{SourcePath: fsroot.NewPath("", originalPath)}}
 	state := NewReceipt(NewReceiptSpec(product, MutationUpdateFile).
 		WithSource(source).WithRecovery(recoveryID, wrongDigest))
 
@@ -936,8 +936,8 @@ func TestCompensateMove_ChecksumMismatch_ReturnsError(t *testing.T) {
 	h := sha256.Sum256([]byte("original"))
 	wrongDigest := op.Digest{Algorithm: "sha256", Bytes: h[:]}
 
-	product := &Regular{Resource: Resource{SourcePath: fsroot.NewPath("", dst)}}
-	source := &Regular{Resource: Resource{SourcePath: fsroot.NewPath("", src)}}
+	product := &Regular{entry: entry{SourcePath: fsroot.NewPath("", dst)}}
+	source := &Regular{entry: entry{SourcePath: fsroot.NewPath("", src)}}
 	state := NewReceipt(NewReceiptSpec(product, MutationUpdateFile).
 		WithSource(source).WithRecovery(recoveryID, wrongDigest))
 

@@ -44,16 +44,16 @@ const compensateFileMutationAction = "file.compensate_file_mutation"
 
 // Receipt holds the file-specific compensation state that the recovery system needs to undo a compensable forward call.
 //
-// The embedded [op.ReceiptBase] carries the affected [Resource] whose identity is preserved across compensation, and an
+// The embedded [op.ReceiptBase] carries the affected [entry] whose identity is preserved across compensation, and an
 // opaque [op.ReceiptBase.TransactionID] that [op.RecoverySite] interprets as the recovery key when restoring archived
 // bytes. SourcePath always reflects the file's true home — the location compensation will write back to.
 //
-// The optional boundary [Resource] marks the edge between the existing file system state and the subtree the forward
+// The optional boundary [entry] marks the edge between the existing file system state and the subtree the forward
 // action created. Compensation walks toward `boundary` and stops at it (exclusive). [Provider.Mkdir], for example, sets
 // `boundary` to the nearest pre-existing ancestor of its target directory so [Provider.CompensateMkdir] knows where to
 // halt the upward removal walk. Methods that do not need a transactional anchor leave boundary nil.
 //
-// The optional source [Resource] records the original location for move-like operations.
+// The optional source [entry] records the original location for move-like operations.
 //
 // The optional recoveryDigest records the digest of the archived bytes at archive time. Compensation re-hashes the
 // recovery archive and compares against this stored value to detect tampering of the recovery store between the
@@ -321,7 +321,7 @@ func (r *Receipt) RestoreEncoded(
 // region SUPPORTING TYPES
 
 // ReceiptSpec is the fluent builder for a [*Receipt], mirroring the [op.NodeSpec] / [op.NewNode] shape used across the
-// framework. The required identity — the affected [Resource] and the [MutationKind] — is supplied to [NewReceiptSpec];
+// framework. The required identity — the affected [entry] and the [MutationKind] — is supplied to [NewReceiptSpec];
 // optional compensation state (boundary, recovery, source) is added through the With* methods. Hand a populated spec to
 // [NewReceipt].
 type ReceiptSpec struct {
