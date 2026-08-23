@@ -1,19 +1,19 @@
 ---
-title: "AnyEntry: claims that assert existence, not kind"
+title: "Any: claims that assert existence, not kind"
 issue: https://github.com/NobleFactor/devlore-cli/issues/616
 status: approved
 created: 2026-08-23
 updated: 2026-08-23
 ---
 
-# Plan: AnyEntry — claims that assert existence, not kind
+# Plan: Any — claims that assert existence, not kind
 
 ## Summary
 
 Give the claim surface the permissive option the discovery surface already has. A mutation target's kind is
 not the author's business — a move moves whatever is there — but today the claim's Go type *is* the kind
 assertion, so a kind-indifferent operation must either name a kind it doesn't care about or multiply into
-one method per kind. **`file.AnyEntry`** is the claim that asserts existence and nothing else; it resolves
+one method per kind. **`file.Any`** is the claim that asserts existence and nothing else; it resolves
 to the observed kind inside the `Pending → Active` transition, where the model already consults the disk.
 
 The immediate payoff: **`file.move` moves any kind again from a plain authored path**, `file.move_directory`
@@ -22,23 +22,25 @@ retires, and a symbolic link can be moved — a capability that regressed when k
 
 ## The rulings this plan implements (USER, 2026-08-23)
 
-1. **A permissive claim type exists: `file.AnyEntry`.** It asserts "some taxonomy entry exists at this
+1. **A permissive claim type exists: `file.Any`.** It asserts "some taxonomy entry exists at this
    rel" — a dangling symbolic link satisfies it (the link is there); a FIFO, socket, or device does not
    (the taxonomy has no variant). It is a first-class announced variant, not a placeholder.
 2. **The kind resolves in the `Pending → Active` transition** — `Active` replaces the unasserted object
-   with the variant the disk shows; `Gone` leaves it `AnyEntry`, because nothing was observed. The catalog
+   with the variant the disk shows; `Gone` leaves it `Any`, because nothing was observed. The catalog
    owns transitions, so the catalog owns the resolution; the resource supplies the how, through a seam
    shaped like `op.RootBinder`.
 3. **The taxonomy is exactly the announced variants.** The shared base is demoted to an unexported
-   `file.entry` — unnameable, un-hand-buildable, and un-announceable outside the package. Its name pairs
-   with the interface (`Entry`/`entry`); renaming it `resource` would oblige renaming the interface
-   `Resource`.
-4. **`file.move` takes `source Entry` and drops `on_missing`.** Moving something that is gone cannot
+   `file.resource` — unnameable and un-hand-buildable outside the package, and never announced (it has no
+   exported constructor). Its name pairs with the interface's: `Resource`/`resource`. **Amended
+   2026-08-23**: the interface was first named `Entry` and the base `entry`; the USER ruled that if the
+   interface is file's answer to the house `Resource` convention, it must carry that name, so both moved
+   (see *Naming — the history* below).
+4. **`file.move` takes `source Resource` and drops `on_missing`.** Moving something that is gone cannot
    achieve anything, so a missing source fails — under Stop-by-default that is now a pre-flight verdict at
    the starting line rather than a dispatch error. The tolerance was also unsound on a producer: the ignore
    path returned a nil product, handing downstream consumers a nil promise — the pathology that had `Skip`
    dropped from `MissingResourcePolicy` (#605).
-5. **An interface-typed resource slot designates a mint type.** `Entry` mints `AnyEntry` for authored
+5. **An interface-typed resource slot designates a mint type.** `Resource` mints `Any` for authored
    strings. The designation lives on the interface, once, not per parameter — two methods with the same
    slot type must claim the same way.
 6. **`file.unlink` retires.** It and `remove` are one operation: both discover the entry at the path,
@@ -79,33 +81,48 @@ retires, and a symbolic link can be moved — a capability that regressed when k
 
 | Type | Kind | Role |
 | --- | --- | --- |
-| `file.Entry` | interface | `op.Resource` + `Path() fsroot.Path` + `sealedEntry()`; unchanged |
-| `file.entry` | unexported struct | the shared implementation (embeds `op.ResourceBase`, carries `SourcePath`); declares no `sealedEntry()`, so a bare base is still not an `Entry` |
-| `file.AnyEntry` | exported struct | **new** — the unasserted claim; embeds `entry`, declares `sealedEntry()`, announced |
-| `file.Regular` / `file.Directory` / `file.SymbolicLink` | exported structs | the kinded variants; embed `entry`, declare `sealedEntry()`, announced; unchanged apart from the embed rename |
+| `file.Resource` | interface | `op.Resource` + `Path() fsroot.Path` + `sealedResource()` — the provider's headline type, an interface because file alone has a kind axis (lives in `resource.go`) |
+| `file.resource` | unexported struct | the shared implementation (embeds `op.ResourceBase`, carries `SourcePath`); declares no `sealedResource()`, so a bare base is not a `Resource` and cannot enter a taxonomy signature (lives in `resource_base.go`) |
+| `file.Any` | exported struct | the unasserted claim; embeds `resource`, declares `sealedResource()`, announced via `DiscoverAny` |
+| `file.Regular` / `file.Directory` / `file.SymbolicLink` | exported structs | the kinded variants; embed `resource`, declare `sealedResource()`, announced |
 
-The export of the base is currently gratuitous: nothing outside `pkg/op/provider/file` names it, every
-embed site is in-package, and it is not announced (announcements are generated into the sibling `gen`
-package, which is the one constraint that forces a type to be exported).
+All four variants are covered by compile-time interface guards, so a variant that stops satisfying
+`Resource` fails to build rather than failing a review.
 
-**Naming, considered and settled 2026-08-23.** Calling the permissive variant `file.Resource` instead —
-matching the nine other resource-bearing providers, all of which name their type `Resource` — was weighed
-and declined. Those providers have no kind axis, so `Resource` is their answer to "what is this
-provider's resource?"; **file already answers that with `Entry`, an interface, precisely because it has
-kinds**, so the convention is satisfied at the level that matters and a struct named `Resource` beside
-`Entry` would be the anomaly. `AnyEntry` also names its own relationship to that interface — "an `Entry`
-of any kind" — which is what a reader of a serialized intent row needs to know, and `#…/file.Resource`
-would read there as the generic serialization rather than as a deliberate non-assertion. The residual
-cost accepted: file is the one provider with no exported `Resource`, and `op.Resource`'s doc comment
-(which cites `file.Resource` as its example of a provider resource) needs its example updated.
+The base is unexported and stays that way: nothing outside `pkg/op/provider/file` names it, every embed
+site is in-package, and it is never announced — announcement requires an exported
+`func(*op.RuntimeEnvironment, any) (*T, error)` constructor, and the base has none. Only claimable types
+need announcing, and the base is not one.
 
-`Entry` itself is the right general term: "entry" is the standard filesystem word, always qualified
-elsewhere (`fs.DirEntry`, `struct dirent`, .NET's "file system entry"), and in Go the package name
-supplies the qualifier. The POSIX resonance is load-bearing rather than decorative — a directory entry is
-a *name bound to an inode*, not the file itself, which is exactly why this model claims **rels** and why
-`remove` over a symbolic link takes the link. Documentation obligation, noted: the package holds both
-`file.Entry` (a claimed, cataloged resource) and `fs.DirEntry` (a read-time enumeration record used by
-`walkDir`/`applyGitignore`), and `Entry`'s doc comment must keep them apart.
+**Naming — the history, because the first answer was wrong.** This plan originally named the interface
+`file.Entry` and the permissive variant `file.AnyEntry`, on the argument that file's answer to the
+house `Resource` convention was the `Entry` interface: the other nine providers have no kind axis, so
+their `Resource` is a struct, while file's has to be an interface over variants.
+
+**Overruled by the USER, 2026-08-23, and rightly.** If the interface *is* file's answer to the
+convention, then it should be *named* `Resource` — the convention should be satisfied in name, where a
+newcomer meets it, not merely in spirit where only its author can see it. Naming consistency is a
+long-haul property: one rule with no exceptions is easier to teach, easier to learn, and cheaper to
+maintain, while a rule with one exception is two rules, and the exception is what everyone trips over.
+So the interface took the provider's headline name, the base took its lowercase form, and the permissive
+variant became `Any` — which reads better than `AnyEntry` anyway at the two places it appears: the
+authored `kind="any"` and the intent row `#…/file.Any`.
+
+What that bought beyond consistency: file stopped being the provider a newcomer must learn an exception
+for, and it became the **template for [#625](https://github.com/NobleFactor/devlore-cli/issues/625)**,
+where the other nine adopt the same sealed shape — there for correctness, since an exported struct
+resource is hand-buildable and bypasses the catalog.
+
+The reasoning behind the old name did not die; it moved. "Entry" is the standard filesystem word, always
+qualified elsewhere (`fs.DirEntry`, `struct dirent`, .NET's "file system entry"), and the POSIX resonance
+is load-bearing rather than decorative — a directory entry is a *name bound to an inode*, not the file
+itself, which is exactly why this model claims **rels** and why `remove` over a symbolic link takes the
+link. That belongs in `Resource`'s doc comment, where it explains the model, rather than in a type name.
+Documentation obligation, still standing: the package holds both `file.Resource` (a claimed, cataloged
+resource) and `fs.DirEntry` (a read-time enumeration record used by `walkDir`/`applyGitignore`), and the
+doc comment must keep them apart.
+
+*(The plan's filename predates the rename; it is left alone because six issues reference it.)*
 
 ## Why this is one rule, not a pile of special cases
 
@@ -115,7 +132,7 @@ a *name bound to an inode*, not the file itself, which is exactly why this model
 - **The machinery exists.** Activation already replaces the ledger's object — copy-on-bind swaps in a
   run-bound copy through `ResourceCatalog.rebindEntry`. Kind resolution is the same swap with a different
   constructor, at the same moment.
-- **It lands on the campaign's own split.** The graph document records `#…/file.AnyEntry` — intent:
+- **It lands on the campaign's own split.** The graph document records `#…/file.Any` — intent:
   *something must be here*. The trace records `Regular` — observation: *this is what was there*. Graph =
   intent, trace = observation.
 - **The collision rule dissolves.** A kinded claim and an unasserted claim on one rel are one identity,
@@ -135,18 +152,18 @@ All 27 announced methods, audited against the feature (2026-08-23).
 
 | Method | Change |
 | --- | --- |
-| `file.move` | `source *Regular` → `source Entry`; `on_missing` removed. Moves any kind; a missing source is unmet intent at pre-flight |
+| `file.move` | `source *Regular` → `source Resource`; `on_missing` removed. Moves any kind; a missing source is unmet intent at pre-flight |
 | `file.move_directory` | **Retired** — it existed only because the claim had to name a kind |
-| `file.observe` | Signature already `resource Entry`, so no change there — but it *gains* authored-string claiming through the mint designation. `file.observe(resource="a.txt")` refuses today (it is the pinned refusal scenario) and claims after |
+| `file.observe` | Signature already `resource Resource`, so no change there — but it *gains* authored-string claiming through the mint designation. `file.observe(resource="a.txt")` refuses today (it is the pinned refusal scenario) and claims after |
 
 **B. Exposed by the feature — decided here (3)**
 
 | Method | Finding |
 | --- | --- |
-| `file.remove` | `target *Regular` **contradicts its own documentation** ("file or empty directory"), and a directory is not a `*Regular`. Kind-indifferent destruction of a single entry → `target Entry` |
-| `file.remove_all` | `target *Directory` is the only thing keeping `rm -rf` off a file or a link; the body already observes whatever is there → `target Entry`. Over a symbolic link it removes the link, never the designated tree (ruling 8) |
+| `file.remove` | `target *Regular` **contradicts its own documentation** ("file or empty directory"), and a directory is not a `*Regular`. Kind-indifferent destruction of a single entry → `target Resource` |
+| `file.remove_all` | `target *Directory` is the only thing keeping `rm -rf` off a file or a link; the body already observes whatever is there → `target Resource`. Over a symbolic link it removes the link, never the designated tree (ruling 8) |
 | `file.unlink` | **Retired (RULED 2026-08-23)** — subsumed by a kind-indifferent `remove`: the two bodies are the same operation, differing only in the claim type and a pre-check |
-| `file.backup` | `sourcePath string` — the one mutation that consumes an existing entry **without claiming it at all**, delegating to the typed `Move`. With `move` claiming an `Entry`, backup should claim one too, or it stays the surface's last unclaimed mutation source |
+| `file.backup` | `sourcePath string` — the one mutation that consumes an existing entry **without claiming it at all**, delegating to the typed `Move`. With `move` claiming a `Resource`, backup should claim one too, or it stays the surface's last unclaimed mutation source |
 
 **C. Examined, keeps its kind (5)** — the assertion is the operation's meaning, not a restriction on a
 kind-indifferent act:
@@ -170,12 +187,12 @@ kind-indifferent act:
 [resource-construction](resource-construction.md)); it is a follow-on feature, not a continuation of that
 plan's phases.
 
-**Feature: [#616](https://github.com/NobleFactor/devlore-cli/issues/616)** — *AnyEntry: claims that assert
+**Feature: [#616](https://github.com/NobleFactor/devlore-cli/issues/616)** — *Any: claims that assert
 existence, not kind*.
 
 | Phase | Task |
 | --- | --- |
-| 1 | [#617](https://github.com/NobleFactor/devlore-cli/issues/617) the taxonomy reshape: unexported base, `AnyEntry` variant |
+| 1 | [#617](https://github.com/NobleFactor/devlore-cli/issues/617) the taxonomy reshape: unexported base, `Any` variant |
 | 2 | [#618](https://github.com/NobleFactor/devlore-cli/issues/618) kind resolution at the `Pending → Active` transition |
 | 3 | [#619](https://github.com/NobleFactor/devlore-cli/issues/619) an interface-typed resource slot designates its mint type |
 | 4 | [#620](https://github.com/NobleFactor/devlore-cli/issues/620) `file.move` unifies; `move_directory` retires |
@@ -184,26 +201,32 @@ existence, not kind*.
 
 ## Phases
 
-### Phase 1 — the taxonomy reshape — status: pending
+### Phase 1 — the taxonomy reshape — status: complete 2026-08-23 (#617; PR #624)
 
-1. `file.Resource` → unexported `file.entry`; embed sites and composite literals follow
-   (`&Regular{Resource: *base}` → `{entry: *base}`). Promoted access (`x.SourcePath`, `x.Path()`) is
-   unaffected; any code naming the embedded field as `.Resource` is swept, not assumed absent.
-2. `file.AnyEntry` lands: embeds `entry`, declares `sealedEntry()`, and announces with a discovery
-   constructor (`DiscoverAnyEntry`) — the constructor claiming and rehydration both key on.
-3. `AnyEntry.Exists` is lstat plus "any taxonomy kind admits" — the predicate `EntryKind.admits` already
-   spells (`EntryKindEntry`). Explicitly not the base's following `Stat`: a dangling link must count.
-4. `AnyEntry`'s content identity delegates to the observed kind at call time (lstat, then the kinded
+1. The base struct is demoted to the unexported `file.resource` and the interface takes the name
+   `file.Resource`; embed sites and composite literals follow (`&Regular{Resource: *base}` →
+   `{resource: *base}`). Promoted access (`x.SourcePath`, `x.Path()`) is unaffected in Go; any code
+   naming the embedded field as `.Resource` is swept, not assumed absent.
+2. `file.Any` lands: embeds `resource`, declares `sealedResource()`, and announces with a discovery
+   constructor (`DiscoverAny`) — the constructor claiming and rehydration both key on.
+3. `Any.Exists` is lstat plus "any taxonomy kind admits" — the predicate `ResourceKind.admits` already
+   spells (`ResourceKindAny`). Explicitly not the base's following `Stat`: a dangling link must count.
+4. `Any`'s content identity delegates to the observed kind at call time (lstat, then the kinded
    `Digest`/`Etag`), so an unasserted claim does not silently lose drift detection before it resolves.
 
-**Phase 1 record (2026-08-23, complete in tree — uncommitted) — the taxonomy reshape; one finding made it
-not behavior-neutral after all.**
+**Phase 1 record (2026-08-23, merged as #624 — develop `9425d29d`; #617 closed) — the taxonomy reshape
+and the rename, landed together; one finding made it not behavior-neutral after all.**
 
-- `file.Resource` → unexported `file.entry` across the package; `AnyEntry` lands in `any_entry.go`
-  (embeds `entry`, declares `sealedEntry()`, `DiscoverAnyEntry` as its constructor). The generator
-  recognized it with no prompting — a resource type is identified by an exported
-  `func(*op.RuntimeEnvironment, any) (*T, error)`, so `any_entry.gen.go` was emitted automatically, and
-  the base stays unannounced because it has no such constructor.
+- The former `file.Resource` struct becomes the unexported `file.resource` (in `resource_base.go`), the
+  former `file.Entry` interface becomes `file.Resource` (in `resource.go`), and `Any` lands in `any.go`
+  — embedding `resource`, declaring `sealedResource()`, announced through `DiscoverAny`. `EntryKind`
+  became `ResourceKind` and its permissive value's authored spelling became **`kind="any"`**. The
+  generator recognized the new variant with no prompting — a resource type is identified by an exported
+  `func(*op.RuntimeEnvironment, any) (*T, error)`, so `any.gen.go` was emitted automatically, and the
+  base stays unannounced because it has no such constructor.
+- The rename reached three consumers outside the package (`archive`, its test, `starcode`), and two
+  named returns had to stop shadowing the new lowercase type (`resource *resource` → `candidate`). File
+  moves went through `git mv`, so history follows.
 - **The finding: unexporting the base silently removed every promoted field from the Starlark surface.**
   `TestLintCopyright` failed with `"Regular" object has no attribute "source_path"` — the bridge's
   `collectFieldInfo` skipped any unexported field, anonymous ones included, so an unexported embed took
@@ -219,27 +242,30 @@ not behavior-neutral after all.**
   missing → absent) with the taxonomy bound pinned unix-only via mkfifo (a FIFO exists but no variant
   could resolve to it); content-identity delegation to the observed kind, and its failure direction on a
   missing path.
-- **Open, not decided:** `entry` now lives in `resource.go`, which no longer names its type. The package
-  is one-type-per-file and `entry.go` already holds the `Entry` interface. Merging the base into
-  `entry.go` (the interface and its shared implementation together) is the obvious move but is a
-  structure decision, so it waits.
-- Gate: make check 103 ok / 0 fail; vet clean under darwin, windows, and linux; gofmt clean.
+- **The file-organization question closed itself.** The rename decided it: the interface took
+  `resource.go` (the package's public face) and the base moved to `resource_base.go`, so every file names
+  what it holds and nothing had to be merged.
+- A doc sweep followed the mechanical rename: the missing `_ Resource = (*Any)(nil)` compile-time guard
+  (the variant this phase introduced was the one not covered), the broken article the substitution left
+  ("an Resource"), and `Resource`'s own doc comment, which still described the pre-rename world.
+- Gate: make check 103 ok / 0 fail; vet clean under darwin, windows, and linux; gofmt clean. CI green on
+  all three platforms.
 
 ### Phase 2 — kind resolution at the transition — status: pending
 
 1. A seam shaped like `op.RootBinder`: a resource that can resolve its own kind implements it
-   (`file.AnyEntry` does; nothing else needs to).
+   (`file.Any` does; nothing else needs to).
 2. `ResourceCatalog.VerifyExistence` drives it: on the `Pending → Active` branch, a resolvable entry is
    replaced in the ledger via `rebindEntry` with the variant the disk shows, and the transition marks the
    resolved object Active. The `Gone` branch resolves nothing.
 3. Idempotence is free: `VerifyExistence` early-returns on an already-`Active` entry, so resolution
    happens exactly once, at the consuming scope's starting line.
-4. Pins: the resolution both directions (Active resolves to the observed kind; Gone stays `AnyEntry`),
+4. Pins: the resolution both directions (Active resolves to the observed kind; Gone stays `Any`),
    and the ledger holding one entry throughout.
 
 ### Phase 3 — the designated mint type — status: pending
 
-1. An interface-typed resource slot designates its mint type; `Entry` designates `AnyEntry`. The
+1. An interface-typed resource slot designates its mint type; `Resource` designates `Any`. The
    registration lives beside the announcement, not at the call site.
 2. `bindAuthoredValue`'s interface refusal **narrows**: it fires only for an interface with no designated
    mint type, and `test_judgment_entry_slot_refusal.star` is re-authored to that narrower rule rather
@@ -249,7 +275,7 @@ not behavior-neutral after all.**
 
 ### Phase 4 — `file.move` unifies — status: pending
 
-1. `file.move(source Entry, destination_path)` — no `on_missing`; `moveEntry`'s shared core is already
+1. `file.move(source Resource, destination_path)` — no `on_missing`; `moveEntry`'s shared core is already
    kind-agnostic, so the two typed fronts collapse onto it.
 2. `file.move_directory` retires (removed, not deprecated — the governing principle); writ migrate's layer
    registration reverts to `file.move`.
@@ -260,7 +286,7 @@ not behavior-neutral after all.**
 
 Group B of the surface audit, each landing with its own pins and authoring sweep:
 
-1. `file.remove` takes `target Entry` — the type stops contradicting the documented contract, and a
+1. `file.remove` takes `target Resource` — the type stops contradicting the documented contract, and a
    single-entry removal works on a file, an empty directory, or a symbolic link. `remove` keeps
    `on_missing`: unlike `move`, a missing target means the goal already holds, and the method produces no
    resource whose absence could become a nil promise.
@@ -269,9 +295,9 @@ Group B of the surface audit, each landing with its own pins and authoring sweep
    completion tally that sums unlink+remove), `test_file_unlink.star`, the Go unit tests naming it, and
    the generated action name. The non-empty-directory guard stays where it is: a non-empty directory is
    `remove_all`'s business under any claim type.
-3. `file.backup` claims its source (`source Entry`) rather than taking a bare path — the surface's last
+3. `file.backup` claims its source (`source Resource`) rather than taking a bare path — the surface's last
    unclaimed mutation source.
-4. `file.remove_all` takes `target Entry` — `rm -rf` over any kind, and over a symbolic link it takes the
+4. `file.remove_all` takes `target Resource` — `rm -rf` over any kind, and over a symbolic link it takes the
    link (ruling 8). `file.copy`, `file.read_*`, and `file.walk_tree` keep their kinds, with the reason
    recorded beside each in the design doc so the asymmetry reads as a decision rather than an oversight.
 5. **Policy-last ordering applied** (ruling 10). The audit found this touches nothing outside
@@ -283,7 +309,7 @@ Group B of the surface audit, each landing with its own pins and authoring sweep
 
 ### Phase 6 — closure — status: pending
 
-1. `3.5.4-file-provider.md` records the four-variant taxonomy, `AnyEntry`'s predicate, and the unified
+1. `3.5.4-file-provider.md` records the four-variant taxonomy, `Any`'s predicate, and the unified
    `move`; `4-resource-management.md` records the resolution-at-transition rule beside the kind-honest
    `Exists` block; both status files follow.
 2. The `resource-construction` plan gains a back-reference: phase 4's `move_directory` is superseded here,
@@ -298,17 +324,17 @@ Authored as predictions before implementation; each graduates to a devlore-test 
    proof.
 2. **Move a directory through the unified move.** writ migrate's case: one `file.move`, a `*Directory`
    observed at dispatch, the tree renamed.
-3. **The claim resolves at activation.** An `AnyEntry` claim over a regular file: the stored document says
-   `#…/file.AnyEntry` (intent), the trace says `Regular` (observation), and the ledger holds one entry
+3. **The claim resolves at activation.** An `Any` claim over a regular file: the stored document says
+   `#…/file.Any` (intent), the trace says `Regular` (observation), and the ledger holds one entry
    throughout — graph = intent, trace = observation, in one scenario.
 4. **An unmet unasserted claim.** The path does not exist at the starting line: the entry goes `Gone` as
-   `AnyEntry` (nothing was observed to resolve to), and the run fails pre-flight with the catalog's
+   `Any` (nothing was observed to resolve to), and the run fails pre-flight with the catalog's
    verdict before any dispatch.
 5. **Kinded and unasserted claims on one rel.** A copy claims `a.txt` as `*Regular` and a move claims it
    unasserted: one catalog entry, the kinded object in the slot, both consumers linked.
 6. **A discovery over a resolved claim.** `file.discover(path, kind="regular")` on a rel already claimed
    unasserted: the entry is kinded by then, so the discovery reaches it with no cross-kind error.
-7. **The narrowed refusal.** An authored string into an `Entry` slot now *claims*; an authored string into
+7. **The narrowed refusal.** An authored string into a `Resource` slot now *claims*; an authored string into
    an interface with no designated mint type still refuses, with the narrower message.
 8. **A missing source fails at pre-flight, not at dispatch** — the `on_missing` removal, pinned as the
    verdict's location, not merely its presence.
@@ -333,9 +359,9 @@ behavior-neutral — the suite must stay green across it with no test edits beyo
 ## Open questions
 
 1. ~~Does `file.unlink` survive?~~ — **RULED 2026-08-23: retired.** One act, one spelling.
-2. **Do other schemes want a permissive claim?** `AnyEntry` is a file-taxonomy answer. `pkg`, `svc`, `git`,
+2. **Do other schemes want a permissive claim?** `Any` is a file-taxonomy answer. `pkg`, `svc`, `git`,
    and `appnet` have no kind axis today, so nothing is owed — but the interface-designates-a-mint-type
    mechanism is scheme-neutral if one ever appears.
-3. **Should `AnyEntry` be authorable as a *discovery* result kind?** `file.discover(kind="entry")` already
+3. **Should `Any` be authorable as a *discovery* result kind?** `file.discover(kind="entry")` already
    returns whatever it observes, kinded. There is no evident need for a discovery to return an unasserted
-   object, and doing so would create the only path to an `AnyEntry` that never resolves.
+   object, and doing so would create the only path to an `Any` that never resolves.
