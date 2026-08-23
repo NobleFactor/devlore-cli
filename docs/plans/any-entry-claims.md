@@ -251,7 +251,7 @@ and the rename, landed together; one finding made it not behavior-neutral after 
 - Gate: make check 103 ok / 0 fail; vet clean under darwin, windows, and linux; gofmt clean. CI green on
   all three platforms.
 
-### Phase 2 — kind resolution at the transition — status: pending
+### Phase 2 — kind resolution at the transition — status: complete 2026-08-23 (#618), in tree
 
 1. A seam shaped like `op.RootBinder`: a resource that can resolve its own kind implements it
    (`file.Any` does; nothing else needs to).
@@ -262,6 +262,31 @@ and the rename, landed together; one finding made it not behavior-neutral after 
    happens exactly once, at the consuming scope's starting line.
 4. Pins: the resolution both directions (Active resolves to the observed kind; Gone stays `Any`),
    and the ledger holding one entry throughout.
+
+**Phase 2 record (2026-08-23) — the seam lands; the audit found the part that would have failed
+silently.**
+
+- `op.KindResolver` joins `op.RootBinder` on the transition: `ResolveKind() (Resource, error)` returns
+  the typed resource the observation names, freshly built and uninterned. `file.Any` implements it by
+  delegating to the same `observed()` helper its content-identity tiers use; no other scheme has a kind
+  axis, so no other scheme implements it and no other transition changes.
+- **The audit's catch: `candidateOfMode` builds an UNLINKED candidate** — a fresh URI whose type
+  fragment names the observed kind, and **no catalog id, no producer stamp**. Swapping that in naively
+  would have stranded `byID` on a row whose occupant answers `""` to `ID()`, and `markActive` would have
+  recorded the state under the empty id. Identity therefore crosses the swap and is stamped by the
+  **catalog** (`resolveKind`), not by the implementation — identity is the catalog's business, and an
+  implementation that stamped its own would be claiming an authority it does not have.
+- The namespace needs nothing: location addressing keys on the fragment-stripped URI, so `Any` and
+  `Regular` spellings name one identity. That is also what lets the type fragment move with the
+  resolution — which is how the trace comes to say `Regular` where the graph's intent says `Any`.
+- **A resolution failure is not an existence failure.** The entry has already been observed to exist, so
+  a resolver that errors leaves it Active and unasserted rather than converting a kind problem into a
+  missing-resource verdict.
+- Pins: five at the catalog level with fixtures (resolution with identity carried forward; the Gone
+  branch resolving nothing; exactly-once; the failure tolerance; a non-resolver untouched) and two at
+  the file level against a real filesystem (an `Any` claim becomes `*Regular` with one id and one ledger
+  row; an unmet claim stays `Any` and goes Gone).
+- Gate: make check 103 ok / 0 fail; vet clean under darwin, windows, and linux; gofmt clean.
 
 ### Phase 3 — the designated mint type — status: pending
 

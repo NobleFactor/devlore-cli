@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
@@ -137,3 +138,73 @@ func anyAt(t *testing.T, environment *op.RuntimeEnvironment, rel string) *Any {
 }
 
 // endregion
+
+// TestAny_ResolvesToTheObservedKindAtTheTransition pins the seam end to end against a real filesystem:
+// an unasserted claim, verified through the catalog, becomes the variant the disk holds — and the ledger
+// keeps one entry with one identity throughout.
+//
+// The catalog-level mechanics are pinned in pkg/op; this is the half that proves file.Any actually
+// resolves, and that the URI's type fragment moves with it (which is how the trace comes to say
+// "Regular" where the graph's intent said "Any").
+func TestAny_ResolvesToTheObservedKindAtTheTransition(t *testing.T) {
+
+	dir := t.TempDir()
+	environment := testEnvironment(t, dir)
+
+	if err := os.WriteFile(filepath.Join(dir, "claimed.txt"), []byte("observed"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	claim, err := DiscoverAny(environment, "claimed.txt")
+	if err != nil {
+		t.Fatalf("DiscoverAny: %v", err)
+	}
+	id := claim.ID()
+
+	if err := environment.ResourceCatalog.VerifyExistence(claim); err != nil {
+		t.Fatalf("VerifyExistence: %v", err)
+	}
+
+	entry, ok := environment.ResourceCatalog.Lookup(id)
+	if !ok {
+		t.Fatal("the entry vanished from the ledger")
+	}
+	if _, isRegular := entry.(*Regular); !isRegular {
+		t.Fatalf("ledger holds %T, want *Regular — the claim must become what the disk holds", entry)
+	}
+	if entry.ID() != id {
+		t.Errorf("resolved entry ID = %q, want %q — one identity throughout", entry.ID(), id)
+	}
+	if environment.ResourceCatalog.Len() != 1 {
+		t.Errorf("ledger length = %d, want 1 — resolution replaces, never appends",
+			environment.ResourceCatalog.Len())
+	}
+	if !strings.Contains(entry.URI(), "file.Regular") {
+		t.Errorf("resolved URI = %q, want the observed kind in its type fragment", entry.URI())
+	}
+}
+
+// TestAny_AnUnmetClaimStaysUnasserted pins the Gone direction with the real predicate: nothing is at the
+// path, so there is nothing to resolve to, and the entry records unmet intent as what it was claimed as.
+func TestAny_AnUnmetClaimStaysUnasserted(t *testing.T) {
+
+	environment := testEnvironment(t, t.TempDir())
+
+	claim, err := DiscoverAny(environment, "absent.txt")
+	if err != nil {
+		t.Fatalf("DiscoverAny: %v", err)
+	}
+	id := claim.ID()
+
+	if err := environment.ResourceCatalog.VerifyExistence(claim); err == nil {
+		t.Fatal("VerifyExistence returned no error for a path holding nothing")
+	}
+
+	entry, _ := environment.ResourceCatalog.Lookup(id)
+	if _, stillAny := entry.(*Any); !stillAny {
+		t.Errorf("ledger holds %T, want *Any — an unmet claim has nothing to become", entry)
+	}
+	if got := environment.ResourceCatalog.State(id); got != op.Gone {
+		t.Errorf("state = %v, want Gone", got)
+	}
+}

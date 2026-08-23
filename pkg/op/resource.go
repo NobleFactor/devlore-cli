@@ -49,6 +49,29 @@ type RootBinder interface {
 	BindRoot(root fsroot.Dir)
 }
 
+// KindResolver is the kind-resolution seam (docs/plans/any-entry-claims.md, ruled 2026-08-23): a claim
+// that asserts existence without asserting kind becomes the kind the world actually holds, at the moment
+// the model first looks.
+//
+// An unasserted claim is in effect a promise to observe. Pre-flight's [Pending] → [Active] transition is
+// where the model first consults the world, so it is where the promise comes due: the entry is replaced
+// with the typed resource the observation names, once, at the consuming scope's starting line. The
+// [Gone] branch resolves nothing — nothing was observed, so there is nothing to resolve to, and the
+// entry honestly records an unmet unasserted claim.
+//
+// The catalog drives it and carries identity across the swap, because identity is the catalog's business:
+// an implementation returns a freshly typed resource and does NOT stamp the catalog id or producer onto
+// it. Resources whose scheme has no kind axis — every scheme but `file` today — simply do not implement
+// the interface, and their transitions are untouched.
+type KindResolver interface {
+
+	// ResolveKind returns the typed resource the observation names, freshly built and uninterned.
+	//
+	// Called only on the Active branch of a transition, so the entry is known to exist. A nil resource
+	// with a nil error means "nothing to resolve" and leaves the entry as it is.
+	ResolveKind() (Resource, error)
+}
+
 // Resource is the interface for all resource receiverTypes.
 //
 // Every provider-specific resource (e.g., file.Resource) must embed [ResourceBase] to satisfy it. The unexported
