@@ -700,6 +700,13 @@ suite items 4–13 green; phase 4's code is done.**
   `file.read_text`). Go pins: the runtime-dialect table (per-OS), `RelWithin`, `EntryKind` round-trip +
   lstat-strict admits, and the kind-honest `Exists` matrix (the symlink-to-regular row is the door-one
   fix pinned).
+- **CI re-diagnosis (2026-08-22): one catch, and a Windows note worth recording.** The quality gate
+  flagged the new code — the Entry-slot refusal pushed `bindPresentValue` to cognitive complexity 26, so
+  the authored (non-Invocation, non-Variable) arm extracted to `bindAuthoredValue`; behavior identical.
+  The Windows legs went green FIRST TIME on a change set full of symlink scenarios (`t.symlink`, the
+  lstat/stat pair, the dangling and escaping resolves, kind-honest activation) — the platform where
+  symlink semantics diverge most; the identity work of phase 2 plus lstat-strict kinds is what makes
+  that unremarkable.
 - Gate: make check 103 ok / 0 fail; vet clean under darwin, windows, and linux; gofmt clean. Windows
   expectation: green stays green; any red is re-diagnosed, not assumed.
 

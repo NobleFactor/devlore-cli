@@ -353,7 +353,8 @@ func remainingKwargs(kwargs map[string]any, consumed map[string]bool) map[string
 
 // bindPresentValue binds one supplied argument value into the parameter's slot: an Invocation binds
 // its promise (or its target unit for ExecutableUnit-typed parameters), a Variable binds by name, and
-// everything else routes through resource construction and the addressing rules.
+// everything else routes through [bindAuthoredValue] — the interface-slot refusal, the plan-space
+// grammar, resource construction, and the addressing rules.
 //
 // Parameters:
 //   - `invocator`: the planning invocator, for the runtime environment.
@@ -380,54 +381,72 @@ func bindPresentValue(invocator PlanInvocator, spec *NodeSpec, actionName string
 		spec.WithSlot(param.Name, NewVariableBindingWithField(v.Name, v.Field))
 
 	default:
-
-		// An authored string cannot bind an interface-typed resource slot (4-resource-management.md §5.7
-		// rule 6, ruled 2026-08-22): a claim asserts a kind — "claims are true when made" needs a kind to
-		// be true about — and an interface asserts none. The author states the kind, or feeds a
-		// discovery's promise; mechanically, plan-time claiming constructs the parameter's type, and an
-		// interface cannot be instantiated.
-		if param.Type != nil && param.Type.Kind() == reflect.Interface && param.Type.Implements(resourceInterfaceType) {
-			if _, isString := value.(string); isString {
-				return fmt.Errorf(
-					"op.ActionPlanner.Plan: %s: param %q: an authored string cannot bind the interface-typed "+
-						"resource slot %s — a claim asserts a kind and an interface asserts none; state the kind, "+
-						"or feed a discovery (4-resource-management.md §5.7)",
-					actionName, param.Name, param.Type)
-			}
-		}
-
-		value, err := normalizePlanSpaceValue(actionName, param, value)
-		if err != nil {
-			return err
-		}
-
-		// A builtin value may be the Go form of a content resource (e.g. a *starlark.Function). The provider
-		// keys its constructor by the source type; if the registry has one, build the resource here so the
-		// addressing switch below takes over — naming only op + reflect, never the provider.
-		if _, isResource := value.(Resource); !isResource {
-			if construct, ok := ReceiverRegistry().ConstructorForSource(reflect.TypeOf(value)); ok {
-				built, err := construct(invocator.RuntimeEnvironment(), value)
-				if err != nil {
-					return fmt.Errorf("op.ActionPlanner.Plan: %s: param %q: %w", actionName, param.Name, err)
-				}
-				value = built
-			}
-		}
-
-		if r, ok := value.(Resource); ok {
-			return bindResourceValue(invocator, spec, actionName, param, r)
-		}
-
-		// A plain value: convert toward the parameter type now.
-
-		converted, err := Convert(invocator.RuntimeEnvironment(), value, param.Type)
-		if err != nil {
-			return fmt.Errorf("op.ActionPlanner.Plan: %s: param %q: %w", actionName, param.Name, err)
-		}
-
-		spec.WithSlot(param.Name, NewImmediateBinding(converted))
+		return bindAuthoredValue(invocator, spec, actionName, param, value)
 	}
 
+	return nil
+}
+
+// bindAuthoredValue binds an authored (non-Invocation, non-Variable) value into the parameter's slot:
+// the interface-slot refusal, the plan-space grammar, resource construction, the addressing rules, and
+// plain conversion — the claiming seam's authored half.
+//
+// Parameters:
+//   - `invocator`: the planning invocator, for the runtime environment.
+//   - `spec`: the node spec under construction.
+//   - `actionName`: the action name, for error messages.
+//   - `param`: the parameter being bound.
+//   - `value`: the supplied authored value.
+//
+// Returns:
+//   - `error`: non-nil on a refusal, construction, or conversion failure.
+func bindAuthoredValue(invocator PlanInvocator, spec *NodeSpec, actionName string, param Parameter, value any) error {
+
+	// An authored string cannot bind an interface-typed resource slot (4-resource-management.md §5.7
+	// rule 6, ruled 2026-08-22): a claim asserts a kind — "claims are true when made" needs a kind to
+	// be true about — and an interface asserts none. The author states the kind, or feeds a
+	// discovery's promise; mechanically, plan-time claiming constructs the parameter's type, and an
+	// interface cannot be instantiated.
+	if param.Type != nil && param.Type.Kind() == reflect.Interface && param.Type.Implements(resourceInterfaceType) {
+		if _, isString := value.(string); isString {
+			return fmt.Errorf(
+				"op.ActionPlanner.Plan: %s: param %q: an authored string cannot bind the interface-typed "+
+					"resource slot %s — a claim asserts a kind and an interface asserts none; state the kind, "+
+					"or feed a discovery (4-resource-management.md §5.7)",
+				actionName, param.Name, param.Type)
+		}
+	}
+
+	value, err := normalizePlanSpaceValue(actionName, param, value)
+	if err != nil {
+		return err
+	}
+
+	// A builtin value may be the Go form of a content resource (e.g. a *starlark.Function). The provider
+	// keys its constructor by the source type; if the registry has one, build the resource here so the
+	// addressing switch below takes over — naming only op + reflect, never the provider.
+	if _, isResource := value.(Resource); !isResource {
+		if construct, ok := ReceiverRegistry().ConstructorForSource(reflect.TypeOf(value)); ok {
+			built, err := construct(invocator.RuntimeEnvironment(), value)
+			if err != nil {
+				return fmt.Errorf("op.ActionPlanner.Plan: %s: param %q: %w", actionName, param.Name, err)
+			}
+			value = built
+		}
+	}
+
+	if r, ok := value.(Resource); ok {
+		return bindResourceValue(invocator, spec, actionName, param, r)
+	}
+
+	// A plain value: convert toward the parameter type now.
+
+	converted, err := Convert(invocator.RuntimeEnvironment(), value, param.Type)
+	if err != nil {
+		return fmt.Errorf("op.ActionPlanner.Plan: %s: param %q: %w", actionName, param.Name, err)
+	}
+
+	spec.WithSlot(param.Name, NewImmediateBinding(converted))
 	return nil
 }
 
