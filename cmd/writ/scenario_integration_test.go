@@ -124,7 +124,11 @@ func writBinary(t *testing.T) string {
 	if runtime.GOOS == "windows" {
 		binary += ".exe"
 	}
-	path, err := filepath.Abs(filepath.Join("..", "..", "build", binary))
+	// Products live under build/<goos>-<goarch>/ so one host can build every platform; only this
+	// machine's own directory holds a binary it can execute.
+	path, err := filepath.Abs(
+		filepath.Join("..", "..", "build", runtime.GOOS+"-"+runtime.GOARCH, binary),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -137,6 +137,23 @@ TARGET_GOOS := $(shell go env GOOS)
 TARGET_GOARCH := $(shell go env GOARCH)
 CROSS := $(if $(filter $(TARGET_GOOS)/$(TARGET_GOARCH),$(HOST_GOOS)/$(HOST_GOARCH)),,cross)
 
+# Executable suffix for the HOST, for the tools that are only ever built here. $(GOEXE) below is the
+# TARGET's suffix and belongs to products.
+HOST_GOEXE := $(if $(filter windows,$(HOST_GOOS)),.exe,)
+
+# Where the host's own products land. `install` and the scenario tests want runnable binaries, which
+# on this machine means this directory and no other.
+HOST_DIR := build/$(HOST_GOOS)-$(HOST_GOARCH)
+
+# The split that decides what gets cross-compiled.
+#
+# PRODUCTS ship: they are built once per entry in $(PLATFORMS), into build/<goos>-<goarch>/. TOOLS are
+# development instruments — they run here, on this machine, against this checkout, and nowhere else, so
+# they are built once for the host and stay at build/<name>. `star` appears in both: the product copy
+# ships beside the others, while the host copy at build/star is what $(STAR) drives codegen with.
+PRODUCTS := lore star writ devlore-test
+TOOLS := devlore-docs devlore-index devlore-inventory
+
 ## TARGETS
 
 .PHONY: all build install clean test test-race cover vet vet-all lint lint-all build-all shell-lint complexity verify-ldflags check dev docs dist dist-all star star-lkg generate inventory help
@@ -161,25 +178,40 @@ star-lkg: star ## Snapshot build/star as last-known-good (run after a green buil
 # GOEXE is ".exe" on Windows and empty elsewhere — binaries must carry it to be executable there.
 GOEXE := $(shell go env GOEXE)
 
-build: generate ## Build all binaries
-	go build $(LDFLAGS) -o build/lore$(GOEXE) ./cmd/lore
-	go build $(LDFLAGS) -o build/star$(GOEXE) ./cmd/star
-	go build $(LDFLAGS) -o build/writ$(GOEXE) ./cmd/writ
-	go build $(LDFLAGS) -o build/devlore-test$(GOEXE) ./cmd/devlore-test
-	go build $(LDFLAGS) -o build/devlore-docs$(GOEXE) ./cmd/devlore-docs
-	go build $(LDFLAGS) -o build/devlore-index$(GOEXE) ./cmd/devlore-index
-	go build $(LDFLAGS) -o build/devlore-inventory$(GOEXE) ./cmd/devlore-inventory
+build: generate ## Build every product for every platform in PLATFORMS (override to restrict)
+	# The build comes to the machine: one host produces every platform's binaries, and installing
+	# anywhere is a copy. The codebase is pure Go — zero `import "C"` — so the whole matrix
+	# cross-compiles from here with GOOS/GOARCH alone, no per-platform toolchains and no build VMs.
+	#
+	# Restrict the inner loop with e.g. `make build PLATFORMS=darwin/arm64`. Generators already ran
+	# once, host-side, in `generate`; this loop only links.
+	for platform in $(PLATFORMS); do
+		os=$${platform%/*}
+		arch=$${platform#*/}
+		ext=""
+		if [ "$$os" = "windows" ]; then ext=".exe"; fi
+		mkdir -p build/$$os-$$arch
+		for product in $(PRODUCTS); do
+			GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 go build $(LDFLAGS) -o build/$$os-$$arch/$$product$$ext ./cmd/$$product
+		done
+	done
+	# Development tools are host-only by construction — they act on this checkout, so a
+	# target-architecture copy would be unrunnable and meaningless.
+	for tool in $(TOOLS); do
+		$(HOST_GO) build $(LDFLAGS) -o build/$$tool$(HOST_GOEXE) ./cmd/$$tool
+	done
 	# The stamp must reach the binary. `-X` against a symbol that does not exist is NOT an error —
 	# the linker ignores it and the binary reports its compiled-in default. Every release before
 	# 2026-08-16 shipped that way, unnoticed, because nothing compared the two. See
 	# docs/plans/version-stamping.md.
 	#
-	# Cross-compiled binaries cannot be executed here, so the check is announced as skipped rather
-	# than silently dropped — a skipped guard that says nothing reads exactly like a passing one.
-	if [ -n "$(CROSS)" ]; then
-		echo "cross-compiling for $(TARGET_GOOS)/$(TARGET_GOARCH): skipping the version-stamp check (cannot run a $(TARGET_GOOS) binary on $(HOST_GOOS))"
+	# Only the host's own copy can be executed, and it exists only when the host is in PLATFORMS —
+	# which it is by default, but not under a restricting override. A skip is announced rather than
+	# silently taken: a guard that says nothing reads exactly like a passing one.
+	if [ ! -x "$(HOST_DIR)/writ$(HOST_GOEXE)" ]; then
+		echo "$(HOST_GOOS)/$(HOST_GOARCH) is not in PLATFORMS: skipping the version-stamp check (nothing built here can run here)"
 	else
-		stamped="$$(build/writ$(GOEXE) version --short)"
+		stamped="$$($(HOST_DIR)/writ$(HOST_GOEXE) version --short)"
 		if [ "$$stamped" != "$(VERSION)" ]; then
 			echo "ERROR: version stamp did not bind."
 			echo "  build computed: $(VERSION)"
@@ -190,9 +222,9 @@ build: generate ## Build all binaries
 	fi
 
 install: build ## Install lore, star, and writ via self install (PREFIX=~/.local)
-	build/lore$(GOEXE) self install $(PREFIX)
-	build/star$(GOEXE) self install $(PREFIX)
-	build/writ$(GOEXE) self install $(PREFIX)
+	$(HOST_DIR)/lore$(HOST_GOEXE) self install $(PREFIX)
+	$(HOST_DIR)/star$(HOST_GOEXE) self install $(PREFIX)
+	$(HOST_DIR)/writ$(HOST_GOEXE) self install $(PREFIX)
 
 clean: ## Remove build artifacts
 	rm -rf build/
@@ -219,7 +251,11 @@ test: generate ## Run tests (TAGS=all|integration|e2e|"", default: all)
 test-race: generate ## Run tests with race detector (TAGS=all|integration|e2e|"", default: all)
 	go test $(if $(_TAGS),-tags '$(_TAGS)') $$(go list ./... | grep -v '/pkg/op/provider$$') -count=1 -race -timeout 120s
 
-test-scenario: build ## Run every scenario: the real binaries driven end to end in a sandbox
+test-scenario: ## Run every scenario: the real binaries driven end to end in a sandbox
+	# Scenarios drive binaries that must RUN, so only the host's copies are of any use. Building the
+	# whole matrix here would cross-compile 20 binaries nothing in this target can execute — and CI
+	# runs this on three platforms.
+	$(MAKE) build PLATFORMS=$(HOST_GOOS)/$(HOST_GOARCH)
 	# The writ-deploy scenario (docs/plans/writ-deploy-scenario.md) — writ's alone.
 	WRIT_SCENARIO_RUN=1 go test -run TestWritDeployScenario -v -count=1 -timeout 600s ./cmd/writ
 	# Self install / uninstall, once per tool. Belongs to no single command, so it lives in cmd/scenario.
@@ -297,8 +333,11 @@ dev: ## Activate git hooks
 	git config core.hooksPath .githooks
 	echo "Hooks activated: .githooks/pre-commit"
 
-docs: build ## Generate CLI documentation
-	build/devlore-docs$(GOEXE) --output-dir=docs/cli --version=$(VERSION)
+docs: ## Generate CLI documentation
+	# devlore-docs is a host tool and the docs it writes are host-independent; the matrix has nothing
+	# to contribute.
+	$(MAKE) build PLATFORMS=$(HOST_GOOS)/$(HOST_GOARCH)
+	build/devlore-docs$(HOST_GOEXE) --output-dir=docs/cli --version=$(VERSION)
 
 ##@ Distribution
 
