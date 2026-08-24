@@ -53,7 +53,7 @@ func TestAny_Exists_IsPermissiveButTaxonomyBounded(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := anyAt(t, environment, tc.path).Exists(); got != tc.want {
+			if got := anyKindAt(t, environment, tc.path).Exists(); got != tc.want {
 				t.Errorf("Exists() = %t, want %t", got, tc.want)
 			}
 		})
@@ -72,7 +72,7 @@ func TestAny_ContentIdentityDelegatesToTheObservedKind(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	unasserted := anyAt(t, environment, "regular.txt")
+	unasserted := anyKindAt(t, environment, "regular.txt")
 
 	kindedBase, err := buildCandidateAs(environment, "regular.txt", reflect.TypeFor[*Regular]())
 	if err != nil {
@@ -82,7 +82,7 @@ func TestAny_ContentIdentityDelegatesToTheObservedKind(t *testing.T) {
 
 	unassertedDigest, err := unasserted.Digest()
 	if err != nil {
-		t.Fatalf("Any.Digest: %v", err)
+		t.Fatalf("AnyKind.Digest: %v", err)
 	}
 	kindedDigest, err := kinded.Digest()
 	if err != nil {
@@ -94,7 +94,7 @@ func TestAny_ContentIdentityDelegatesToTheObservedKind(t *testing.T) {
 
 	unassertedEtag, err := unasserted.Etag()
 	if err != nil {
-		t.Fatalf("Any.Etag: %v", err)
+		t.Fatalf("AnyKind.Etag: %v", err)
 	}
 	kindedEtag, err := kinded.Etag()
 	if err != nil {
@@ -111,10 +111,10 @@ func TestAny_ContentIdentityOnAMissingPathErrors(t *testing.T) {
 
 	environment := testEnvironment(t, t.TempDir())
 
-	if _, err := anyAt(t, environment, "absent.txt").Digest(); err == nil {
+	if _, err := anyKindAt(t, environment, "absent.txt").Digest(); err == nil {
 		t.Error("Digest() over a missing path returned no error")
 	}
-	if _, err := anyAt(t, environment, "absent.txt").Etag(); err == nil {
+	if _, err := anyKindAt(t, environment, "absent.txt").Etag(); err == nil {
 		t.Error("Etag() over a missing path returned no error")
 	}
 }
@@ -123,18 +123,18 @@ func TestAny_ContentIdentityOnAMissingPathErrors(t *testing.T) {
 
 // region HELPER FUNCTIONS
 
-// anyAt builds an UNLINKED [*Any] for `rel` — no interning, so a test may probe several kinds
+// anyKindAt builds an UNLINKED [*AnyKind] for `rel` — no interning, so a test may probe several kinds
 // at several paths under one environment without tripping the catalog's cross-kind claim rule.
-func anyAt(t *testing.T, environment *op.RuntimeEnvironment, rel string) *Any {
+func anyKindAt(t *testing.T, environment *op.RuntimeEnvironment, rel string) *AnyKind {
 
 	t.Helper()
 
-	base, err := buildCandidateAs(environment, rel, reflect.TypeFor[*Any]())
+	base, err := buildCandidateAs(environment, rel, reflect.TypeFor[*AnyKind]())
 	if err != nil {
 		t.Fatalf("candidate %s: %v", rel, err)
 	}
 
-	return &Any{resource: *base}
+	return &AnyKind{resource: *base}
 }
 
 // endregion
@@ -143,9 +143,9 @@ func anyAt(t *testing.T, environment *op.RuntimeEnvironment, rel string) *Any {
 // an unasserted claim, verified through the catalog, becomes the variant the disk holds — and the ledger
 // keeps one entry with one identity throughout.
 //
-// The catalog-level mechanics are pinned in pkg/op; this is the half that proves file.Any actually
+// The catalog-level mechanics are pinned in pkg/op; this is the half that proves file.AnyKind actually
 // resolves, and that the URI's type fragment moves with it (which is how the trace comes to say
-// "Regular" where the graph's intent said "Any").
+// "Regular" where the graph's intent said "AnyKind").
 func TestAny_ResolvesToTheObservedKindAtTheTransition(t *testing.T) {
 
 	dir := t.TempDir()
@@ -155,9 +155,9 @@ func TestAny_ResolvesToTheObservedKindAtTheTransition(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	claim, err := DiscoverAny(environment, "claimed.txt")
+	claim, err := DiscoverAnyKind(environment, "claimed.txt")
 	if err != nil {
-		t.Fatalf("DiscoverAny: %v", err)
+		t.Fatalf("DiscoverAnyKind: %v", err)
 	}
 	id := claim.ID()
 
@@ -190,9 +190,9 @@ func TestAny_AnUnmetClaimStaysUnasserted(t *testing.T) {
 
 	environment := testEnvironment(t, t.TempDir())
 
-	claim, err := DiscoverAny(environment, "absent.txt")
+	claim, err := DiscoverAnyKind(environment, "absent.txt")
 	if err != nil {
-		t.Fatalf("DiscoverAny: %v", err)
+		t.Fatalf("DiscoverAnyKind: %v", err)
 	}
 	id := claim.ID()
 
@@ -201,8 +201,8 @@ func TestAny_AnUnmetClaimStaysUnasserted(t *testing.T) {
 	}
 
 	entry, _ := environment.ResourceCatalog.Lookup(id)
-	if _, stillAny := entry.(*Any); !stillAny {
-		t.Errorf("ledger holds %T, want *Any — an unmet claim has nothing to become", entry)
+	if _, stillAny := entry.(*AnyKind); !stillAny {
+		t.Errorf("ledger holds %T, want *AnyKind — an unmet claim has nothing to become", entry)
 	}
 	if got := environment.ResourceCatalog.State(id); got != op.Gone {
 		t.Errorf("state = %v, want Gone", got)

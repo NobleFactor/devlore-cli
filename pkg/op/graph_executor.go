@@ -1504,7 +1504,7 @@ func isHardFailure(err error) bool {
 // Each per-type step adds its type as it implements the contract; the gate dissolves once all nine resource-bearing
 // providers participate.
 var existenceVerifiableTypes = map[string]struct{}{
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file.Any":          {},
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file.AnyKind":      {},
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file.Regular":      {},
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file.Directory":    {},
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file.SymbolicLink": {},

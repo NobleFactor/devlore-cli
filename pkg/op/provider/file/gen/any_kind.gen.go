@@ -14,9 +14,9 @@ import (
 
 func init() {
 	op.AnnounceResource(
-		reflect.TypeFor[provider.Any](),
+		reflect.TypeFor[provider.AnyKind](),
 		func(runtimeEnvironment *op.RuntimeEnvironment, identity any) (op.Resource, error) {
-			return provider.DiscoverAny(runtimeEnvironment, identity)
+			return provider.DiscoverAnyKind(runtimeEnvironment, identity)
 		},
 		nil,
 	)

@@ -12,7 +12,7 @@ import (
 // region TEST FIXTURES
 
 // unassertedResource is a [KindResolver] fixture: it exists, and it resolves to `resolvesTo` — the shape
-// `file.Any` has, without the filesystem.
+// `file.AnyKind` has, without the filesystem.
 type unassertedResource struct {
 	ResourceBase
 	addressingMode AddressingMode

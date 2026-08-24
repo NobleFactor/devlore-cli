@@ -126,7 +126,7 @@ three ways at once. All three surface in phase 1 and are paid once.
    one, so pointer-receiver methods are visible."* On an interface that yields `*Resource` — a pointer to
    interface, whose method set is **empty**. Providers that announce method metadata fail loudly at init
    (`parseParameters` → `MethodByName` → `"method Equal: not found on type service.Resource"`).
-   `file.Any`, which announces `nil`, fails **silently** with zero methods, because `parseParameters`
+   `file.AnyKind`, which announces `nil`, fails **silently** with zero methods, because `parseParameters`
    returns an empty but non-nil map and the announced path then matches nothing.
 
 2. **`NewMethod` cannot consume an interface method at all** —
@@ -335,16 +335,19 @@ it before transforming it.
 
 #### Phase 5 — `file`'s four variants become interfaces — status: pending
 
-`Any`, `Regular`, `Directory`, `SymbolicLink` each become a sealed interface over an unexported struct,
-discriminated by `kind() <Interface>` per ruling 6. The announcements keep naming `provider.Regular` and
-friends, so the four fragments stay byte-identical.
+`AnyKind`, `Regular`, `Directory`, `SymbolicLink` each become a sealed interface over an unexported
+struct — `anyKind`, `regular`, `directory`, `symbolicLink` — discriminated by `kind() <Interface>` per
+ruling 6. The announcements keep naming `provider.Regular` and friends, so the four fragments stay
+byte-identical.
 
-**Open: what the `Any` struct is called.** The lowercase rule gives `regular`, `directory`, and
-`symbolicLink` without incident, but `any` is a predeclared identifier — declaring a type by that name
-shadows it for the whole package, breaking every use of `any` as a type in `file`. Needs a decision in
-this phase; `anyEntry` has precedent from #616's original name.
+**Settled by the `AnyKind` rename (USER, 2026-08-24; landed ahead of this phase).** The lowercase rule
+would have given `any` for the unasserted variant, which is a predeclared identifier: declaring a type by
+that name does not fail to compile — it silently rebinds all 139 bare `any` occurrences in the package,
+including the constructors' own `value any` parameters. Renaming the exported type to `AnyKind` resolves
+it at the source: `anyKind` shadows nothing, and the variant's name now states its assertion (a kind, any
+kind) rather than borrowing Go's word for the empty interface.
 
-`op.RegisterResourceMint` gains the four interface→struct registrations. `*Any`'s resolution at
+`op.RegisterResourceMint` gains the four interface→struct registrations. `*AnyKind`'s resolution at
 activation (`op.KindResolver`) and the supersession rules from #616 must be re-pinned against interface
 types rather than concrete ones — this is where a silent regression would hide.
 

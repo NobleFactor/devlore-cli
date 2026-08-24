@@ -88,7 +88,7 @@ type mintProbeProvider struct{}
 
 func (mintProbeProvider) Take(claim Resource) error { return nil }
 
-// mintedResource is the concrete type a designation points at — the shape `file.Any` has, minus the
+// mintedResource is the concrete type a designation points at — the shape `file.AnyKind` has, minus the
 // filesystem.
 type mintedResource struct {
 	ResourceBase

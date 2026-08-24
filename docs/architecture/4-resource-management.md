@@ -413,7 +413,7 @@ The rules, each ruled 2026-08-22:
 6. **An interface-typed resource slot mints its designated claim** (amended 2026-08-23; originally a
    flat refusal). A claim asserts a kind — "claims are true when made" needs a kind to be true about —
    and an interface asserts none, so an interface **designates** the concrete claim that deliberately
-   asserts nothing on its behalf: `file.Resource` designates `*file.Any`, whose predicate is existence
+   asserts nothing on its behalf: `file.Resource` designates `*file.AnyKind`, whose predicate is existence
    alone and which resolves to the observed kind at activation (§3). The designation lives on the
    interface, once, never per parameter: two methods taking the same slot type must claim the same way,
    or one authored path would mean different intent depending on which method received it. The

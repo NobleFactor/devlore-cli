@@ -652,7 +652,7 @@ func (c *ResourceCatalog) VerifyExistence(resource Resource) error {
 // catalog id and no producer stamp. Carrying both forward keeps `byID`, the state map, and the recovery
 // stack's id references pointing at the same row they always did — only the object standing in that row
 // changes, and with it the URI's type fragment, which is how the trace comes to say `Regular` where the
-// graph's intent said `Any`. The namespace is untouched: location addressing keys on the
+// graph's intent said `AnyKind`. The namespace is untouched: location addressing keys on the
 // fragment-stripped URI, so both spellings name one identity.
 //
 // A resource that does not implement [KindResolver], a resolver that returns nothing, and a resolver

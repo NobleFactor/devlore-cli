@@ -6,6 +6,12 @@ created: 2026-08-23
 updated: 2026-08-24
 ---
 
+> **Rename, 2026-08-24.** The type this plan calls `file.Any` was renamed to **`file.AnyKind`**
+> (concrete `file.anyKind`) under [#625](https://github.com/NobleFactor/devlore-cli/issues/625) —
+> the lowercase form `any` shadows Go's predeclared identifier. The prose below is left as written;
+> read `Any` as `AnyKind` throughout.
+
+
 # Plan: Any — claims that assert existence, not kind
 
 ## Summary

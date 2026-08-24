@@ -26,7 +26,7 @@ func TestAny_Exists_RefusesAKindTheTaxonomyLacks(t *testing.T) {
 		t.Skipf("mkfifo unavailable here: %v", err)
 	}
 
-	if anyAt(t, environment, "a-fifo").Exists() {
+	if anyKindAt(t, environment, "a-fifo").Exists() {
 		t.Error("Exists() = true over a FIFO; the taxonomy has no variant to resolve to")
 	}
 }
