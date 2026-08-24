@@ -7,7 +7,7 @@
 # Replaces the refusal this scenario used to pin. Before the designation, an authored string bound to an
 # interface-typed resource slot was refused outright: a claim asserts a kind and an interface asserts
 # none. The interface now names the claim that deliberately asserts nothing on its behalf — `file.Resource`
-# designates `*file.Any` — so the same authored path claims, and resolves to whatever the disk holds at
+# designates `*file.AnyKind` — so the same authored path claims, and resolves to whatever the disk holds at
 # activation.
 #
 # The narrowed refusal (an interface that designates NO claim type) is unreachable from Starlark, because
@@ -30,6 +30,6 @@ plan.save_definition(graph, doc)
 document = json.decode(data=file.read_text(resource=doc))
 entries = [e for e in document["resources"] if "observed.txt" in str(e)]
 t.expect_equal(len(entries), 1)
-t.expect_equal("file.Any" in str(entries[0]), True)
+t.expect_equal("file.AnyKind" in str(entries[0]), True)
 
 t.run(graph)

@@ -6,7 +6,7 @@
 #
 # The capability that regressed when kind-honest activation landed (#611): a `*Regular` claim over a
 # symbolic link failed verification, so a link could not be moved at all. `file.move` now takes the
-# taxonomy interface, so an authored path claims as `file.Any` and resolves to whatever the disk holds.
+# taxonomy interface, so an authored path claims as `file.AnyKind` and resolves to whatever the disk holds.
 #
 # All three kinds move in one graph, and the sharp assertion is the link: **the link moves, its target
 # does not**. A follow would show up unmistakably — the target would vanish from its original path.

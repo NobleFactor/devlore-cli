@@ -272,7 +272,7 @@ func internEntry[E Resource](
 		// — the kinded claim asserts more, and it is the one that can fail, so it must be the one
 		// verification judges. Any other mismatch is a genuine cross-kind conflict: two claims asserting
 		// different kinds of the same path is contradictory intent, and the earliest claim reports it.
-		if _, unasserted := got.(*Any); unasserted {
+		if _, unasserted := got.(*AnyKind); unasserted {
 			superseded, isKind := runtimeEnvironment.ResourceCatalog.Supersede(got, candidate).(E)
 			if isKind {
 				return superseded, nil

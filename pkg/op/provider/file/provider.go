@@ -451,8 +451,8 @@ func (p *Provider) compensateMakeDir(receipt *Receipt) (err error) {
 
 // Move moves `source` to `destinationPath`, archiving any existing destination first.
 //
-// **Any kind moves.** The source is claimed as [Resource], the taxonomy's interface, so an authored path
-// claims as [*Any] and resolves to whatever the disk holds at activation: a regular file, a directory
+// **AnyKind kind moves.** The source is claimed as [Resource], the taxonomy's interface, so an authored path
+// claims as [*AnyKind] and resolves to whatever the disk holds at activation: a regular file, a directory
 // and its subtree (a rename carries it whole), or a symbolic link — the link itself, never the entry it
 // designates. The kind is the disk's business, not the author's; a move moves what is there.
 //
@@ -670,7 +670,7 @@ func (p *Provider) compensateRemoveDir(receipt *Receipt) error {
 
 // Remove deletes the single entry at `target`, archiving it for compensation.
 //
-// **Any kind is removable.** The target is claimed as [Resource], so an authored path claims as [*Any]
+// **AnyKind kind is removable.** The target is claimed as [Resource], so an authored path claims as [*AnyKind]
 // and resolves to whatever the disk holds: a regular file, an empty directory, or a symbolic link — the
 // link itself, never the entry it designates, because the entry is discovered with lstat semantics and a
 // removal never follows. The removal family splits by **blast radius, never by kind**, which is the
