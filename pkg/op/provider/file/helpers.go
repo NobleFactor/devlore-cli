@@ -268,6 +268,17 @@ func internEntry[E Resource](
 
 	canonical, ok := got.(E)
 	if !ok {
+		// The collision rule: one rel is one identity, and an UNASSERTED claim gives way to a kinded one
+		// — the kinded claim asserts more, and it is the one that can fail, so it must be the one
+		// verification judges. Any other mismatch is a genuine cross-kind conflict: two claims asserting
+		// different kinds of the same path is contradictory intent, and the earliest claim reports it.
+		if _, unasserted := got.(*Any); unasserted {
+			superseded, isKind := runtimeEnvironment.ResourceCatalog.Supersede(got, candidate).(E)
+			if isKind {
+				return superseded, nil
+			}
+		}
+
 		var zero E
 		return zero, fmt.Errorf("file: catalog entry for %q is %T, want %T", candidate.URI(), got, candidate)
 	}

@@ -72,6 +72,35 @@ type KindResolver interface {
 	ResolveKind() (Resource, error)
 }
 
+// ErrClaimKindMismatch marks an unmet claim whose path holds an entry of the WRONG KIND rather than no
+// entry at all (ruled 2026-08-23).
+//
+// The distinction decides tolerance. [MissingResourcePolicyIgnore] means "the goal already holds" — a
+// coherent thing to say about absence, and an incoherent one about a surprise: if a claim asserted a
+// symbolic link and the path holds a hand-written regular file, the goal plainly does not hold and
+// something unexpected is there. **A kind mismatch therefore stops under every policy.** A regular file
+// is not a directory is not a symbolic link.
+//
+// The concrete case this was ruled from: `writ decommission` removes what its own runs deployed, under
+// `on_missing=ignore` so that a hand-removed target decommissions as recorded history. A deployed link
+// the user replaced with a real file must be REFUSED rather than deleted — and without the distinction,
+// tolerance would have deleted it.
+var ErrClaimKindMismatch = errors.New("claim asserts a different kind than the path holds")
+
+// KindMismatcher reports whether a claim's path holds an entry of a different kind than the claim
+// asserts — the seam that separates absence from mismatch when a claim fails to verify.
+//
+// Optional, like [RootBinder] and [KindResolver]: a scheme with no kind axis never implements it, and
+// its claims fail only ever as absence.
+type KindMismatcher interface {
+
+	// MismatchesKind reports whether the path holds an entry this claim's kind does not admit.
+	//
+	// Consulted only when the claim has already failed to verify, so the answer distinguishes "nothing
+	// is there" (false) from "something else is there" (true).
+	MismatchesKind() bool
+}
+
 // Resource is the interface for all resource receiverTypes.
 //
 // Every provider-specific resource (e.g., file.Resource) must embed [ResourceBase] to satisfy it. The unexported

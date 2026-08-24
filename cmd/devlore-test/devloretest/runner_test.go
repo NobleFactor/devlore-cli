@@ -251,8 +251,8 @@ func runScriptImm(t *testing.T, name string) {
 
 // --- Planned action tests — file provider gaps ---
 
-func TestFileUnlink(t *testing.T) {
-	runScript(t, "test_file_unlink.star")
+func TestFileRemoveLink(t *testing.T) {
+	runScript(t, "test_file_remove_link.star")
 }
 
 func TestFileGlob(t *testing.T) {
@@ -526,4 +526,8 @@ func TestJudgmentMoveAnyKind(t *testing.T) {
 
 func TestJudgmentMoveMissingSource(t *testing.T) {
 	runScript(t, "test_judgment_move_missing_source.star")
+}
+
+func TestJudgmentRemoveAnyKind(t *testing.T) {
+	runScript(t, "test_judgment_remove_any_kind.star")
 }

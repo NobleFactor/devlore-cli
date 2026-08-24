@@ -467,3 +467,24 @@ func (r *resource) UnmarshalYAML(unmarshal func(any) error) error {
 // endregion
 
 // endregion
+
+// observedMode lstats this resource's path and reports the entry's mode when one is there.
+//
+// The shared observation behind every variant's [Resource.Exists] and `MismatchesKind`: kinds are
+// lstat-strict, so a symbolic link reports as a link rather than as whatever it designates, and the two
+// predicates never disagree about what is at the path.
+//
+// Returns:
+//   - `fs.FileMode`: the lstat-observed mode; meaningless when the second result is false.
+//   - `bool`: true when an entry is there at all.
+func (r *resource) observedMode() (fs.FileMode, bool) {
+
+	root := r.RuntimeEnvironment().Root()
+
+	info, err := root.Lstat(root.NewPath(r.SourcePath.Abs()))
+	if err != nil {
+		return 0, false
+	}
+
+	return info.Mode(), true
+}

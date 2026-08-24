@@ -161,6 +161,24 @@ values (never iota) and a fail-safe zero:
   (a remove no-ops; the receipt records "target was already absent" so compensation of the no-op is a
   no-op).
 
+**Tolerance covers absence, never a kind mismatch (ruled 2026-08-23).** `Ignore` says *the goal already
+holds* — a coherent statement about an empty path and an incoherent one about a surprise: if a claim
+asserts a symbolic link and the path holds a hand-written regular file, the goal plainly does not hold
+and something unexpected is there. **A claim that fails because the path holds the wrong kind stops under
+every policy** (`op.ErrClaimKindMismatch`), because proceeding would act on something the plan never
+described. A regular file is not a directory is not a symbolic link.
+
+The seam is `op.KindMismatcher` — optional, like `RootBinder` and `KindResolver` — consulted only after a
+claim has already failed to verify, so it answers the one question the boolean predicate cannot:
+*nothing is there* or *something else is there*. Schemes with no kind axis never implement it, and their
+claims fail only ever as absence.
+
+The case this was ruled from: `writ decommission` removes what its own runs deployed, under `ignore` so
+that a hand-removed target decommissions as recorded history. That tolerance is only safe because the
+claim **asserts the kind writ deployed** — a link claims a link — so a deployed link the user replaced
+with a real file is refused rather than deleted. Tolerance without the distinction would have deleted the
+user's file.
+
 A **Skip** variant ("do not dispatch") was considered and **DROPPED (ruled 2026-08-22)**: its undo story is
 trivially clean — nothing ran, nothing to undo — but its forward side (nil-valued promises to downstream
 consumers; a trace that cannot tell "skipped" from "ran and produced nothing") buys machinery Ignore never

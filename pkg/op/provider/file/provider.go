@@ -75,14 +75,15 @@ func (p *Provider) Root() string {
 
 // Compensable actions
 
-// Backup moves the entry at `sourcePath` to a timestamped backup location, delegating to [Provider.Move].
+// Backup moves `source` to a timestamped backup location, delegating to [Provider.Move].
 //
-// Takes a path, not a resource (step 23, ruling 2): Backup renames — it never reads content — so the entry it
-// displaces is identified by location and the produced backup resource is the return value.
+// The source is a consumed, claimed resource of any taxonomy kind — the surface's last unclaimed mutation
+// source until 2026-08-23, when it joined its siblings. Backup renames rather than reading content, so the
+// kind is the disk's business: whatever [Provider.Move] can move, Backup can back up.
 //
 // Parameters:
 //   - `activationRecord`: the dispatch activation threaded to [Provider.Move].
-//   - `sourcePath`: the path of the entry to back up.
+//   - `source`: the entry to back up — a consumed, claimed resource.
 //   - `backupSuffix`: the suffix inserted before the timestamp; empty defaults to the runtime environment's
 //     `BackupSuffix` (the spec path derives it as ".<ProgramName>-backup", e.g. ".devlore-backup").
 //
@@ -92,7 +93,7 @@ func (p *Provider) Root() string {
 //   - `error`: non-nil on move failure.
 func (p *Provider) Backup(
 	activationRecord *op.ActivationRecord,
-	sourcePath string,
+	source Resource,
 	backupSuffix string,
 ) (Resource, *Receipt, error) {
 
@@ -100,14 +101,8 @@ func (p *Provider) Backup(
 		backupSuffix = p.RuntimeEnvironment().BackupSuffix
 	}
 
-	sourceAbs := p.RuntimeEnvironment().Root().NewPath(sourcePath).Abs()
 	timestamp := time.Now().Format("20060102-150405")
-	backupPath := sourceAbs + backupSuffix + "." + timestamp
-
-	source, err := DiscoverRegular(p.RuntimeEnvironment(), sourcePath)
-	if err != nil {
-		return nil, nil, err
-	}
+	backupPath := source.Path().Abs() + backupSuffix + "." + timestamp
 
 	return p.Move(activationRecord, source, backupPath)
 }
@@ -673,178 +668,133 @@ func (p *Provider) compensateRemoveDir(receipt *Receipt) error {
 	return p.mkdirAll(resource.Path().Abs(), 0o750)
 }
 
-// Remove deletes the file `target`, archiving it for compensation.
+// Remove deletes the single entry at `target`, archiving it for compensation.
 //
-// The target is a consumed resource (mutation targets are resource-typed consumers — ruled 2026-08-20): its
-// literal claim enters the graph's catalog as required intent, gated per call by `onMissing`
-// (4-resource-management.md §3, the claims taxonomy). At dispatch the delete invariants discharge here: the
-// observed entry is moved to the recovery site and its catalog entry marked [op.Gone] on success. A missing
-// target follows the policy — Stop errors (mid-run loss rediscovered at dispatch; scope verification covers
-// the starting line), Ignore no-ops. A
-// directory is an error — use [Provider.RemoveAll] for recursive deletion. When `prune` is set, now-empty
-// parents up to `boundary` are removed.
+// **Any kind is removable.** The target is claimed as [Resource], so an authored path claims as [*Any]
+// and resolves to whatever the disk holds: a regular file, an empty directory, or a symbolic link — the
+// link itself, never the entry it designates, because the entry is discovered with lstat semantics and a
+// removal never follows. The removal family splits by **blast radius, never by kind**, which is the
+// standard library's split for the same reasons — [os.Remove] does not ask the kind either, trying
+// unlink then rmdir, which is why Go never needed an Unlink.
+//
+// A **non-empty directory is refused**: [Provider.RemoveAll] owns subtrees. The guard is authoring
+// policy rather than a capability boundary — the destructive step is an archival rename, which would
+// move a populated tree perfectly well — and it exists so that destroying a tree must be said rather
+// than stumbled into. A symbolic link never reaches the guard, whatever it designates.
+//
+// A missing target follows `onMissing`: stop (the default) fails the call, ignore records the no-op.
 //
 // Parameters:
-//   - `activationRecord`: the dispatch activation (the required floor for compensable actions — step 27).
-//   - `target`: the file to delete — a consumed, claimed resource.
-//   - `onMissing`: the [op.MissingResourcePolicy] for an absent target; defaults to stop.
+//   - `activationRecord`: the dispatch activation; its caller stamps the [op.Gone] transition.
+//   - `target`: the entry to remove — a consumed, claimed resource of any taxonomy kind.
 //   - `prune`: whether to remove now-empty parent directories up to `boundary`.
 //   - `boundary`: the path at which parent pruning stops; empty prunes to the scoped root.
+//   - `onMissing`: the [op.MissingResourcePolicy] for an absent target; defaults to stop.
 //
 // Returns:
-//   - `Resource`: always nil — Remove produces no resource.
-//   - `*Receipt`: the compensation receipt recording the recovery archive for undo.
-//   - `error`: non-nil when the target is a directory, missing under stop, or on stat or archive failure.
+//   - `Resource`: always nil — a removal produces nothing.
+//   - `*Receipt`: the compensation receipt carrying the archived entry.
+//   - `error`: a missing target under stop, a non-empty directory, or an archive failure.
 //
-// +devlore:defaults onMissing=stop, prune=false, boundary=""
+// +devlore:defaults prune=false, boundary="", onMissing=stop
 func (p *Provider) Remove(
 	activationRecord *op.ActivationRecord,
-	target *Regular,
-	onMissing op.MissingResourcePolicy,
+	target Resource,
 	prune bool,
 	boundary string,
+	onMissing op.MissingResourcePolicy,
 ) (product Resource, receipt *Receipt, err error) {
 
-	abs := target.SourcePath.Abs()
-
-	nonEmptyDirectory, err := p.isDirAndNotEmpty(abs)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			if onMissing == op.MissingResourcePolicyStop {
-				return nil, nil, fmt.Errorf("file.Remove: target %s does not exist", abs)
-			}
-			return nil, nil, nil
-		}
-		return nil, nil, err
-	}
-
-	if nonEmptyDirectory {
-		return nil, nil, fmt.Errorf("directory %s is not empty", abs)
-	}
-
-	entry, err := p.discoverEntryAt(abs)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	recoveryID, digest, err := p.archiveAndPrune(entry, prune, boundary)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	receipt = NewReceipt(NewReceiptSpec(entry, MutationDeleteFile).WithRecovery(recoveryID, digest))
-	p.markEntryGone(activationRecord, entry)
-
-	return nil, receipt, nil
+	return p.removeEntry(activationRecord, target, prune, boundary, onMissing, true)
 }
 
-// RemoveAll removes the directory `target` and any children it contains, archiving the subtree for
-// compensation.
+// RemoveAll deletes the entry at `target` and everything beneath it — `rm -rf`, with undo.
 //
-// Unlike [Provider.Remove], a non-empty directory is removed recursively. The target is a consumed
-// resource (mutation targets are resource-typed consumers — ruled 2026-08-20): its literal claim enters
-// the graph's catalog as required intent, gated per call by `onMissing` (§3, the claims taxonomy). At
-// dispatch the entry is observed at its actual kind, moved to the recovery site, and its catalog entry
-// marked [op.Gone] on success. A missing target follows the policy — Stop errors, Ignore no-ops. When
-// `prune` is set, now-empty parents up to `boundary` are removed afterward.
+// [Provider.Remove]'s unguarded sibling: same claim, same archival, same receipt, and the only
+// difference is that a populated directory is removed rather than refused. Over a **symbolic link it
+// removes the link**, never the tree the link designates — a follow is an explicit act
+// ([Provider.Resolve]), and the archival rename cannot perform one even by accident. `shutil.rmtree`
+// refuses this case outright rather than choose; that insurance is unnecessary here.
+//
+// A missing target follows `onMissing`. Note the deliberate divergence from [os.RemoveAll], which
+// tolerates a missing path (that is `rm -rf`'s `-f`): the default here is stop, because fail-safe beats
+// familiarity, and an author writes `on_missing="ignore"` to get the standard library's behavior.
 //
 // Parameters:
-//   - `activationRecord`: the dispatch activation (the required floor for compensable actions — step 27).
-//   - `target`: the directory to remove recursively — a consumed, claimed resource.
-//   - `onMissing`: the [op.MissingResourcePolicy] for an absent target; defaults to stop.
+//   - `activationRecord`: the dispatch activation; its caller stamps the [op.Gone] transition.
+//   - `target`: the entry to remove — a consumed, claimed resource of any taxonomy kind.
 //   - `prune`: whether to remove now-empty parent directories up to `boundary`.
 //   - `boundary`: the path at which parent pruning stops; empty prunes to the scoped root.
+//   - `onMissing`: the [op.MissingResourcePolicy] for an absent target; defaults to stop.
 //
 // Returns:
-//   - `Resource`: always nil — RemoveAll produces no resource.
-//   - `*Receipt`: the compensation receipt recording the recovery archive for undo.
-//   - `error`: non-nil when the target is missing under stop, or on archive failure.
+//   - `Resource`: always nil — a removal produces nothing.
+//   - `*Receipt`: the compensation receipt carrying the archived subtree.
+//   - `error`: a missing target under stop, or an archive failure.
 //
-// +devlore:defaults onMissing=stop, prune=false, boundary=""
+// +devlore:defaults prune=false, boundary="", onMissing=stop
 func (p *Provider) RemoveAll(
 	activationRecord *op.ActivationRecord,
-	target *Directory,
-	onMissing op.MissingResourcePolicy,
+	target Resource,
 	prune bool,
 	boundary string,
+	onMissing op.MissingResourcePolicy,
 ) (product Resource, receipt *Receipt, err error) {
 
-	abs := target.SourcePath.Abs()
+	return p.removeEntry(activationRecord, target, prune, boundary, onMissing, false)
+}
+
+// removeEntry is the shared removal core behind [Provider.Remove] and [Provider.RemoveAll].
+//
+// The two fronts differ by one guard, so they differ by one parameter here. The entry is discovered with
+// lstat semantics, which is what makes a symbolic link removable as itself and keeps it clear of the
+// emptiness check whatever it designates.
+//
+// Parameters:
+//   - `activationRecord`: the dispatch activation.
+//   - `target`: the consumed entry to remove.
+//   - `prune`: whether to prune now-empty parents.
+//   - `boundary`: where pruning stops.
+//   - `onMissing`: the policy for an absent target.
+//   - `refuseNonEmptyDirectory`: true for the single-entry removal, false for the subtree removal.
+//
+// Returns:
+//   - `Resource`: always nil.
+//   - `*Receipt`: the compensation receipt.
+//   - `error`: as documented on the two fronts.
+func (p *Provider) removeEntry(
+	activationRecord *op.ActivationRecord,
+	target Resource,
+	prune bool,
+	boundary string,
+	onMissing op.MissingResourcePolicy,
+	refuseNonEmptyDirectory bool,
+) (product Resource, receipt *Receipt, err error) {
+
+	abs := target.Path().Abs()
 
 	entry, err := p.discoverEntryAt(abs)
 	if errors.Is(err, os.ErrNotExist) {
 		if onMissing == op.MissingResourcePolicyStop {
-			return nil, nil, fmt.Errorf("file.RemoveAll: target %s does not exist", abs)
+			return nil, nil, fmt.Errorf("file.remove: target %s does not exist", abs)
 		}
-		return nil, nil, nil
+		return nil, nil, nil // Already gone — the goal holds; recorded by the warning at detection.
 	}
 	if err != nil {
 		return nil, nil, err
 	}
 
-	recoveryID, digest, err := p.archiveAndPrune(entry, prune, boundary)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	receipt = NewReceipt(NewReceiptSpec(entry, MutationDeleteFile).WithRecovery(recoveryID, digest))
-	p.markEntryGone(activationRecord, entry)
-
-	return nil, receipt, nil
-}
-
-// Unlink removes the symlink at `path`, archiving it for compensation.
-//
-// The target is a consumed resource (mutation targets are resource-typed consumers — ruled 2026-08-20;
-// the kind is fixed by Unlink's own semantics): its literal claim enters the graph's catalog as required
-// intent, gated per call by `onMissing` (§3, the claims taxonomy). At dispatch the delete invariants
-// discharge here: the link is moved to the recovery site and its catalog entry marked [op.Gone] on
-// success. A missing target follows the policy — Stop errors, Ignore no-ops. A target that exists
-// but is not a symlink is an error. When `prune` is set, now-empty parents up to `boundary` are removed.
-//
-// Parameters:
-//   - `activationRecord`: the dispatch activation (the required floor for compensable actions — step 27).
-//   - `target`: the symlink to remove — a consumed, claimed resource.
-//   - `onMissing`: the [op.MissingResourcePolicy] for an absent target; defaults to stop.
-//   - `prune`: whether to remove now-empty parent directories up to `boundary`.
-//   - `boundary`: the path at which parent pruning stops; empty prunes to the scoped root.
-//
-// Returns:
-//   - `Resource`: always nil — Unlink produces no resource.
-//   - `*Receipt`: the compensation receipt recording the recovery archive for undo.
-//   - `error`: non-nil when the target exists but is not a symlink, is missing under stop, or on stat or
-//     archive failure.
-//
-// +devlore:defaults onMissing=stop, prune=false, boundary=""
-func (p *Provider) Unlink(
-	activationRecord *op.ActivationRecord,
-	target *SymbolicLink,
-	onMissing op.MissingResourcePolicy,
-	prune bool,
-	boundary string,
-) (product Resource, receipt *Receipt, err error) {
-
-	abs := target.SourcePath.Abs()
-
-	info, err := p.lstat(abs)
-	if errors.Is(err, os.ErrNotExist) {
-		if onMissing == op.MissingResourcePolicyStop {
-			return nil, nil, fmt.Errorf("file.Unlink: target %s does not exist", abs)
+	// Only a DIRECTORY can be non-empty, and `entry` is lstat-honest, so a symbolic link never reaches
+	// the guard however populated the tree it points at may be.
+	if _, isDirectory := entry.(*Directory); isDirectory && refuseNonEmptyDirectory {
+		nonEmpty, emptinessErr := p.isDirAndNotEmpty(abs)
+		if emptinessErr != nil {
+			return nil, nil, emptinessErr
 		}
-		return nil, nil, nil // Already gone — recorded by the warning at detection
-	}
-
-	if err != nil {
-		return nil, nil, err
-	}
-
-	if info.Mode()&os.ModeSymlink == 0 {
-		return nil, nil, fmt.Errorf("%s is not a symlink", abs)
-	}
-
-	entry, err := DiscoverSymbolicLink(p.RuntimeEnvironment(), abs)
-	if err != nil {
-		return nil, nil, err
+		if nonEmpty {
+			return nil, nil, fmt.Errorf(
+				"directory %s is not empty — file.remove takes one entry; file.remove_all takes a subtree", abs)
+		}
 	}
 
 	recoveryID, digest, err := p.archiveAndPrune(entry, prune, boundary)

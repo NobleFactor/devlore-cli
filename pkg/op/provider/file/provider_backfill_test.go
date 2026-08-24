@@ -380,7 +380,7 @@ func TestRemoveAll_NestedTree_RoundTrip(t *testing.T) {
 	writeTestFile(t, filepath.Join(tree, "b", "c"), "deep.txt", "deep-data")
 
 	p := testProvider(t, tmp)
-	_, receipt, err := p.RemoveAll(testActivation(t, p.RuntimeEnvironment()), mustDiscoverDirectory(t, p, tree), op.MissingResourcePolicyStop, false, "")
+	_, receipt, err := p.RemoveAll(testActivation(t, p.RuntimeEnvironment()), mustDiscoverDirectory(t, p, tree), false, "", op.MissingResourcePolicyStop)
 	if err != nil {
 		t.Fatalf("RemoveAll() error = %v", err)
 	}
@@ -422,12 +422,12 @@ func TestRemoveAll_MissingTarget_FollowsThePolicy(t *testing.T) {
 	p := testProvider(t, tmp)
 
 	if _, _, err := p.RemoveAll(testActivation(t, p.RuntimeEnvironment()),
-		mustDiscoverDirectory(t, p, filepath.Join(tmp, "ghost")), op.MissingResourcePolicyStop, false, ""); err == nil {
+		mustDiscoverDirectory(t, p, filepath.Join(tmp, "ghost")), false, "", op.MissingResourcePolicyStop); err == nil {
 		t.Fatal("RemoveAll(stop) on a missing target must error")
 	}
 
 	product, receipt, err := p.RemoveAll(testActivation(t, p.RuntimeEnvironment()),
-		mustDiscoverDirectory(t, p, filepath.Join(tmp, "ghost")), op.MissingResourcePolicyIgnore, false, "")
+		mustDiscoverDirectory(t, p, filepath.Join(tmp, "ghost")), false, "", op.MissingResourcePolicyIgnore)
 	if err != nil {
 		t.Fatalf("RemoveAll(ignore) error = %v", err)
 	}

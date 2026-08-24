@@ -34,7 +34,6 @@ const (
 	RemoveAll  op.ActionName = "file.remove_all"
 	Resolve    op.ActionName = "file.resolve"
 	Root       op.ActionName = "file.root"
-	Unlink     op.ActionName = "file.unlink"
 	WalkTree   op.ActionName = "file.walk_tree"
 	WriteBytes op.ActionName = "file.write_bytes"
 	WriteFile  op.ActionName = "file.write_file"

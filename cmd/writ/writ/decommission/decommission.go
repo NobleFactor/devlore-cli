@@ -181,10 +181,11 @@ func buildScopeGraph(
 		for i := range entries {
 
 			entry := &entries[i]
+
+			// One action for every kind: file.remove takes the taxonomy interface, so a deployed
+			// symbolic link and a copied regular file decommission through the same node — and a link
+			// is removed as the link, never followed to what it designates (2026-08-23).
 			action := file.Remove
-			if entry.Action == string(file.Link) {
-				action = file.Unlink
-			}
 
 			// The target is a consumed, claimed resource in plan space; on_missing=ignore is the ruled
 			// decommission posture — a target the user removed by hand decommissions as a recorded no-op
@@ -194,8 +195,19 @@ func buildScopeGraph(
 				return nil, err
 			}
 
+			// **The claim asserts the kind writ deployed**, which is what makes tolerance safe. Ignore
+			// forgives a target the user removed; it must NOT forgive one the user REPLACED, because a
+			// deployed link standing where a hand-written file now sits means the goal does not hold and
+			// something unexpected is there. A kinded claim turns that into a mismatch, which stops under
+			// every policy ([op.ErrClaimKindMismatch]); an unasserted claim would admit the replacement
+			// and delete it.
+			target, err := claimDeployed(environment, entry.Action, rel)
+			if err != nil {
+				return nil, fmt.Errorf("claim %s: %w", entry.Target, err)
+			}
+
 			invocation, err := provider.Plan(action, nil, map[string]any{
-				"target":     rel,
+				"target":     target,
 				"on_missing": "ignore",
 				"prune":      cfg.Prune,
 				"boundary":   targetRoot,
@@ -274,7 +286,7 @@ func runGraph(ctx context.Context, cfg *Config, graph *op.Graph) error {
 		if runErr == nil {
 			summary := trace.Summarize(graph)
 			byAction := summary.ByAction()
-			removed := byAction[string(file.Unlink)].Completed() + byAction[string(file.Remove)].Completed()
+			removed := byAction[string(file.Remove)].Completed()
 			if scope := graph.Origin().Scope(); scope != "" {
 				cli.Success("Decommissioned %d file(s) [%s]", removed, scope)
 			} else {
@@ -368,3 +380,26 @@ func scopesInOrder(byScope map[string][]readback.Entry) []string {
 }
 
 // endregion
+
+// claimDeployed mints the claim for a deployed entry, asserting the kind writ put there.
+//
+// A linked entry claims a symbolic link and a copied entry claims a regular file, so that pre-flight
+// judges what the run actually expects to find. Without the assertion the claim would be unasserted and
+// any entry at the path would satisfy it — including one the user substituted.
+//
+// Parameters:
+//   - `environment`: the planning runtime environment.
+//   - `deployedAction`: the action that put the entry there, as recorded in the inventory.
+//   - `rel`: the target's plan-space path.
+//
+// Returns:
+//   - `file.Resource`: the kinded claim.
+//   - `error`: a construction failure.
+func claimDeployed(environment *op.RuntimeEnvironment, deployedAction, rel string) (file.Resource, error) {
+
+	if deployedAction == string(file.Link) {
+		return file.DiscoverSymbolicLink(environment, rel)
+	}
+
+	return file.DiscoverRegular(environment, rel)
+}

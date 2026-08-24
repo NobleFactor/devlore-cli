@@ -242,7 +242,7 @@ func newAction(rt ProviderReceiverType, method *Method, name ActionName) Action 
 // is invalid OR carries a typed-nil pointer / interface.
 //
 // The typed-nil detection mirrors [compensatorOrNil] and is equally load-bearing: removal actions return a nil
-// product (`file.Remove` / `file.Unlink` produce no resource), and reflection wraps that nil `*Resource` in a
+// product (`file.Remove` produces no resource), and reflection wraps that nil `*Resource` in a
 // non-nil Result interface. Stored on the receipt, the typed nil later panics trace serialization — the yaml
 // encoder invokes the promoted `MarshalYAML` through the nil pointer. An untyped nil serializes as null.
 //
