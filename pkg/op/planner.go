@@ -402,19 +402,30 @@ func bindPresentValue(invocator PlanInvocator, spec *NodeSpec, actionName string
 //   - `error`: non-nil on a refusal, construction, or conversion failure.
 func bindAuthoredValue(invocator PlanInvocator, spec *NodeSpec, actionName string, param Parameter, value any) error {
 
-	// An authored string cannot bind an interface-typed resource slot (4-resource-management.md §5.7
-	// rule 6, ruled 2026-08-22): a claim asserts a kind — "claims are true when made" needs a kind to
-	// be true about — and an interface asserts none. The author states the kind, or feeds a
-	// discovery's promise; mechanically, plan-time claiming constructs the parameter's type, and an
-	// interface cannot be instantiated.
-	if param.Type != nil && param.Type.Kind() == reflect.Interface && param.Type.Implements(resourceInterfaceType) {
-		if _, isString := value.(string); isString {
+	// An authored string bound to an interface-typed resource slot claims as the interface's designated
+	// mint type (4-resource-management.md §5.7 rule 6, amended 2026-08-23). A claim asserts a kind —
+	// "claims are true when made" needs a kind to be true about — and an interface asserts none, so the
+	// interface names the claim that deliberately asserts nothing on its behalf (`file.Resource` →
+	// `*file.Any`, which resolves to the observed kind at activation). Substituting the mint type HERE,
+	// ahead of the grammar, the source-constructor lookup, and the conversion, means every downstream
+	// step behaves exactly as it does for an explicitly kinded parameter.
+	//
+	// An interface with no designation keeps the refusal: nothing could be constructed, and guessing a
+	// kind on the author's behalf would mint a claim the author never made.
+	if _, isString := value.(string); isString &&
+		param.Type != nil && param.Type.Kind() == reflect.Interface && param.Type.Implements(resourceInterfaceType) {
+
+		mint, designated := resourceMintFor(param.Type)
+		if !designated {
 			return fmt.Errorf(
 				"op.ActionPlanner.Plan: %s: param %q: an authored string cannot bind the interface-typed "+
-					"resource slot %s — a claim asserts a kind and an interface asserts none; state the kind, "+
-					"or feed a discovery (4-resource-management.md §5.7)",
+					"resource slot %s — a claim asserts a kind, the interface asserts none, and it designates "+
+					"no claim type to assert it for them; state the kind, or feed a discovery "+
+					"(4-resource-management.md §5.7)",
 				actionName, param.Name, param.Type)
 		}
+
+		param.Type = mint
 	}
 
 	value, err := normalizePlanSpaceValue(actionName, param, value)

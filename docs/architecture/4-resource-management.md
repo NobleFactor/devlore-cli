@@ -392,8 +392,17 @@ The rules, each ruled 2026-08-22:
    disk entity under two catalog identities — mediation cannot see the join — and a symlink is the disk's
    `../`, escaping the confinement the grammar enforces. The kernel resolves names implicitly at open;
    this model resolves designation explicitly at a unit.
-6. **An authored string into an `Entry`-typed slot refuses at plan time.** A claim asserts a kind and
-   `Entry` asserts none; the author states the kind or feeds a discovery.
+6. **An interface-typed resource slot mints its designated claim** (amended 2026-08-23; originally a
+   flat refusal). A claim asserts a kind — "claims are true when made" needs a kind to be true about —
+   and an interface asserts none, so an interface **designates** the concrete claim that deliberately
+   asserts nothing on its behalf: `file.Resource` designates `*file.Any`, whose predicate is existence
+   alone and which resolves to the observed kind at activation (§3). The designation lives on the
+   interface, once, never per parameter: two methods taking the same slot type must claim the same way,
+   or one authored path would mean different intent depending on which method received it. The
+   substitution happens at the claiming seam, ahead of the plan-space grammar and the conversion, so
+   every downstream step behaves exactly as it does for an explicitly kinded parameter. **An interface
+   that designates nothing keeps the refusal** — nothing could be constructed, and guessing a kind would
+   mint a claim the author never made; the author states the kind or feeds a discovery.
 7. **The fail-fast boundary.** Pre-flight's verdict covers claims — unmet intent fails before any
    dispatch. A discovery verifies at its own node, the earliest moment the fact exists: discover/resolve
    failures are mid-run by nature. And nothing stops an out-of-band actor deleting a file under a running
