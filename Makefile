@@ -97,6 +97,13 @@ STAR ?= $(if $(wildcard $(STAR_LKG)),$(STAR_LKG),build/star)
 # star target on every run — Go's build cache makes an up-to-date rebuild cost
 # seconds. The LKG escape hatch is unaffected: when build/star.lkg exists,
 # $(STAR) resolves to it and this rule is never consulted.
+#
+# This rule is also what keeps a cross-compile honest. `build` writes the PRODUCT star to
+# build/star$(GOEXE), which on a non-Windows target is the same path as the host tool, so a
+# cross-build leaves a target-architecture binary sitting at build/star. Because FORCE delegates
+# here on every run, the next codegen rebuilds it host-side before invoking it — verified 2026-08-24
+# by cross-building for linux, forcing codegen, and watching 25 star invocations succeed. #598's
+# build/<goos>-<goarch>/ layout removes the path collision outright.
 build/star: FORCE
 	$(MAKE) star
 
@@ -107,6 +114,28 @@ FORCE:
 # Provider source roots.
 P := pkg/op/provider
 SP := cmd/star/provider
+
+# Host toolchain, for build tools only.
+#
+# GOOS/GOARCH are ambient, so they reach every `go` invocation — including the ones that build and
+# run the generators. Cross-compiling the product would otherwise cross-compile the tools too, and
+# the host would try to execute a target-architecture binary (`exec format error`). A tool is built
+# and run for the HOST; only the product follows the ambient target.
+#
+# Pinned explicitly rather than by clearing GOOS/GOARCH, so a recipe using $(HOST_GO) says why it
+# differs from a plain `go`. When the target IS the host these expand to the ambient values, so a
+# native build is byte-for-byte what it was.
+HOST_GOOS := $(shell go env GOHOSTOS)
+HOST_GOARCH := $(shell go env GOHOSTARCH)
+HOST_GO := GOOS=$(HOST_GOOS) GOARCH=$(HOST_GOARCH) go
+
+# The target the product is being built for, and whether that differs from the host. `go env` reports
+# the ambient GOOS/GOARCH when set and the host's otherwise, so this is the effective target either
+# way. CROSS is non-empty only when the produced binaries cannot run here — the one thing a recipe
+# needs to know before executing something it just built.
+TARGET_GOOS := $(shell go env GOOS)
+TARGET_GOARCH := $(shell go env GOARCH)
+CROSS := $(if $(filter $(TARGET_GOOS)/$(TARGET_GOARCH),$(HOST_GOOS)/$(HOST_GOARCH)),,cross)
 
 ## TARGETS
 
@@ -124,7 +153,7 @@ help: ## Show available targets
 all: build
 
 star: inventory ## Build the star code generator
-	go build $(LDFLAGS) -o build/star ./cmd/star
+	$(HOST_GO) build $(LDFLAGS) -o build/star ./cmd/star
 
 star-lkg: star ## Snapshot build/star as last-known-good (run after a green build)
 	cp build/star $(STAR_LKG)
@@ -145,13 +174,19 @@ build: generate ## Build all binaries
 	# 2026-08-16 shipped that way, unnoticed, because nothing compared the two. See
 	# docs/plans/version-stamping.md.
 	#
-	stamped="$$(build/writ$(GOEXE) version --short)"
-	if [ "$$stamped" != "$(VERSION)" ]; then
-		echo "ERROR: version stamp did not bind."
-		echo "  build computed: $(VERSION)"
-		echo "  binary reports: $$stamped"
-		echo "  The -X paths in LDFLAGS name symbols that do not exist — check $(VERSION_PACKAGE)."
-		exit 1
+	# Cross-compiled binaries cannot be executed here, so the check is announced as skipped rather
+	# than silently dropped — a skipped guard that says nothing reads exactly like a passing one.
+	if [ -n "$(CROSS)" ]; then
+		echo "cross-compiling for $(TARGET_GOOS)/$(TARGET_GOARCH): skipping the version-stamp check (cannot run a $(TARGET_GOOS) binary on $(HOST_GOOS))"
+	else
+		stamped="$$(build/writ$(GOEXE) version --short)"
+		if [ "$$stamped" != "$(VERSION)" ]; then
+			echo "ERROR: version stamp did not bind."
+			echo "  build computed: $(VERSION)"
+			echo "  binary reports: $$stamped"
+			echo "  The -X paths in LDFLAGS name symbols that do not exist — check $(VERSION_PACKAGE)."
+			exit 1
+		fi
 	fi
 
 install: build ## Install lore, star, and writ via self install (PREFIX=~/.local)
@@ -229,7 +264,7 @@ shell-lint: ## Lint shell scripts
 
 complexity: ## Check cyclomatic complexity (max 20)
 	echo "Checking cyclomatic complexity (max 20)..."
-	go install github.com/fzipp/gocyclo/cmd/gocyclo@latest
+	$(HOST_GO) install github.com/fzipp/gocyclo/cmd/gocyclo@latest
 	gocyclo_bin="$$(go env GOPATH)/bin/gocyclo"
 	[ -x "$$gocyclo_bin" ] || { echo "ERROR: gocyclo not found at $$gocyclo_bin after 'go install'"; exit 1; }
 	violations="$$("$$gocyclo_bin" -over 20 . | grep -v '_test.go' || true)"
@@ -532,7 +567,7 @@ NEW_OP_INVENTORY := \
 	$(P)/yaml/gen/provider.gen.go
 
 inventory: ## Generate inventory files from op.Announce* call sites
-	go run ./cmd/devlore-inventory pkg/op/inventory/inventory.gen.go github.com/NobleFactor/devlore-cli pkg/op
-	go run ./cmd/devlore-inventory cmd/star/inventory/inventory.gen.go github.com/NobleFactor/devlore-cli cmd/star
+	$(HOST_GO) run ./cmd/devlore-inventory pkg/op/inventory/inventory.gen.go github.com/NobleFactor/devlore-cli pkg/op
+	$(HOST_GO) run ./cmd/devlore-inventory cmd/star/inventory/inventory.gen.go github.com/NobleFactor/devlore-cli cmd/star
 
 generate: $(NEW_OP_INVENTORY) inventory ## Run all code generation
