@@ -306,6 +306,16 @@ func tryConstructResource(
 		return nil, false, nil
 	}
 
+	// An interface target constructs through its designated claim type (§5.7 rule 6): the planner
+	// substitutes at the claiming seam, and immediate mode arrives here instead, so the designation is
+	// consulted from both. One registry, one answer — an interface means the same claim whichever seam
+	// the value came through.
+	if target.Kind() == reflect.Interface {
+		if mint, designated := resourceMintFor(target); designated {
+			target = mint
+		}
+	}
+
 	// Resources are typically announced under the value type (file.Resource), but the parameter type is the pointer
 	// (*file.Resource). Try the pointer-or-element fallback the registry's other lookups use.
 	rt, ok := ReceiverRegistry().TypeByReflection(target)

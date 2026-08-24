@@ -112,15 +112,15 @@ func buildRegistrationGraph(
 
 	var registerInvocation *op.Invocation
 	if useMove {
-		// The source is a directory tree, and the claim says so: file.move_directory takes a *Directory
-		// (kind-honest activation, ruled 2026-08-22 — the C2-recorded kind-looseness retired). The
-		// consumed source is a claimed resource, authored in plan space — the rel against the planning
-		// environment's root.
+		// The source is a directory tree, and the claim no longer has to say so: file.move takes the
+		// taxonomy's interface, so the authored path claims as file.Any and resolves to what the disk
+		// holds at activation (2026-08-23). The consumed source is a claimed resource, authored in plan
+		// space — the rel against the planning environment's root.
 		sourceRel, relErr := deploy.PlanSpacePath(environment, sourceRoot)
 		if relErr != nil {
 			return nil, relErr
 		}
-		registerInvocation, err = planProvider.Plan(file.MoveDirectory, nil, map[string]any{
+		registerInvocation, err = planProvider.Plan(file.Move, nil, map[string]any{
 			"source":           sourceRel,
 			"destination_path": layerDir,
 		})

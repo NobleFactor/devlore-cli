@@ -109,7 +109,7 @@ func (p *Provider) Backup(
 		return nil, nil, err
 	}
 
-	return p.Move(activationRecord, source, backupPath, op.MissingResourcePolicyStop)
+	return p.Move(activationRecord, source, backupPath)
 }
 
 // Copy copies `source`'s contents to a new file at `destinationPath` with the given mode and ownership.
@@ -454,99 +454,48 @@ func (p *Provider) compensateMakeDir(receipt *Receipt) (err error) {
 	return nil
 }
 
-// Move moves the file `source` to `destinationPath`, archiving any existing destination first.
+// Move moves `source` to `destinationPath`, archiving any existing destination first.
+//
+// **Any kind moves.** The source is claimed as [Resource], the taxonomy's interface, so an authored path
+// claims as [*Any] and resolves to whatever the disk holds at activation: a regular file, a directory
+// and its subtree (a rename carries it whole), or a symbolic link — the link itself, never the entry it
+// designates. The kind is the disk's business, not the author's; a move moves what is there.
 //
 // The source is a consumed resource (mutation targets are resource-typed consumers — ruled 2026-08-20; a
-// move destroys the source location): its literal claim enters the graph's catalog as required intent,
-// gated per call by `onMissing` (§3, the claims taxonomy), and its catalog entry is marked [op.Gone] with
-// the destroyer stamp on success. The destination product is minted as the moved entry's observed kind
-// (the mutator is at execution time with the disk in hand), and the source identity rides the receipt so
-// compensation can move the entry back. The destination's parents are created when absent. When an entry
-// already exists at `destinationPath` it is archived for compensation; a failed rename attempts to restore
-// that archived destination before returning the error.
+// move destroys the source location): its claim enters the graph's catalog as required intent, and its
+// catalog entry is marked [op.Gone] with the destroyer stamp on success. **A missing source fails** —
+// there is no tolerance parameter, because moving something that is gone accomplishes nothing and a
+// tolerated miss would hand downstream consumers a nil product, which is the pathology that had `Skip`
+// dropped from [op.MissingResourcePolicy]. Under the fail-safe default the miss is unmet intent, caught
+// by the consuming scope's pre-flight before this method is ever reached; the check here is the
+// in-flight backstop for a source that vanishes between verification and dispatch.
+//
+// The destination product is minted as the moved entry's observed kind (the mutator is at execution time
+// with the disk in hand), and the source identity rides the receipt so compensation can move the entry
+// back. The destination's parents are created when absent. When an entry already exists at
+// `destinationPath` it is archived for compensation; a failed rename attempts to restore that archived
+// destination before returning the error.
 //
 // Parameters:
 //   - `activationRecord`: the dispatch activation; its `Unit` stamps the produced [Resource]'s producerID.
-//   - `source`: the file to move — a consumed, claimed resource.
+//   - `source`: the entry to move — a consumed, claimed resource of any taxonomy kind.
 //   - `destinationPath`: the path to move the entry to.
-//   - `onMissing`: the [op.MissingResourcePolicy] for an absent source; defaults to stop.
 //
 // Returns:
-//   - `Resource`: the destination resource, minted as the source's observed kind, resolved; nil on an
-//     ignored missing source.
+//   - `Resource`: the destination resource, minted as the source's observed kind, resolved.
 //   - `*Receipt`: the compensation receipt recording the source and any archived destination for undo.
-//   - `error`: non-nil when the source is missing under stop, or on construction, write preparation,
-//     rename, or resolve failure.
-//
-// +devlore:defaults onMissing=stop
+//   - `error`: non-nil when the source is missing, or on construction, write preparation, rename, or
+//     resolve failure.
 func (p *Provider) Move(
-	activationRecord *op.ActivationRecord,
-	source *Regular,
-	destinationPath string,
-	onMissing op.MissingResourcePolicy,
-) (product Resource, receipt *Receipt, err error) {
-
-	return p.moveEntry(activationRecord, source, destinationPath, onMissing)
-}
-
-// MoveDirectory moves the directory `source` to `destinationPath` — the kind-honest sibling of
-// [Provider.Move] (kind-honest activation, ruled 2026-08-22): a directory claim is a `*Directory`, so
-// verification judges the claimed kind at the starting line instead of a directory riding a
-// regular-file claim (the kind-looseness the #585 C2 record deferred). Mechanics, receipt, and the
-// destroyer stamp are [Provider.Move]'s exactly.
-//
-// Parameters:
-//   - `activationRecord`: the dispatch activation; its caller stamps the produced [Resource]'s producerID.
-//   - `source`: the directory to move — a consumed, claimed resource.
-//   - `destinationPath`: the path to move the entry to.
-//   - `onMissing`: the [op.MissingResourcePolicy] for an absent source; defaults to stop.
-//
-// Returns:
-//   - `Resource`: the destination resource, minted as the source's observed kind, resolved; nil on an
-//     ignored missing source.
-//   - `*Receipt`: the compensation receipt recording the source and any archived destination for undo.
-//   - `error`: non-nil when the source is missing under stop, or on construction, write preparation,
-//     rename, or resolve failure.
-//
-// +devlore:defaults onMissing=stop
-func (p *Provider) MoveDirectory(
-	activationRecord *op.ActivationRecord,
-	source *Directory,
-	destinationPath string,
-	onMissing op.MissingResourcePolicy,
-) (product Resource, receipt *Receipt, err error) {
-
-	return p.moveEntry(activationRecord, source, destinationPath, onMissing)
-}
-
-// moveEntry is the shared move core: kind-agnostic mechanics behind the kind-honest typed fronts
-// ([Provider.Move], [Provider.MoveDirectory]) — the claim's TYPE is the declaration; the body observes
-// the disk.
-//
-// Parameters:
-//   - `activationRecord`: the dispatch activation.
-//   - `source`: the consumed entry to move.
-//   - `destinationPath`: the path to move the entry to.
-//   - `onMissing`: the missing-source policy.
-//
-// Returns:
-//   - `Resource`: the destination resource; nil on an ignored missing source.
-//   - `*Receipt`: the compensation receipt.
-//   - `error`: as documented on the typed fronts.
-func (p *Provider) moveEntry(
 	activationRecord *op.ActivationRecord,
 	source Resource,
 	destinationPath string,
-	onMissing op.MissingResourcePolicy,
 ) (product Resource, receipt *Receipt, err error) {
 
 	sourceAbs := source.Path().Abs()
 
 	sourceInfo, err := p.lstat(sourceAbs)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) && onMissing == op.MissingResourcePolicyIgnore {
-			return nil, nil, nil
-		}
 		return nil, nil, fmt.Errorf("move: source %s: %w", sourceAbs, err)
 	}
 

@@ -156,18 +156,41 @@ func (r *Any) observed() (Resource, error) {
 //   - `runtimeEnvironment`: the session runtime environment.
 //   - `value`: a string file path or file URI.
 //
+// **Returns the taxonomy interface, not `*Any`** — the one constructor that does, and deliberately. An
+// unasserted claim is satisfied by whatever entry already stands for its identity, and a kinded entry
+// asserts more, so it keeps the ledger slot (the collision rule: one rel, one identity, the stricter
+// assertion wins). A constructor that promised `*Any` would have to fail in exactly the case the rule
+// says should succeed.
+//
 // Returns:
-//   - `*Any`: the canonical catalog entry (or the unlinked candidate when no catalog is present).
-//   - `error`: if `value` is not a string, the catalog's strict assertions fail, or the URI's existing
-//     entry is another kind.
-func DiscoverAny(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Any, error) {
+//   - `Resource`: the canonical catalog entry — a fresh [*Any] when the identity is unclaimed, the
+//     existing kinded entry when it is not, or the unlinked candidate when no catalog is present.
+//   - `error`: if `value` is not a string, or the catalog's strict assertions fail.
+func DiscoverAny(runtimeEnvironment *op.RuntimeEnvironment, value any) (Resource, error) {
 
 	base, err := buildCandidateAs(runtimeEnvironment, value, reflect.TypeFor[*Any]())
 	if err != nil {
 		return nil, err
 	}
 
-	return internEntry(runtimeEnvironment, "", false, &Any{resource: *base})
+	candidate := &Any{resource: *base}
+
+	if runtimeEnvironment.ResourceCatalog == nil {
+		return candidate, nil
+	}
+
+	got, err := runtimeEnvironment.ResourceCatalog.Discover(
+		candidate.URI(), func() (op.Resource, error) { return candidate, nil })
+	if err != nil {
+		return nil, err
+	}
+
+	entry, isEntry := got.(Resource)
+	if !isEntry {
+		return nil, fmt.Errorf("file: catalog entry for %q is %T, want a file resource", candidate.URI(), got)
+	}
+
+	return entry, nil
 }
 
 // endregion

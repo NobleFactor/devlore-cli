@@ -519,3 +519,11 @@ func TestJudgmentKindHonestActivation(t *testing.T) {
 func TestJudgmentInterfaceSlotMints(t *testing.T) {
 	runScript(t, "test_judgment_interface_slot_mints.star")
 }
+
+func TestJudgmentMoveAnyKind(t *testing.T) {
+	runScript(t, "test_judgment_move_any_kind.star")
+}
+
+func TestJudgmentMoveMissingSource(t *testing.T) {
+	runScript(t, "test_judgment_move_missing_source.star")
+}
