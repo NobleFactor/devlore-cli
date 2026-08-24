@@ -53,7 +53,7 @@ func (r *SymbolicLink) MismatchesKind() bool {
 
 	mode, present := r.observedMode()
 
-	return present && !(mode&fs.ModeSymlink != 0)
+	return present && mode&fs.ModeSymlink == 0
 }
 
 // sealedResource marks SymbolicLink as a member of the closed [Resource] set (step 23, slice 4).
