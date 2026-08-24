@@ -5,6 +5,7 @@ package op
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -77,5 +78,84 @@ func TestActionPlanner_ExecutableUnitAssignableDispatch(t *testing.T) {
 	}
 	if edge := note.Edge("consumer"); edge == nil || edge.From != "producer" {
 		t.Errorf(`slot "note" edge = %#v, want From "producer"`, edge)
+	}
+}
+
+// mintProbeProvider is a synthetic provider whose one method takes a parameter typed by a resource
+// INTERFACE, so the mint designation and its refusal can be exercised without a real provider. Never
+// announced, so the process registry stays clean.
+type mintProbeProvider struct{}
+
+func (mintProbeProvider) Take(claim Resource) error { return nil }
+
+// mintedResource is the concrete type a designation points at — the shape `file.Any` has, minus the
+// filesystem.
+type mintedResource struct {
+	ResourceBase
+}
+
+func (r *mintedResource) Addressing() AddressingMode { return AddressingLocation }
+func (r *mintedResource) Exists() bool               { return true }
+func (r *mintedResource) Resolve() error             { return nil }
+
+// planStringIntoResourceInterface plans `Take("some/path")` and returns the planning error, if any.
+func planStringIntoResourceInterface(t *testing.T) error {
+
+	t.Helper()
+
+	receiverType, err := NewProviderReceiverType(
+		reflect.TypeFor[mintProbeProvider](),
+		func(*RuntimeEnvironment) (any, error) { return nil, nil },
+		RoleAction,
+		map[string][]Parameter{"Take": {{Name: "claim", Type: reflect.TypeFor[Resource]()}}},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("NewProviderReceiverType: %v", err)
+	}
+
+	method, ok := receiverType.MethodByName("Take")
+	if !ok {
+		t.Fatal(`receiver type lacks method "Take"`)
+	}
+
+	_, err = ActionPlanner{}.Plan(
+		planInvocatorStub{registry: NewInvocationRegistry(), runtimeEnvironment: &RuntimeEnvironment{}},
+		receiverType, method, []any{"some/path"}, nil, nil, nil, nil, nil, nil)
+
+	return err
+}
+
+// TestActionPlanner_AnUndesignatedResourceInterfaceRefusesAnAuthoredString pins the narrowed refusal
+// (4-resource-management.md §5.7 rule 6, amended 2026-08-23): a claim asserts a kind, an interface
+// asserts none, and an interface that designates no claim type has nothing to assert it on the author's
+// behalf — so the string is refused rather than guessed at.
+func TestActionPlanner_AnUndesignatedResourceInterfaceRefusesAnAuthoredString(t *testing.T) {
+
+	err := planStringIntoResourceInterface(t)
+	if err == nil {
+		t.Fatal("planning succeeded; an undesignated resource interface must refuse an authored string")
+	}
+	if !strings.Contains(err.Error(), "designates") {
+		t.Errorf("refusal %q does not name the missing designation", err)
+	}
+}
+
+// TestActionPlanner_ADesignatedResourceInterfaceMintsTheClaim pins the other half: once the interface
+// designates a claim type, the same authored string binds — the substitution happens ahead of the
+// grammar and the conversion, so the slot fills exactly as an explicitly kinded parameter would.
+func TestActionPlanner_ADesignatedResourceInterfaceMintsTheClaim(t *testing.T) {
+
+	RegisterResourceMint(reflect.TypeFor[Resource](), reflect.TypeFor[*mintedResource]())
+	t.Cleanup(func() {
+		resourceMintsMu.Lock()
+		delete(resourceMints, reflect.TypeFor[Resource]())
+		resourceMintsMu.Unlock()
+	})
+
+	if err := planStringIntoResourceInterface(t); err == nil {
+		t.Fatal("expected the designated mint type to be attempted")
+	} else if strings.Contains(err.Error(), "designates") {
+		t.Errorf("still reporting a missing designation after one was registered: %v", err)
 	}
 }

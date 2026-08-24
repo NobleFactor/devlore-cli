@@ -288,7 +288,7 @@ silently.**
   row; an unmet claim stays `Any` and goes Gone).
 - Gate: make check 103 ok / 0 fail; vet clean under darwin, windows, and linux; gofmt clean.
 
-### Phase 3 — the designated mint type — status: pending
+### Phase 3 — the designated mint type — status: complete 2026-08-23 (#619), in tree
 
 1. An interface-typed resource slot designates its mint type; `Resource` designates `Any`. The
    registration lives beside the announcement, not at the call site.
@@ -297,6 +297,27 @@ silently.**
    than deleted.
 3. `4-resource-management.md` §5.7 rule 6 is amended in place, with the reason recorded — a claim asserts
    a kind, and now an interface can designate the claim that asserts none.
+
+**Phase 3 record (2026-08-23) — the feature becomes reachable from a plan.**
+
+- `op.RegisterResourceMint(resourceInterface, mint)` mirrors `RegisterPlanPathNormalizer`'s shape: a
+  registry keyed on the interface, populated from provider init beside the announcement. `file` registers
+  `Resource → *Any`.
+- The claiming seam substitutes the mint type **ahead of** the plan-space grammar, the source-constructor
+  lookup, and the conversion — so an authored string bound to an interface behaves exactly as one bound
+  to an explicitly kinded parameter, with no downstream branch. `*Any` joined the normalizer
+  registration in the same init, so plan-space grammar applies to it like any other file claim.
+- **The refusal narrows rather than disappearing**: an interface with no designation still refuses, and
+  the message now names the missing designation instead of the interface's silence.
+- **Scenario re-authored, not deleted — and its direction flipped.** The narrowed refusal turned out to
+  be *unreachable from Starlark*: every announced resource-interface parameter is `file.Resource`, which
+  is designated. So `test_judgment_entry_slot_refusal.star` became
+  `test_judgment_interface_slot_mints.star`, pinning what an author now experiences —
+  `file.observe(resource="observed.txt")` claims where it used to refuse, and the stored intent row's
+  type fragment names `file.Any`. The refusal keeps a Go pin, where an undesignated interface can be
+  constructed directly.
+- Pins: the two planner directions (undesignated refuses; designated mints) plus the star.
+- Gate: make check 103 ok / 0 fail; vet clean under darwin, windows, and linux; gofmt clean.
 
 ### Phase 4 — `file.move` unifies — status: pending
 

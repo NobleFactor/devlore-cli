@@ -516,6 +516,6 @@ func TestJudgmentKindHonestActivation(t *testing.T) {
 	runScript(t, "test_judgment_kind_honest_activation.star")
 }
 
-func TestJudgmentEntrySlotRefusal(t *testing.T) {
-	runScript(t, "test_judgment_entry_slot_refusal.star")
+func TestJudgmentInterfaceSlotMints(t *testing.T) {
+	runScript(t, "test_judgment_interface_slot_mints.star")
 }

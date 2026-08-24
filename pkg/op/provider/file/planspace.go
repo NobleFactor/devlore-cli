@@ -22,6 +22,7 @@ import (
 // [NormalizePlanSpacePath] before construction.
 func init() {
 	for _, t := range []reflect.Type{
+		reflect.TypeFor[*Any](),
 		reflect.TypeFor[*Regular](),
 		reflect.TypeFor[*Directory](),
 		reflect.TypeFor[*SymbolicLink](),
@@ -29,6 +30,12 @@ func init() {
 	} {
 		op.RegisterPlanPathNormalizer(t, NormalizePlanSpacePath)
 	}
+
+	// An authored string bound to a `Resource`-typed slot claims as [*Any] — the variant that asserts
+	// existence without asserting kind, and resolves to what the disk holds at activation
+	// (4-resource-management.md §5.7 rule 6). Kind-indifferent methods can therefore take the interface
+	// and still be authored with a plain path.
+	op.RegisterResourceMint(reflect.TypeFor[Resource](), reflect.TypeFor[*Any]())
 }
 
 // NormalizePlanSpacePath renders an authored plan path into its canonical rel, or refuses it.
