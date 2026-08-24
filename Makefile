@@ -305,16 +305,20 @@ dist-clean: ## Remove distribution archives
 # Each grouped target (&:) fires one star invocation that produces all gen files. | $(STAR)
 # Generation runs only when provider.go is newer than the gen outputs.
 #
-# access=both     → receiver_type.gen_test + action.gen_test + node_builder.gen_test + module.gen_test + provider
-# access=planned  → receiver_type.gen_test + action.gen_test + node_builder.gen_test + provider
+# access=both     → receiver_type.gen_test + action.gen_test + module.gen_test + provider
+# access=planned  → receiver_type.gen_test + action.gen_test + provider
 # access=immediate → receiver_type.gen_test + module.gen_test + provider
+#
+# Every member listed must be one the generator actually emits: under GNU Make 4.4.1's grouped-target
+# semantics a member that can never appear leaves the whole group permanently stale, so the recipe reruns
+# on every build and cross-compiles die on the exec-format mismatch. node_builder.gen_test was retired
+# with NodeBuilder (phase 5) and removed from these groups on 2026-08-24 (#572).
 
 # --- access=both providers ---
 
 $(P)/json/action_names.gen.go \
 $(P)/json/gen/receiver_type.gen_test.go \
 $(P)/json/gen/action.gen_test.go \
-$(P)/json/gen/node_builder.gen_test.go \
 $(P)/json/gen/module.gen_test.go \
 $(P)/json/gen/provider.gen.go &: $(P)/json/provider.go | $(STAR)
 	$(STAR) devlore actions generate --source=$(P)/json --gen=true --write=true --output=$(P)/json
@@ -322,7 +326,6 @@ $(P)/json/gen/provider.gen.go &: $(P)/json/provider.go | $(STAR)
 $(P)/platform/action_names.gen.go \
 $(P)/platform/gen/receiver_type.gen_test.go \
 $(P)/platform/gen/action.gen_test.go \
-$(P)/platform/gen/node_builder.gen_test.go \
 $(P)/platform/gen/module.gen_test.go \
 $(P)/platform/gen/provider.gen.go &: $(P)/platform/provider.go | $(STAR)
 	$(STAR) devlore actions generate --source=$(P)/platform --gen=true --write=true --output=$(P)/platform
@@ -330,7 +333,6 @@ $(P)/platform/gen/provider.gen.go &: $(P)/platform/provider.go | $(STAR)
 $(P)/regex/action_names.gen.go \
 $(P)/regex/gen/receiver_type.gen_test.go \
 $(P)/regex/gen/action.gen_test.go \
-$(P)/regex/gen/node_builder.gen_test.go \
 $(P)/regex/gen/module.gen_test.go \
 $(P)/regex/gen/provider.gen.go &: $(P)/regex/provider.go | $(STAR)
 	$(STAR) devlore actions generate --source=$(P)/regex --gen=true --write=true --output=$(P)/regex
@@ -338,7 +340,6 @@ $(P)/regex/gen/provider.gen.go &: $(P)/regex/provider.go | $(STAR)
 $(P)/template/action_names.gen.go \
 $(P)/template/gen/receiver_type.gen_test.go \
 $(P)/template/gen/action.gen_test.go \
-$(P)/template/gen/node_builder.gen_test.go \
 $(P)/template/gen/module.gen_test.go \
 $(P)/template/gen/provider.gen.go &: $(P)/template/provider.go | $(STAR)
 	$(STAR) devlore actions generate --source=$(P)/template --gen=true --write=true --output=$(P)/template
@@ -346,7 +347,6 @@ $(P)/template/gen/provider.gen.go &: $(P)/template/provider.go | $(STAR)
 $(P)/yaml/action_names.gen.go \
 $(P)/yaml/gen/receiver_type.gen_test.go \
 $(P)/yaml/gen/action.gen_test.go \
-$(P)/yaml/gen/node_builder.gen_test.go \
 $(P)/yaml/gen/module.gen_test.go \
 $(P)/yaml/gen/provider.gen.go &: $(P)/yaml/provider.go $(P)/yaml/resource.go | $(STAR)
 	$(STAR) devlore actions generate --source=$(P)/yaml --gen=true --write=true --output=$(P)/yaml
@@ -356,7 +356,6 @@ $(P)/yaml/gen/provider.gen.go &: $(P)/yaml/provider.go $(P)/yaml/resource.go | $
 $(P)/appnet/action_names.gen.go \
 $(P)/appnet/gen/receiver_type.gen_test.go \
 $(P)/appnet/gen/action.gen_test.go \
-$(P)/appnet/gen/node_builder.gen_test.go \
 $(P)/appnet/gen/provider.gen.go \
 $(P)/appnet/gen/resource.gen.go &: $(P)/appnet/provider.go $(P)/appnet/resource.go | $(STAR)
 	$(STAR) devlore actions generate --source=$(P)/appnet --gen=true --write=true --output=$(P)/appnet
@@ -364,21 +363,18 @@ $(P)/appnet/gen/resource.gen.go &: $(P)/appnet/provider.go $(P)/appnet/resource.
 $(P)/archive/action_names.gen.go \
 $(P)/archive/gen/receiver_type.gen_test.go \
 $(P)/archive/gen/action.gen_test.go \
-$(P)/archive/gen/node_builder.gen_test.go \
 $(P)/archive/gen/provider.gen.go &: $(P)/archive/provider.go | $(STAR)
 	$(STAR) devlore actions generate --source=$(P)/archive --gen=true --write=true --output=$(P)/archive
 
 $(P)/encryption/action_names.gen.go \
 $(P)/encryption/gen/receiver_type.gen_test.go \
 $(P)/encryption/gen/action.gen_test.go \
-$(P)/encryption/gen/node_builder.gen_test.go \
 $(P)/encryption/gen/provider.gen.go &: $(P)/encryption/provider.go | $(STAR)
 	$(STAR) devlore actions generate --source=$(P)/encryption --gen=true --write=true --output=$(P)/encryption
 
 $(P)/file/action_names.gen.go \
 $(P)/file/gen/receiver_type.gen_test.go \
 $(P)/file/gen/action.gen_test.go \
-$(P)/file/gen/node_builder.gen_test.go \
 $(P)/file/gen/module.gen_test.go \
 $(P)/file/gen/provider.gen.go &: $(P)/file/provider.go $(P)/file/resource.go | $(STAR)
 	$(STAR) devlore actions generate --source=$(P)/file --gen=true --write=true --output=$(P)/file
@@ -386,7 +382,6 @@ $(P)/file/gen/provider.gen.go &: $(P)/file/provider.go $(P)/file/resource.go | $
 $(P)/git/action_names.gen.go \
 $(P)/git/gen/receiver_type.gen_test.go \
 $(P)/git/gen/action.gen_test.go \
-$(P)/git/gen/node_builder.gen_test.go \
 $(P)/git/gen/provider.gen.go \
 $(P)/git/gen/resource.gen.go &: $(P)/git/provider.go $(P)/git/resource.go | $(STAR)
 	$(STAR) devlore actions generate --source=$(P)/git --gen=true --write=true --output=$(P)/git
@@ -394,7 +389,6 @@ $(P)/git/gen/resource.gen.go &: $(P)/git/provider.go $(P)/git/resource.go | $(ST
 $(P)/pkg/action_names.gen.go \
 $(P)/pkg/gen/receiver_type.gen_test.go \
 $(P)/pkg/gen/action.gen_test.go \
-$(P)/pkg/gen/node_builder.gen_test.go \
 $(P)/pkg/gen/provider.gen.go \
 $(P)/pkg/gen/resource.gen.go &: $(P)/pkg/provider.go $(P)/pkg/resource.go | $(STAR)
 	$(STAR) devlore actions generate --source=$(P)/pkg --gen=true --write=true --output=$(P)/pkg
@@ -402,7 +396,6 @@ $(P)/pkg/gen/resource.gen.go &: $(P)/pkg/provider.go $(P)/pkg/resource.go | $(ST
 $(P)/service/action_names.gen.go \
 $(P)/service/gen/receiver_type.gen_test.go \
 $(P)/service/gen/action.gen_test.go \
-$(P)/service/gen/node_builder.gen_test.go \
 $(P)/service/gen/provider.gen.go \
 $(P)/service/gen/resource.gen.go &: $(P)/service/provider.go $(P)/service/resource.go | $(STAR)
 	$(STAR) devlore actions generate --source=$(P)/service --gen=true --write=true --output=$(P)/service
@@ -410,21 +403,18 @@ $(P)/service/gen/resource.gen.go &: $(P)/service/provider.go $(P)/service/resour
 $(P)/shell/action_names.gen.go \
 $(P)/shell/gen/receiver_type.gen_test.go \
 $(P)/shell/gen/action.gen_test.go \
-$(P)/shell/gen/node_builder.gen_test.go \
 $(P)/shell/gen/provider.gen.go &: $(P)/shell/provider.go | $(STAR)
 	$(STAR) devlore actions generate --source=$(P)/shell --gen=true --write=true --output=$(P)/shell
 
 $(P)/powershell/action_names.gen.go \
 $(P)/powershell/gen/receiver_type.gen_test.go \
 $(P)/powershell/gen/action.gen_test.go \
-$(P)/powershell/gen/node_builder.gen_test.go \
 $(P)/powershell/gen/provider.gen.go &: $(P)/powershell/provider.go | $(STAR)
 	$(STAR) devlore actions generate --source=$(P)/powershell --gen=true --write=true --output=$(P)/powershell
 
 $(P)/function/action_names.gen.go \
 $(P)/function/gen/receiver_type.gen_test.go \
 $(P)/function/gen/action.gen_test.go \
-$(P)/function/gen/node_builder.gen_test.go \
 $(P)/function/gen/provider.gen.go \
 $(P)/function/gen/resource.gen.go &: $(P)/function/provider.go $(P)/function/resource.go | $(STAR)
 	$(STAR) devlore actions generate --source=$(P)/function --gen=true --write=true --output=$(P)/function
@@ -432,7 +422,6 @@ $(P)/function/gen/resource.gen.go &: $(P)/function/provider.go $(P)/function/res
 $(P)/flow/action_names.gen.go \
 $(P)/flow/gen/receiver_type.gen_test.go \
 $(P)/flow/gen/action.gen_test.go \
-$(P)/flow/gen/node_builder.gen_test.go \
 $(P)/flow/gen/provider.gen.go &: $(P)/flow/provider.go | $(STAR)
 	$(STAR) devlore actions generate --source=$(P)/flow --gen=true --write=true --output=$(P)/flow
 
