@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"sort"
 
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
@@ -109,25 +110,27 @@ func (s *Subgraph) ChildByID(id string) ExecutableUnit {
 
 // Children returns this subgraph's direct children in their assembled order.
 //
-// Topological order once [Subgraph.sortChildren] has run; otherwise declaration order. The returned slice aliases the
-// unexported storage; callers must not mutate it.
+// Topological order once [Subgraph.sortChildren] has run; otherwise declaration order. A copy: writing
+// through the returned slice would re-parent a subtree and leave the construction checksum describing
+// contents that no longer exist. The units themselves are shared — that is the sharing the rule permits.
 //
 // Returns:
-//   - `[]ExecutableUnit`: the direct children.
+//   - `[]ExecutableUnit`: a copy of the direct children.
 func (s *Subgraph) Children() []ExecutableUnit {
 
-	return s.executableUnits
+	return slices.Clone(s.executableUnits)
 }
 
 // Edges returns this subgraph's edges.
 //
-// The returned slice aliases the underlying storage; callers must not mutate it directly.
+// A copy, for the reason [Subgraph.Children] gives: external mutation becomes impossible rather than
+// discouraged.
 //
 // Returns:
-//   - `[]Edge`: the edges (it may be nil).
+//   - `[]Edge`: a copy of the edges (nil when there are none).
 func (s *Subgraph) Edges() []Edge {
 
-	return s.edges
+	return slices.Clone(s.edges)
 }
 
 // endregion

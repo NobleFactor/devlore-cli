@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -643,9 +644,13 @@ func (g *Graph) Checksum() string { return g.checksum }
 
 // Edges returns the ordering edges at the root level.
 //
+// A copy: the graph's construction checksum is computed over its contents, so a caller that could
+// rewrite the recorded edges could leave the checksum describing a graph that no longer exists. The Edge
+// values inside are shared, which is exactly the sharing the rule permits.
+//
 // Returns:
-//   - `[]Edge`: the root-level dependency edges in insertion order.
-func (g *Graph) Edges() []Edge { return g.root.edges }
+//   - `[]Edge`: a copy of the root-level dependency edges, in insertion order.
+func (g *Graph) Edges() []Edge { return slices.Clone(g.root.edges) }
 
 // Filename returns the standard filename for this graph.
 //
