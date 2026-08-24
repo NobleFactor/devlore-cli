@@ -634,6 +634,13 @@ func (c *ResourceCatalog) VerifyExistence(resource Resource) error {
 	// The Gone branch resolves nothing: nothing was observed, so an unasserted claim has nothing to
 	// become and stays unasserted — an honest record of intent the world did not meet.
 	c.markGone(resource)
+
+	// Absence and mismatch are different failures, and only absence is tolerable (ruled 2026-08-23) —
+	// see [ErrClaimKindMismatch].
+	if mismatcher, ok := resource.(KindMismatcher); ok && mismatcher.MismatchesKind() {
+		return fmt.Errorf("verify existence: resource %q: %w", resource.URI(), ErrClaimKindMismatch)
+	}
+
 	return fmt.Errorf("verify existence: resource %q does not exist", resource.URI())
 }
 
@@ -669,14 +676,41 @@ func (c *ResourceCatalog) resolveKind(resource Resource) Resource {
 		return resource
 	}
 
-	existing := resource.resourceBase()
-	base := resolved.resourceBase()
+	return c.Supersede(resource, resolved)
+}
+
+// Supersede replaces the ledger entry standing for `standing`'s identity with `stricter`, carrying the
+// catalog id and producer stamp across the swap.
+//
+// **Not [ResourceCatalog.Shadow].** Shadowing appends a new *generation* because the world changed —
+// the prior version survives as history, and the trace tells that story. Superseding says nothing about
+// the world: the same entry is simply described better, so it keeps its id, its state, and its place in
+// the ledger, and no history accrues. Two callers need it, both cases of a claim that asserted less
+// giving way to one that asserts more:
+//
+//   - kind resolution at activation, where an unasserted claim becomes the kind the disk showed; and
+//   - claim time, where an unasserted claim meets a kinded one on the same identity — one rel is one
+//     identity, and the stricter assertion wins, because it is the one that can fail.
+//
+// Identity is stamped here rather than by the caller: it is the catalog's business, and a caller that
+// stamped its own id would be claiming an authority it does not have.
+//
+// Parameters:
+//   - `standing`: the entry currently in the ledger.
+//   - `stricter`: the resource that takes its place; freshly built and uninterned.
+//
+// Returns:
+//   - `Resource`: `stricter`, now carrying `standing`'s identity.
+func (c *ResourceCatalog) Supersede(standing, stricter Resource) Resource {
+
+	existing := standing.resourceBase()
+	base := stricter.resourceBase()
 	base.id = existing.id
 	base.producerID = existing.producerID
 
-	c.rebindEntry(resource, resolved)
+	c.rebindEntry(standing, stricter)
 
-	return resolved
+	return stricter
 }
 
 // rebindEntry replaces `old`'s ledger slot with `bound` — the activation binding's copy-on-bind swap

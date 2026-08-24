@@ -354,7 +354,7 @@ silently.**
   existence" at pre-flight, not a rename failure at dispatch.
 - Gate: make check 103 ok / 0 fail; vet clean under darwin, windows, and linux; gofmt clean.
 
-### Phase 5 — the rest of the mutator surface — status: pending
+### Phase 5 — the rest of the mutator surface — status: complete 2026-08-23 (#621), in tree
 
 Group B of the surface audit, each landing with its own pins and authoring sweep:
 
@@ -378,6 +378,34 @@ Group B of the surface audit, each landing with its own pins and authoring sweep
    `remove` and `remove_all` as the only carriers. `TransitionPolicy` and `RetryPolicy` are node-level
    configuration, and `ConflictPolicy` is read from the runtime environment rather than passed — but the
    rule pre-decides their position should any of them ever become a per-call parameter.
+
+**Phase 5 record (2026-08-23) — the surface converges, and one retirement nearly cost a safety property.**
+
+- `file.remove(target Resource, prune, boundary, on_missing)` and `file.remove_all(...)` — identical
+  signatures over one shared core, differing by the `isDirAndNotEmpty` guard alone. `file.unlink` is
+  removed. `file.backup(source Resource, backup_suffix)` claims its source, the surface's last unclaimed
+  mutation. **Policy parameters go last** throughout.
+- The removal family now splits by **blast radius, never by kind** — the standard library's split, and
+  Go's reason for never needing an `Unlink`.
+- **The finding, and it was nearly data loss.** `TestExecute_RefusesReplacedLink` pins that a deployed
+  link the user replaced with a real file is REFUSED, not deleted — a property that came free from
+  `unlink`'s kind check. With `remove` kind-indifferent, the run *succeeded*, deleting the user's file.
+  The obvious repair (claim the deployed kind) was not enough on its own: decommission runs under
+  `on_missing=ignore`, and tolerance forgave the mismatch too.
+- **Ruled by the USER: tolerance covers absence, never a kind mismatch.** `Ignore` means "the goal
+  already holds", which is true of an empty path and false of a surprise. `op.ErrClaimKindMismatch` and
+  the optional `op.KindMismatcher` seam carry the distinction — consulted only after a claim has already
+  failed, so it answers the one question a boolean predicate cannot. Writ decommission now claims the
+  kind it deployed, which is what makes its tolerance safe, and extends the protection to copies, which
+  the old `unlink`-based check never covered.
+- Two tests encoded retired behavior and moved rather than died: the "not a symlink" dispatch check
+  became a **claim** pin (a link claim over a regular file mismatches; over an empty path it does not),
+  and the non-empty-directory test now claims the directory honestly.
+- Scenarios: `test_judgment_remove_any_kind.star` removes a regular file, an empty directory, a link,
+  and — through `remove_all` — a link to a POPULATED tree, asserting that neither removal followed;
+  `test_file_unlink.star` became `test_file_remove_link.star`. Go pins: the mismatch-stops-under-Ignore
+  rule at the executor, and the mismatch-versus-absence distinction at the claim.
+- Gate: make check 103 ok / 0 fail; vet clean under darwin, windows, and linux; gofmt clean.
 
 ### Phase 6 — closure — status: pending
 

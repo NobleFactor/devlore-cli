@@ -124,7 +124,6 @@ var (
 	}
 	removingActions = map[string]bool{
 		string(file.Remove): true,
-		string(file.Unlink): true,
 	}
 )
 

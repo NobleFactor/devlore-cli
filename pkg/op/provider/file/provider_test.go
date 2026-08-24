@@ -547,7 +547,7 @@ func TestBackup_MovesFileToTimestampedBackup(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	result, state, err := p.Backup(testActivation(t, p.RuntimeEnvironment()), path, ".bak")
+	result, state, err := p.Backup(testActivation(t, p.RuntimeEnvironment()), mustDiscoverRegular(t, p, path), ".bak")
 	if err != nil {
 		t.Fatalf("Backup() error = %v", err)
 	}
@@ -592,7 +592,7 @@ func TestBackup_DefaultSuffix(t *testing.T) {
 	p := testProvider(t, tmp)
 	result, _, err := p.Backup(
 		testActivation(t, p.RuntimeEnvironment()),
-		path,
+		mustDiscoverRegular(t, p, path),
 		"",
 	)
 	if err != nil {
@@ -693,7 +693,7 @@ func TestUnlink_RemovesSymlink(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	_, receipt, err := p.Unlink(testActivation(t, p.RuntimeEnvironment()), mustDiscoverSymbolicLink(t, p, linkPath), op.MissingResourcePolicyStop, false, "")
+	_, receipt, err := p.Remove(testActivation(t, p.RuntimeEnvironment()), mustDiscoverSymbolicLink(t, p, linkPath), false, "", op.MissingResourcePolicyStop)
 	if err != nil {
 		t.Fatalf("Unlink() error = %v", err)
 	}
@@ -715,15 +715,15 @@ func TestUnlink_MissingTarget_FollowsThePolicy(t *testing.T) {
 
 	p := testProvider(t, tmp)
 
-	if _, _, err := p.Unlink(testActivation(t, p.RuntimeEnvironment()), mustDiscoverSymbolicLink(t, p, linkPath),
-		op.MissingResourcePolicyStop, false, ""); err == nil {
-		t.Fatal("Unlink(stop) on a missing target must error")
+	if _, _, err := p.Remove(testActivation(t, p.RuntimeEnvironment()), mustDiscoverSymbolicLink(t, p, linkPath),
+		false, "", op.MissingResourcePolicyStop); err == nil {
+		t.Fatal("Remove(stop) on a missing target must error")
 	}
 
-	product, receipt, err := p.Unlink(testActivation(t, p.RuntimeEnvironment()), mustDiscoverSymbolicLink(t, p, linkPath),
-		op.MissingResourcePolicyIgnore, false, "")
+	product, receipt, err := p.Remove(testActivation(t, p.RuntimeEnvironment()), mustDiscoverSymbolicLink(t, p, linkPath),
+		false, "", op.MissingResourcePolicyIgnore)
 	if err != nil {
-		t.Fatalf("Unlink(ignore) error = %v", err)
+		t.Fatalf("Remove(ignore) error = %v", err)
 	}
 	if product != nil {
 		t.Errorf("product = %+v, want nil for the ignored no-op", product)
@@ -733,7 +733,13 @@ func TestUnlink_MissingTarget_FollowsThePolicy(t *testing.T) {
 	}
 }
 
-func TestUnlink_NotASymlink_ReturnsError(t *testing.T) {
+// TestClaimedLink_OverARegularFile_IsAMismatchNotAnAbsence pins where the retired `file.unlink` kind
+// check went (2026-08-23): the removal no longer asks the kind — the CLAIM does.
+//
+// A link claim over a regular file is not "nothing is there"; it is "something else is there", and the
+// distinction decides tolerance. A run may forgive a target the user removed and must not forgive one
+// the user replaced — which is exactly what `writ decommission` depends on.
+func TestClaimedLink_OverARegularFile_IsAMismatchNotAnAbsence(t *testing.T) {
 
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "regular-file")
@@ -742,12 +748,18 @@ func TestUnlink_NotASymlink_ReturnsError(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	_, _, err := p.Unlink(testActivation(t, p.RuntimeEnvironment()), mustDiscoverSymbolicLink(t, p, path), op.MissingResourcePolicyStop, false, "")
-	if err == nil {
-		t.Fatal("Unlink() on regular file should return error")
+	claim := mustDiscoverSymbolicLink(t, p, path)
+
+	if claim.Exists() {
+		t.Error("a link claim over a regular file must not verify")
 	}
-	if !strings.Contains(err.Error(), "not a symlink") {
-		t.Errorf("error = %q, want message containing 'not a symlink'", err)
+	if !claim.MismatchesKind() {
+		t.Error("MismatchesKind() = false; something IS there, and it is not a link")
+	}
+
+	absent := mustDiscoverSymbolicLink(t, p, filepath.Join(tmp, "nothing-here"))
+	if absent.MismatchesKind() {
+		t.Error("MismatchesKind() = true over an empty path; absence is not a mismatch")
 	}
 }
 
@@ -762,7 +774,7 @@ func TestRemove_RemovesFile(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	_, receipt, err := p.Remove(testActivation(t, p.RuntimeEnvironment()), mustDiscoverRegular(t, p, path), op.MissingResourcePolicyStop, false, "")
+	_, receipt, err := p.Remove(testActivation(t, p.RuntimeEnvironment()), mustDiscoverRegular(t, p, path), false, "", op.MissingResourcePolicyStop)
 	if err != nil {
 		t.Fatalf("Remove() error = %v", err)
 	}
@@ -788,12 +800,12 @@ func TestRemove_MissingTarget_FollowsThePolicy(t *testing.T) {
 	p := testProvider(t, tmp)
 
 	if _, _, err := p.Remove(testActivation(t, p.RuntimeEnvironment()), mustDiscoverRegular(t, p, path),
-		op.MissingResourcePolicyStop, false, ""); err == nil {
+		false, "", op.MissingResourcePolicyStop); err == nil {
 		t.Fatal("Remove(stop) on a missing target must error")
 	}
 
 	product, receipt, err := p.Remove(testActivation(t, p.RuntimeEnvironment()), mustDiscoverRegular(t, p, path),
-		op.MissingResourcePolicyIgnore, false, "")
+		false, "", op.MissingResourcePolicyIgnore)
 	if err != nil {
 		t.Fatalf("Remove(ignore) error = %v", err)
 	}
@@ -1763,7 +1775,7 @@ func TestRemove_NonEmptyDirectory_ReturnsError(t *testing.T) {
 	writeTestFile(t, dir, "child.txt", "data")
 
 	p := testProvider(t, tmp)
-	_, _, err := p.Remove(testActivation(t, p.RuntimeEnvironment()), mustDiscoverRegular(t, p, dir), op.MissingResourcePolicyStop, false, "")
+	_, _, err := p.Remove(testActivation(t, p.RuntimeEnvironment()), mustDiscoverDirectory(t, p, dir), false, "", op.MissingResourcePolicyStop)
 	if err == nil {
 		t.Fatal("Remove() on non-empty directory should return error")
 	}
@@ -1784,7 +1796,7 @@ func TestRemove_RoundTrip(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	_, state, err := p.Remove(testActivation(t, p.RuntimeEnvironment()), mustDiscoverRegular(t, p, path), op.MissingResourcePolicyStop, false, "")
+	_, state, err := p.Remove(testActivation(t, p.RuntimeEnvironment()), mustDiscoverRegular(t, p, path), false, "", op.MissingResourcePolicyStop)
 	if err != nil {
 		t.Fatalf("Remove() error = %v", err)
 	}
@@ -1816,7 +1828,7 @@ func TestRemoveAll_RoundTrip(t *testing.T) {
 	writeTestFile(t, dir, "child.txt", "child content")
 
 	p := testProvider(t, tmp)
-	_, state, err := p.RemoveAll(testActivation(t, p.RuntimeEnvironment()), mustDiscoverDirectory(t, p, dir), op.MissingResourcePolicyStop, false, "")
+	_, state, err := p.RemoveAll(testActivation(t, p.RuntimeEnvironment()), mustDiscoverDirectory(t, p, dir), false, "", op.MissingResourcePolicyStop)
 	if err != nil {
 		t.Fatalf("RemoveAll() error = %v", err)
 	}
@@ -1847,7 +1859,7 @@ func TestCompensateRemove_RoundTrip(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	_, state, err := p.Remove(testActivation(t, p.RuntimeEnvironment()), mustDiscoverRegular(t, p, path), op.MissingResourcePolicyStop, false, "")
+	_, state, err := p.Remove(testActivation(t, p.RuntimeEnvironment()), mustDiscoverRegular(t, p, path), false, "", op.MissingResourcePolicyStop)
 	if err != nil {
 		t.Fatalf("Remove() error = %v", err)
 	}
@@ -1890,7 +1902,7 @@ func TestCompensateRemoveAll_RoundTrip(t *testing.T) {
 	writeTestFile(t, filepath.Join(dir, "sub"), "nested.txt", "nested data")
 
 	p := testProvider(t, tmp)
-	_, state, err := p.RemoveAll(testActivation(t, p.RuntimeEnvironment()), mustDiscoverDirectory(t, p, dir), op.MissingResourcePolicyStop, false, "")
+	_, state, err := p.RemoveAll(testActivation(t, p.RuntimeEnvironment()), mustDiscoverDirectory(t, p, dir), false, "", op.MissingResourcePolicyStop)
 	if err != nil {
 		t.Fatalf("RemoveAll() error = %v", err)
 	}
@@ -1935,7 +1947,7 @@ func TestCompensateUnlink_RoundTrip(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	_, state, err := p.Unlink(testActivation(t, p.RuntimeEnvironment()), mustDiscoverSymbolicLink(t, p, linkPath), op.MissingResourcePolicyStop, false, "")
+	_, state, err := p.Remove(testActivation(t, p.RuntimeEnvironment()), mustDiscoverSymbolicLink(t, p, linkPath), false, "", op.MissingResourcePolicyStop)
 	if err != nil {
 		t.Fatalf("Unlink() error = %v", err)
 	}
@@ -2007,7 +2019,7 @@ func TestBackup_CompensateBackup_RoundTrip(t *testing.T) {
 	p := testProvider(t, tmp)
 	result, state, err := p.Backup(
 		testActivation(t, p.RuntimeEnvironment()),
-		path,
+		mustDiscoverRegular(t, p, path),
 		".bak",
 	)
 	if err != nil {

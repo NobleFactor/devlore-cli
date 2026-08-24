@@ -1150,7 +1150,10 @@ func (e *GraphExecutor) verifyClaimBinding(
 			"%s: %s: missing resource (policy %s): %v", scopeID, unit.ID(), policy, verifyErr))
 	}
 
-	if policy == MissingResourcePolicyStop {
+	// A kind mismatch stops under EVERY policy (ruled 2026-08-23): Ignore says "the goal already holds",
+	// which is coherent about absence and incoherent about a surprise — something unexpected is at the
+	// path, and proceeding would act on it. See [ErrClaimKindMismatch].
+	if policy == MissingResourcePolicyStop || errors.Is(verifyErr, ErrClaimKindMismatch) {
 		return &dispatchFailure{reason: ReasonPreflightFailed,
 			cause: fmt.Errorf("%s: unmet intent: %w", unit.ID(), verifyErr)}
 	}

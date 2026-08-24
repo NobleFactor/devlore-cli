@@ -37,9 +37,24 @@ func (*Regular) sealedResource() {}
 //   - `bool`: true when the path holds a regular file; false on any lstat error or any other kind.
 func (r *Regular) Exists() bool {
 
-	root := r.RuntimeEnvironment().Root()
-	info, err := root.Lstat(root.NewPath(r.SourcePath.Abs()))
-	return err == nil && info.Mode().IsRegular()
+	mode, present := r.observedMode()
+
+	return present && mode.IsRegular()
+}
+
+// MismatchesKind reports whether the path holds an entry that is not a regular file — the seam that
+// separates a wrong-kind claim from an absent one ([op.KindMismatcher]).
+//
+// Only a mismatch is intolerable: [op.MissingResourcePolicyIgnore] means "the goal already
+// holds", which is true of absence and false of a surprise.
+//
+// Returns:
+//   - `bool`: true when an entry is there and it is not a regular file.
+func (r *Regular) MismatchesKind() bool {
+
+	mode, present := r.observedMode()
+
+	return present && !(mode.IsRegular())
 }
 
 // NewRegular constructs a [file.Regular] and claims production via [op.ResourceCatalog.GetOrCreate].

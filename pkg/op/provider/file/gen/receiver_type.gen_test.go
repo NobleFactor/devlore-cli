@@ -135,7 +135,6 @@ func TestReceiverType_Methods(t *testing.T) {
 		"RemoveAll",
 		"Resolve",
 		"Root",
-		"Unlink",
 		"WalkTree",
 		"WriteBytes",
 		"WriteFile",

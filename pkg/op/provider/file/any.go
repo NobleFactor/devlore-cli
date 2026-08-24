@@ -86,14 +86,24 @@ func (r *Any) Etag() (string, error) {
 //   - `bool`: true when the path holds a regular file, a directory, or a symbolic link.
 func (r *Any) Exists() bool {
 
-	root := r.RuntimeEnvironment().Root()
+	mode, present := r.observedMode()
 
-	info, err := root.Lstat(root.NewPath(r.SourcePath.Abs()))
-	if err != nil {
-		return false
-	}
+	return present && ResourceKindAny.admits(mode)
+}
 
-	return ResourceKindAny.admits(info.Mode())
+// MismatchesKind reports whether the path holds an entry no taxonomy variant covers — a FIFO, a socket,
+// a device ([op.KindMismatcher]).
+//
+// Even the unasserted claim has a bound: it asserts *some taxonomy entry*, so a kind nothing could
+// resolve to is a surprise rather than an absence, and a surprise is never tolerable.
+//
+// Returns:
+//   - `bool`: true when an entry is there and no variant admits it.
+func (r *Any) MismatchesKind() bool {
+
+	mode, present := r.observedMode()
+
+	return present && !ResourceKindAny.admits(mode)
 }
 
 // endregion

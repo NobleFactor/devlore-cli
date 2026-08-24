@@ -38,7 +38,6 @@ func TestActionNames(t *testing.T) {
 		provider.RemoveAll,
 		provider.Resolve,
 		provider.Root,
-		provider.Unlink,
 		provider.WalkTree,
 		provider.WriteBytes,
 		provider.WriteFile,
@@ -76,7 +75,6 @@ func TestRegister(t *testing.T) {
 		provider.RemoveAll,
 		provider.Resolve,
 		provider.Root,
-		provider.Unlink,
 		provider.WalkTree,
 		provider.WriteBytes,
 		provider.WriteFile,
@@ -565,29 +563,6 @@ func TestRootAction_DryRun(t *testing.T) {
 	}
 
 	wantSubstring := "[dry-run] " + string(provider.Root)
-	if !strings.Contains(buf.String(), wantSubstring) {
-		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
-	}
-}
-
-func TestUnlinkAction_DryRun(t *testing.T) {
-
-	action := getAction(t, provider.Unlink)
-	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, "", ctx)
-
-	result, undo, err := action.Do(activationRecord)
-	if err != nil {
-		t.Fatalf("Do() error = %v", err)
-	}
-	if result != nil {
-		t.Errorf("dry-run result = %v, want nil", result)
-	}
-	if undo != nil {
-		t.Errorf("dry-run undo = %v, want nil", undo)
-	}
-
-	wantSubstring := "[dry-run] " + string(provider.Unlink)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}

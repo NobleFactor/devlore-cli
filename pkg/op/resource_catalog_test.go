@@ -553,6 +553,10 @@ type lifecycleResource struct {
 	resolveCalls   int
 	present        bool
 
+	// mismatches is what MismatchesKind reports — the fixture's way of saying "something else is at the
+	// path" rather than "nothing is".
+	mismatches bool
+
 	// existsCalls counts Exists probes through a shared cell: the activation binding probes a
 	// kind-preserving COPY of the entry (the step-4 copy-on-bind ruling), so a plain int field would
 	// count on the copy while the test's original read zero. Allocated at construction; a fixture built
@@ -580,6 +584,10 @@ func (r *lifecycleResource) Resolve() error {
 //
 // Returns:
 //   - `bool`: the configured presence.
+//
+// MismatchesKind reports the fixture's configured mismatch, satisfying [KindMismatcher].
+func (r *lifecycleResource) MismatchesKind() bool { return r.mismatches }
+
 func (r *lifecycleResource) Exists() bool {
 
 	*r.existsCalls++

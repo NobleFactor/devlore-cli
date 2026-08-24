@@ -35,9 +35,25 @@ type SymbolicLink struct {
 //   - `bool`: true when the path holds a symbolic link (lstat plus kind test — kind-honest activation,
 //     ruled 2026-08-22); false on any lstat error or any other kind.
 func (r *SymbolicLink) Exists() bool {
-	root := r.RuntimeEnvironment().Root()
-	info, err := root.Lstat(root.NewPath(r.SourcePath.Abs()))
-	return err == nil && info.Mode()&fs.ModeSymlink != 0
+
+	mode, present := r.observedMode()
+
+	return present && mode&fs.ModeSymlink != 0
+}
+
+// MismatchesKind reports whether the path holds an entry that is not a symbolic link — the seam that
+// separates a wrong-kind claim from an absent one ([op.KindMismatcher]).
+//
+// Only a mismatch is intolerable: [op.MissingResourcePolicyIgnore] means "the goal already
+// holds", which is true of absence and false of a surprise.
+//
+// Returns:
+//   - `bool`: true when an entry is there and it is not a symbolic link.
+func (r *SymbolicLink) MismatchesKind() bool {
+
+	mode, present := r.observedMode()
+
+	return present && mode&fs.ModeSymlink == 0
 }
 
 // sealedResource marks SymbolicLink as a member of the closed [Resource] set (step 23, slice 4).

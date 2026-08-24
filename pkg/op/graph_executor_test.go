@@ -1156,3 +1156,64 @@ func TestRun_SequentialExecutorsShareOneSpec(t *testing.T) {
 		}
 	}
 }
+
+// TestRun_AKindMismatchStopsEvenUnderIgnore pins the tolerance boundary (ruled 2026-08-23):
+// MissingResourcePolicyIgnore means "the goal already holds", which is a coherent thing to say about
+// ABSENCE and an incoherent one about a SURPRISE.
+//
+// A claim whose path holds the wrong kind fails the scope whatever the policy says, because proceeding
+// would act on something the plan never described. The concrete case this was ruled from: writ
+// decommission removes what its own runs deployed under `ignore`, so a hand-removed target decommissions
+// as history — but a deployed link the user REPLACED with a real file must be refused, not deleted.
+func TestRun_AKindMismatchStopsEvenUnderIgnore(t *testing.T) {
+
+	mismatchedBase, err := NewResourceBase(nil, "test:///replaced", reflect.TypeFor[*lifecycleResource]())
+	if err != nil {
+		t.Fatalf("NewResourceBase: %v", err)
+	}
+
+	// Absent as claimed, but something else is there — the shape of a replaced link.
+	mismatched := &lifecycleResource{
+		ResourceBase:   mismatchedBase,
+		addressingMode: AddressingLocation,
+		present:        false,
+		mismatches:     true,
+		existsCalls:    new(int),
+	}
+
+	typeID := mismatched.ResourceType()
+	existenceVerifiableTypes[typeID] = struct{}{}
+	t.Cleanup(func() { delete(existenceVerifiableTypes, typeID) })
+
+	catalog := NewResourceCatalog()
+	catalog.Resolve(mismatched)
+
+	action, err := ReceiverRegistry().BuildAction("compensationCleanFixture.produce")
+	if err != nil {
+		t.Fatalf("BuildAction: %v", err)
+	}
+
+	// The unit declares Ignore — which forgives absence, and must not forgive this.
+	consumer, err := NewNode(NewNodeSpec().WithID("consumer").WithAction(action).
+		WithSlot("claim", NewImmediateBinding(mismatched)).
+		WithSlot("on_missing", NewImmediateBinding(MissingResourcePolicyIgnore)))
+	if err != nil {
+		t.Fatalf("NewNode: %v", err)
+	}
+
+	graph, err := NewGraph(NewGraphSpec().WithOrigin(OriginBase{}).WithUnits(consumer).WithResourceCatalog(catalog))
+	if err != nil {
+		t.Fatalf("NewGraph: %v", err)
+	}
+
+	executor := NewGraphExecutor(graph, NewRuntimeEnvironmentSpec("test").
+		WithApplication(&application.Application{Name: "test"}))
+
+	_, runErr := executor.Run(context.Background(), nil)
+	if runErr == nil {
+		t.Fatal("the run succeeded; a kind mismatch must stop even under Ignore")
+	}
+	if !errors.Is(runErr, ErrClaimKindMismatch) {
+		t.Errorf("run error = %v, want it to carry ErrClaimKindMismatch", runErr)
+	}
+}
