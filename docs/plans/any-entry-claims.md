@@ -1,9 +1,9 @@
 ---
 title: "Any: claims that assert existence, not kind"
 issue: https://github.com/NobleFactor/devlore-cli/issues/616
-status: approved
+status: complete
 created: 2026-08-23
-updated: 2026-08-23
+updated: 2026-08-24
 ---
 
 # Plan: Any — claims that assert existence, not kind
@@ -407,13 +407,31 @@ Group B of the surface audit, each landing with its own pins and authoring sweep
   rule at the executor, and the mismatch-versus-absence distinction at the claim.
 - Gate: make check 103 ok / 0 fail; vet clean under darwin, windows, and linux; gofmt clean.
 
-### Phase 6 — closure — status: pending
+### Phase 6 — closure — status: complete 2026-08-24 (#622), in tree
 
 1. `3.5.4-file-provider.md` records the four-variant taxonomy, `Any`'s predicate, and the unified
    `move`; `4-resource-management.md` records the resolution-at-transition rule beside the kind-honest
    `Exists` block; both status files follow.
 2. The `resource-construction` plan gains a back-reference: phase 4's `move_directory` is superseded here,
    so the record shows why it existed and why it stopped existing.
+
+**Phase 6 record (2026-08-24) — the record catches up; most of it was already current.**
+
+- Each phase amended `4-resource-management.md` as it landed, so closure found §3's tolerance boundary and
+  `KindMismatcher` seam, §5.7's mint designation, and the kind-honest `Exists` block already written. What
+  remained was the file provider's own doc, which still described the pre-feature world.
+- `3.5.4-file-provider.md`: the thesis now says four variants over an unexported base rather than three, and
+  states the reconciliation rule (a kinded claim keeps the slot; `*Any` is the deliberate abstention); the
+  taxonomy table gains `*Any` and the unexported base; the action table drops `unlink` and `move_directory`,
+  reorders the policy parameter, and records the three rulings — blast radius over kind, tolerance covering
+  absence only, and `move` without a policy. The action count moved 24 → 25.
+- Both status files follow, and the file provider's records the **measured coverage gaps** (2026-08-24) rather
+  than implying the matrix is complete: the two untested `MismatchesKind` predicates, the kind enum's untested
+  JSON/YAML paths, `discover`/`resolve` having nine scenarios and zero unit tests, and the base's kind-blind
+  `Exists` at zero coverage. All chartered on #635.
+- The `resource-construction` plan carries the supersession in place rather than a rewrite: `move_directory`
+  existed because a claim had to name a kind, and the kind-honest activation that phase introduced is what made
+  the gap visible.
 
 ## Judgment scenarios
 

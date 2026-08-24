@@ -418,6 +418,13 @@ catalog exposed.**
   kind-honest claims for directory moves ride the 3.6 method-classification work.
 - Every file-scheme mutator is now a resource-typed consumer. Gate: make check 103 ok / 0 fail,
   GOOS=windows vet clean.
+
+**Superseded 2026-08-23 by [#616](https://github.com/NobleFactor/devlore-cli/issues/616) (AnyEntry).** This
+phase's `file.move_directory` existed only because a claim had to name a kind, and the same constraint had
+just cost `file.move` the ability to move a symbolic link. #616 gave the taxonomy a claim that asserts
+existence without asserting kind (`file.Any`), after which `move_directory` and `unlink` both retired into
+kind-indifferent `move` and `remove`. The record is kept rather than rewritten: the kind-honest activation this
+phase introduced is what made the gap visible, and the gap is what produced the better shape.
 4. Consequence for phase 1's stored section: every stored entry is Pending by construction. **RULED
    2026-08-21: the stored row drops `state` entirely** — the intent row becomes its own `{id, uri}` type
    (presence IS the pending claim), splitting from the trace's `LedgerEntrySnapshot`, whose
