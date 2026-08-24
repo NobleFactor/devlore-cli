@@ -292,7 +292,7 @@ func TestMove_IntoSubdirectory(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	result, _, err := p.Move(testActivation(t, p.RuntimeEnvironment()), mustDiscoverRegular(t, p, src), dst, op.MissingResourcePolicyStop)
+	result, _, err := p.Move(testActivation(t, p.RuntimeEnvironment()), mustDiscoverRegular(t, p, src), dst)
 	if err != nil {
 		t.Fatalf("Move() error = %v", err)
 	}
@@ -325,7 +325,7 @@ func TestMove_OverwritesExistingDestination(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	_, receipt, err := p.Move(testActivation(t, p.RuntimeEnvironment()), mustDiscoverRegular(t, p, src), dst, op.MissingResourcePolicyStop)
+	_, receipt, err := p.Move(testActivation(t, p.RuntimeEnvironment()), mustDiscoverRegular(t, p, src), dst)
 	if err != nil {
 		t.Fatalf("Move() error = %v", err)
 	}
@@ -352,7 +352,7 @@ func TestMove_MissingSource_ReturnsError(t *testing.T) {
 	dst := filepath.Join(tmp, "dest.txt")
 
 	p := testProvider(t, tmp)
-	_, _, err := p.Move(testActivation(t, p.RuntimeEnvironment()), mustDiscoverRegular(t, p, src), dst, op.MissingResourcePolicyStop)
+	_, _, err := p.Move(testActivation(t, p.RuntimeEnvironment()), mustDiscoverRegular(t, p, src), dst)
 	if err == nil {
 		t.Fatal("Move() error = nil; want an error for a missing source")
 	}

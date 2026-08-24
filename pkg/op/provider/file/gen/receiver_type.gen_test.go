@@ -126,7 +126,6 @@ func TestReceiverType_Methods(t *testing.T) {
 		"Link",
 		"Mkdir",
 		"Move",
-		"MoveDirectory",
 		"Name",
 		"Observe",
 		"Parent",

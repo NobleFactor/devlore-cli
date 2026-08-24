@@ -29,7 +29,6 @@ func TestActionNames(t *testing.T) {
 		provider.Link,
 		provider.Mkdir,
 		provider.Move,
-		provider.MoveDirectory,
 		provider.Name,
 		provider.Observe,
 		provider.Parent,
@@ -68,7 +67,6 @@ func TestRegister(t *testing.T) {
 		provider.Link,
 		provider.Mkdir,
 		provider.Move,
-		provider.MoveDirectory,
 		provider.Name,
 		provider.Observe,
 		provider.Parent,
@@ -360,29 +358,6 @@ func TestMoveAction_DryRun(t *testing.T) {
 	}
 
 	wantSubstring := "[dry-run] " + string(provider.Move)
-	if !strings.Contains(buf.String(), wantSubstring) {
-		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
-	}
-}
-
-func TestMoveDirectoryAction_DryRun(t *testing.T) {
-
-	action := getAction(t, provider.MoveDirectory)
-	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, "", ctx)
-
-	result, undo, err := action.Do(activationRecord)
-	if err != nil {
-		t.Fatalf("Do() error = %v", err)
-	}
-	if result != nil {
-		t.Errorf("dry-run result = %v, want nil", result)
-	}
-	if undo != nil {
-		t.Errorf("dry-run undo = %v, want nil", undo)
-	}
-
-	wantSubstring := "[dry-run] " + string(provider.MoveDirectory)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}

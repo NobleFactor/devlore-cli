@@ -766,6 +766,18 @@ def _resource_return_type(fn):
         return ""
     if fn.params[1].type not in ["any", "interface{}"]:
         return ""
+
+    # A constructor may return the package's resource INTERFACE rather than a pointer to the concrete
+    # type it constructs. The permissive claim does: an unasserted claim is satisfied by whatever entry
+    # already stands for its identity, which may be a different kind, so the constructor cannot promise
+    # a pointer to its own type. Every constructor in the tree returns `*T`, so a non-pointer return is
+    # exactly that case — derive T from the constructor's name, which every provider already spells
+    # `Discover<T>` / `New<T>`.
+    if not fn.returns.startswith("(*"):
+        for prefix in ["Discover", "New"]:
+            if fn.name.startswith(prefix) and len(fn.name) > len(prefix):
+                return fn.name[len(prefix):]
+
     return _return_type_name(fn)
 
 def _return_type_name(fn):

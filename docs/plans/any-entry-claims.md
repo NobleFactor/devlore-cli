@@ -319,7 +319,7 @@ silently.**
 - Pins: the two planner directions (undesignated refuses; designated mints) plus the star.
 - Gate: make check 103 ok / 0 fail; vet clean under darwin, windows, and linux; gofmt clean.
 
-### Phase 4 — `file.move` unifies — status: pending
+### Phase 4 — `file.move` unifies — status: complete 2026-08-23 (#620), in tree
 
 1. `file.move(source Resource, destination_path)` — no `on_missing`; `moveEntry`'s shared core is already
    kind-agnostic, so the two typed fronts collapse onto it.
@@ -327,6 +327,32 @@ silently.**
    registration reverts to `file.move`.
 3. The missing-source path retires with the policy parameter: a missing source is unmet intent at
    pre-flight, which is where the author learns of it.
+
+**Phase 4 record (2026-08-23) — the payoff, and two findings the acceptance scenarios earned.**
+
+- `file.move(source Resource, destination_path)` — one method, any kind, no policy. The two typed fronts
+  and the shared `moveEntry` core collapse into it; `file.move_directory` is removed; writ migrate's
+  layer registration reverts to plain `file.move`; `Backup` delegates without a policy argument.
+- **Finding 1 — the collision arrived early, in immediate mode.** `file.copy` interns a product as
+  `*Regular`; a later `file.move` on the same rel mints an `Any` claim, and `internEntry`'s type
+  assertion refused it. The ruled semantics were never in doubt (one identity, the kinded entry keeps
+  the slot); the obstacle was Go's static return type. Ruled by the USER: **`DiscoverAny` returns the
+  taxonomy interface** — the one constructor that does, because a constructor promising `*Any` would
+  have to fail in exactly the case the rule says should succeed. The generator learned a matching,
+  narrow fallback: every constructor in the tree returns `*T`, so a **non-pointer return** means the
+  interface case, and the announced type comes from the constructor's name (`Discover<T>`), a convention
+  every provider already follows.
+- **Finding 2 — `file.Any` was not enrolled in pre-flight's staged verification gate**, so its claims
+  were skipped entirely and a missing source was rediscovered mid-run by the mover's own I/O instead of
+  failing at the starting line. Caught by the missing-source scenario, which is precisely what an
+  acceptance pin is for. Enrolled.
+- Also: immediate mode needed the designation too — it bypasses the planner and converts directly, so
+  `Convert`'s registered-construction step consults the same registry. One designation, both seams.
+- Scenarios: `test_judgment_move_any_kind.star` moves all three kinds in one graph, with the sharp
+  assertion on the link (**the link moves, its target does not** — a follow would be unmistakable), and
+  `test_judgment_move_missing_source.star` pins the verdict's *location*: the catalog's "verify
+  existence" at pre-flight, not a rename failure at dispatch.
+- Gate: make check 103 ok / 0 fail; vet clean under darwin, windows, and linux; gofmt clean.
 
 ### Phase 5 — the rest of the mutator surface — status: pending
 
