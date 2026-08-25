@@ -69,8 +69,8 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 //     additional flag per the kwarg-to-flag rule.
 //
 // Returns:
-//   - `*Resource`: the cloned git.Resource with populated metadata.
-//   - `*Resource`: the compensation handle — the same [*Resource] as the first return, passed to
+//   - `Resource`: the cloned git.Resource with populated metadata.
+//   - `Resource`: the compensation handle — the same [Resource] as the first return, passed to
 //     [Provider.CompensateClone] to reverse the clone. Git's Clone creates a directory rather than
 //     displacing one, so per the Tombstone rule (a tombstone exists for any object moved to a
 //     RecoverySite) there is no git tombstone; the compensation handle is the created Resource itself.
@@ -93,7 +93,7 @@ func (p *Provider) Clone(
 	recurseSubmodules bool,
 	singleBranch bool,
 	kwargs map[string]any,
-) (*Resource, *Receipt, error) {
+) (Resource, *Receipt, error) {
 
 	if directory == "" {
 		guessed, err := guessDirName(repository)
@@ -103,14 +103,14 @@ func (p *Provider) Clone(
 		directory = guessed
 	}
 
-	destination, err := NewResource(p.RuntimeEnvironment(), activationRecord.CallerID, directory)
+	destination, err := newResource(p.RuntimeEnvironment(), activationRecord.CallerID, directory)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	args := buildCloneArgs(
 		repository,
-		destination.SourcePath.Abs(),
+		destination.SourcePath().Abs(),
 		bare,
 		branch,
 		depth,
@@ -127,9 +127,9 @@ func (p *Provider) Clone(
 		return nil, nil, err
 	}
 
-	abs := destination.SourcePath.Abs()
-	destination.HEAD = readHEADSha(abs)
-	destination.Ref = readBranchName(abs)
+	abs := destination.SourcePath().Abs()
+	destination.head = readHEADSha(abs)
+	destination.ref = readBranchName(abs)
 
 	return destination, NewReceipt(destination), nil
 }
@@ -152,20 +152,20 @@ func (p *Provider) CompensateClone(activationRecord *op.ActivationRecord, receip
 		return nil
 	}
 
-	resource, ok := receipt.Resource().(*Resource)
+	resource, ok := receipt.Resource().(Resource)
 	if !ok || resource == nil {
 		return nil
 	}
 
 	// Confinement: the clone tree belongs to the external git subprocess, which Root never binds.
-	return os.RemoveAll(resource.SourcePath.Abs())
+	return os.RemoveAll(resource.SourcePath().Abs())
 }
 
 // Fallible actions
 
 // Checkout checks out a ref in the given repository directory.
 //
-// `repo.Ref` and `repo.HEAD` are plan-time intent and are not mutated here. Callers that need the
+// `repo.Ref()` and `repo.HEAD()` are plan-time intent and are not mutated here. Callers that need the
 // post-checkout disk state call [Provider.Observe] to obtain a [*Observation] carrying the disk's
 // current `ObservedHEAD` / `ObservedRef`.
 //
@@ -174,11 +174,11 @@ func (p *Provider) CompensateClone(activationRecord *op.ActivationRecord, receip
 //   - `ref`: branch, tag, or commit to check out.
 //
 // Returns:
-//   - `*Resource`: the repository resource (identity unchanged).
+//   - `Resource`: the repository resource (identity unchanged).
 //   - `error`: any error from `git checkout`.
-func (p *Provider) Checkout(repo *Resource, ref string) (*Resource, error) {
+func (p *Provider) Checkout(repo Resource, ref string) (Resource, error) {
 
-	cmd := exec.CommandContext(p.RuntimeEnvironment().Context, "git", "-C", repo.SourcePath.Abs(), "checkout", ref)
+	cmd := exec.CommandContext(p.RuntimeEnvironment().Context, "git", "-C", repo.SourcePath().Abs(), "checkout", ref)
 
 	if err := p.RuntimeEnvironment().Run(cmd); err != nil {
 		return nil, err
@@ -195,20 +195,20 @@ func (p *Provider) Checkout(repo *Resource, ref string) (*Resource, error) {
 // error. Stat / read failures surface as errors.
 //
 // Provider methods that previously called `r.Resolve()` and read fields off the Resource use
-// `obs := p.Observe(r)` and read fields off the observation. `repo.HEAD` and `repo.Ref` on the
+// `obs := p.Observe(r)` and read fields off the observation. `repo.HEAD()` and `repo.Ref()` on the
 // Resource are plan-time intent; the disk's current state lives on the returned observation's
 // `ObservedHEAD` and `ObservedRef`.
 //
 // Parameters:
-//   - `repo`: the [*Resource] whose current git state to observe.
+//   - `repo`: the [Resource] whose current git state to observe.
 //
 // Returns:
 //   - `*Observation`: the constructed observation; never nil.
 //   - `error`: always nil — the `.git` reads are best-effort and non-existence is a valid observation; the error
 //     return keeps the announced fallible-action shape.
-func (p *Provider) Observe(repo *Resource) (*Observation, error) {
+func (p *Provider) Observe(repo Resource) (*Observation, error) {
 
-	abs := repo.SourcePath.Abs()
+	abs := repo.SourcePath().Abs()
 
 	gitRepo, bare := isGitRepo(abs)
 	if !gitRepo {
@@ -229,18 +229,18 @@ func (p *Provider) Observe(repo *Resource) (*Observation, error) {
 
 // Pull pulls the latest changes in the given repository directory.
 //
-// `repo.Ref` and `repo.HEAD` are plan-time intent and are not mutated here. Callers that need the
+// `repo.Ref()` and `repo.HEAD()` are plan-time intent and are not mutated here. Callers that need the
 // post-pull disk state call [Provider.Observe].
 //
 // Parameters:
 //   - `repo`: git resource identifying the local repository.
 //
 // Returns:
-//   - `*Resource`: the repository resource (identity unchanged).
+//   - `Resource`: the repository resource (identity unchanged).
 //   - `error`: any error from `git pull`.
-func (p *Provider) Pull(repo *Resource) (*Resource, error) {
+func (p *Provider) Pull(repo Resource) (Resource, error) {
 
-	cmd := exec.CommandContext(p.RuntimeEnvironment().Context, "git", "-C", repo.SourcePath.Abs(), "pull")
+	cmd := exec.CommandContext(p.RuntimeEnvironment().Context, "git", "-C", repo.SourcePath().Abs(), "pull")
 
 	if err := p.RuntimeEnvironment().Run(cmd); err != nil {
 		return nil, err

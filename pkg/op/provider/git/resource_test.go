@@ -19,7 +19,7 @@ import (
 // --- Interface guards ---
 
 func TestResource_ImplementsInterface(t *testing.T) {
-	var _ op.Resource = (*Resource)(nil)
+	var _ op.Resource = (*resource)(nil)
 }
 
 // --- Test helpers ---
@@ -68,12 +68,12 @@ func commitFile(t *testing.T, dir, name, content string) {
 	runGit(t, dir, "commit", "-m", "add "+name)
 }
 
-// newRes constructs a *Resource for path against an unconfined runtime environment. Uses DiscoverResource
+// newRes constructs a Resource for path against an unconfined runtime environment. Uses DiscoverResource
 // because tests are not claiming production — the file/path being constructed pre-exists or is a fixture.
 //
 // The root anchors at the path's own directory, never the Unix literal "/": a whole-filesystem
 // root cannot make absolute Windows paths relative across volumes (#392).
-func newRes(t *testing.T, path string) *Resource {
+func newRes(t *testing.T, path string) Resource {
 	t.Helper()
 	runtimeEnvironment := testEnvironment(t, filepath.Dir(path))
 	r, err := DiscoverResource(runtimeEnvironment, path)

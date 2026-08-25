@@ -29,12 +29,47 @@ import (
 //
 // SourceURL is a non-persisted *url.URL view of the URI, populated at construction (and reparsed on unmarshal) for
 // callers that want structured URL access. It always equals url.Parse(URI).
-type Resource struct {
+// Resource is this provider's resource type — the sealed interface over an application-network endpoint.
+//
+// Sealed by an unexported marker, so the closed set of implementations is the one this package declares. A
+// value reaching an appnet method therefore came from a constructor and carries catalog-issued identity.
+type Resource interface {
+	op.Resource
+
+	// SourceURL returns the endpoint's URL. Identity-bearing — the canonical URI derives from it.
+	SourceURL() *url.URL
+
+	// sealedResource marks the closed set of Resource implementations.
+	sealedResource()
+}
+
+// Interface guard: the unexported struct is the only Resource implementation.
+var _ Resource = (*resource)(nil)
+
+// resource is the concrete appnet resource — what serializes, and the only thing implementing [Resource].
+//
+// Unexported so `&appnet.resource{...}` cannot be written outside this package.
+type resource struct {
 	op.ResourceBase
 
-	// SourceURL is a parsed view of the URI. Derived from URI at construction and on unmarshal; not
-	// persisted (the URI on ResourceBase is authoritative).
-	SourceURL *url.URL `json:"-" yaml:"-"`
+	// sourceURL is the endpoint's URL. Identity-bearing.
+	sourceURL *url.URL
+}
+
+// sealedResource marks resource as the member of the closed [Resource] set.
+func (r *resource) sealedResource() {}
+
+// SourceURL returns the endpoint's URL.
+//
+// Returns:
+//   - `*url.URL`: the URL, or nil on an unlinked candidate.
+func (r *resource) SourceURL() *url.URL { return r.sourceURL }
+
+// init wires the two things a sealed resource cannot state from its generated announcement, which lives in a
+// sibling package and can name only exported identifiers.
+func init() {
+	op.RegisterResourceImplementation(reflect.TypeFor[Resource](), reflect.TypeFor[resource]())
+	op.RegisterResourceMint(reflect.TypeFor[Resource](), reflect.TypeFor[*resource]())
 }
 
 // NewResource constructs an appnet.Resource and claims production via [op.ResourceCatalog.GetOrCreate].
@@ -66,7 +101,7 @@ type Resource struct {
 // Returns:
 //   - `*Resource`: the canonical catalog entry (or the unlinked candidate when no catalog is present).
 //   - `error`: if `value` is not a string, does not parse as a URL, or has no scheme.
-func NewResource(runtimeEnvironment *op.RuntimeEnvironment, producerID string, value any) (*Resource, error) {
+func NewResource(runtimeEnvironment *op.RuntimeEnvironment, producerID string, value any) (Resource, error) {
 
 	candidate, err := buildCandidate(runtimeEnvironment, value)
 	if err != nil {
@@ -86,9 +121,9 @@ func NewResource(runtimeEnvironment *op.RuntimeEnvironment, producerID string, v
 		return nil, err
 	}
 
-	canonical, ok := got.(*Resource)
+	canonical, ok := got.(*resource)
 	if !ok {
-		return nil, fmt.Errorf("appnet.NewResource: catalog entry for %q is %T, want *appnet.Resource", candidate.URI(), got)
+		return nil, fmt.Errorf("appnet.NewResource: catalog entry for %q is %T, want *appnet.resource", candidate.URI(), got)
 	}
 
 	return canonical, nil
@@ -112,7 +147,21 @@ func NewResource(runtimeEnvironment *op.RuntimeEnvironment, producerID string, v
 // Returns:
 //   - `*Resource`: the canonical catalog entry (or the unlinked candidate when no catalog is present).
 //   - `error`: if `value` is not a string, does not parse as a URL, or has no scheme.
-func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Resource, error) {
+func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (Resource, error) {
+	return discoverResource(runtimeEnvironment, value)
+}
+
+// discoverResource is [DiscoverResource] returning the concrete type, which rehydration needs because it
+// assigns through the receiver.
+//
+// Parameters:
+//   - `runtimeEnvironment`: the session runtime environment.
+//   - `value`: a URL string or canonical tag URI.
+//
+// Returns:
+//   - `*resource`: canonical catalog entry, or the unlinked candidate when no catalog is present.
+//   - `error`: malformed input, or [op.ResourceBase] construction failure.
+func discoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*resource, error) {
 
 	candidate, err := buildCandidate(runtimeEnvironment, value)
 	if err != nil {
@@ -130,10 +179,10 @@ func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Re
 		return nil, err
 	}
 
-	canonical, ok := got.(*Resource)
+	canonical, ok := got.(*resource)
 	if !ok {
 		return nil, fmt.Errorf(
-			"appnet.DiscoverResource: catalog entry for %q is %T, want *appnet.Resource", candidate.URI(), got)
+			"appnet.DiscoverResource: catalog entry for %q is %T, want *appnet.resource", candidate.URI(), got)
 	}
 
 	return canonical, nil
@@ -151,7 +200,7 @@ func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Re
 // Returns:
 //   - `*Resource`: the canonicalized candidate, not yet interned in the catalog.
 //   - `error`: if `value` is not a string, does not parse as a URL, or has no transport scheme.
-func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Resource, error) {
+func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*resource, error) {
 
 	raw, ok := value.(string)
 	if !ok {
@@ -167,14 +216,14 @@ func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Reso
 		return nil, fmt.Errorf("appnet.Resource: URL missing transport scheme: %q", raw)
 	}
 
-	base, err := op.NewResourceBase(runtimeEnvironment, canonical.String(), reflect.TypeFor[*Resource]())
+	base, err := op.NewResourceBase(runtimeEnvironment, canonical.String(), reflect.TypeFor[Resource]())
 	if err != nil {
 		return nil, err
 	}
 
-	return &Resource{
+	return &resource{
 		ResourceBase: base,
-		SourceURL:    canonical,
+		sourceURL:    canonical,
 	}, nil
 }
 
@@ -190,7 +239,7 @@ func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Reso
 //
 // Returns:
 //   - `op.AddressingMode`: always [op.AddressingLocation].
-func (r *Resource) Addressing() op.AddressingMode {
+func (r *resource) Addressing() op.AddressingMode {
 	return op.AddressingLocation
 }
 
@@ -204,7 +253,7 @@ func (r *Resource) Addressing() op.AddressingMode {
 // Returns:
 //   - `op.Digest`: sha256 algorithm with 32 raw bytes.
 //   - `error`: nil under normal conditions.
-func (r *Resource) Digest() (op.Digest, error) {
+func (r *resource) Digest() (op.Digest, error) {
 	h := sha256.Sum256([]byte(r.URI()))
 	return op.Digest{Algorithm: "sha256", Bytes: h[:]}, nil
 }
@@ -219,13 +268,13 @@ func (r *Resource) Digest() (op.Digest, error) {
 //
 // Returns:
 //   - `bool`: true if `other` is a *appnet.Resource with the same URI as r.
-func (r *Resource) Equal(other any) bool {
+func (r *resource) Equal(other any) bool {
 
 	if other == nil {
 		return false
 	}
 
-	if _, ok := other.(*Resource); !ok {
+	if _, ok := other.(*resource); !ok {
 		return false
 	}
 
@@ -242,7 +291,7 @@ func (r *Resource) Equal(other any) bool {
 // Returns:
 //   - `string`: the canonical URL (identical to [op.ResourceBase.URI]).
 //   - `error`: nil under normal conditions.
-func (r *Resource) Etag() (string, error) {
+func (r *resource) Etag() (string, error) {
 	return r.URI(), nil
 }
 
@@ -250,7 +299,7 @@ func (r *Resource) Etag() (string, error) {
 //
 // Returns:
 //   - `string`: `appnet.Resource{uri=<URI>}`.
-func (r *Resource) String() string {
+func (r *resource) String() string {
 	return fmt.Sprintf("appnet.Resource{uri=%s}", r.URI())
 }
 
@@ -271,7 +320,7 @@ func (r *Resource) String() string {
 //
 // Returns:
 //   - `bool`: true when `source` is `string`.
-func (*Resource) CanConvertFrom(source reflect.Type) bool {
+func (*resource) CanConvertFrom(source reflect.Type) bool {
 
 	return source != nil && source.Kind() == reflect.String
 }
@@ -290,7 +339,7 @@ func (*Resource) CanConvertFrom(source reflect.Type) bool {
 // Returns:
 //   - `any`: the constructed unlinked [*Resource].
 //   - `error`: non-nil when `value` is not a `string` or does not parse as a URL.
-func (*Resource) ConvertFrom(value any) (any, error) {
+func (*resource) ConvertFrom(value any) (any, error) {
 
 	str, ok := value.(string)
 	if !ok {
@@ -302,7 +351,7 @@ func (*Resource) ConvertFrom(value any) (any, error) {
 		return nil, fmt.Errorf("appnet.Resource.ConvertFrom: parse URL %q: %w", str, err)
 	}
 
-	return &Resource{SourceURL: u}, nil
+	return &resource{sourceURL: u}, nil
 }
 
 // endregion
@@ -319,7 +368,7 @@ func (*Resource) ConvertFrom(value any) (any, error) {
 //
 // Returns:
 //   - `error`: missing RuntimeEnvironment on receiver, JSON decode failure, or rehydration failure.
-func (r *Resource) UnmarshalJSON(data []byte) error {
+func (r *resource) UnmarshalJSON(data []byte) error {
 
 	if r.RuntimeEnvironment() == nil {
 		return errors.New("appnet.Resource: UnmarshalJSON requires RuntimeEnvironment on receiver")
@@ -330,7 +379,7 @@ func (r *Resource) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	built, err := DiscoverResource(r.RuntimeEnvironment(), uri)
+	built, err := discoverResource(r.RuntimeEnvironment(), uri)
 	if err != nil {
 		return err
 	}
@@ -346,13 +395,13 @@ func (r *Resource) UnmarshalJSON(data []byte) error {
 //
 // Returns:
 //   - `error`: missing RuntimeEnvironment on receiver, or rehydration failure.
-func (r *Resource) UnmarshalText(text []byte) error {
+func (r *resource) UnmarshalText(text []byte) error {
 
 	if r.RuntimeEnvironment() == nil {
 		return errors.New("appnet.Resource: UnmarshalText requires RuntimeEnvironment on receiver")
 	}
 
-	built, err := DiscoverResource(r.RuntimeEnvironment(), string(text))
+	built, err := discoverResource(r.RuntimeEnvironment(), string(text))
 	if err != nil {
 		return err
 	}
@@ -368,7 +417,7 @@ func (r *Resource) UnmarshalText(text []byte) error {
 //
 // Returns:
 //   - `error`: missing RuntimeEnvironment on receiver, decode failure, or rehydration failure.
-func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
+func (r *resource) UnmarshalYAML(unmarshal func(any) error) error {
 
 	if r.RuntimeEnvironment() == nil {
 		return errors.New("appnet.Resource: UnmarshalYAML requires RuntimeEnvironment on receiver")
@@ -379,7 +428,7 @@ func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 		return err
 	}
 
-	built, err := DiscoverResource(r.RuntimeEnvironment(), uri)
+	built, err := discoverResource(r.RuntimeEnvironment(), uri)
 	if err != nil {
 		return err
 	}

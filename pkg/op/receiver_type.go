@@ -319,7 +319,14 @@ func NewResourceReceiverType(
 		return nil, err
 	}
 
+	// Identity governs BOTH the type id and the registry name; the implementation governs only reflection.
+	//
+	// receiverName special-cases the type named `Resource` into `<pkg>.Resource`, which is what keeps
+	// providers distinct in the registry. A sealed implementation is named `resource`, which falls through
+	// to the default arm and yields the bare `resource` for EVERY provider — the second one announced then
+	// collides with the first. Found exactly that way, sealing `git` beside `service`.
 	base.typeID = typeIDOf(resourceType)
+	base.name = receiverName(resourceType)
 
 	return &resourceReceiverType{
 		receiverType: base,

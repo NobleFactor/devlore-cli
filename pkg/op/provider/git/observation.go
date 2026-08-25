@@ -9,7 +9,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-// Observation captures the runtime-observed state of a [*Resource]'s on-disk clone at the moment it was observed.
+// Observation captures the runtime-observed state of a [Resource]'s on-disk clone at the moment it was observed.
 //
 // Distinct from [Resource], which carries identity (URI, [fsroot.Path], and the identity-extension intent fields
 // `HEAD` and `Ref` from the plan). An observation is a point-in-time metadata snapshot record — not a [Resource],
@@ -42,7 +42,7 @@ type Observation struct {
 // NewObservation constructs a *Observation anchored to the resource it observes.
 //
 // Parameters:
-//   - `ofResource`: the [*Resource] this observation is of. Must be non-nil (asserted by [op.NewObservationBase]).
+//   - `ofResource`: the [Resource] this observation is of. Must be non-nil (asserted by [op.NewObservationBase]).
 //   - `exists`: true when the path was a git repository at observation time.
 //   - `observedHEAD`: the disk's current HEAD SHA.
 //   - `observedRef`: the disk's current ref name.
@@ -53,7 +53,7 @@ type Observation struct {
 // Returns:
 //   - `*Observation`: the constructed observation.
 func NewObservation(
-	ofResource *Resource,
+	ofResource Resource,
 	exists bool,
 	observedHEAD string,
 	observedRef string,

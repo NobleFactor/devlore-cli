@@ -23,25 +23,75 @@ import (
 // are additionally persisted through JSON/YAML so a serialized Resource can carry its version snapshot to contexts
 // where Resolve cannot run (e.g., cross-host comparison, offline inspection); Remotes, Bare, and Dirty are operational
 // and not persisted — they're always rebuilt by Resolve.
-type Resource struct {
+// Resource is this provider's resource type — the sealed interface over a git working tree.
+//
+// Sealed by an unexported marker, so the closed set of implementations is the one this package declares. A
+// value reaching a git method therefore came from a constructor and carries catalog-issued identity; nothing
+// hand-built or reflectively hydrated can satisfy it.
+type Resource interface {
+	op.Resource
+
+	// SourcePath returns the working tree's path handle. Identity-bearing.
+	SourcePath() fsroot.Path
+
+	// Ref returns the branch or tag the clone was asked for — plan-time intent, not an observation of the
+	// tree's current state. Use Observe for that.
+	Ref() string
+
+	// HEAD returns the commit sha recorded at clone or checkout — plan-time intent, as with Ref.
+	HEAD() string
+
+	// sealedResource marks the closed set of Resource implementations.
+	sealedResource()
+}
+
+// Interface guard: the unexported struct is the only Resource implementation.
+var _ Resource = (*resource)(nil)
+
+// resource is the concrete git resource — what serializes, and the only thing implementing [Resource].
+//
+// Unexported so `&git.resource{...}` cannot be written outside this package. The exported constructors are the
+// public contract; the struct behind them need not be.
+type resource struct {
 	op.ResourceBase
 
-	// SourcePath is the local clone's canonical absolute path; identity derives from this via the file:// URI. Not
-	// persisted — reconstructed from the URI on deserialization.
-	SourcePath fsroot.Path `json:"-" yaml:"-"`
+	// sourcePath is the working tree's path handle. Identity-bearing — the URI derives from it.
+	sourcePath fsroot.Path
 
-	// Ref is the branch, tag, or commit reference the clone is positioned at as plan-time intent.
-	// Set at construction by [Provider.Clone] (from the just-cloned tree's `.git/HEAD`) or by
-	// serialized-form deserialization (from a saved plan). Not mutated by [Resource.Resolve]; the runtime
-	// view of the disk's current ref lives on [Observation.ObservedRef].
-	Ref string `json:"ref,omitempty" yaml:"ref,omitempty"`
+	// ref is the branch or tag asked for at clone or checkout. Plan-time intent.
+	ref string
 
-	// HEAD is the commit SHA (40-char hex) the clone was positioned at as plan-time intent. Set at
-	// construction by [Provider.Clone] (from the just-cloned tree's `.git/HEAD`) or by serialized-form
-	// deserialization. Pins the clone to an exact version across serialization. Empty for resources
-	// constructed via [NewResource] without an associated clone. Not mutated by [Resource.Resolve];
-	// the runtime view of the disk's current HEAD lives on [Observation.ObservedHEAD].
-	HEAD string `json:"head,omitempty" yaml:"head,omitempty"`
+	// head is the commit sha recorded at clone or checkout. Plan-time intent.
+	head string
+}
+
+// sealedResource marks resource as the member of the closed [Resource] set.
+func (r *resource) sealedResource() {}
+
+// SourcePath returns the working tree's path handle.
+//
+// Returns:
+//   - `fsroot.Path`: the path handle.
+func (r *resource) SourcePath() fsroot.Path { return r.sourcePath }
+
+// Ref returns the branch or tag asked for.
+//
+// Returns:
+//   - `string`: the ref, or "" when none was recorded.
+func (r *resource) Ref() string { return r.ref }
+
+// HEAD returns the recorded commit sha.
+//
+// Returns:
+//   - `string`: the sha, or "" when none was recorded.
+func (r *resource) HEAD() string { return r.head }
+
+// init wires the two things a sealed resource cannot state from its generated announcement, which lives in a
+// sibling package and can name only exported identifiers. Go initializes an imported package before its
+// importer, so this always runs first.
+func init() {
+	op.RegisterResourceImplementation(reflect.TypeFor[Resource](), reflect.TypeFor[resource]())
+	op.RegisterResourceMint(reflect.TypeFor[Resource](), reflect.TypeFor[*resource]())
 }
 
 // Remote carries the fetch and push URLs for a named git remote.
@@ -79,7 +129,25 @@ type Remote struct {
 //   - `*Resource`: the canonical catalog entry (or the unlinked candidate when no catalog is present).
 //   - `error`: if `value` is not a string, or the input violates RFC 8089 when in file URI form, or
 //     [op.ResourceCatalog.GetOrCreate]'s strict assertions fail.
-func NewResource(runtimeEnvironment *op.RuntimeEnvironment, producerID string, value any) (*Resource, error) {
+func NewResource(runtimeEnvironment *op.RuntimeEnvironment, producerID string, value any) (Resource, error) {
+	return newResource(runtimeEnvironment, producerID, value)
+}
+
+// newResource is [NewResource] returning the concrete type.
+//
+// The exported form returns the sealed interface, which is what callers should hold. Clone and checkout
+// cannot: they record the observed ref and sha onto the resource after the git command runs, and an
+// interface has nothing to assign to.
+//
+// Parameters:
+//   - `runtimeEnvironment`: the session runtime environment.
+//   - `producerID`: the producing caller's id, or "" for caller-less dispatch.
+//   - `value`: a path, file URI, or canonical tag URI.
+//
+// Returns:
+//   - `*resource`: canonical catalog entry, or the unlinked candidate when no catalog is present.
+//   - `error`: malformed input, or [op.ResourceBase] construction failure.
+func newResource(runtimeEnvironment *op.RuntimeEnvironment, producerID string, value any) (*resource, error) {
 
 	candidate, err := buildCandidate(runtimeEnvironment, value)
 	if err != nil {
@@ -98,9 +166,9 @@ func NewResource(runtimeEnvironment *op.RuntimeEnvironment, producerID string, v
 		return nil, err
 	}
 
-	canonical, ok := got.(*Resource)
+	canonical, ok := got.(*resource)
 	if !ok {
-		return nil, fmt.Errorf("git.NewResource: catalog entry for %q is %T, want *git.Resource", candidate.URI(), got)
+		return nil, fmt.Errorf("git.NewResource: catalog entry for %q is %T, want *git.resource", candidate.URI(), got)
 	}
 
 	return canonical, nil
@@ -126,7 +194,21 @@ func NewResource(runtimeEnvironment *op.RuntimeEnvironment, producerID string, v
 // Returns:
 //   - `*Resource`: the canonical catalog entry (or the unlinked candidate when no catalog is present).
 //   - `error`: if `value` is not a string, or the input violates RFC 8089 when in file URI form.
-func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Resource, error) {
+func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (Resource, error) {
+	return discoverResource(runtimeEnvironment, value)
+}
+
+// discoverResource is [DiscoverResource] returning the concrete type, which rehydration needs because it
+// assigns through the receiver.
+//
+// Parameters:
+//   - `runtimeEnvironment`: the session runtime environment.
+//   - `value`: a path, file URI, or canonical tag URI.
+//
+// Returns:
+//   - `*resource`: canonical catalog entry, or the unlinked candidate when no catalog is present.
+//   - `error`: malformed input, or [op.ResourceBase] construction failure.
+func discoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*resource, error) {
 
 	candidate, err := buildCandidate(runtimeEnvironment, value)
 	if err != nil {
@@ -144,9 +226,9 @@ func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Re
 		return nil, err
 	}
 
-	canonical, ok := got.(*Resource)
+	canonical, ok := got.(*resource)
 	if !ok {
-		return nil, fmt.Errorf("git.DiscoverResource: catalog entry for %q is %T, want *git.Resource", candidate.URI(), got)
+		return nil, fmt.Errorf("git.DiscoverResource: catalog entry for %q is %T, want *git.resource", candidate.URI(), got)
 	}
 
 	return canonical, nil
@@ -163,7 +245,7 @@ func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Re
 // Returns:
 //   - `*Resource`: the candidate, not yet interned in the catalog.
 //   - `error`: if `value` is not a string, or violates RFC 8089 when in file URI form.
-func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Resource, error) {
+func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*resource, error) {
 
 	path, ok := value.(string)
 	if !ok {
@@ -175,14 +257,14 @@ func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Reso
 	path = strings.TrimPrefix(path, "file://")
 	sourcePath := runtimeEnvironment.Root().NewPath(path)
 
-	base, err := op.NewResourceBase(runtimeEnvironment, "file://"+sourcePath.Abs(), reflect.TypeFor[*Resource]())
+	base, err := op.NewResourceBase(runtimeEnvironment, "file://"+sourcePath.Abs(), reflect.TypeFor[Resource]())
 	if err != nil {
 		return nil, err
 	}
 
-	return &Resource{
+	return &resource{
 		ResourceBase: base,
-		SourcePath:   sourcePath,
+		sourcePath:   sourcePath,
 	}, nil
 }
 
@@ -200,7 +282,7 @@ func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Reso
 //
 // Returns:
 //   - `op.AddressingMode`: always [op.AddressingLocation].
-func (r *Resource) Addressing() op.AddressingMode {
+func (r *resource) Addressing() op.AddressingMode {
 	return op.AddressingLocation
 }
 
@@ -220,9 +302,9 @@ func (r *Resource) Addressing() op.AddressingMode {
 // Returns:
 //   - `op.Digest`: sha256 of the HEAD SHA (plus stash-create tree SHA when the working tree is dirty).
 //   - `error`: when the path is not a git repository or HEAD cannot be read.
-func (r *Resource) Digest() (op.Digest, error) {
+func (r *resource) Digest() (op.Digest, error) {
 
-	abs := r.SourcePath.Abs()
+	abs := r.sourcePath.Abs()
 
 	repo, bare := isGitRepo(abs)
 	if !repo {
@@ -258,13 +340,13 @@ func (r *Resource) Digest() (op.Digest, error) {
 //
 // Returns:
 //   - `bool`: true if `other` is a *git.Resource with the same URI as r.
-func (r *Resource) Equal(other any) bool {
+func (r *resource) Equal(other any) bool {
 
 	if other == nil {
 		return false
 	}
 
-	if _, ok := other.(*Resource); !ok {
+	if _, ok := other.(*resource); !ok {
 		return false
 	}
 
@@ -290,9 +372,9 @@ func (r *Resource) Equal(other any) bool {
 // Returns:
 //   - `string`: the etag (HEAD short-id, optionally suffixed with `-<tree-short>` for a dirty working tree).
 //   - `error`: when the path is not a git repository or HEAD cannot be read.
-func (r *Resource) Etag() (string, error) {
+func (r *resource) Etag() (string, error) {
 
-	abs := r.SourcePath.Abs()
+	abs := r.sourcePath.Abs()
 
 	repo, bare := isGitRepo(abs)
 	if !repo {
@@ -333,8 +415,8 @@ func (r *Resource) Etag() (string, error) {
 //
 // Returns:
 //   - `string`: `git.Resource{uri=<URI>, ref=<ref>, head=<head>}`.
-func (r *Resource) String() string {
-	return fmt.Sprintf("git.Resource{uri=%s, ref=%s, head=%s}", r.URI(), r.Ref, r.HEAD)
+func (r *resource) String() string {
+	return fmt.Sprintf("git.Resource{uri=%s, ref=%s, head=%s}", r.URI(), r.ref, r.head)
 }
 
 // endregion
@@ -359,7 +441,7 @@ func (r *Resource) String() string {
 //
 // Returns:
 //   - `bool`: true when `source` is `string`.
-func (*Resource) CanConvertFrom(source reflect.Type) bool {
+func (*resource) CanConvertFrom(source reflect.Type) bool {
 
 	return source != nil && source.Kind() == reflect.String
 }
@@ -378,14 +460,14 @@ func (*Resource) CanConvertFrom(source reflect.Type) bool {
 // Returns:
 //   - `any`: the constructed unlinked [*Resource].
 //   - `error`: non-nil when `value` is not a `string`.
-func (*Resource) ConvertFrom(value any) (any, error) {
+func (*resource) ConvertFrom(value any) (any, error) {
 
 	str, ok := value.(string)
 	if !ok {
 		return nil, fmt.Errorf("git.Resource.ConvertFrom: source must be string, got %T", value)
 	}
 
-	return &Resource{SourcePath: fsroot.NewPath("", str)}, nil
+	return &resource{sourcePath: fsroot.NewPath("", str)}, nil
 }
 
 // UnmarshalJSON populates the receiver from its JSON document.
@@ -400,31 +482,34 @@ func (*Resource) ConvertFrom(value any) (any, error) {
 //
 // Returns:
 //   - `error`: non-nil if the RuntimeEnvironment is missing, the JSON does not decode, or resource construction fails.
-func (r *Resource) UnmarshalJSON(data []byte) error {
+func (r *resource) UnmarshalJSON(data []byte) error {
 
 	if r.RuntimeEnvironment() == nil {
 		return errors.New("git.Resource: UnmarshalJSON requires RuntimeEnvironment on receiver")
 	}
 
-	type alias Resource
-	aux := &struct {
-		URI string `json:"uri"`
-		*alias
-	}{alias: (*alias)(r)}
+	// Decoded explicitly rather than through a `type alias` embed. The fields are unexported now, and
+	// encoding/json cannot set those — the alias trick would silently leave ref and head at zero. Same keys,
+	// same shape.
+	var aux struct {
+		URI  string `json:"uri"`
+		Ref  string `json:"ref,omitempty"`
+		HEAD string `json:"head,omitempty"`
+	}
 
-	if err := json.Unmarshal(data, aux); err != nil {
+	if err := json.Unmarshal(data, &aux); err != nil {
 		return err
 	}
 
-	ref, head := r.Ref, r.HEAD
+	ref, head := aux.Ref, aux.HEAD
 
-	built, err := DiscoverResource(r.RuntimeEnvironment(), aux.URI)
+	built, err := discoverResource(r.RuntimeEnvironment(), aux.URI)
 	if err != nil {
 		return err
 	}
 
-	built.Ref = ref
-	built.HEAD = head
+	built.ref = ref
+	built.head = head
 
 	*r = *built
 	return nil
@@ -440,13 +525,13 @@ func (r *Resource) UnmarshalJSON(data []byte) error {
 //
 // Returns:
 //   - `error`: non-nil if the RuntimeEnvironment is missing or resource construction fails.
-func (r *Resource) UnmarshalText(text []byte) error {
+func (r *resource) UnmarshalText(text []byte) error {
 
 	if r.RuntimeEnvironment() == nil {
 		return errors.New("git.Resource: UnmarshalText requires RuntimeEnvironment on receiver")
 	}
 
-	built, err := DiscoverResource(r.RuntimeEnvironment(), string(text))
+	built, err := discoverResource(r.RuntimeEnvironment(), string(text))
 	if err != nil {
 		return err
 	}
@@ -467,31 +552,33 @@ func (r *Resource) UnmarshalText(text []byte) error {
 //
 // Returns:
 //   - `error`: non-nil if the RuntimeEnvironment is missing, the YAML does not decode, or resource construction fails.
-func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
+func (r *resource) UnmarshalYAML(unmarshal func(any) error) error {
 
 	if r.RuntimeEnvironment() == nil {
 		return errors.New("git.Resource: UnmarshalYAML requires RuntimeEnvironment on receiver")
 	}
 
-	type alias Resource
-	aux := &struct {
-		URI string `yaml:"uri"`
-		*alias
-	}{alias: (*alias)(r)}
+	// Decoded explicitly, for the same reason as [resource.UnmarshalJSON]: the fields are unexported and a
+	// codec cannot set those, so the alias embed would silently leave ref and head at zero.
+	var aux struct {
+		URI  string `yaml:"uri"`
+		Ref  string `yaml:"ref,omitempty"`
+		HEAD string `yaml:"head,omitempty"`
+	}
 
-	if err := unmarshal(aux); err != nil {
+	if err := unmarshal(&aux); err != nil {
 		return err
 	}
 
-	ref, head := r.Ref, r.HEAD
+	ref, head := aux.Ref, aux.HEAD
 
-	built, err := DiscoverResource(r.RuntimeEnvironment(), aux.URI)
+	built, err := discoverResource(r.RuntimeEnvironment(), aux.URI)
 	if err != nil {
 		return err
 	}
 
-	built.Ref = ref
-	built.HEAD = head
+	built.ref = ref
+	built.head = head
 
 	*r = *built
 	return nil
