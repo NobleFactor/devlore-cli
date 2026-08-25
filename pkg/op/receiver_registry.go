@@ -248,10 +248,18 @@ func AnnounceResource(
 
 	label := fmt.Sprintf("AnnounceResource(%s)", resourceType)
 
-	parsed, err := parseParameters(resourceType, methodParameters)
+	// A sealed resource announces its interface; reflection needs the struct behind it, registered by the
+	// provider's own init via [RegisterResourceImplementation]. A struct announcement is its own
+	// implementation, so this is a no-op for every provider that has not been sealed yet.
+	implementation := resourceImplementationFor(resourceType)
+	assert.Truef(implementation != nil,
+		"%s: %s is an interface with no registered implementation — the provider's init must call "+
+			"op.RegisterResourceImplementation before the generated announcement runs", label, resourceType)
+
+	parsed, err := parseParameters(implementation, methodParameters)
 	assert.NoError(label, err)
 
-	rt, err := NewResourceReceiverType(resourceType, construct, parsed, sourceTypes...)
+	rt, err := NewResourceReceiverType(resourceType, implementation, construct, parsed, sourceTypes...)
 	assert.NoError(label, err)
 
 	err = announced.registerReceiverType(rt)
@@ -483,7 +491,7 @@ func (r *receiverRegistry) ResourceConstructorByTypeID(typeID string) (ResourceC
 	defer r.mu.RUnlock()
 
 	for _, resourceType := range r.resources {
-		if typeIDOf(resourceType.ProviderType()) == typeID {
+		if resourceType.TypeID() == typeID {
 			return resourceType.Construct(), true
 		}
 	}
@@ -510,7 +518,7 @@ func (r *receiverRegistry) UnpackerByTypeID(typeID string) (Unpacker, bool) {
 	defer r.mu.RUnlock()
 
 	for _, resourceType := range r.resources {
-		if typeIDOf(resourceType.ProviderType()) == typeID {
+		if resourceType.TypeID() == typeID {
 			unpacker, ok := reflect.New(resourceType.ProviderType()).Interface().(Unpacker)
 			return unpacker, ok
 		}
@@ -538,8 +546,21 @@ func (r *receiverRegistry) ProductTypeByID(id string) (reflect.Type, bool) {
 		index := make(map[string]reflect.Type)
 		for _, providerType := range r.actions {
 			for method := range providerType.Methods() {
-				if productType := method.ResultType(); productType != nil {
-					index[canonicalID(productType)] = productType
+
+				productType := method.ResultType()
+				if productType == nil {
+					continue
+				}
+
+				index[canonicalID(productType)] = productType
+
+				// A resource result is also keyed by its ANNOUNCED type id, which is what
+				// [ReceiptBase.Commit] records — [canonicalIDOf] asks the resource rather than reflecting on
+				// it. The two spellings differ by the pointer star for an unsealed provider and by the whole
+				// name for a sealed one, so indexing both is what lets a receipt resolve its own product type
+				// either way.
+				if productType.Implements(resourceInterfaceType) {
+					index[typeIDOf(productType)] = productType
 				}
 			}
 		}

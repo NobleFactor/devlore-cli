@@ -560,6 +560,22 @@ func canonicalID(goType reflect.Type) string {
 	}
 }
 
+// CanonicalResourceTypeID returns the id a receipt records for a resource of type `t`.
+//
+// The announced identity — [typeIDOf], which drops any pointer — rather than the Go type's canonical id, which
+// carries one. [op.ResourceBase] stores exactly this at construction, and [canonicalIDOf] reads it back off the
+// value, so a test or a tool that needs the id WITHOUT a value in hand derives it here rather than
+// reimplementing the rule.
+//
+// Parameters:
+//   - `t`: a resource type, pointer or interface.
+//
+// Returns:
+//   - `string`: the canonical type id.
+func CanonicalResourceTypeID(t reflect.Type) string {
+	return typeIDOf(t)
+}
+
 // canonicalIDOf returns [canonicalID] of a value's dynamic type, or "" for a nil value.
 //
 // Parameters:
@@ -572,6 +588,16 @@ func canonicalIDOf(value any) string {
 	if value == nil {
 		return ""
 	}
+
+	// A resource reports the identity it was ANNOUNCED under, not the Go type it happens to be. The two
+	// diverge once a provider is sealed: the value is an unexported struct that no method declares, while the
+	// product-type index is built from declared result types. Recording the Go type there would key the
+	// receipt by a name nothing can resolve, and the miss is silent — retypeStampedResult swallows it with a
+	// bare return, leaving a resumed result as its raw URI string.
+	if resource, isResource := value.(Resource); isResource {
+		return resource.ResourceType()
+	}
+
 	return canonicalID(reflect.TypeOf(value))
 }
 

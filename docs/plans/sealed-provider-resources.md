@@ -295,7 +295,7 @@ exported behavioral fields.
 
 ### Part 1 — the eight single-resource providers
 
-#### Phase 1 — the framework repairs and `service` — status: pending
+#### Phase 1 — the framework repairs and `service` — status: complete
 
 Land the framework change from *What ruling 4 costs* first, then prove the whole shape on the provider with
 the smallest external footprint: `service`, with **zero** files outside its own package naming the type
@@ -312,6 +312,23 @@ reloads.
 **The judgment scenario lands here, red first.** A dict supplied where a resource slot is expected mints
 an identity-less resource today; it must fail conversion after. Red before the seal, green after —
 otherwise the correctness claim is argued rather than demonstrated.
+
+**Landed 2026-08-24 (#641).** Four things the phase established that the plan had not predicted:
+
+1. **The implementation crosses the package boundary by registration, not by argument.** The generated
+   announcement cannot name an unexported type, so `op.RegisterResourceImplementation` is called from the
+   provider's own init. Ordering is guaranteed by the language — the generated package imports the provider
+   package, so Go initializes the provider first.
+2. **A sealed provider must also designate its own mint.** An interface asserts no kind, so an authored
+   string bound to an interface-typed slot is refused (§5.7 rule 6) unless the interface names a claim type.
+   `file` needs the rule because it has four variants to choose between; a single-implementation provider
+   designates itself and the question does not arise. Every phase from here needs the same two lines.
+3. **`op.Resource` does not expose everything `ResourceBase` provides** — `ReachabilityURI`, `Equal`,
+   `Format`, and the marshalers were reachable only because embedding leaked the base's whole surface. Every
+   caller is in-package, so tests reach the struct rather than widening the exported contract; a later phase
+   with an out-of-package caller will have to decide differently.
+4. **A provider's own package announces nothing.** It imports neither its gen package nor the inventory, so
+   a test needing the registry populated belongs in `pkg/op/inventory`, not beside the provider.
 
 #### Phase 2 — `git` and `appnet` — status: pending
 

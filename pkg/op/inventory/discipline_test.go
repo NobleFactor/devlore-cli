@@ -77,3 +77,79 @@ func TestBootDiscipline_EveryResourceTypeOverridesAddressing(t *testing.T) {
 		t.Fatal("no Resource types found in receiver registry; expected at least one (file, mem, ...)")
 	}
 }
+
+// TestBootDiscipline_EveryResourceResultResolvesItsProductType asserts that a receipt can resolve the product
+// type it records.
+//
+// [op.ReceiptBase.Commit] records the id [canonicalIDOf] reports, and restore resolves it through an index
+// built from every action method's DECLARED result type. Two different derivations of the same identity, and
+// nothing forces them to agree.
+//
+// While every provider's resource was a struct they agreed by construction — the declared return and the
+// value's dynamic type were the same type. Sealing separates them: a method declares the interface while
+// returning the unexported struct behind it. A recorded id taken from the Go type would then name something no
+// method declares.
+//
+// **The failure is silent.** `retypeStampedResult` reads:
+//
+//	productType, ok := ReceiverRegistry().ProductTypeByID(s.resultType)
+//	if !ok {
+//		return
+//	}
+//
+// so a resumed run keeps the raw URI string instead of a resource. No error, no log, and a resume test that
+// only asserts success would pass throughout. This asserts resolution itself.
+//
+// It lives here for the same reason as the discipline test above: inventory blank-imports every provider's gen
+// package, so the registry is fully populated by the time tests run. A provider's own package imports neither
+// its gen package nor any other, so nothing is announced in that test binary at all.
+func TestBootDiscipline_EveryResourceResultResolvesItsProductType(t *testing.T) {
+
+	types := op.SnapshotReceiverTypes()
+	if len(types) == 0 {
+		t.Fatal("no receiver types announced; expected provider gen packages to register types at init")
+	}
+
+	resourceInterface := reflect.TypeFor[op.Resource]()
+	var checked int
+
+	for _, rt := range types {
+
+		provider, isProvider := rt.(op.ProviderReceiverType)
+		if !isProvider {
+			continue
+		}
+
+		for method := range provider.Methods() {
+
+			result := method.ResultType()
+			if result == nil || !result.Implements(resourceInterface) {
+				continue
+			}
+
+			// The id a receipt records for a value of this type: the announced identity, not the Go type.
+			// typeIDOf drops any pointer, which is exactly what op.ResourceBase stores at construction.
+			recorded := op.CanonicalResourceTypeID(result)
+
+			resolved, ok := op.ReceiverRegistry().ProductTypeByID(recorded)
+			if !ok {
+				t.Errorf(
+					"%s.%s returns %s, whose recorded product id %q does not resolve — a receipt from this "+
+						"method would silently fail to retype its result on resume",
+					provider.Name(), method.Name(), result, recorded)
+				continue
+			}
+
+			if !result.AssignableTo(resolved) && !resolved.AssignableTo(result) {
+				t.Errorf("%s.%s: id %q resolved to %s, unrelated to the declared %s",
+					provider.Name(), method.Name(), recorded, resolved, result)
+			}
+
+			checked++
+		}
+	}
+
+	if checked == 0 {
+		t.Fatal("no action method returns a resource; the index this test guards would be empty")
+	}
+}

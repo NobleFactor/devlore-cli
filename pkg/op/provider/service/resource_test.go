@@ -19,7 +19,7 @@ import (
 // --- Interface guards ---
 
 func TestResource_ImplementsInterface(t *testing.T) {
-	var _ op.Resource = (*Resource)(nil)
+	var _ op.Resource = (*resource)(nil)
 }
 
 // --- Test helpers ---
@@ -44,6 +44,21 @@ func testActivation(t *testing.T, runtimeEnvironment *op.RuntimeEnvironment) *op
 	return op.NewActivationRecord(nil, "", runtimeEnvironment)
 }
 
+// concrete reaches the struct behind a sealed [Resource].
+//
+// [op.Resource] declares neither ReachabilityURI nor the marshalers, so the sealed interface does not expose
+// them either — before sealing they were reachable only because embedding leaked [op.ResourceBase]'s whole
+// surface. Every caller of those methods is in this package, so a white-box test asserting to the
+// implementation is the honest way to reach them rather than widening the exported contract.
+func concrete(t *testing.T, r Resource) *resource {
+	t.Helper()
+	c, ok := r.(*resource)
+	if !ok {
+		t.Fatalf("Resource is %T, want *resource", r)
+	}
+	return c
+}
+
 // --- NewResource ---
 
 func TestNewResource_FromName(t *testing.T) {
@@ -53,10 +68,10 @@ func TestNewResource_FromName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
-	if r.Name != "nginx" {
-		t.Errorf("Name = %q, want %q", r.Name, "nginx")
+	if r.Name() != "nginx" {
+		t.Errorf("Name = %q, want %q", r.Name(), "nginx")
 	}
-	if got := r.ReachabilityURI(); got != "svc:nginx" {
+	if got := concrete(t, r).ReachabilityURI(); got != "svc:nginx" {
 		t.Errorf("ReachabilityURI = %q, want %q", got, "svc:nginx")
 	}
 }
@@ -76,8 +91,8 @@ func TestNewResource_FromTagURI(t *testing.T) {
 	if second.URI() != first.URI() {
 		t.Errorf("URI from URI input = %q, want %q", second.URI(), first.URI())
 	}
-	if second.Name != "sshd" {
-		t.Errorf("Name = %q, want %q", second.Name, "sshd")
+	if second.Name() != "sshd" {
+		t.Errorf("Name = %q, want %q", second.Name(), "sshd")
 	}
 }
 
@@ -154,8 +169,8 @@ func TestEqual_SameName(t *testing.T) {
 
 	r1, _ := NewResource(activation.RuntimeEnvironment, activation.CallerID, "nginx")
 	r2, _ := NewResource(activation.RuntimeEnvironment, activation.CallerID, "nginx")
-	if !r1.Equal(r2) {
-		t.Error("expected r1.Equal(r2) for same-name resources")
+	if !concrete(t, r1).Equal(r2) {
+		t.Error("expected concrete(t, r1).Equal(r2) for same-name resources")
 	}
 }
 
@@ -165,7 +180,7 @@ func TestEqual_DifferentName(t *testing.T) {
 
 	r1, _ := NewResource(activation.RuntimeEnvironment, activation.CallerID, "nginx")
 	r2, _ := NewResource(activation.RuntimeEnvironment, activation.CallerID, "sshd")
-	if r1.Equal(r2) {
+	if concrete(t, r1).Equal(r2) {
 		t.Error("expected Equal to be false for distinct names")
 	}
 }
@@ -174,10 +189,10 @@ func TestEqual_RejectsNonResource(t *testing.T) {
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
 	r, _ := NewResource(runtimeEnvironment, "", "nginx")
 
-	if r.Equal("not a resource") {
-		t.Error("expected Equal to reject non-*Resource")
+	if concrete(t, r).Equal("not a resource") {
+		t.Error("expected Equal to reject non-Resource")
 	}
-	if r.Equal(nil) {
+	if concrete(t, r).Equal(nil) {
 		t.Error("expected Equal to reject nil")
 	}
 }
@@ -196,10 +211,11 @@ func TestUnmarshalJSON_RehydratesFromURI(t *testing.T) {
 		t.Fatalf("Marshal URI: %v", err)
 	}
 
-	seeded, err := DiscoverResource(runtimeEnvironment, original.URI())
+	seededResource, err := DiscoverResource(runtimeEnvironment, original.URI())
 	if err != nil {
 		t.Fatalf("seed: %v", err)
 	}
+	seeded := concrete(t, seededResource)
 
 	if err := seeded.UnmarshalJSON(data); err != nil {
 		t.Fatalf("UnmarshalJSON: %v", err)
@@ -207,14 +223,14 @@ func TestUnmarshalJSON_RehydratesFromURI(t *testing.T) {
 	if seeded.URI() != original.URI() {
 		t.Errorf("URI after unmarshal = %q, want %q", seeded.URI(), original.URI())
 	}
-	if seeded.Name != "nginx" {
-		t.Errorf("Name after unmarshal = %q, want %q", seeded.Name, "nginx")
+	if seeded.Name() != "nginx" {
+		t.Errorf("Name after unmarshal = %q, want %q", seeded.Name(), "nginx")
 	}
 }
 
 func TestUnmarshalJSON_RequiresRuntimeEnvironment(t *testing.T) {
-	r := &Resource{}
-	if err := r.UnmarshalJSON([]byte(`"tag:..:svc:nginx#"`)); err == nil ||
+	r := &resource{}
+	if err := concrete(t, r).UnmarshalJSON([]byte(`"tag:..:svc:nginx#"`)); err == nil ||
 		!strings.Contains(err.Error(), "RuntimeEnvironment") {
 		t.Errorf("expected RuntimeEnvironment error, got %v", err)
 	}
@@ -227,10 +243,11 @@ func TestUnmarshalText_RehydratesFromURI(t *testing.T) {
 		t.Fatalf("NewResource: %v", err)
 	}
 
-	seeded, err := DiscoverResource(runtimeEnvironment, original.URI())
+	seededResource, err := DiscoverResource(runtimeEnvironment, original.URI())
 	if err != nil {
 		t.Fatalf("seed: %v", err)
 	}
+	seeded := concrete(t, seededResource)
 
 	if err := seeded.UnmarshalText([]byte(original.URI())); err != nil {
 		t.Fatalf("UnmarshalText: %v", err)
@@ -247,10 +264,11 @@ func TestUnmarshalYAML_RehydratesFromURI(t *testing.T) {
 		t.Fatalf("NewResource: %v", err)
 	}
 
-	seeded, err := DiscoverResource(runtimeEnvironment, original.URI())
+	seededResource, err := DiscoverResource(runtimeEnvironment, original.URI())
 	if err != nil {
 		t.Fatalf("seed: %v", err)
 	}
+	seeded := concrete(t, seededResource)
 
 	target := original.URI()
 	decode := func(v any) error {
