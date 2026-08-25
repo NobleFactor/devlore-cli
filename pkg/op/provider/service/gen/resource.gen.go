@@ -18,10 +18,6 @@ func init() {
 		func(runtimeEnvironment *op.RuntimeEnvironment, identity any) (op.Resource, error) {
 			return provider.DiscoverResource(runtimeEnvironment, identity)
 		},
-		map[string][]string{
-			"Equal":          {"other"},
-			"CanConvertFrom": {"source"},
-			"ConvertFrom":    {"value"},
-		},
+		nil,
 	)
 }

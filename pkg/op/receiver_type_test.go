@@ -551,7 +551,9 @@ func TestNewResourceReceiverType_Public(t *testing.T) {
 		return &testLocalResource{}, nil
 	}
 
-	rt, err := NewResourceReceiverType(rType, construct, mustParseParameters(t, rType, map[string][]string{
+	// A struct-announced resource is its own implementation — both arguments are the same type, which is
+	// what every provider passes until it is sealed.
+	rt, err := NewResourceReceiverType(rType, rType, construct, mustParseParameters(t, rType, map[string][]string{
 		"URI": {},
 	}))
 

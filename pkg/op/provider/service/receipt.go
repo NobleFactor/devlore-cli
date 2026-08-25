@@ -106,7 +106,7 @@ func (r *Receipt) RestoreEncoded(
 	catalog := runtimeEnvironment.ResourceCatalog
 	got, ok := catalog.Lookup(catalog.Current(base.ResourceURI))
 	assert.True("service.Receipt: resource in catalog", ok)
-	resource := assert.Type[*Resource]("service catalog entry", got)
+	resource := assert.Type[*resource]("service catalog entry", got)
 
 	r.ReceiptBase = op.NewReceiptBase(resource)
 

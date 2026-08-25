@@ -41,19 +41,19 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 //   - `*Resource`: the service resource (identity unchanged).
 //   - `*Receipt`: compensation state recording whether the service was enabled before.
 //   - `error`: non-nil when no service manager is available or the disable command fails.
-func (p *Provider) Disable(activationRecord *op.ActivationRecord, name *Resource) (*Resource, *Receipt, error) {
+func (p *Provider) Disable(activationRecord *op.ActivationRecord, name Resource) (Resource, *Receipt, error) {
 	sm, err := p.serviceManager()
 	if err != nil {
 		return nil, nil, err
 	}
 
-	wasEnabled := sm.IsEnabled(name.Name)
+	wasEnabled := sm.IsEnabled(name.Name())
 
-	r := sm.Disable(name.Name)
+	r := sm.Disable(name.Name())
 	if !r.OK {
-		return nil, nil, fmt.Errorf("disable %s failed: %s", name.Name, r.Stderr)
+		return nil, nil, fmt.Errorf("disable %s failed: %s", name.Name(), r.Stderr)
 	}
-	p.RuntimeEnvironment().Status.Succeed(fmt.Sprintf("disabled service %s", name.Name))
+	p.RuntimeEnvironment().Status.Succeed(fmt.Sprintf("disabled service %s", name.Name()))
 	return name, &Receipt{ReceiptBase: op.NewReceiptBase(name), WasEnabled: wasEnabled}, nil
 }
 
@@ -91,19 +91,19 @@ func (p *Provider) CompensateDisable(activationRecord *op.ActivationRecord, rece
 //   - `*Resource`: the service resource (identity unchanged).
 //   - `*Receipt`: compensation state recording whether the service was enabled before.
 //   - `error`: non-nil when no service manager is available or the enable command fails.
-func (p *Provider) Enable(activationRecord *op.ActivationRecord, name *Resource) (*Resource, *Receipt, error) {
+func (p *Provider) Enable(activationRecord *op.ActivationRecord, name Resource) (Resource, *Receipt, error) {
 	sm, err := p.serviceManager()
 	if err != nil {
 		return nil, nil, err
 	}
 
-	wasEnabled := sm.IsEnabled(name.Name)
+	wasEnabled := sm.IsEnabled(name.Name())
 
-	r := sm.Enable(name.Name)
+	r := sm.Enable(name.Name())
 	if !r.OK {
-		return nil, nil, fmt.Errorf("enable %s failed: %s", name.Name, r.Stderr)
+		return nil, nil, fmt.Errorf("enable %s failed: %s", name.Name(), r.Stderr)
 	}
-	p.RuntimeEnvironment().Status.Succeed(fmt.Sprintf("enabled service %s", name.Name))
+	p.RuntimeEnvironment().Status.Succeed(fmt.Sprintf("enabled service %s", name.Name()))
 	return name, &Receipt{ReceiptBase: op.NewReceiptBase(name), WasEnabled: wasEnabled}, nil
 }
 
@@ -141,21 +141,21 @@ func (p *Provider) CompensateEnable(activationRecord *op.ActivationRecord, recei
 //   - `*Resource`: the service resource (identity unchanged).
 //   - `*Receipt`: compensation state; [Provider.CompensateRestart] is a no-op (the service was already running).
 //   - `error`: non-nil when no service manager is available or the stop/start commands fail.
-func (p *Provider) Restart(activationRecord *op.ActivationRecord, name *Resource) (*Resource, *Receipt, error) {
+func (p *Provider) Restart(activationRecord *op.ActivationRecord, name Resource) (Resource, *Receipt, error) {
 	sm, err := p.serviceManager()
 	if err != nil {
 		return nil, nil, err
 	}
 
-	r := sm.Stop(name.Name)
+	r := sm.Stop(name.Name())
 	if !r.OK {
 		return nil, nil, fmt.Errorf("stop before restart: %s", r.Stderr)
 	}
-	r = sm.Start(name.Name)
+	r = sm.Start(name.Name())
 	if !r.OK {
 		return nil, nil, fmt.Errorf("start after restart: %s", r.Stderr)
 	}
-	p.RuntimeEnvironment().Status.Succeed(fmt.Sprintf("restarted service %s", name.Name))
+	p.RuntimeEnvironment().Status.Succeed(fmt.Sprintf("restarted service %s", name.Name()))
 	return name, &Receipt{ReceiptBase: op.NewReceiptBase(name)}, nil
 }
 
@@ -181,19 +181,19 @@ func (p *Provider) CompensateRestart(activationRecord *op.ActivationRecord, _ *R
 //   - `*Resource`: the service resource (identity unchanged).
 //   - `*Receipt`: compensation state recording whether the service was running before.
 //   - `error`: non-nil when no service manager is available or the start command fails.
-func (p *Provider) Start(activationRecord *op.ActivationRecord, name *Resource) (*Resource, *Receipt, error) {
+func (p *Provider) Start(activationRecord *op.ActivationRecord, name Resource) (Resource, *Receipt, error) {
 	sm, err := p.serviceManager()
 	if err != nil {
 		return nil, nil, err
 	}
 
-	wasRunning := sm.IsRunning(name.Name)
+	wasRunning := sm.IsRunning(name.Name())
 
-	r := sm.Start(name.Name)
+	r := sm.Start(name.Name())
 	if !r.OK {
-		return nil, nil, fmt.Errorf("start %s failed: %s", name.Name, r.Stderr)
+		return nil, nil, fmt.Errorf("start %s failed: %s", name.Name(), r.Stderr)
 	}
-	p.RuntimeEnvironment().Status.Succeed(fmt.Sprintf("started service %s", name.Name))
+	p.RuntimeEnvironment().Status.Succeed(fmt.Sprintf("started service %s", name.Name()))
 	return name, &Receipt{ReceiptBase: op.NewReceiptBase(name), WasRunning: wasRunning}, nil
 }
 
@@ -231,19 +231,19 @@ func (p *Provider) CompensateStart(activationRecord *op.ActivationRecord, receip
 //   - `*Resource`: the service resource (identity unchanged).
 //   - `*Receipt`: compensation state recording whether the service was running before.
 //   - `error`: non-nil when no service manager is available or the stop command fails.
-func (p *Provider) Stop(activationRecord *op.ActivationRecord, name *Resource) (*Resource, *Receipt, error) {
+func (p *Provider) Stop(activationRecord *op.ActivationRecord, name Resource) (Resource, *Receipt, error) {
 	sm, err := p.serviceManager()
 	if err != nil {
 		return nil, nil, err
 	}
 
-	wasRunning := sm.IsRunning(name.Name)
+	wasRunning := sm.IsRunning(name.Name())
 
-	r := sm.Stop(name.Name)
+	r := sm.Stop(name.Name())
 	if !r.OK {
-		return nil, nil, fmt.Errorf("stop %s failed: %s", name.Name, r.Stderr)
+		return nil, nil, fmt.Errorf("stop %s failed: %s", name.Name(), r.Stderr)
 	}
-	p.RuntimeEnvironment().Status.Succeed(fmt.Sprintf("stopped service %s", name.Name))
+	p.RuntimeEnvironment().Status.Succeed(fmt.Sprintf("stopped service %s", name.Name()))
 	return name, &Receipt{ReceiptBase: op.NewReceiptBase(name), WasRunning: wasRunning}, nil
 }
 
@@ -281,12 +281,12 @@ func (p *Provider) CompensateStop(activationRecord *op.ActivationRecord, receipt
 // Returns:
 //   - `bool`: true when the service is enabled.
 //   - `error`: non-nil when no service manager is available.
-func (p *Provider) Enabled(name *Resource) (bool, error) {
+func (p *Provider) Enabled(name Resource) (bool, error) {
 	sm, err := p.serviceManager()
 	if err != nil {
 		return false, err
 	}
-	return sm.IsEnabled(name.Name), nil
+	return sm.IsEnabled(name.Name()), nil
 }
 
 // Exists returns true if the named service exists on the system.
@@ -297,12 +297,12 @@ func (p *Provider) Enabled(name *Resource) (bool, error) {
 // Returns:
 //   - `bool`: true when the service exists.
 //   - `error`: non-nil when no service manager is available.
-func (p *Provider) Exists(name *Resource) (bool, error) {
+func (p *Provider) Exists(name Resource) (bool, error) {
 	sm, err := p.serviceManager()
 	if err != nil {
 		return false, err
 	}
-	return sm.Exists(name.Name), nil
+	return sm.Exists(name.Name()), nil
 }
 
 // Running returns true if the named service is currently running.
@@ -313,12 +313,12 @@ func (p *Provider) Exists(name *Resource) (bool, error) {
 // Returns:
 //   - `bool`: true when the service is running.
 //   - `error`: non-nil when no service manager is available.
-func (p *Provider) Running(name *Resource) (bool, error) {
+func (p *Provider) Running(name Resource) (bool, error) {
 	sm, err := p.serviceManager()
 	if err != nil {
 		return false, err
 	}
-	return sm.IsRunning(name.Name), nil
+	return sm.IsRunning(name.Name()), nil
 }
 
 // endregion
@@ -361,13 +361,13 @@ func (p *Provider) serviceManager() (platform.ServiceManager, error) {
 //   - `receipt`: the receipt whose affected resource carries the service name.
 //
 // Returns:
-//   - `string`: the service name, or "" when the receipt has no [*Resource].
+//   - `string`: the service name, or "" when the receipt has no [Resource].
 func resourceName(receipt *Receipt) string {
-	r, ok := receipt.Resource().(*Resource)
+	r, ok := receipt.Resource().(Resource)
 	if !ok || r == nil {
 		return ""
 	}
-	return r.Name
+	return r.Name()
 }
 
 // endregion

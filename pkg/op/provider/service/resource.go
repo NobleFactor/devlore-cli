@@ -15,29 +15,78 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-// Interface Guard: *Resource implements op.Resource (via op.ResourceBase + own overrides).
-var _ op.Resource = (*Resource)(nil)
+// Interface Guard: *resource implements op.Resource (via op.ResourceBase + own overrides).
+var _ op.Resource = (*resource)(nil)
 
-// Interface Guard: *Resource implements json.Unmarshaler.
-var _ json.Unmarshaler = (*Resource)(nil)
+// Interface Guard: *resource implements json.Unmarshaler.
+var _ json.Unmarshaler = (*resource)(nil)
 
-// Interface Guard: *Resource implements encoding.TextUnmarshaler.
-var _ encoding.TextUnmarshaler = (*Resource)(nil)
+// Interface Guard: *resource implements encoding.TextUnmarshaler.
+var _ encoding.TextUnmarshaler = (*resource)(nil)
 
-// Interface Guard: *Resource implements fmt.Stringer.
-var _ fmt.Stringer = (*Resource)(nil)
+// Interface Guard: *resource implements fmt.Stringer.
+var _ fmt.Stringer = (*resource)(nil)
 
-// Resource represents a system service identified by name.
+// Resource is this provider's resource type — the sealed interface over a system service identified by name.
 //
-// Location-keyed: the canonical URI is `tag:devlore.noblefactor.com,2026-01-01:svc:<Name>#...service.Resource`.
-// Service state (running, enabled, mode, last-changed) is host-side and not part of identity — two
-// service.Resources with the same Name on different hosts share a URI and a catalog entry.
-type Resource struct {
+// Sealed by an unexported marker, so the closed set of implementations is the one this package declares and no
+// value reaching a service method was built anywhere else. That is the guarantee the resource model rests on:
+// identity is the catalog key, and a hand-built or reflectively-hydrated value carries none.
+//
+// Location-keyed: the canonical URI is `tag:devlore.noblefactor.com,2026-01-01:svc:<name>#...service.Resource`.
+// Service state (running, enabled, mode, last-changed) is host-side and not part of identity — two Resources
+// naming the same service on different hosts share a URI and a catalog entry.
+type Resource interface {
+	op.Resource
+
+	// Name returns the service name (e.g., "nginx", "sshd"). Identity-bearing — it appears in the URI
+	// <specific> as `svc:<name>` and is derivable from the URI.
+	Name() string
+
+	// sealedResource marks the closed set of Resource implementations: only this package can declare it, so
+	// no type outside can satisfy Resource.
+	sealedResource()
+}
+
+// Interface guard: the unexported struct is the only Resource implementation.
+var _ Resource = (*resource)(nil)
+
+// resource is the concrete service resource — what serializes, and the only thing that implements [Resource].
+//
+// Unexported so that `&service.resource{...}` cannot be written anywhere else. The exported constructors are
+// the public contract; the struct behind them need not be.
+type resource struct {
 	op.ResourceBase
 
-	// Name is the service name (e.g., "nginx", "sshd"). Identity-bearing — appears in the URI <specific> as
-	// `svc:<Name>`. Derivable from URI.
-	Name string
+	// name is the service name. Identity-bearing — appears in the URI <specific> as `svc:<name>`.
+	name string
+}
+
+// sealedResource marks resource as the member of the closed [Resource] set.
+func (r *resource) sealedResource() {}
+
+// Name returns the service name.
+//
+// Returns:
+//   - `string`: the service name (e.g., "nginx").
+func (r *resource) Name() string { return r.name }
+
+// init wires the two things a sealed resource cannot state from the generated announcement.
+//
+// Both are needed because that announcement lives in a sibling package and can name only exported
+// identifiers. Go initializes an imported package before its importer, so this always runs first.
+func init() {
+
+	// What reflection runs against. The NON-pointer form, matching what the announcement passed while the
+	// resource was a struct — receiver construction promotes it to a pointer itself, so registering the
+	// pointer here would change the announced kind and nothing else.
+	op.RegisterResourceImplementation(reflect.TypeFor[Resource](), reflect.TypeFor[resource]())
+
+	// What an authored string claims as. An interface asserts no kind, so a plain string bound to an
+	// interface-typed slot is refused unless the interface designates a claim type (§5.7 rule 6). `file`
+	// needs that rule because it has a kind axis and four variants to choose between; a provider with one
+	// implementation designates it and the question does not arise.
+	op.RegisterResourceMint(reflect.TypeFor[Resource](), reflect.TypeFor[*resource]())
 }
 
 // NewResource constructs a service.Resource and claims production via [op.ResourceCatalog.GetOrCreate].
@@ -61,9 +110,9 @@ type Resource struct {
 //   - `value`: a bare service name string, or a canonical tag URI (`tag:..:svc:<name>#...`).
 //
 // Returns:
-//   - `*Resource`: canonical catalog entry, or the unlinked candidate when no catalog is present.
+//   - `Resource`: canonical catalog entry, or the unlinked candidate when no catalog is present.
 //   - `error`: non-string input, malformed URI, or [op.ResourceBase] construction failure.
-func NewResource(runtimeEnvironment *op.RuntimeEnvironment, producerID string, value any) (*Resource, error) {
+func NewResource(runtimeEnvironment *op.RuntimeEnvironment, producerID string, value any) (Resource, error) {
 
 	candidate, err := buildCandidate(runtimeEnvironment, value)
 	if err != nil {
@@ -82,10 +131,10 @@ func NewResource(runtimeEnvironment *op.RuntimeEnvironment, producerID string, v
 		return nil, err
 	}
 
-	canonical, ok := got.(*Resource)
+	canonical, ok := got.(*resource)
 	if !ok {
 		return nil, fmt.Errorf(
-			"service.NewResource: catalog entry for %q is %T, want *service.Resource",
+			"service.NewResource: catalog entry for %q is %T, want *service.resource",
 			candidate.URI(), got,
 		)
 	}
@@ -111,9 +160,25 @@ func NewResource(runtimeEnvironment *op.RuntimeEnvironment, producerID string, v
 //   - `value`: a bare service name string, or a canonical tag URI; same dispatch as [NewResource].
 //
 // Returns:
-//   - `*Resource`: canonical catalog entry, or the unlinked candidate when no catalog is present.
+//   - `Resource`: canonical catalog entry, or the unlinked candidate when no catalog is present.
 //   - `error`: non-string input, malformed URI, or [op.ResourceBase] construction failure.
-func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Resource, error) {
+func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (Resource, error) {
+	return discoverResource(runtimeEnvironment, value)
+}
+
+// discoverResource is [DiscoverResource] returning the concrete type.
+//
+// The exported form returns the sealed interface, which is what callers should hold. Rehydration cannot: it
+// assigns through the receiver (`*r = *built`), and that needs a value, not an interface.
+//
+// Parameters:
+//   - `runtimeEnvironment`: the session runtime environment.
+//   - `value`: a bare service name string, or a canonical tag URI.
+//
+// Returns:
+//   - `*resource`: canonical catalog entry, or the unlinked candidate when no catalog is present.
+//   - `error`: non-string input, malformed URI, or [op.ResourceBase] construction failure.
+func discoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*resource, error) {
 
 	candidate, err := buildCandidate(runtimeEnvironment, value)
 	if err != nil {
@@ -131,10 +196,10 @@ func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Re
 		return nil, err
 	}
 
-	canonical, ok := got.(*Resource)
+	canonical, ok := got.(*resource)
 	if !ok {
 		return nil, fmt.Errorf(
-			"service.DiscoverResource: catalog entry for %q is %T, want *service.Resource",
+			"service.DiscoverResource: catalog entry for %q is %T, want *service.resource",
 			candidate.URI(), got,
 		)
 	}
@@ -153,10 +218,10 @@ func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Re
 //   - `value`: a string service name or canonical tag URI; any other type is an error.
 //
 // Returns:
-//   - `*Resource`: unlinked candidate.
+//   - `*resource`: unlinked candidate.
 //   - `error`: non-string input, malformed URI, URI <specific> not in `svc:<name>` form, or [op.ResourceBase]
 //     construction failure.
-func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Resource, error) {
+func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*resource, error) {
 
 	raw, ok := value.(string)
 	if !ok {
@@ -176,14 +241,14 @@ func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Reso
 		name = extracted
 	}
 
-	base, err := op.NewResourceBase(runtimeEnvironment, "svc:"+name, reflect.TypeFor[*Resource]())
+	base, err := op.NewResourceBase(runtimeEnvironment, "svc:"+name, reflect.TypeFor[Resource]())
 	if err != nil {
 		return nil, err
 	}
 
-	return &Resource{
+	return &resource{
 		ResourceBase: base,
-		Name:         name,
+		name:         name,
 	}, nil
 }
 
@@ -198,7 +263,7 @@ func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Reso
 //
 // Returns:
 //   - `op.AddressingMode`: [op.AddressingLocation] — identity is the service name embedded in the URI.
-func (r *Resource) Addressing() op.AddressingMode {
+func (r *resource) Addressing() op.AddressingMode {
 	return op.AddressingLocation
 }
 
@@ -212,7 +277,7 @@ func (r *Resource) Addressing() op.AddressingMode {
 // Returns:
 //   - `op.Digest`: sha256 of the URI; Algorithm = "sha256", Bytes = 32 raw digest bytes.
 //   - `error`: nil under normal conditions.
-func (r *Resource) Digest() (op.Digest, error) {
+func (r *resource) Digest() (op.Digest, error) {
 	h := sha256.Sum256([]byte(r.URI()))
 	return op.Digest{Algorithm: "sha256", Bytes: h[:]}, nil
 }
@@ -227,13 +292,13 @@ func (r *Resource) Digest() (op.Digest, error) {
 //
 // Returns:
 //   - `bool`: true when `other` is a *service.Resource with the same URI as r.
-func (r *Resource) Equal(other any) bool {
+func (r *resource) Equal(other any) bool {
 
 	if other == nil {
 		return false
 	}
 
-	if _, ok := other.(*Resource); !ok {
+	if _, ok := other.(*resource); !ok {
 		return false
 	}
 
@@ -249,7 +314,7 @@ func (r *Resource) Equal(other any) bool {
 // Returns:
 //   - `string`: the canonical URI (identical to [op.ResourceBase.URI]).
 //   - `error`: nil under normal conditions.
-func (r *Resource) Etag() (string, error) {
+func (r *resource) Etag() (string, error) {
 	return r.URI(), nil
 }
 
@@ -260,7 +325,7 @@ func (r *Resource) Etag() (string, error) {
 //
 // Returns:
 //   - `string`: the compact JSON encoding of r.
-func (r *Resource) String() string {
+func (r *resource) String() string {
 	return r.Format(r)
 }
 
@@ -282,7 +347,7 @@ func (r *Resource) String() string {
 //
 // Returns:
 //   - `bool`: true when `source` is `string`.
-func (*Resource) CanConvertFrom(source reflect.Type) bool {
+func (*resource) CanConvertFrom(source reflect.Type) bool {
 
 	return source != nil && source.Kind() == reflect.String
 }
@@ -301,14 +366,14 @@ func (*Resource) CanConvertFrom(source reflect.Type) bool {
 // Returns:
 //   - `any`: the constructed unlinked [*Resource].
 //   - `error`: non-nil when `value` is not a `string`.
-func (*Resource) ConvertFrom(value any) (any, error) {
+func (*resource) ConvertFrom(value any) (any, error) {
 
 	str, ok := value.(string)
 	if !ok {
 		return nil, fmt.Errorf("service.Resource.ConvertFrom: source must be string, got %T", value)
 	}
 
-	return &Resource{Name: str}, nil
+	return &resource{name: str}, nil
 }
 
 // endregion
@@ -326,7 +391,7 @@ func (*Resource) ConvertFrom(value any) (any, error) {
 //
 // Returns:
 //   - `error`: missing RuntimeEnvironment on receiver, malformed JSON, or rehydration failure.
-func (r *Resource) UnmarshalJSON(data []byte) error {
+func (r *resource) UnmarshalJSON(data []byte) error {
 
 	if r.RuntimeEnvironment() == nil {
 		return errors.New("service.Resource: UnmarshalJSON requires RuntimeEnvironment on receiver")
@@ -337,7 +402,7 @@ func (r *Resource) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	built, err := DiscoverResource(r.RuntimeEnvironment(), uri)
+	built, err := discoverResource(r.RuntimeEnvironment(), uri)
 	if err != nil {
 		return err
 	}
@@ -356,13 +421,13 @@ func (r *Resource) UnmarshalJSON(data []byte) error {
 //
 // Returns:
 //   - `error`: missing RuntimeEnvironment on receiver, or rehydration failure.
-func (r *Resource) UnmarshalText(text []byte) error {
+func (r *resource) UnmarshalText(text []byte) error {
 
 	if r.RuntimeEnvironment() == nil {
 		return errors.New("service.Resource: UnmarshalText requires RuntimeEnvironment on receiver")
 	}
 
-	built, err := DiscoverResource(r.RuntimeEnvironment(), string(text))
+	built, err := discoverResource(r.RuntimeEnvironment(), string(text))
 	if err != nil {
 		return err
 	}
@@ -381,7 +446,7 @@ func (r *Resource) UnmarshalText(text []byte) error {
 //
 // Returns:
 //   - `error`: missing RuntimeEnvironment on receiver, decode failure, or rehydration failure.
-func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
+func (r *resource) UnmarshalYAML(unmarshal func(any) error) error {
 
 	if r.RuntimeEnvironment() == nil {
 		return errors.New("service.Resource: UnmarshalYAML requires RuntimeEnvironment on receiver")
@@ -392,7 +457,7 @@ func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 		return err
 	}
 
-	built, err := DiscoverResource(r.RuntimeEnvironment(), uri)
+	built, err := discoverResource(r.RuntimeEnvironment(), uri)
 	if err != nil {
 		return err
 	}

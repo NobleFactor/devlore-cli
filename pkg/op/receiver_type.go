@@ -21,6 +21,7 @@ import (
 type ReceiverType interface {
 	Name() string
 	ProviderType() reflect.Type
+	TypeID() string
 	Methods() iter.Seq[*Method]
 	MethodByName(name string) (*Method, bool)
 	Do(method string, receiver any, args []any) (reflect.Value, reflect.Value, error)
@@ -115,6 +116,7 @@ type ResourceConstructor func(runtimeEnvironment *RuntimeEnvironment, value any)
 // It can be used to represent any Go type by reflection.
 type receiverType struct {
 	providerType  reflect.Type
+	typeID        string
 	name          string
 	methods       []*Method
 	methodMap     map[string]*Method
@@ -176,6 +178,17 @@ func (t *receiverType) Methods() iter.Seq[*Method] {
 // Returns:
 //   - reflect.Type: the type.
 func (t *receiverType) ProviderType() reflect.Type { return t.providerType }
+
+// TypeID returns the canonical type id — the string a saved document carries in a resource URI's fragment.
+//
+// Equal to [typeIDOf] of [receiverType.ProviderType] for providers and for a resource announced as a struct.
+// A SEALED resource announces its interface while reflecting on the unexported struct behind it, so the two
+// diverge there: the id names the interface, which is the name serialization has always used, while
+// ProviderType is the struct reflection needs.
+//
+// Returns:
+//   - `string`: the canonical type id.
+func (t *receiverType) TypeID() string { return t.typeID }
 
 // ReceiverName returns the name used to identify this receiver in starlark.
 //
@@ -293,15 +306,20 @@ type resourceReceiverType struct {
 //   - `error`: non-nil if method classification fails.
 func NewResourceReceiverType(
 	resourceType reflect.Type,
+	implementation reflect.Type,
 	construct ResourceConstructor,
 	methodParameters map[string][]Parameter,
 	sourceTypes ...reflect.Type,
 ) (ResourceReceiverType, error) {
 
-	base, err := newReceiverType(resourceType, methodParameters, nil, false)
+	// Reflection runs against the implementation; identity comes from the announced type. For a resource
+	// announced as a struct these are the same type and nothing changes.
+	base, err := newReceiverType(implementation, methodParameters, nil, false)
 	if err != nil {
 		return nil, err
 	}
+
+	base.typeID = typeIDOf(resourceType)
 
 	return &resourceReceiverType{
 		receiverType: base,
@@ -373,6 +391,7 @@ func newReceiverType(providerType reflect.Type, methodParameters map[string][]Pa
 
 	return receiverType{
 		providerType:  providerType,
+		typeID:        typeIDOf(providerType),
 		name:          name,
 		methods:       methods,
 		methodMap:     methodMap,

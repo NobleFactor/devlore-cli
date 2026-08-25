@@ -103,9 +103,9 @@ func newTestProvider(sm *mockServiceManager) *Provider {
 	}
 }
 
-// res constructs a *Resource for a service name. Uses DiscoverResource because the test isn't claiming
+// res constructs a Resource for a service name. Uses DiscoverResource because the test isn't claiming
 // production — service.Resource is a reference handle to an existing host service.
-func res(t *testing.T, name string) *Resource {
+func res(t *testing.T, name string) Resource {
 	t.Helper()
 	r, err := DiscoverResource(&op.RuntimeEnvironment{}, name)
 	if err != nil {
@@ -126,8 +126,8 @@ func TestStart_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
-	if result.Name != "nginx" {
-		t.Errorf("Start() result.ReceiverName = %q, want %q", result.Name, "nginx")
+	if result.Name() != "nginx" {
+		t.Errorf("Start() result.ReceiverName = %q, want %q", result.Name(), "nginx")
 	}
 	if state.WasRunning {
 		t.Error("Start() WasRunning = true, want false")
@@ -147,8 +147,8 @@ func TestStart_AlreadyRunning(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
-	if result.Name != "nginx" {
-		t.Errorf("Start() result.ReceiverName = %q, want %q", result.Name, "nginx")
+	if result.Name() != "nginx" {
+		t.Errorf("Start() result.ReceiverName = %q, want %q", result.Name(), "nginx")
 	}
 	if !state.WasRunning {
 		t.Error("Start() WasRunning = false, want true")
@@ -175,7 +175,7 @@ func TestCompensateStart_Success(t *testing.T) {
 
 		p := newTestProvider(sm)
 		if err := p.CompensateStart(testActivation(t, p.RuntimeEnvironment()), &Receipt{
-			ReceiptBase: op.NewReceiptBase(&Resource{Name: "nginx"}),
+			ReceiptBase: op.NewReceiptBase(&resource{name: "nginx"}),
 			WasRunning:  false,
 		}); err != nil {
 			t.Fatalf("CompensateStart() error = %v", err)
@@ -191,7 +191,7 @@ func TestCompensateStart_Success(t *testing.T) {
 
 		p := newTestProvider(sm)
 		if err := p.CompensateStart(testActivation(t, p.RuntimeEnvironment()), &Receipt{
-			ReceiptBase: op.NewReceiptBase(&Resource{Name: "nginx"}),
+			ReceiptBase: op.NewReceiptBase(&resource{name: "nginx"}),
 			WasRunning:  true,
 		}); err != nil {
 			t.Fatalf("CompensateStart() error = %v", err)
@@ -221,8 +221,8 @@ func TestStop_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Stop() error = %v", err)
 	}
-	if result.Name != "nginx" {
-		t.Errorf("Stop() result.ReceiverName = %q, want %q", result.Name, "nginx")
+	if result.Name() != "nginx" {
+		t.Errorf("Stop() result.ReceiverName = %q, want %q", result.Name(), "nginx")
 	}
 	if !state.WasRunning {
 		t.Error("Stop() WasRunning = false, want true")
@@ -241,7 +241,7 @@ func TestCompensateStop_Success(t *testing.T) {
 
 		p := newTestProvider(sm)
 		if err := p.CompensateStop(testActivation(t, p.RuntimeEnvironment()), &Receipt{
-			ReceiptBase: op.NewReceiptBase(&Resource{Name: "nginx"}),
+			ReceiptBase: op.NewReceiptBase(&resource{name: "nginx"}),
 			WasRunning:  true,
 		}); err != nil {
 			t.Fatalf("CompensateStop() error = %v", err)
@@ -257,7 +257,7 @@ func TestCompensateStop_Success(t *testing.T) {
 
 		p := newTestProvider(sm)
 		if err := p.CompensateStop(testActivation(t, p.RuntimeEnvironment()), &Receipt{
-			ReceiptBase: op.NewReceiptBase(&Resource{Name: "nginx"}),
+			ReceiptBase: op.NewReceiptBase(&resource{name: "nginx"}),
 			WasRunning:  false,
 		}); err != nil {
 			t.Fatalf("CompensateStop() error = %v", err)
@@ -279,15 +279,15 @@ func TestRestart_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Restart() error = %v", err)
 	}
-	if result.Name != "nginx" {
-		t.Errorf("Restart() result.ReceiverName = %q, want %q", result.Name, "nginx")
+	if result.Name() != "nginx" {
+		t.Errorf("Restart() result.ReceiverName = %q, want %q", result.Name(), "nginx")
 	}
-	resource, ok := state.Resource().(*Resource)
+	resource, ok := state.Resource().(Resource)
 	if !ok {
-		t.Fatalf("Restart() state.Resource() = %T, want *Resource", state.Resource())
+		t.Fatalf("Restart() state.Resource() = %T, want Resource", state.Resource())
 	}
-	if resource.Name != "nginx" {
-		t.Errorf("Restart() resource.Name = %q, want %q", resource.Name, "nginx")
+	if resource.Name() != "nginx" {
+		t.Errorf("Restart() resource.Name() = %q, want %q", resource.Name(), "nginx")
 	}
 	if !sm.running["nginx"] {
 		t.Error("service should be running after Restart()")
@@ -329,8 +329,8 @@ func TestEnable_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Enable() error = %v", err)
 	}
-	if result.Name != "nginx" {
-		t.Errorf("Enable() result.ReceiverName = %q, want %q", result.Name, "nginx")
+	if result.Name() != "nginx" {
+		t.Errorf("Enable() result.ReceiverName = %q, want %q", result.Name(), "nginx")
 	}
 	if state.WasEnabled {
 		t.Error("Enable() WasEnabled = true, want false")
@@ -349,7 +349,7 @@ func TestCompensateEnable_Success(t *testing.T) {
 
 		p := newTestProvider(sm)
 		if err := p.CompensateEnable(testActivation(t, p.RuntimeEnvironment()), &Receipt{
-			ReceiptBase: op.NewReceiptBase(&Resource{Name: "nginx"}),
+			ReceiptBase: op.NewReceiptBase(&resource{name: "nginx"}),
 			WasEnabled:  false,
 		}); err != nil {
 			t.Fatalf("CompensateEnable() error = %v", err)
@@ -365,7 +365,7 @@ func TestCompensateEnable_Success(t *testing.T) {
 
 		p := newTestProvider(sm)
 		if err := p.CompensateEnable(testActivation(t, p.RuntimeEnvironment()), &Receipt{
-			ReceiptBase: op.NewReceiptBase(&Resource{Name: "nginx"}),
+			ReceiptBase: op.NewReceiptBase(&resource{name: "nginx"}),
 			WasEnabled:  true,
 		}); err != nil {
 			t.Fatalf("CompensateEnable() error = %v", err)
@@ -387,8 +387,8 @@ func TestDisable_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Disable() error = %v", err)
 	}
-	if result.Name != "nginx" {
-		t.Errorf("Disable() result.ReceiverName = %q, want %q", result.Name, "nginx")
+	if result.Name() != "nginx" {
+		t.Errorf("Disable() result.ReceiverName = %q, want %q", result.Name(), "nginx")
 	}
 	if !state.WasEnabled {
 		t.Error("Disable() WasEnabled = false, want true")
@@ -407,7 +407,7 @@ func TestCompensateDisable_Success(t *testing.T) {
 
 		p := newTestProvider(sm)
 		if err := p.CompensateDisable(testActivation(t, p.RuntimeEnvironment()), &Receipt{
-			ReceiptBase: op.NewReceiptBase(&Resource{Name: "nginx"}),
+			ReceiptBase: op.NewReceiptBase(&resource{name: "nginx"}),
 			WasEnabled:  true,
 		}); err != nil {
 			t.Fatalf("CompensateDisable() error = %v", err)
@@ -423,7 +423,7 @@ func TestCompensateDisable_Success(t *testing.T) {
 
 		p := newTestProvider(sm)
 		if err := p.CompensateDisable(testActivation(t, p.RuntimeEnvironment()), &Receipt{
-			ReceiptBase: op.NewReceiptBase(&Resource{Name: "nginx"}),
+			ReceiptBase: op.NewReceiptBase(&resource{name: "nginx"}),
 			WasEnabled:  false,
 		}); err != nil {
 			t.Fatalf("CompensateDisable() error = %v", err)
