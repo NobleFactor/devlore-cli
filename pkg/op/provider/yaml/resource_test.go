@@ -17,10 +17,25 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
+// concrete reaches the struct behind a sealed [Resource].
+//
+// [op.Resource] declares neither Equal, Pack, nor the marshalers, so the sealed interface does not expose
+// them — before sealing they were reachable only because embedding leaked [op.ResourceBase]'s whole surface.
+// Every caller of those methods is in this package, so a white-box test asserting to the implementation is
+// the honest way to reach them rather than widening the exported contract.
+func concrete(t *testing.T, r Resource) *resource {
+	t.Helper()
+	c, ok := r.(*resource)
+	if !ok {
+		t.Fatalf("Resource is %T, want *resource", r)
+	}
+	return c
+}
+
 // --- Interface guards ---
 
 func TestResource_ImplementsInterface(t *testing.T) {
-	var _ op.Resource = (*Resource)(nil)
+	var _ op.Resource = (*resource)(nil)
 }
 
 // --- Test helpers ---
@@ -57,8 +72,8 @@ func TestNewResource_BytesHashesCanonicalJSON(t *testing.T) {
 
 	// Canonical form is JSON with sorted keys, no whitespace.
 	want := sha256.Sum256([]byte(`{"a":1,"b":2}`))
-	if r.Hash != hex.EncodeToString(want[:]) {
-		t.Errorf("Hash = %q, want sha256 of canonical JSON form", r.Hash)
+	if r.Hash() != hex.EncodeToString(want[:]) {
+		t.Errorf("Hash = %q, want sha256 of canonical JSON form", r.Hash())
 	}
 }
 
@@ -172,8 +187,8 @@ func TestNewResource_DataIsCanonicalJSON(t *testing.T) {
 		t.Fatalf("NewResource: %v", err)
 	}
 
-	if !bytes.Equal(r.Data, []byte(`{"a":1,"b":2}`)) {
-		t.Errorf("Data = %q, want canonical JSON %q", r.Data, `{"a":1,"b":2}`)
+	if !bytes.Equal(r.Data(), []byte(`{"a":1,"b":2}`)) {
+		t.Errorf("Data = %q, want canonical JSON %q", r.Data(), `{"a":1,"b":2}`)
 	}
 }
 
@@ -203,8 +218,8 @@ func TestDiscoverResource_RoundTripsURI(t *testing.T) {
 	if discovered.URI() != original.URI() {
 		t.Errorf("URI = %q, want %q", discovered.URI(), original.URI())
 	}
-	if discovered.Hash != original.Hash {
-		t.Errorf("Hash = %q, want %q", discovered.Hash, original.Hash)
+	if discovered.Hash() != original.Hash() {
+		t.Errorf("Hash = %q, want %q", discovered.Hash(), original.Hash())
 	}
 }
 
@@ -246,7 +261,7 @@ func TestDigest_MatchesHash(t *testing.T) {
 	if d.Algorithm != "sha256" {
 		t.Errorf("Algorithm = %q, want sha256", d.Algorithm)
 	}
-	wantBytes, _ := hex.DecodeString(r.Hash)
+	wantBytes, _ := hex.DecodeString(r.Hash())
 	if !bytes.Equal(d.Bytes, wantBytes) {
 		t.Errorf("Bytes = %x, want %x", d.Bytes, wantBytes)
 	}
@@ -260,8 +275,8 @@ func TestEqual_SameContent(t *testing.T) {
 
 	r1, _ := NewResource(activation.RuntimeEnvironment, activation.CallerID, []byte("a: 1\n"))
 	r2, _ := NewResource(activation.RuntimeEnvironment, activation.CallerID, []byte("a: 1\n"))
-	if !r1.Equal(r2) {
-		t.Error("expected r1.Equal(r2) for identical content")
+	if !concrete(t, r1).Equal(r2) {
+		t.Error("expected concrete(t, r1).Equal(r2) for identical content")
 	}
 }
 
@@ -271,7 +286,7 @@ func TestEqual_DifferentContent(t *testing.T) {
 
 	r1, _ := NewResource(activation.RuntimeEnvironment, activation.CallerID, []byte("a: 1\n"))
 	r2, _ := NewResource(activation.RuntimeEnvironment, activation.CallerID, []byte("a: 2\n"))
-	if r1.Equal(r2) {
+	if concrete(t, r1).Equal(r2) {
 		t.Error("expected Equal to be false for distinct content")
 	}
 }
@@ -280,10 +295,10 @@ func TestEqual_RejectsNonResource(t *testing.T) {
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
 	r, _ := NewResource(runtimeEnvironment, "", []byte("a: 1\n"))
 
-	if r.Equal("not a resource") {
-		t.Error("expected Equal to reject non-*Resource")
+	if concrete(t, r).Equal("not a resource") {
+		t.Error("expected Equal to reject non-Resource")
 	}
-	if r.Equal(nil) {
+	if concrete(t, r).Equal(nil) {
 		t.Error("expected Equal to reject nil")
 	}
 }
@@ -297,20 +312,20 @@ func TestUnmarshalJSON_RehydratesFromURI(t *testing.T) {
 	data, _ := json.Marshal(original.URI())
 
 	seeded, _ := DiscoverResource(runtimeEnvironment, original.URI())
-	if err := seeded.UnmarshalJSON(data); err != nil {
+	if err := concrete(t, seeded).UnmarshalJSON(data); err != nil {
 		t.Fatalf("UnmarshalJSON: %v", err)
 	}
 	if seeded.URI() != original.URI() {
 		t.Errorf("URI after unmarshal = %q, want %q", seeded.URI(), original.URI())
 	}
-	if seeded.Hash != original.Hash {
-		t.Errorf("Hash after unmarshal = %q, want %q", seeded.Hash, original.Hash)
+	if seeded.Hash() != original.Hash() {
+		t.Errorf("Hash after unmarshal = %q, want %q", seeded.Hash(), original.Hash())
 	}
 }
 
 func TestUnmarshalJSON_RequiresRuntimeEnvironment(t *testing.T) {
-	r := &Resource{}
-	if err := r.UnmarshalJSON([]byte(`"tag:..:yaml:abc#"`)); err == nil ||
+	r := &resource{}
+	if err := concrete(t, r).UnmarshalJSON([]byte(`"tag:..:yaml:abc#"`)); err == nil ||
 		!strings.Contains(err.Error(), "RuntimeEnvironment") {
 		t.Errorf("expected RuntimeEnvironment error, got %v", err)
 	}
@@ -321,7 +336,7 @@ func TestUnmarshalText_RehydratesFromURI(t *testing.T) {
 	original, _ := NewResource(runtimeEnvironment, "", []byte("t: 1\n"))
 
 	seeded, _ := DiscoverResource(runtimeEnvironment, original.URI())
-	if err := seeded.UnmarshalText([]byte(original.URI())); err != nil {
+	if err := concrete(t, seeded).UnmarshalText([]byte(original.URI())); err != nil {
 		t.Fatalf("UnmarshalText: %v", err)
 	}
 	if seeded.URI() != original.URI() {
@@ -345,7 +360,7 @@ func TestUnmarshalYAML_RehydratesFromURI(t *testing.T) {
 		return nil
 	}
 
-	if err := seeded.UnmarshalYAML(decode); err != nil {
+	if err := concrete(t, seeded).UnmarshalYAML(decode); err != nil {
 		t.Fatalf("UnmarshalYAML: %v", err)
 	}
 	if seeded.URI() != original.URI() {
@@ -359,7 +374,7 @@ func TestValidate_AcceptsConformingDocument(t *testing.T) {
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
 	r, _ := NewResource(runtimeEnvironment, "", []byte("name: x\n"))
 
-	result, err := r.Validate(`{"type":"object","required":["name"]}`)
+	result, err := concrete(t, r).Validate(`{"type":"object","required":["name"]}`)
 	if err != nil {
 		t.Fatalf("Validate: %v", err)
 	}
@@ -381,7 +396,7 @@ func TestNewResource_YAMLAndJSONAgreeOnHash(t *testing.T) {
 	wantSum := sha256.Sum256(wantBytes)
 	wantHash := hex.EncodeToString(wantSum[:])
 
-	if fromYAML.Hash != wantHash {
-		t.Errorf("YAML Hash = %q, want %q (sha256 of canonical JSON form)", fromYAML.Hash, wantHash)
+	if fromYAML.Hash() != wantHash {
+		t.Errorf("YAML Hash = %q, want %q (sha256 of canonical JSON form)", fromYAML.Hash(), wantHash)
 	}
 }

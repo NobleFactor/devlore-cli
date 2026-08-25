@@ -280,8 +280,8 @@ failing. This is the load-bearing detail of part 2.
 | 1 | 1 | #641 | framework repairs and `service` — the template |
 | 1 | 2 | #658 | the generator inspects the implementation, not the interface |
 | 1 | 3 | #642 | `git`, `appnet` |
-| 1 | 4 | #643 | `json`, `yaml`, `mem` — three of the `Unpacker` four |
-| 1 | 5 | #662 | `function` — the Starlark-callable resource |
+| 1 | 4 | #643 | `json`, `yaml` |
+| 1 | 5 | #662 | `mem` and `function` — coupled by a cross-package embed |
 | 1 | 6 | #644 | `pkg` — the widest footprint |
 | 2 | 7 | #645 | `file`'s four variants, discriminated by `kind()` |
 | — | 8 | #646 | the rule becomes structurally enforceable |
@@ -393,14 +393,38 @@ phase-1 template.
    marshaler writes the URI alone — nothing ever writes the `ref`/`head` keys its unmarshaler carefully
    preserves. Behavior preserved exactly here; the asymmetry predates this feature and wants its own issue.
 
-#### Phase 4 — the `Unpacker` three: `json`, `yaml`, `mem` — status: pending
+#### Phase 4 — `json` and `yaml` — status: complete
 
 These share the failure mode phase 1 repaired, so they are the proof that the repair holds. `mem` is the
 content-addressed store, where identity *is* the digest and the fragment is doubly load-bearing;
 `function` carries the Starlark-callable path, where bytecode travels in the document's content section.
 Each needs its content-section round-trip pinned, not assumed.
 
-#### Phase 5 — `function`, the Starlark-callable resource — status: pending
+**Landed 2026-08-24 (#643).** The mechanical pass the plan kept predicting and had not yet got: both
+providers took the template unchanged, with no framework repair and no surprise. Two things worth recording.
+
+**`mem` had to move out before it started.** `function.Resource` embeds `mem.Resource` cross-package, and Go
+cannot embed an unexported type from another package, so sealing `mem` breaks `function` at compile time.
+Found by surveying before transforming rather than by the compiler afterwards. It is the only cross-package
+resource embed in the tree — `json` and `yaml` embed `op.ResourceBase` alone.
+
+**The `Unpacker` pin needed rewriting to be worth having.** The first version derived its expected set from
+`ProviderType()` — the very value a regression corrupts. A reverted repair would make the type stop
+implementing `op.Unpacker`, the derived loop would skip it, and the test would pass while content
+rehydration was broken. The set is now named explicitly, so a fifth unpacker has to be added deliberately.
+
+#### Phase 5 — `mem` and `function` — status: pending
+
+**`mem` moved here from phase 4 (USER, 2026-08-24): the two cannot be sealed separately.**
+`function.Resource` embeds `mem.Resource` cross-package, and Go cannot embed an unexported type from
+another package — so sealing `mem` breaks `function` at compile time. Verified as isolated rather than a
+pattern: it is the **only** cross-package resource embed in the tree.
+
+The agreed shape has `function.resource` embed the `mem.Resource` *interface* rather than the struct. That
+is legal and preserves the method set, but it is a real semantic change: `function` goes from *is-a*
+`mem.Resource` by value to *holds-a* one, so storage, zero-value behaviour, and any reliance on the
+embedded struct being addressable all shift.
+
 
 Split from phase 4 (USER, 2026-08-24) because it does not fit the template the earlier phases established.
 

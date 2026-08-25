@@ -153,3 +153,67 @@ func TestBootDiscipline_EveryResourceResultResolvesItsProductType(t *testing.T) 
 		t.Fatal("no action method returns a resource; the index this test guards would be empty")
 	}
 }
+
+// TestBootDiscipline_EveryUnpackerResolvesByTypeID pins phase 1's `UnpackerByTypeID` repair (#641).
+//
+// A resource whose content lives in the document's content section is rebuilt through
+// [op.Unpacker.Unpack], reached by looking the resource up by the type id its URI carries. That lookup
+// mints its probe reflectively:
+//
+//	unpacker, ok := reflect.New(resourceType.ProviderType()).Interface().(Unpacker)
+//
+// Before #641 it reflected on the ANNOUNCED type. Sealing makes that an interface, `reflect.New` yields a
+// pointer-to-interface with an empty method set, and the assertion fails — returning `ok=false`, which every
+// caller reads as "this type has no unpacker" rather than as an error. Content rehydration would simply stop,
+// quietly. #641 routed the reflection to the implementation; this asserts it, because nothing else does.
+//
+// **The expected set is named rather than derived.** Deriving it from `ProviderType()` would consult the very
+// value the regression corrupts: a reverted fix makes the type stop implementing [op.Unpacker], the derived
+// loop skips it, and the test passes while content rehydration is broken. Naming the four means a fifth
+// unpacker must be added here deliberately — which is the point of a discipline test.
+func TestBootDiscipline_EveryUnpackerResolvesByTypeID(t *testing.T) {
+
+	// Every provider whose resource implements op.Unpacker, by registry name.
+	wantUnpackers := map[string]bool{
+		"function.Resource": true,
+		"json.Resource":     true,
+		"mem.Resource":      true,
+		"yaml.Resource":     true,
+	}
+
+	types := op.SnapshotReceiverTypes()
+	if len(types) == 0 {
+		t.Fatal("no receiver types announced; expected provider gen packages to register types at init")
+	}
+
+	seen := map[string]bool{}
+
+	for _, rt := range types {
+
+		resourceType, isResource := rt.(op.ResourceReceiverType)
+		if !isResource || !wantUnpackers[resourceType.Name()] {
+			continue
+		}
+
+		seen[resourceType.Name()] = true
+
+		unpacker, resolved := op.ReceiverRegistry().UnpackerByTypeID(resourceType.TypeID())
+		if !resolved {
+			t.Errorf(
+				"%s implements Unpack, but UnpackerByTypeID(%q) did not resolve — its content section would "+
+					"silently stop rehydrating, with no error and no log",
+				resourceType.Name(), resourceType.TypeID())
+			continue
+		}
+
+		if unpacker == nil {
+			t.Errorf("%s: UnpackerByTypeID reported resolved but returned nil", resourceType.Name())
+		}
+	}
+
+	for name := range wantUnpackers {
+		if !seen[name] {
+			t.Errorf("%s was never announced — either it lost its resource, or this list is stale", name)
+		}
+	}
+}

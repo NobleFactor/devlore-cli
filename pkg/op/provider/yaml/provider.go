@@ -79,9 +79,9 @@ func (p *Provider) Encode(value any) (result string, err error) {
 //   - `data`: the YAML text to parse.
 //
 // Returns:
-//   - `*Resource`: the canonical catalog entry holding the parsed value.
+//   - `Resource`: the canonical catalog entry holding the parsed value.
 //   - `error`: non-nil when `data` is not valid YAML or catalog interning fails.
-func (p *Provider) Parse(activationRecord *op.ActivationRecord, data string) (*Resource, error) {
+func (p *Provider) Parse(activationRecord *op.ActivationRecord, data string) (Resource, error) {
 	return NewResource(p.RuntimeEnvironment(), activationRecord.CallerID, []byte(data))
 }
 
