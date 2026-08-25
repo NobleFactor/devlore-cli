@@ -346,14 +346,18 @@ is not.
 
 - [ ] Add the five `test (…)` legs to `required_status_checks` on ruleset `12426847`, which
       today lists only `quality-gate`:
-      `test (macos-latest)`, `test (ubuntu-latest)`, `test (ubuntu-24.04-arm)`,
-      `test (windows-latest)`, `test (windows-11-arm)`
-- [ ] Consider adding the five `scenario (…)` legs at the same time — they are not required
-      either, so a red Windows scenario does not currently block a merge.
-- [ ] Confirm the context strings against a real run before writing them into the ruleset. The
-      `test` job now uses `matrix.include`, and GitHub composes a leg's check name from the
-      matrix values; a name that does not match exactly is a required check that never arrives,
-      which blocks every merge rather than none.
+      `test (darwin-arm64)`, `test (linux-amd64)`, `test (linux-arm64)`,
+      `test (windows-amd64)`, `test (windows-arm64)`
+- [ ] Consider adding the five `scenario (…)` legs at the same time — same descriptors,
+      `scenario (darwin-arm64)` through `scenario (windows-arm64)`. They are not required either,
+      so a red Windows scenario does not currently block a merge.
+- [ ] These strings are stable by construction: both jobs set an explicit
+      `name: <job> (${{ matrix.platform }})`, so the context is the platform descriptor and
+      nothing else. Without that, GitHub composes the name from **every** matrix value — the first
+      run of this matrix reported `test (windows-11-arm, false)`, leaking the runner image and the
+      race flag into a string the ruleset must match exactly, and renaming all five contexts the
+      moment another matrix key is added. A required context whose name does not match is a check
+      that never arrives, which blocks every merge rather than none.
 - [ ] Confirm a deliberately failing test on Windows blocks a merge. The gate is not proven until
       it has refused something.
 

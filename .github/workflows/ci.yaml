@@ -121,6 +121,12 @@ jobs:
   # this file does not change again. A gate nobody has watched refuse anything is a claim, not a
   # gate, so phase 4 also proves it by making a Windows test fail on purpose.
   test:
+    # The check context is the platform descriptor, not the runner label: `test (windows-arm64)`,
+    # matching ALL_PLATFORMS and the build/<goos>-<goarch> directories. Without an explicit name
+    # GitHub composes the context from every matrix value — `test (windows-11-arm, false)` — which
+    # leaks the image and the race flag into a string the ruleset has to match exactly, and renames
+    # all five contexts the moment another matrix key is added.
+    name: test (${{ matrix.platform }})
     strategy:
       # Every platform reports independently — a failing leg must not cancel the others' evidence.
       fail-fast: false
@@ -134,14 +140,14 @@ jobs:
       #
       # The Windows pair cannot be matched that way: `windows-latest` is Windows Server 2025 while
       # `windows-11-arm` is a client OS. There is no Windows Server arm64 runner, so that asymmetry
-      # is the platform's, not a choice made here.
+      # is the platform's, not a choice made here — and the descriptor hides it, as it should.
       matrix:
         include:
-          - { os: macos-latest, race: true } # darwin/arm64
-          - { os: ubuntu-latest, race: true } # linux/amd64
-          - { os: ubuntu-24.04-arm, race: true } # linux/arm64
-          - { os: windows-latest, race: true } # windows/amd64
-          - { os: windows-11-arm, race: false } # windows/arm64 — race unsupported by Go
+          - { platform: darwin-arm64, os: macos-latest, race: true }
+          - { platform: linux-amd64, os: ubuntu-latest, race: true }
+          - { platform: linux-arm64, os: ubuntu-24.04-arm, race: true }
+          - { platform: windows-amd64, os: windows-latest, race: true }
+          - { platform: windows-arm64, os: windows-11-arm, race: false } # race unsupported by Go
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -185,18 +191,20 @@ jobs:
   # end-to-end in a pristine sandbox, on every platform (#91 phase-4 audit slice).
   #
   # Uniform, unlike the test job above: scenarios never use -race, so every leg runs the same
-  # command and a bare `os` list says everything there is to say.
+  # command. `include` all the same, so the context is the platform descriptor rather than the
+  # runner label — `scenario (windows-arm64)`, matching the test job and build/<goos>-<goarch>.
   scenario:
+    name: scenario (${{ matrix.platform }})
     strategy:
       # Every platform reports independently — a failing leg must not cancel the others' evidence.
       fail-fast: false
       matrix:
-        os:
-          - macos-latest # darwin/arm64
-          - ubuntu-latest # linux/amd64
-          - ubuntu-24.04-arm # linux/arm64
-          - windows-latest # windows/amd64
-          - windows-11-arm # windows/arm64
+        include:
+          - { platform: darwin-arm64, os: macos-latest }
+          - { platform: linux-amd64, os: ubuntu-latest }
+          - { platform: linux-arm64, os: ubuntu-24.04-arm }
+          - { platform: windows-amd64, os: windows-latest }
+          - { platform: windows-arm64, os: windows-11-arm }
     runs-on: ${{ matrix.os }}
     defaults:
       run:
