@@ -278,12 +278,13 @@ failing. This is the load-bearing detail of part 2.
 | Part | Phase | Task | Scope |
 | --- | --- | --- | --- |
 | 1 | 1 | #641 | framework repairs and `service` — the template |
-| 1 | 2 | #642 | `git`, `appnet` |
-| 1 | 3 | #643 | `json`, `yaml`, `mem`, `function` — the `Unpacker` four |
-| 1 | 4 | #644 | `pkg` — the widest footprint |
-| 2 | 5 | #645 | `file`'s four variants, discriminated by `kind()` |
-| — | 6 | #646 | the rule becomes structurally enforceable |
-| — | 7 | #647 | closure — the design record states the contract |
+| 1 | 2 | #658 | the generator inspects the implementation, not the interface |
+| 1 | 3 | #642 | `git`, `appnet` |
+| 1 | 4 | #643 | `json`, `yaml`, `mem`, `function` — the `Unpacker` four |
+| 1 | 5 | #644 | `pkg` — the widest footprint |
+| 2 | 6 | #645 | `file`'s four variants, discriminated by `kind()` |
+| — | 7 | #646 | the rule becomes structurally enforceable |
+| — | 8 | #647 | closure — the design record states the contract |
 
 Supersedes #626–#630, which were filed against the original phase shape and are closed as superseded.
 
@@ -329,20 +330,56 @@ otherwise the correctness claim is argued rather than demonstrated.
    with an out-of-package caller will have to decide differently.
 4. **A provider's own package announces nothing.** It imports neither its gen package nor the inventory, so
    a test needing the registry populated belongs in `pkg/op/inventory`, not beside the provider.
+5. **The generated announcement DOES change — its method metadata.** The plan predicted the gen files would
+   be untouched. The announced *type* and *constructor* are indeed unchanged, which is what ruling 4 was for,
+   but the generator derives method metadata by inspecting the exported type. Sealing moves the methods onto
+   the unexported struct, where the generator cannot see them, so `service`'s three entries became `nil`.
+   Harmless there — all three are framework-facing, and one of them is the `TargetConverter` probe this phase
+   proves is now unreachable. **The rule for later phases: a method that must be dispatchable has to be
+   declared on the sealed interface.** The failure mode is a silently smaller Starlark surface, not a build
+   error.
 
-#### Phase 2 — `git` and `appnet` — status: pending
+#### Phase 2 — the generator inspects the implementation — status: complete
+
+Finding 5 above is a defect, not a note: sealing silently shrinks a provider's dispatchable surface, and no
+stage reports it. `service` lost three framework-facing entries and nothing noticed; the next provider with an
+author-facing resource method would lose it just as quietly.
+
+**No build error is possible.** An interface omitting a method its implementation has is well-formed Go. The
+interface guard proves the struct satisfies the interface; the converse is not expressible as a type
+constraint.
+
+The fix removes the failure rather than detecting it. The emitted metadata is plain strings and never names a
+type — only the *inspection target* is the exported interface, incidentally. Inspecting the implementation
+instead makes the metadata describe the struct dispatch reflects on, so the two cannot disagree. Ruling 3
+makes resolving one name from the other deterministic.
+
+**This lands before the provider sweep** ([#658](https://github.com/NobleFactor/devlore-cli/issues/658)). Otherwise every
+remaining phase inherits the same silent risk and needs a manual per-provider review — five chances to miss
+one, with no signal when you do. It also narrows phase 7 to asserting the shape rather than policing dispatch.
+
+What it does not settle: whether a method *belongs* on the interface stays a design question per provider. It
+stops being a silent regression and becomes an ordinary question about the public contract.
+
+**Landed 2026-08-24 (#658).** The detection needed no type query: only an interface has zero receiver methods,
+so emptiness at the announced name is the signal, and the implementation's name follows from ruling 3. A struct
+with no methods falls back to itself, which is correct either way. `service`'s three entries returned with no
+hand-editing of `*.gen.go`, and no other provider's announcement moved — verified by comparing the metadata
+shape of all twelve resource announcements before and after.
+
+#### Phase 3 — `git` and `appnet` — status: pending
 
 One external file and two respectively; neither implements `Unpacker`. Mechanical application of the
 phase-1 template.
 
-#### Phase 3 — the `Unpacker` four: `json`, `yaml`, `mem`, `function` — status: pending
+#### Phase 4 — the `Unpacker` four: `json`, `yaml`, `mem`, `function` — status: pending
 
 These share the failure mode phase 1 repaired, so they are the proof that the repair holds. `mem` is the
 content-addressed store, where identity *is* the digest and the fragment is doubly load-bearing;
 `function` carries the Starlark-callable path, where bytecode travels in the document's content section.
 Each needs its content-section round-trip pinned, not assumed.
 
-#### Phase 4 — `pkg` — status: pending
+#### Phase 5 — `pkg` — status: pending
 
 Seven external files, the widest surface. Answers the plan's standing question: a resource whose exported
 behavioral fields consumers read must expose them as interface methods, or those consumers change. Size
@@ -350,7 +387,7 @@ it before transforming it.
 
 ### Part 2 — `file`
 
-#### Phase 5 — `file`'s four variants become interfaces — status: pending
+#### Phase 6 — `file`'s four variants become interfaces — status: pending
 
 `AnyKind`, `Regular`, `Directory`, `SymbolicLink` each become a sealed interface over an unexported
 struct — `anyKind`, `regular`, `directory`, `symbolicLink` — discriminated by `kind() <Interface>` per
@@ -372,7 +409,7 @@ At the end of this phase the rule holds with no exceptions, and the feature's go
 
 ### Closure
 
-#### Phase 6 — the rule becomes structurally enforceable — status: pending
+#### Phase 7 — the rule becomes structurally enforceable — status: pending
 
 1. `4.3-resource-registration.md` states the shape as **the contract** for adding a provider resource.
 2. A test asserts it structurally: every announced resource type is an interface, and the struct behind
@@ -380,7 +417,7 @@ At the end of this phase the rule holds with no exceptions, and the feature's go
 
 Without this the rule is a convention, and conventions decay.
 
-#### Phase 7 — closure — status: pending
+#### Phase 8 — closure — status: pending
 
 The `3.5.x` per-provider design docs drop any language describing the resource as a struct.
 `4-resource-management.md` records what the seal buys: the model's guarantees now rest on the compiler
@@ -406,10 +443,10 @@ rather than on convention. Status files follow.
 6. **`Unpacker` survives.** Each of `json`, `yaml`, `mem`, `function` rebuilds from a document's content
    section after phase 3 — the check that `UnpackerByTypeID` was actually repaired and not merely
    silenced.
-7. **A regular file is not a directory.** After phase 5, a `*regular` fails a `Directory` assertion at
+7. **A regular file is not a directory.** After phase 6, a `*regular` fails a `Directory` assertion at
    compile time. Ruling 6's whole purpose, and the one that must not regress.
 8. **The structural rule bites.** A deliberately non-conforming fixture — exported resource struct, no
-   interface — fails phase 6's assertion.
+   interface — fails phase 7's assertion.
 
 ## Verification
 
