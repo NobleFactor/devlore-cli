@@ -843,21 +843,54 @@ def _source_imports(path, source_types):
             imports[resolved] = True
     return sorted(imports.keys())
 
-def detect_resource_params(path, struct_name):
-    """Detect parameterized methods on the named Resource struct.
+def resource_implementation_name(path, struct_name):
+    """Return the receiver type whose methods a Resource of struct_name actually dispatches through.
 
-    Finds exported methods on *struct_name that take parameters and return (T) or (T, error).
-    Methods returning only error are excluded (not useful as Starlark callables). Methods with
-    unnamed parameters (_) are excluded (cannot be called by name from Starlark).
+    A SEALED resource is an exported interface over an unexported struct, so the exported name has no
+    receiver methods at all — an interface cannot declare one. Dispatch reflects on the struct, so the
+    metadata must describe the struct; deriving it from the interface silently yields none, and every stage
+    downstream accepts that quietly (nil metadata is legal, the announced method set is simply empty).
+
+    Naming makes the resolution deterministic rather than a guess: the interface takes the provider's
+    headline name, the implementation takes its lowercase form (sealed-provider-resources.md, ruling 3).
+
+    Emptiness is the test, not a type query: only an interface has zero receiver methods, and a struct with
+    none has nothing to describe either way — so falling back is correct for both.
 
     Parameters:
       - path:        the package path.
-      - struct_name: the Resource type's struct name (e.g., "Resource", "Function").
+      - struct_name: the announced Resource type name (e.g., "Resource", "Function").
+
+    Returns:
+      the receiver type name to inspect.
+    """
+    if goast.methods(path, receiver_type=struct_name):
+        return struct_name
+
+    implementation = struct_name[0].lower() + struct_name[1:]
+    if goast.methods(path, receiver_type=implementation):
+        return implementation
+
+    return struct_name
+
+def detect_resource_params(path, struct_name):
+    """Detect parameterized methods on the named Resource type.
+
+    Finds exported methods that take parameters and return (T) or (T, error). Methods returning only error
+    are excluded (not useful as Starlark callables). Methods with unnamed parameters (_) are excluded
+    (cannot be called by name from Starlark).
+
+    Inspects the IMPLEMENTATION rather than the announced name — see [resource_implementation_name]. For an
+    unsealed resource the two are the same type and nothing changes.
+
+    Parameters:
+      - path:        the package path.
+      - struct_name: the announced Resource type name (e.g., "Resource", "Function").
 
     Returns:
       list of {"name": GoName, "params": [snake_name, ...]} dicts, or [] if none found.
     """
-    methods = goast.methods(path, receiver_type=struct_name)
+    methods = goast.methods(path, receiver_type=resource_implementation_name(path, struct_name))
     result = []
     for m in methods:
         if m.name[0].islower():
