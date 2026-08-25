@@ -38,9 +38,9 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 // Returns:
 //   - `[]byte`: the response body read from the URL.
 //   - `error`: non-nil if the request fails, the response status is not 200 OK, or the body cannot be read.
-func (p *Provider) Download(url *Resource) (_ []byte, err error) {
+func (p *Provider) Download(url Resource) (_ []byte, err error) {
 
-	rawURL := url.SourceURL.String()
+	rawURL := url.SourceURL().String()
 
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, rawURL, http.NoBody)
 	if err != nil {

@@ -14,14 +14,14 @@ import (
 
 // --- Test helpers ---
 
-// mustResource parses raw into a *Resource or fails the test.
-func mustResource(t *testing.T, raw string) *Resource {
+// mustResource parses raw into a Resource or fails the test.
+func mustResource(t *testing.T, raw string) Resource {
 	t.Helper()
 	u, err := url.Parse(raw)
 	if err != nil {
 		t.Fatalf("url.Parse(%q): %v", raw, err)
 	}
-	return &Resource{SourceURL: u}
+	return &resource{sourceURL: u}
 }
 
 // --- Download ---

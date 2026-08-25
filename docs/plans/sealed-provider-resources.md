@@ -354,7 +354,8 @@ type — only the *inspection target* is the exported interface, incidentally. I
 instead makes the metadata describe the struct dispatch reflects on, so the two cannot disagree. Ruling 3
 makes resolving one name from the other deterministic.
 
-**This lands before the provider sweep** ([#658](https://github.com/NobleFactor/devlore-cli/issues/658)). Otherwise every
+**This lands before the provider sweep** ([#658](https://github.com/NobleFactor/devlore-cli/issues/658)). Otherwise
+every
 remaining phase inherits the same silent risk and needs a manual per-provider review — five chances to miss
 one, with no signal when you do. It also narrows phase 7 to asserting the shape rather than policing dispatch.
 
@@ -367,10 +368,29 @@ with no methods falls back to itself, which is correct either way. `service`'s t
 hand-editing of `*.gen.go`, and no other provider's announcement moved — verified by comparing the metadata
 shape of all twelve resource announcements before and after.
 
-#### Phase 3 — `git` and `appnet` — status: pending
+#### Phase 3 — `git` and `appnet` — status: complete
 
 One external file and two respectively; neither implements `Unpacker`. Mechanical application of the
 phase-1 template.
+
+**Landed 2026-08-24 (#642).** Not the mechanical pass the plan expected. Four findings:
+
+1. **The registry name collided, and it is a framework fix, not a provider one.** `receiverName` special-cases
+   the type named `Resource` into `<pkg>.Resource`, which is what keeps providers distinct. A sealed
+   implementation is named `resource`, falls through to the default arm, and yields the bare `resource` for
+   *every* provider — so the second one announced panics at init with `"resource" already announced`. Identity
+   now governs the registry name as well as the type id; the implementation governs only reflection. Sealing
+   one provider could never have surfaced this; it took a second.
+2. **Open question 2 is answered here, not at `pkg`.** Both resources carry exported fields the provider reads
+   (`git`: `SourcePath`, `Ref`, `HEAD`; `appnet`: `SourceURL`), so the interface gains accessors. No external
+   consumer needed them — every real read is in-package, and the two out-of-package mentions are doc comments.
+3. **A codec cannot set unexported fields.** `git` decoded through a `type alias Resource` embed, which
+   silently leaves `ref` and `head` at zero once the fields are unexported. Both the JSON and YAML paths now
+   decode into an explicit local struct. Same keys, same shape, but the alias trick is not compatible with
+   sealing.
+4. **`git`'s document form is asymmetric, and was already.** It has no `MarshalJSON`, so the promoted base
+   marshaler writes the URI alone — nothing ever writes the `ref`/`head` keys its unmarshaler carefully
+   preserves. Behavior preserved exactly here; the asymmetry predates this feature and wants its own issue.
 
 #### Phase 4 — the `Unpacker` four: `json`, `yaml`, `mem`, `function` — status: pending
 

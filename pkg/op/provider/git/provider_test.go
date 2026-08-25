@@ -106,19 +106,19 @@ func TestClone_HookReceivesArgv(t *testing.T) {
 	if !reflect.DeepEqual(gotArgs, want) {
 		t.Errorf("cloneFn args =\n  got: %q\n want: %q", gotArgs, want)
 	}
-	if result.SourcePath.Abs() != dir {
-		t.Errorf("result.SourcePath.Abs() = %q, want %q", result.SourcePath.Abs(), dir)
+	if result.SourcePath().Abs() != dir {
+		t.Errorf("result.SourcePath().Abs() = %q, want %q", result.SourcePath().Abs(), dir)
 	}
 
 	if state == nil {
 		t.Fatalf("state = nil, want a *Receipt")
 	}
-	stateResource, ok := state.Resource().(*Resource)
+	stateResource, ok := state.Resource().(Resource)
 	if !ok {
-		t.Fatalf("state.Resource() = %T, want *Resource", state.Resource())
+		t.Fatalf("state.Resource() = %T, want Resource", state.Resource())
 	}
-	if stateResource.SourcePath.Abs() != dir {
-		t.Errorf("state resource path = %q, want %q", stateResource.SourcePath.Abs(), dir)
+	if stateResource.SourcePath().Abs() != dir {
+		t.Errorf("state resource path = %q, want %q", stateResource.SourcePath().Abs(), dir)
 	}
 }
 
@@ -172,8 +172,8 @@ func TestClone_DirectoryDerivedFromRepository(t *testing.T) {
 	if gotArgs[len(gotArgs)-1] != wantDir {
 		t.Errorf("directory arg = %q, want %q", gotArgs[len(gotArgs)-1], wantDir)
 	}
-	if result.SourcePath.Abs() != wantDir {
-		t.Errorf("result.SourcePath.Abs() = %q, want %q", result.SourcePath.Abs(), wantDir)
+	if result.SourcePath().Abs() != wantDir {
+		t.Errorf("result.SourcePath().Abs() = %q, want %q", result.SourcePath().Abs(), wantDir)
 	}
 }
 

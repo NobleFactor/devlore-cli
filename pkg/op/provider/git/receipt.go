@@ -34,7 +34,7 @@ type Receipt struct {
 //
 // Returns:
 //   - `*Receipt`: the constructed receipt with only its resource populated.
-func NewReceipt(resource *Resource) *Receipt {
+func NewReceipt(resource Resource) *Receipt {
 	return &Receipt{ReceiptBase: op.NewReceiptBase(resource)}
 }
 
@@ -73,7 +73,7 @@ func (r *Receipt) RestoreEncoded(
 	catalog := runtimeEnvironment.ResourceCatalog
 	got, ok := catalog.Lookup(catalog.Current(base.ResourceURI))
 	assert.True("git.Receipt: resource "+base.ResourceURI+" in catalog", ok)
-	resource, ok := got.(*Resource)
+	resource, ok := got.(Resource)
 	assert.True("git.Receipt: catalog entry is *git.Resource", ok)
 
 	r.ReceiptBase = op.NewReceiptBase(resource)

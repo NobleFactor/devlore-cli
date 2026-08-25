@@ -71,7 +71,7 @@ func TestCheckout_BuildsArgv(t *testing.T) {
 		t.Fatalf("Checkout: %v", err)
 	}
 	if got != repo {
-		t.Errorf("Checkout returned %p, want the same *Resource %p (identity unchanged)", got, repo)
+		t.Errorf("Checkout returned %p, want the same Resource %p (identity unchanged)", got, repo)
 	}
 
 	out := buf.String()
@@ -79,7 +79,7 @@ func TestCheckout_BuildsArgv(t *testing.T) {
 	// "/usr/bin/git -C ..." on Unix and "C:\...\git.exe -C ..." on Windows. Asserting a leading "git " only
 	// ever worked because "/usr/bin/git" ends with "git"; ".exe" breaks the same substring. Assert the part
 	// this test is actually about.
-	want := "-C " + repo.SourcePath.Abs() + " checkout release-1.2"
+	want := "-C " + repo.SourcePath().Abs() + " checkout release-1.2"
 	if !strings.Contains(out, want) {
 		t.Errorf("narrated command =\n  %q\nwant it to contain\n  %q", out, want)
 	}
@@ -140,7 +140,7 @@ func TestPull_BuildsArgv(t *testing.T) {
 		t.Fatalf("Pull: %v", err)
 	}
 	if got != repo {
-		t.Errorf("Pull returned %p, want the same *Resource %p (identity unchanged)", got, repo)
+		t.Errorf("Pull returned %p, want the same Resource %p (identity unchanged)", got, repo)
 	}
 
 	out := buf.String()
@@ -148,7 +148,7 @@ func TestPull_BuildsArgv(t *testing.T) {
 	// "/usr/bin/git -C ..." on Unix and "C:\...\git.exe -C ..." on Windows. Asserting a leading "git " only
 	// ever worked because "/usr/bin/git" ends with "git"; ".exe" breaks the same substring. Assert the part
 	// this test is actually about.
-	want := "-C " + repo.SourcePath.Abs() + " pull"
+	want := "-C " + repo.SourcePath().Abs() + " pull"
 	if !strings.Contains(out, want) {
 		t.Errorf("narrated command =\n  %q\nwant it to contain\n  %q", out, want)
 	}

@@ -12,9 +12,9 @@ import (
 
 // --- Test helpers ---
 
-// newRes constructs a *Resource for a URL string. Uses DiscoverResource because the test isn't claiming
+// newRes constructs a Resource for a URL string. Uses DiscoverResource because the test isn't claiming
 // production — it's setting up a fixture handle.
-func newRes(t *testing.T, url string) *Resource {
+func newRes(t *testing.T, url string) Resource {
 	t.Helper()
 	r, err := DiscoverResource(&op.RuntimeEnvironment{}, url)
 	if err != nil {
