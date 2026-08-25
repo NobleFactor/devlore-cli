@@ -13,10 +13,8 @@ import (
 	"fmt"
 	"io"
 	"reflect"
-	"strings"
 
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
-	"golang.org/x/exp/mmap"
 
 	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
@@ -299,22 +297,7 @@ func (r *Resource) Pack() ([]byte, error) {
 //   - `io.ReadCloser`: reader over the full archived content; Close releases the mmap.
 //   - `error`: missing SourcePath, or mmap failure.
 func (r *Resource) Reader() (io.ReadCloser, error) {
-
-	abs := r.SourcePath().Abs()
-
-	if abs == "" {
-		return nil, errors.New("mem.Resource: no SourcePath")
-	}
-
-	m, err := mmap.Open(abs)
-	if err != nil {
-		return nil, fmt.Errorf("mem.Resource: mmap %s: %w", abs, err)
-	}
-
-	return &resourceReader{
-		mmap:    m,
-		section: io.NewSectionReader(m, 0, int64(m.Len())),
-	}, nil
+	return op.ContentAddressedReader(r)
 }
 
 // SourcePath returns the on-disk archive path for this Resource under the runtime environment's [fsroot.Dir].
@@ -330,26 +313,7 @@ func (r *Resource) Reader() (io.ReadCloser, error) {
 //   - `fsroot.Path`: canonical archive path, or the zero fsroot.Path when the Resource has no [op.RuntimeEnvironment],
 //     no Root, or a <specific> that is not in `<algo>:<hex>` form.
 func (r *Resource) SourcePath() fsroot.Path {
-
-	runtimeEnvironment := r.RuntimeEnvironment()
-
-	if runtimeEnvironment == nil || !runtimeEnvironment.HasRoot() {
-		return fsroot.Path{}
-	}
-
-	algo, hexPart, ok := strings.Cut(r.ReachabilityURI(), ":")
-	if !ok {
-		return fsroot.Path{}
-	}
-
-	shard := hexPart
-
-	if len(shard) >= 2 {
-		shard = hexPart[0:2]
-	}
-
-	pkg, typeName := splitTypeID(r.ResourceType())
-	return runtimeEnvironment.Root().NewPath(".devlore", pkg, strings.ToLower(typeName), algo, shard, hexPart)
+	return op.ContentAddressedPath(r)
 }
 
 // String returns the compact JSON encoding of the Resource for debug output.
@@ -483,42 +447,5 @@ func (r *Resource) Unpack(runtimeEnvironment *op.RuntimeEnvironment, uri string,
 }
 
 // endregion
-
-// endregion
-
-// region SUPPORTING TYPES
-
-// resourceReader bundles a [mmap.ReaderAt] handle with an [io.SectionReader] over its full range so that Read drains
-// through the mmap and Close releases it.
-type resourceReader struct {
-
-	// mmap is the underlying memory map; held so Close can unmap it.
-	mmap *mmap.ReaderAt
-
-	// section is an [io.SectionReader] over the full range of mmap, used for Read.
-	section *io.SectionReader
-}
-
-// Close releases the underlying memory map.
-//
-// Returns:
-//   - `error`: any error returned by [mmap.ReaderAt.Close].
-func (r *resourceReader) Close() error {
-
-	return r.mmap.Close()
-}
-
-// Read reads up to len(p) bytes from the underlying [io.SectionReader] into p.
-//
-// Parameters:
-//   - `p`: destination buffer.
-//
-// Returns:
-//   - `int`: number of bytes read.
-//   - `error`: any error returned by [io.SectionReader.Read]; [io.EOF] at end of content.
-func (r *resourceReader) Read(p []byte) (int, error) {
-
-	return r.section.Read(p)
-}
 
 // endregion
