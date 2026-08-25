@@ -277,6 +277,17 @@ func TestWalkTree_Planned(t *testing.T) {
 	runScript(t, "test_walk_tree_planned.star")
 }
 
+// --- function provider ---
+
+// TestFunctionCall_OverWalkTree is function.Provider's only end-to-end coverage.
+//
+// `function.call` is the provider's sole method, and until this fixture nothing exercised it. The function
+// resource appeared only as a callback other providers accept — walk_tree's reducer, choose's lambdas — never
+// as the thing being dispatched.
+func TestFunctionCall_OverWalkTree(t *testing.T) {
+	runScript(t, "test_function_call_walk_tree.star")
+}
+
 // --- Planned action tests — template provider ---
 
 func TestTemplateRender(t *testing.T) {
