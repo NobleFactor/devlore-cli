@@ -280,11 +280,12 @@ failing. This is the load-bearing detail of part 2.
 | 1 | 1 | #641 | framework repairs and `service` — the template |
 | 1 | 2 | #658 | the generator inspects the implementation, not the interface |
 | 1 | 3 | #642 | `git`, `appnet` |
-| 1 | 4 | #643 | `json`, `yaml`, `mem`, `function` — the `Unpacker` four |
-| 1 | 5 | #644 | `pkg` — the widest footprint |
-| 2 | 6 | #645 | `file`'s four variants, discriminated by `kind()` |
-| — | 7 | #646 | the rule becomes structurally enforceable |
-| — | 8 | #647 | closure — the design record states the contract |
+| 1 | 4 | #643 | `json`, `yaml`, `mem` — three of the `Unpacker` four |
+| 1 | 5 | #662 | `function` — the Starlark-callable resource |
+| 1 | 6 | #644 | `pkg` — the widest footprint |
+| 2 | 7 | #645 | `file`'s four variants, discriminated by `kind()` |
+| — | 8 | #646 | the rule becomes structurally enforceable |
+| — | 9 | #647 | closure — the design record states the contract |
 
 Supersedes #626–#630, which were filed against the original phase shape and are closed as superseded.
 
@@ -357,7 +358,7 @@ makes resolving one name from the other deterministic.
 **This lands before the provider sweep** ([#658](https://github.com/NobleFactor/devlore-cli/issues/658)). Otherwise
 every
 remaining phase inherits the same silent risk and needs a manual per-provider review — five chances to miss
-one, with no signal when you do. It also narrows phase 7 to asserting the shape rather than policing dispatch.
+one, with no signal when you do. It also narrows phase 8 to asserting the shape rather than policing dispatch.
 
 What it does not settle: whether a method *belongs* on the interface stays a design question per provider. It
 stops being a silent regression and becomes an ordinary question about the public contract.
@@ -392,14 +393,28 @@ phase-1 template.
    marshaler writes the URI alone — nothing ever writes the `ref`/`head` keys its unmarshaler carefully
    preserves. Behavior preserved exactly here; the asymmetry predates this feature and wants its own issue.
 
-#### Phase 4 — the `Unpacker` four: `json`, `yaml`, `mem`, `function` — status: pending
+#### Phase 4 — the `Unpacker` three: `json`, `yaml`, `mem` — status: pending
 
 These share the failure mode phase 1 repaired, so they are the proof that the repair holds. `mem` is the
 content-addressed store, where identity *is* the digest and the fragment is doubly load-bearing;
 `function` carries the Starlark-callable path, where bytecode travels in the document's content section.
 Each needs its content-section round-trip pinned, not assumed.
 
-#### Phase 5 — `pkg` — status: pending
+#### Phase 5 — `function`, the Starlark-callable resource — status: pending
+
+Split from phase 4 (USER, 2026-08-24) because it does not fit the template the earlier phases established.
+
+Six exported fields against `service`'s one, four of them carrying no codec tag. It holds a compiled
+`*starlark.Function` whose bytecode travels in the document's content section, so its `Unpack` is the most
+load-bearing of the four — rehydration reconstitutes an executable, not just an identity. And `Compiled` /
+`CompilerVersion` are runtime state rather than identity, which raises a question about what belongs on a
+sealed interface that no other provider raises.
+
+It also carries **the first out-of-package consumer any phase has had to change**:
+`pkg/op/provider/plan/lifecycle_api_test.go:774` asserts `.(*function.Resource)` and becomes
+`.(function.Resource)`. The other four external references are doc comments.
+
+#### Phase 6 — `pkg` — status: pending
 
 Seven external files, the widest surface. Answers the plan's standing question: a resource whose exported
 behavioral fields consumers read must expose them as interface methods, or those consumers change. Size
@@ -407,7 +422,7 @@ it before transforming it.
 
 ### Part 2 — `file`
 
-#### Phase 6 — `file`'s four variants become interfaces — status: pending
+#### Phase 7 — `file`'s four variants become interfaces — status: pending
 
 `AnyKind`, `Regular`, `Directory`, `SymbolicLink` each become a sealed interface over an unexported
 struct — `anyKind`, `regular`, `directory`, `symbolicLink` — discriminated by `kind() <Interface>` per
@@ -429,7 +444,7 @@ At the end of this phase the rule holds with no exceptions, and the feature's go
 
 ### Closure
 
-#### Phase 7 — the rule becomes structurally enforceable — status: pending
+#### Phase 8 — the rule becomes structurally enforceable — status: pending
 
 1. `4.3-resource-registration.md` states the shape as **the contract** for adding a provider resource.
 2. A test asserts it structurally: every announced resource type is an interface, and the struct behind
@@ -437,7 +452,7 @@ At the end of this phase the rule holds with no exceptions, and the feature's go
 
 Without this the rule is a convention, and conventions decay.
 
-#### Phase 8 — closure — status: pending
+#### Phase 9 — closure — status: pending
 
 The `3.5.x` per-provider design docs drop any language describing the resource as a struct.
 `4-resource-management.md` records what the seal buys: the model's guarantees now rest on the compiler
@@ -463,10 +478,10 @@ rather than on convention. Status files follow.
 6. **`Unpacker` survives.** Each of `json`, `yaml`, `mem`, `function` rebuilds from a document's content
    section after phase 3 — the check that `UnpackerByTypeID` was actually repaired and not merely
    silenced.
-7. **A regular file is not a directory.** After phase 6, a `*regular` fails a `Directory` assertion at
+7. **A regular file is not a directory.** After phase 7, a `*regular` fails a `Directory` assertion at
    compile time. Ruling 6's whole purpose, and the one that must not regress.
 8. **The structural rule bites.** A deliberately non-conforming fixture — exported resource struct, no
-   interface — fails phase 7's assertion.
+   interface — fails phase 8's assertion.
 
 ## Verification
 
