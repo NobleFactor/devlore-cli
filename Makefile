@@ -104,18 +104,11 @@ PLATFORM ?=
 # expands to every supported platform; empty means the caller did not choose, so the default stands.
 #
 # A function rather than a variable because the default differs per target, and because a command-line
-# PLATFORM cannot be reassigned from the makefile — a plain `PLATFORM := $(ALL_PLATFORMS)` inside an
+# PLATFORM cannot be reassigned by a plain assignment — only `override` does that, and a bare
+# `PLATFORM := $(ALL_PLATFORMS)` inside an
 # ifeq is silently ignored and the loop builds a platform literally named "all". Verified by writing
 # it that way first.
 select = $(if $(PLATFORM),$(if $(filter all,$(PLATFORM)),$(ALL_PLATFORMS),$(PLATFORM)),$(1))
-
-### BUILD_TAGS
-
-# Build tags for opt-in test suites.
-# Available tags:
-#   e2e — LLM-dependent end-to-end tests (requires configured AI provider)
-# Usage: make test BUILD_TAGS=e2e
-BUILD_TAGS ?=
 
 ### STAR
 
@@ -149,6 +142,11 @@ build/star: FORCE
 FORCE:
 
 ## VARIABLES (static)
+
+# This Makefile's own directory, with a trailing slash. `make -C` and recursive invocations change the
+# working directory, so anything addressing a file in the repository resolves through this rather than
+# through a relative path.
+PROJECT_ROOT := $(dir $(realpath $(firstword $(MAKEFILE_LIST))))
 
 # Provider source roots.
 P := pkg/op/provider
@@ -213,14 +211,23 @@ HOST_COPIES := lore writ
 
 ## TARGETS
 
-.PHONY: all build install clean test test-race cover vet vet-all lint lint-all build-all shell-lint complexity verify-ldflags check dev docs dist dist-all star star-lkg generate inventory help
+.PHONY: all help help-short help-full build install clean test test-race cover vet vet-all lint lint-all build-all shell-lint complexity verify-ldflags check dev docs dist dist-all star star-lkg generate inventory help
 
 ##@ Help
 
 HELP_COLWIDTH ?= 24
 
-help: ## Show available targets
+help: help-short ## Show brief help (alias: help-short)
+
+help-short: ## Show brief help for annotated targets
 	awk 'BEGIN {FS = ":.*##"; pad = $(HELP_COLWIDTH); print "Usage: make <target> [VAR=VALUE]"; print ""; print "Targets:"} /^[a-zA-Z0-9_.-]+:.*##/ {printf "  %-*s %s\n", pad, $$1, $$2} /^##@/ {printf "\n%s\n", substr($$0,5)}' $(MAKEFILE_LIST)
+	printf '\nRun `make help-full` for the manual, including every VAR=VALUE.\n'
+
+help-full: ## Show the manual: every target and every variable (man page)
+	# The path form rather than `man -l`: BSD man (macOS) has no -l, while both BSD and GNU man treat
+	# an argument containing a slash as a file to render. PROJECT_ROOT supplies that slash even when
+	# make was invoked from elsewhere.
+	man -P 'less -R' "$(PROJECT_ROOT)docs/devlore-cli.1"
 
 ##@ Build
 

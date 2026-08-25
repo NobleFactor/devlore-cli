@@ -1,0 +1,346 @@
+.TH DEVLORE-CLI 1 "August 2026" "Noble Factor" "User Commands"
+.SH NAME
+make \- Build, test, and package the devlore command-line tools
+.SH SYNOPSIS
+.B make
+.I target
+.RI [ VAR=VALUE ... ]
+.SH DESCRIPTION
+The devlore-cli Makefile builds the product binaries and the development tools that act on this
+checkout, runs the test and quality gates, drives code generation, and produces distribution archives.
+.PP
+It is the only supported entry point. Recipes carry linker flags that stamp version information,
+resolve the code generator, and pin the host toolchain; invoking
+.BR go (1)
+directly bypasses all of that and produces binaries that report the wrong version.
+.PP
+Variables are supplied as
+.B VAR=VALUE
+assignments on the command line. Every variable listed below has a working default.
+.SH BUILD MODEL
+.SS Products and tools
+.B Products
+ship:
+.BR lore ,
+.BR star ,
+and
+.BR writ .
+They are cross-compiled once per selected platform into
+.IR build/<goos>-<goarch>/ .
+.PP
+.B Tools
+are instruments of this checkout \(em
+.BR devlore-docs ,
+.BR devlore-index ,
+.BR devlore-inventory ,
+and
+.B devlore-test
+\(em and are built once for the host, staying flat at
+.IR build/<name> .
+A cross-compiled tool would be a binary nothing can run and nothing distributes.
+.PP
+.B lore
+and
+.B writ
+additionally keep a flat host copy at
+.IR build/<name> ,
+so the binary that runs on this machine has one path that does not shift with the host triple.
+.B build/star
+is the generator that codegen invokes; it is produced by the
+.B star
+target rather than by the build matrix, because it must exist before generation can begin.
+.SS Cross-compilation
+The codebase is pure Go, so every supported platform builds from any host with
+.B GOOS
+and
+.B GOARCH
+alone \(em no per-platform toolchains and no build VMs. Build tools are always built for the
+.I host
+even while products are built for a target; without that split, cross-compiling the product would
+cross-compile the generator and the host would fail to execute it.
+.SH VARIABLES
+.TP
+.B PLATFORM
+Which platforms to build for: the literal
+.BR all ,
+or one or more
+.IR <goos>/<goarch>
+names separated by spaces.
+.B The default differs by target.
+.B make build
+defaults to this machine, because the inner loop should not pay to link platforms it is not about to
+run. \fBmake dist\fR defaults to every supported platform, because a release is not a selection.
+Supported values are
+.BR darwin/amd64 ,
+.BR darwin/arm64 ,
+.BR linux/amd64 ,
+.BR linux/arm64 ,
+.BR windows/amd64 ,
+and
+.BR windows/arm64 .
+.TP
+.B TAGS
+Which test suites run, on
+.B test
+and
+.BR test-race .
+.B all
+(the default) runs untagged, integration, and e2e tests. An empty value runs untagged tests only.
+.B integration
+and
+.B e2e
+each add their suite to the untagged set. The e2e suite requires a configured AI provider.
+.TP
+.B PREFIX
+Installation root for
+.BR "make install" ,
+defaulting to
+.IR ~/.local .
+Each tool's self install places binaries, man pages, completions, and configuration beneath it.
+.TP
+.B DEVLORE_VERSION
+The version stamped into every binary. Defaults to
+.BR "git describe --tags --match \(dqv*\(dq --always --dirty" .
+Set it to produce draft or pre-release builds, for example
+.BR "make dist DEVLORE_VERSION=v0.1.0-alpha" .
+.TP
+.B VERSION\fR, \fBCOMMIT\fR, \fBBUILD_DATE
+The three values stamped through
+.BR -ldflags .
+They default from
+.B DEVLORE_VERSION
+and from git, are frozen once per
+.B make
+run, and are exported so that sub-makes stamp identically. Override them only to reproduce a specific
+build.
+.TP
+.B STAR_LKG
+Path to the last-known-good
+.B star
+snapshot, defaulting to
+.IR build/star.lkg .
+When the file exists it becomes the generator, bypassing a rebuild. This is the escape hatch for when
+in-tree changes break
+.B star
+compilation or make it panic on startup \(em without it, code generation cannot run and generated files
+cannot be regenerated. Promote a snapshot with
+.B make star-lkg
+only after a known-green build.
+.TP
+.B STAR
+The generator binary itself. Resolves to
+.B STAR_LKG
+when that file exists and to
+.I build/star
+otherwise. Set it directly only to test an alternative generator.
+.TP
+.B HELP_COLWIDTH
+Column width for the
+.B help-short
+listing. Defaults to 24.
+.SH TARGETS
+.SS Help
+.TP
+.B help
+Alias for
+.BR help-short .
+.TP
+.B help-short
+List every annotated target with a one-line description.
+.TP
+.B help-full
+Display this manual.
+.SS Build
+.TP
+.B build
+Build every product for
+.BR PLATFORM ,
+plus the host tools. Runs code generation first. Verifies that the version stamp bound to real symbols
+by executing the host's own
+.B writ
+\(em a check that announces itself as skipped when
+.B PLATFORM
+excludes this machine, since a foreign binary cannot be run here.
+.TP
+.B star
+Build the code generator for the host.
+.TP
+.B star-lkg
+Snapshot
+.I build/star
+as the last-known-good generator. Run only after a green build.
+.TP
+.B install
+Install
+.BR lore ,
+.BR star ,
+and
+.B writ
+beneath
+.B PREFIX
+using each tool's own self install.
+.TP
+.B clean
+Remove
+.IR build/ .
+.SS Test
+.TP
+.B test
+Run the test suites selected by
+.BR TAGS .
+.TP
+.B test-race
+As
+.BR test ,
+under the race detector.
+.TP
+.B test-scenario
+Drive the real binaries end to end in a sandbox \(em the install path's only end-to-end coverage.
+.TP
+.B cover
+Report per-package and total coverage, writing
+.IR coverage.out .
+Not a gate; use
+.B test
+or
+.B check
+for that.
+.SS Quality
+.TP
+.B check
+Run every quality gate:
+.BR vet ,
+.BR lint ,
+.BR shell-lint ,
+.BR complexity ,
+.BR verify-ldflags ,
+and
+.BR test .
+.TP
+.B vet\fR, \fBlint\fR, \fBshell-lint
+Run
+.BR "go vet" ,
+golangci-lint, and the shell linter respectively.
+.TP
+.B vet-all\fR, \fBlint-all\fR, \fBbuild-all
+Run the corresponding check under every supported
+.BR GOOS .
+These compile without executing anything, so they cannot catch a defect that only appears when a binary
+runs.
+.TP
+.B complexity
+Fail if any function exceeds cyclomatic complexity 20.
+.TP
+.B verify-ldflags
+Assert that every build definition in the repository stamps the same package. A
+.B -X
+flag naming a symbol that does not exist is silently ignored by the linker, so agreement between
+definitions is the only available check.
+.SS Distribution
+.TP
+.B dist
+Build distribution archives for
+.B PLATFORM
+and generate checksums.
+.TP
+.B dist-all
+Build the archives without checksums.
+.TP
+.B checksums
+Generate SHA-256 checksums for the archives.
+.TP
+.B dist-clean
+Remove
+.IR dist/ .
+.SS Development
+.TP
+.B dev
+Activate the repository's git hooks.
+.TP
+.B docs
+Regenerate the CLI documentation under
+.IR docs/cli/ .
+.TP
+.B generate\fR, \fBinventory
+Run code generation, and regenerate the provider inventory from
+.B op.Announce*
+call sites.
+.SH EXAMPLES
+.PP
+Build for this machine, then run the gates:
+.PP
+.RS
+.EX
+make build
+make check
+.EE
+.RE
+.PP
+Build every supported platform, then ship:
+.PP
+.RS
+.EX
+make build PLATFORM=all
+make dist
+.EE
+.RE
+.PP
+Build for two named platforms:
+.PP
+.RS
+.EX
+make build PLATFORM="linux/amd64 darwin/arm64"
+.EE
+.RE
+.PP
+Run only the unit tests, then only the integration suite:
+.PP
+.RS
+.EX
+make test TAGS=
+make test TAGS=integration
+.EE
+.RE
+.PP
+Cut a pre-release:
+.PP
+.RS
+.EX
+make dist DEVLORE_VERSION=v0.1.0-alpha
+.EE
+.RE
+.SH FILES
+.TP
+.I build/<goos>-<goarch>/
+Products for one platform.
+.TP
+.I build/<name>
+Host tools, and the flat host copies of
+.B lore
+and
+.BR writ .
+.TP
+.I build/star
+The code generator that codegen invokes.
+.TP
+.I build/star.lkg
+The last-known-good generator, when one has been promoted.
+.TP
+.I dist/
+Distribution archives and checksums.
+.TP
+.I coverage.out
+Coverage profile written by
+.BR "make cover" .
+.SH REQUIREMENTS
+GNU make 3.82 or later, for
+.BR .ONESHELL .
+macOS ships 3.81; install a newer one with
+.BR "brew install make" ,
+which provides it as
+.BR gmake .
+.SH SEE ALSO
+.BR lore (1),
+.BR writ (1),
+.BR star (1),
+.BR go (1)
