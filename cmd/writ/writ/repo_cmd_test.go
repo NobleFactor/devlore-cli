@@ -30,17 +30,43 @@ func sourceRepository(t *testing.T) string {
 	t.Helper()
 
 	root := t.TempDir()
+	env := isolatedGitEnv(t)
+
 	for _, args := range [][]string{
 		{"init", "--quiet", "--initial-branch=main"},
 		{"-c", "user.name=t", "-c", "user.email=t@invalid", "commit", "--quiet", "--allow-empty", "-m", "seed"},
 	} {
 		command := exec.CommandContext(context.Background(), "git", append([]string{"-C", root}, args...)...)
-		command.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_SYSTEM="+os.DevNull)
+		command.Env = env
 		if output, err := command.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, output)
 		}
 	}
 	return root
+}
+
+// isolatedGitEnv points git's global and system config at an empty file, so a test repository sees
+// no configuration beyond what the test supplies.
+//
+// An empty regular file rather than os.DevNull. os.DevNull is "NUL" on Windows, and the git build
+// on the windows-11-arm runner image refuses to open it as a config path:
+//
+//	fatal: unable to access 'NUL': Invalid argument
+//
+// The identical command succeeds on windows-latest, so this is a property of that image's git, not
+// of the architecture — which is why it stayed hidden until windows/arm64 joined the matrix. An
+// empty file is what git actually needs here: a config it can open and find nothing in. It carries
+// none of the device-file semantics that vary by platform and by git build.
+func isolatedGitEnv(t *testing.T) []string {
+
+	t.Helper()
+
+	empty := filepath.Join(t.TempDir(), "gitconfig")
+	if err := os.WriteFile(empty, nil, 0o600); err != nil {
+		t.Fatalf("write empty git config: %v", err)
+	}
+
+	return append(os.Environ(), "GIT_CONFIG_GLOBAL="+empty, "GIT_CONFIG_SYSTEM="+empty)
 }
 
 // runRepo executes the repo command family against a sandboxed layers directory and returns its output.

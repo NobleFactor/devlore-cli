@@ -12,8 +12,13 @@ updated: 2026-08-12
 
 The unit suite runs on ubuntu-latest only. macOS and Windows execute exactly one test. The
 ruling is unconditional — **all tests must run on every supported platform** — so this plan moves
-`make test-race` onto the three-platform matrix, triages what that reveals, fixes it, and then
-makes the three legs required rather than advisory.
+`make test-race` onto the platform matrix, triages what that reveals, fixes it, and then makes
+the legs required rather than advisory.
+
+The matrix this plan built was three legs — ubuntu, macOS, and Windows, all x64 except macOS.
+[arm64-build-and-test-matrix.md](./arm64-build-and-test-matrix.md) has since taken it to five by
+adding linux/arm64 and windows/arm64. Phase 4 below is the only part affected: it must require
+five contexts per job, not three.
 
 ## Current State
 
@@ -333,16 +338,34 @@ Branch count and grouping are sized after phase 2, since the failure count is un
 
 Nothing in `ci.yaml` changes, per ruling 2's correction.
 
-- [ ] Add the three `test (…)` legs to `required_status_checks` on ruleset `12426847`, which
-      today lists only `quality-gate`.
-- [ ] Consider adding the three `scenario (…)` legs at the same time — they are not required
-      either, so a red Windows scenario does not currently block a merge.
+**Both matrices are now five legs, not three** — see
+[arm64-build-and-test-matrix.md](./arm64-build-and-test-matrix.md), which added linux/arm64 and
+windows/arm64. This phase must name all five per job, or the two arm64 legs stay advisory while
+the rest are enforced, which is the worst of both arrangements: a gate that looks complete and
+is not.
+
+- [ ] Add the five `test (…)` legs to `required_status_checks` on ruleset `12426847`, which
+      today lists only `quality-gate`:
+      `test (darwin-arm64)`, `test (linux-amd64)`, `test (linux-arm64)`,
+      `test (windows-amd64)`, `test (windows-arm64)`
+- [ ] Consider adding the five `scenario (…)` legs at the same time — same descriptors,
+      `scenario (darwin-arm64)` through `scenario (windows-arm64)`. They are not required either,
+      so a red Windows scenario does not currently block a merge.
+- [ ] These strings are stable by construction: both jobs set an explicit
+      `name: <job> (${{ matrix.platform }})`, so the context is the platform descriptor and
+      nothing else. Without that, GitHub composes the name from **every** matrix value — the first
+      run of this matrix reported `test (windows-11-arm, false)`, leaking the runner image and the
+      race flag into a string the ruleset must match exactly, and renaming all five contexts the
+      moment another matrix key is added. A required context whose name does not match is a check
+      that never arrives, which blocks every merge rather than none.
 - [ ] Confirm a deliberately failing test on Windows blocks a merge. The gate is not proven until
       it has refused something.
 
 ## Verification
 
-`make test-race` green on all three legs, with the check-run attached to the pull request's real
+`make test-race` green on every leg that supports it, and `make test` green on windows/arm64,
+which does not — the full suite runs there, only the race detector is absent. Check-runs must be
+attached to the pull request's real
 head SHA — verified via `gh api repos/<repo>/commits/<sha>/check-runs`, not via `gh pr checks`,
 which reports whatever the pull request head happens to be. PR #371 merged without its tests
 precisely because that distinction was not made.
@@ -355,4 +378,6 @@ None outstanding. The rulings below close every question this plan opened.
 
 - Issue #373 — this gap
 - [docs/plans/audit-remediation.md](./audit-remediation.md) — issue #365; every refactor it lands
-  is currently verified on one platform out of three
+  is currently verified on one platform out of five
+- [arm64-build-and-test-matrix.md](./arm64-build-and-test-matrix.md) — took both matrices from
+  three legs to five, and the push-path build from host-only to all six GOOS/GOARCH pairs
