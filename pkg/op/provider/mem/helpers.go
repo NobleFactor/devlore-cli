@@ -30,9 +30,9 @@ import (
 //   - `value`: []byte, an [io.Reader], or a canonical tag URI string; any other type is an error.
 //
 // Returns:
-//   - `*Resource`: unlinked candidate.
+//   - `*resource`: unlinked candidate.
 //   - `error`: unsupported value type, or an error from the downstream constructor.
-func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Resource, error) {
+func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*resource, error) {
 
 	switch v := value.(type) {
 
@@ -61,9 +61,9 @@ func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Reso
 //   - `data`: payload bytes; may be empty.
 //
 // Returns:
-//   - `*Resource`: candidate with Hash populated and content archived at the canonical CAS path.
+//   - `*resource`: candidate with Hash populated and content archived at the canonical CAS path.
 //   - `error`: identity construction failure, parent directory creation failure, or write failure.
-func newFromBytes(runtimeEnvironment *op.RuntimeEnvironment, data []byte) (*Resource, error) {
+func newFromBytes(runtimeEnvironment *op.RuntimeEnvironment, data []byte) (*resource, error) {
 
 	sum := sha256.Sum256(data)
 	hexDigest := hex.EncodeToString(sum[:])
@@ -73,7 +73,7 @@ func newFromBytes(runtimeEnvironment *op.RuntimeEnvironment, data []byte) (*Reso
 		return nil, fmt.Errorf("mem.Resource: %w", err)
 	}
 
-	r := &Resource{ResourceBase: base, Hash: hexDigest}
+	r := &resource{ResourceBase: base, hash: hexDigest}
 
 	root := runtimeEnvironment.Root()
 	canonical := r.SourcePath()
@@ -109,10 +109,10 @@ func newFromBytes(runtimeEnvironment *op.RuntimeEnvironment, data []byte) (*Reso
 //   - `reader`: source of payload bytes; drained completely.
 //
 // Returns:
-//   - `*Resource`: candidate with Hash populated and content archived at the canonical CAS path.
+//   - `*resource`: candidate with Hash populated and content archived at the canonical CAS path.
 //   - `error`: staging name generation, staging directory creation, open/copy failure, identity construction failure,
 //     canonical directory creation failure, or rename failure.
-func newFromReader(runtimeEnvironment *op.RuntimeEnvironment, reader io.Reader) (*Resource, error) {
+func newFromReader(runtimeEnvironment *op.RuntimeEnvironment, reader io.Reader) (*resource, error) {
 
 	root := runtimeEnvironment.Root()
 
@@ -144,7 +144,7 @@ func newFromReader(runtimeEnvironment *op.RuntimeEnvironment, reader io.Reader) 
 		return nil, fmt.Errorf("mem.Resource: %w", err)
 	}
 
-	r := &Resource{ResourceBase: base, Hash: hexDigest}
+	r := &resource{ResourceBase: base, hash: hexDigest}
 	canonical := r.SourcePath()
 
 	if err := root.MkdirAll(root.NewPath(filepath.Dir(canonical.Rel())), 0o700); err != nil {
@@ -171,10 +171,10 @@ func newFromReader(runtimeEnvironment *op.RuntimeEnvironment, reader io.Reader) 
 //     are rejected).
 //
 // Returns:
-//   - `*Resource`: metadata-only Resource with Hash populated.
+//   - `*resource`: metadata-only Resource with Hash populated.
 //   - `error`: malformed URI, deferred (empty <specific>) URI, missing colon, unsupported algorithm, malformed hex, or
 //     [op.ResourceBase] construction failure.
-func newFromURI(runtimeEnvironment *op.RuntimeEnvironment, uri string) (*Resource, error) {
+func newFromURI(runtimeEnvironment *op.RuntimeEnvironment, uri string) (*resource, error) {
 
 	specific, _, err := op.ExtractTagSpecific(uri)
 	if err != nil {
@@ -203,9 +203,9 @@ func newFromURI(runtimeEnvironment *op.RuntimeEnvironment, uri string) (*Resourc
 		return nil, fmt.Errorf("mem.Resource: %w", err)
 	}
 
-	return &Resource{
+	return &resource{
 		ResourceBase: base,
-		Hash:         hexPart,
+		hash:         hexPart,
 	}, nil
 }
 
