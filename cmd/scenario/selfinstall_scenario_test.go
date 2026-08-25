@@ -90,7 +90,11 @@ func toolBinary(t *testing.T, tool string) string {
 
 	t.Helper()
 
-	path, err := filepath.Abs(filepath.Join("..", "..", "build", tool+exeSuffix()))
+	// Products live under build/<goos>-<goarch>/ so one host can build every platform; only this
+	// machine's own directory holds a binary it can execute.
+	path, err := filepath.Abs(
+		filepath.Join("..", "..", "build", runtime.GOOS+"-"+runtime.GOARCH, tool+exeSuffix()),
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
