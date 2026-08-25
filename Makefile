@@ -400,7 +400,15 @@ docs: build ## Generate CLI documentation
 
 dist: dist-all checksums ## Build distribution archives with checksums
 
-dist-all: build ## Build distribution archives for PLATFORM (default: every supported platform)
+dist-all: ## Build distribution archives for PLATFORM (default: every supported platform)
+	# The stamp proof is NOT optional and NOT subject to PLATFORM.
+	#
+	# `build` proves on the host that the -X flags bind to real symbols — the failure that shipped
+	# unnoticed until 2026-08-16. A plain `dist-all: build` prerequisite lost that proof the moment
+	# `build` learned to skip the check when PLATFORM excludes the host: `make dist PLATFORM=linux/amd64`
+	# would then ship archives with nothing having verified the stamp. Forcing a host build here restores
+	# the invariant regardless of what the caller selected.
+	$(MAKE) build PLATFORM=$(HOST_GOOS)/$(HOST_GOARCH)
 	# Depends on `build` for its stamp check, not for its binaries. This is the path that ships
 	# (.github/workflows/release.yaml runs `make dist`), it cross-compiles with the same LDFLAGS and
 	# the same VERSION, and it cannot run what it produces for other platforms. `build` proves on the

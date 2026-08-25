@@ -209,40 +209,6 @@ func newFromURI(runtimeEnvironment *op.RuntimeEnvironment, uri string) (*Resourc
 	}, nil
 }
 
-// splitTypeID splits a canonical Go type id "<pkgPath>.<TypeName>" into its terminal package segment and type name.
-//
-// Examples:
-//
-//	"github.com/NobleFactor/devlore-cli/pkg/op/provider/mem.Resource" → ("mem", "Resource")
-//	"mem.Resource" → ("mem", "Resource")
-//	"Resource" → ("", "Resource")
-//
-// Parameters:
-//   - `typeID`: canonical Go type id, typically read from a URI fragment.
-//
-// Returns:
-//   - `pkg`: terminal segment of the package path; empty when typeID contains no dot.
-//   - `typeName`: unqualified type name; equals typeID when typeID contains no dot.
-func splitTypeID(typeID string) (pkg, typeName string) {
-
-	dot := strings.LastIndex(typeID, ".")
-
-	if dot < 0 {
-		return "", typeID
-	}
-
-	typeName = typeID[dot+1:]
-	left := typeID[:dot]
-
-	if slash := strings.LastIndex(left, "/"); slash >= 0 {
-		pkg = left[slash+1:]
-	} else {
-		pkg = left
-	}
-
-	return pkg, typeName
-}
-
 // stagingPath returns a fresh staging path under <Root>/.devlore/mem/resource/.staging/.
 //
 // The basename is a 16-byte random hex token from [crypto/rand], chosen to be collision-free against the expected

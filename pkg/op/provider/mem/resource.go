@@ -15,7 +15,6 @@ import (
 	"reflect"
 
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
-	"golang.org/x/exp/mmap"
 
 	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
@@ -448,42 +447,5 @@ func (r *Resource) Unpack(runtimeEnvironment *op.RuntimeEnvironment, uri string,
 }
 
 // endregion
-
-// endregion
-
-// region SUPPORTING TYPES
-
-// resourceReader bundles a [mmap.ReaderAt] handle with an [io.SectionReader] over its full range so that Read drains
-// through the mmap and Close releases it.
-type resourceReader struct {
-
-	// mmap is the underlying memory map; held so Close can unmap it.
-	mmap *mmap.ReaderAt
-
-	// section is an [io.SectionReader] over the full range of mmap, used for Read.
-	section *io.SectionReader
-}
-
-// Close releases the underlying memory map.
-//
-// Returns:
-//   - `error`: any error returned by [mmap.ReaderAt.Close].
-func (r *resourceReader) Close() error {
-
-	return r.mmap.Close()
-}
-
-// Read reads up to len(p) bytes from the underlying [io.SectionReader] into p.
-//
-// Parameters:
-//   - `p`: destination buffer.
-//
-// Returns:
-//   - `int`: number of bytes read.
-//   - `error`: any error returned by [io.SectionReader.Read]; [io.EOF] at end of content.
-func (r *resourceReader) Read(p []byte) (int, error) {
-
-	return r.section.Read(p)
-}
 
 // endregion
