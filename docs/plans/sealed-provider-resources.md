@@ -284,8 +284,9 @@ failing. This is the load-bearing detail of part 2.
 | 1 | 5 | #662 | `mem` and `function` — coupled by a cross-package embed |
 | 1 | 6 | #644 | `pkg` — the widest footprint |
 | 2 | 7 | #645 | `file`'s four variants, discriminated by `kind()` |
-| — | 8 | #646 | the rule becomes structurally enforceable |
-| — | 9 | #647 | closure — the design record states the contract |
+| — | 8 | #649 | sweep `ConvertFrom` / `CanConvertFrom` — dead once every provider is sealed |
+| — | 9 | #646 | the rule becomes structurally enforceable |
+| — | 10 | #647 | closure — the design record states the contract |
 
 Supersedes #626–#630, which were filed against the original phase shape and are closed as superseded.
 
@@ -468,7 +469,35 @@ At the end of this phase the rule holds with no exceptions, and the feature's go
 
 ### Closure
 
-#### Phase 8 — the rule becomes structurally enforceable — status: pending
+#### Phase 8 — sweep `ConvertFrom` / `CanConvertFrom` — status: pending
+
+[#649](https://github.com/NobleFactor/devlore-cli/issues/649), scheduled here rather than per-phase (USER,
+2026-08-25). Sealing is what makes a resource's `TargetConverter` pair unreachable: `op.Convert` step 7
+probes `reflect.New(target)`, and on an interface that yields a pointer-to-interface with an empty method
+set. Once every provider is sealed, all sixteen methods are dead **at once**, so the sweep is pure
+dead-code removal rather than a behaviour change threaded through five separate PRs.
+
+**Sixteen methods, eight pairs, five providers** — `appnet`, `git`, `service` (dead since their phases),
+`pkg` (phase 6), and `file`'s four variants plus its base (phase 7). Nothing else goes.
+
+The framework seam **stays**: `op.TargetConverter`, `tryTargetConverter`, `targetSideAdvertises`, and the
+cached type are all live for non-resource targets — `(*OrderingEdge).CanConvertFrom` is a real production
+implementor with nothing to do with resources, and `TestConvert_TargetConverter` keeps exercising step 7.
+
+Two things make this safe rather than merely tidy, and both are evidence rather than argument:
+
+1. **The contract already declares itself optional for resources.** `pkg/op/interfaces.go:65` says
+   implementers *"commonly omit `TargetConverter` when their natural source is content bytes or a parsed
+   structure."* Four resources — `json`, `yaml`, `mem`, `function` — have never implemented it.
+2. **The plan-time worry is answered.** `CanConvertFrom` is `typesAreInterconvertible`'s only bridge for
+   `string ↔ Resource`, and removing it was expected to turn a tolerated slot collision into a hard one.
+   Sealing already removed it for five providers, and the suite, the scenarios, and three platforms stayed
+   green. Nothing depended on it.
+
+Distinct from [#661](https://github.com/NobleFactor/devlore-cli/issues/661), which is the opposite shape: a
+documented override contract that **zero** implementors honour.
+
+#### Phase 9 — the rule becomes structurally enforceable — status: pending
 
 1. `4.3-resource-registration.md` states the shape as **the contract** for adding a provider resource.
 2. A test asserts it structurally: every announced resource type is an interface, and the struct behind
@@ -476,7 +505,7 @@ At the end of this phase the rule holds with no exceptions, and the feature's go
 
 Without this the rule is a convention, and conventions decay.
 
-#### Phase 9 — closure — status: pending
+#### Phase 10 — closure — status: pending
 
 The `3.5.x` per-provider design docs drop any language describing the resource as a struct.
 `4-resource-management.md` records what the seal buys: the model's guarantees now rest on the compiler

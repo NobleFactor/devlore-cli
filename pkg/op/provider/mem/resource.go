@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"io"
 	"reflect"
-	"strings"
 
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"golang.org/x/exp/mmap"
@@ -299,22 +298,7 @@ func (r *Resource) Pack() ([]byte, error) {
 //   - `io.ReadCloser`: reader over the full archived content; Close releases the mmap.
 //   - `error`: missing SourcePath, or mmap failure.
 func (r *Resource) Reader() (io.ReadCloser, error) {
-
-	abs := r.SourcePath().Abs()
-
-	if abs == "" {
-		return nil, errors.New("mem.Resource: no SourcePath")
-	}
-
-	m, err := mmap.Open(abs)
-	if err != nil {
-		return nil, fmt.Errorf("mem.Resource: mmap %s: %w", abs, err)
-	}
-
-	return &resourceReader{
-		mmap:    m,
-		section: io.NewSectionReader(m, 0, int64(m.Len())),
-	}, nil
+	return op.ContentReader(r)
 }
 
 // SourcePath returns the on-disk archive path for this Resource under the runtime environment's [fsroot.Dir].
@@ -330,26 +314,7 @@ func (r *Resource) Reader() (io.ReadCloser, error) {
 //   - `fsroot.Path`: canonical archive path, or the zero fsroot.Path when the Resource has no [op.RuntimeEnvironment],
 //     no Root, or a <specific> that is not in `<algo>:<hex>` form.
 func (r *Resource) SourcePath() fsroot.Path {
-
-	runtimeEnvironment := r.RuntimeEnvironment()
-
-	if runtimeEnvironment == nil || !runtimeEnvironment.HasRoot() {
-		return fsroot.Path{}
-	}
-
-	algo, hexPart, ok := strings.Cut(r.ReachabilityURI(), ":")
-	if !ok {
-		return fsroot.Path{}
-	}
-
-	shard := hexPart
-
-	if len(shard) >= 2 {
-		shard = hexPart[0:2]
-	}
-
-	pkg, typeName := splitTypeID(r.ResourceType())
-	return runtimeEnvironment.Root().NewPath(".devlore", pkg, strings.ToLower(typeName), algo, shard, hexPart)
+	return op.ContentPath(r)
 }
 
 // String returns the compact JSON encoding of the Resource for debug output.
