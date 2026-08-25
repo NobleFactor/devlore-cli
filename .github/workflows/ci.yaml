@@ -41,8 +41,13 @@ jobs:
           brew install make
           echo "$(brew --prefix)/opt/make/libexec/gnubin" >> "$GITHUB_PATH"
 
-      - name: Build
-        run: make build
+      # Every platform the project ships, on every push. The codebase is pure Go — zero `import "C"`
+      # — so one runner links the whole matrix with GOOS/GOARCH alone (~41s against ~13s host-only).
+      # Before this, the push path built the host alone and swept GOOS at fixed GOARCH, so nothing
+      # here ever compiled for arm64 while goreleaser shipped arm64 binaries at release: an
+      # arm64-only break surfaced at release rather than at review.
+      - name: Build every platform
+        run: make build PLATFORM=all
 
       - name: Check go.mod tidy
         run: |
@@ -57,9 +62,12 @@ jobs:
       # _darwin.go/_windows.go/_linux.go files. Same runner, one invocation per GOOS. Its first
       # local run found three test files that did not compile under GOOS=windows — the reason three
       # packages reported [build failed] on the windows test leg.
-      - name: Cross-compile every GOOS
-        run: make build-all
-
+      #
+      # `make build-all` used to run here as well. It is dropped rather than kept: `build PLATFORM=all`
+      # above covers every package reachable from ./cmd (120 of 122) across all six GOOS/GOARCH pairs
+      # rather than three GOOS at the host's arch, and `vet-all` below still type-checks all 122 —
+      # test files included, which `go build ./...` never did. The two packages outside cmd's reach
+      # (pkg/op/provider/elevator, pkg/op/server) therefore keep their per-GOOS coverage.
       - name: Vet
         run: make vet-all
 
@@ -116,8 +124,24 @@ jobs:
     strategy:
       # Every platform reports independently — a failing leg must not cancel the others' evidence.
       fail-fast: false
+      # `include` rather than a bare `os` list because the legs are not uniform: Go's race detector
+      # does not support windows/arm64, so that one leg runs `make test` instead. Naming the
+      # difference in data keeps it from looking like an inconsistency somebody should tidy away.
+      #
+      # ubuntu-24.04-arm rather than ubuntu-26.04-arm: `ubuntu-latest` is still Ubuntu 24.04, and
+      # 26.04 is a preview image. Matching versions across the pair means the arm64 leg varies
+      # architecture alone — vary the OS release too and a failure has two candidate causes.
+      #
+      # The Windows pair cannot be matched that way: `windows-latest` is Windows Server 2025 while
+      # `windows-11-arm` is a client OS. There is no Windows Server arm64 runner, so that asymmetry
+      # is the platform's, not a choice made here.
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - { os: macos-latest, race: true } # darwin/arm64
+          - { os: ubuntu-latest, race: true } # linux/amd64
+          - { os: ubuntu-24.04-arm, race: true } # linux/arm64
+          - { os: windows-latest, race: true } # windows/amd64
+          - { os: windows-11-arm, race: false } # windows/arm64 — race unsupported by Go
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -142,20 +166,37 @@ jobs:
       # -race requires cgo and a C toolchain. Set explicitly rather than relying on the default,
       # which varies by platform and by whether a compiler is discoverable; the windows runner
       # ships mingw-w64. `make test-race` depends on `generate`, a chain the scenario job below
-      # already exercises on all three platforms.
+      # already exercises on every platform.
       - name: Test with race detector
+        if: matrix.race
         env:
           CGO_ENABLED: "1"
         run: make test-race
 
+      # Go's race detector supports linux/amd64, linux/ppc64le, linux/arm64, linux/s390x,
+      # linux/loong64, freebsd/amd64, netbsd/amd64, darwin/amd64, darwin/arm64, and windows/amd64 —
+      # windows/arm64 is absent, and no CI configuration changes that. This leg runs the suite
+      # without -race so the platform is still tested, and needs no C toolchain as a result.
+      - name: Test without race detector
+        if: ${{ !matrix.race }}
+        run: make test
+
   # The writ-deploy scenario (docs/plans/writ-deploy-scenario.md, #346): the real binaries driven
-  # end-to-end in a pristine sandbox, on all three platforms (#91 phase-4 audit slice).
+  # end-to-end in a pristine sandbox, on every platform (#91 phase-4 audit slice).
+  #
+  # Uniform, unlike the test job above: scenarios never use -race, so every leg runs the same
+  # command and a bare `os` list says everything there is to say.
   scenario:
     strategy:
       # Every platform reports independently — a failing leg must not cancel the others' evidence.
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os:
+          - macos-latest # darwin/arm64
+          - ubuntu-latest # linux/amd64
+          - ubuntu-24.04-arm # linux/arm64
+          - windows-latest # windows/amd64
+          - windows-11-arm # windows/arm64
     runs-on: ${{ matrix.os }}
     defaults:
       run:
