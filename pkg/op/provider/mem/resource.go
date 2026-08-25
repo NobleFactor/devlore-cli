@@ -29,10 +29,10 @@ var (
 )
 
 // Interface Guard: *Resource implements op.Packer.
-var _ op.Packer = (*Resource)(nil)
+var _ op.Packer = (*resource)(nil)
 
 // Interface Guard: *Resource implements op.Unpacker.
-var _ op.Unpacker = (*Resource)(nil)
+var _ op.Unpacker = (*resource)(nil)
 
 // Resource represents an in-memory-origin data resource archived on disk at a content-addressed path.
 //
@@ -47,13 +47,62 @@ var _ op.Unpacker = (*Resource)(nil)
 //
 // Content bytes are never held in the Go heap after archival. Consumers read through [Resource.Reader] (a mmap-backed
 // [io.ReadCloser]) or via the [op.SourceConverter] projections to []byte or string.
-type Resource struct {
+// Resource is this provider's resource type — the sealed interface over content-addressed bytes.
+//
+// Sealed by an unexported marker, so the closed set of implementations is the one this package declares. That
+// matters more here than anywhere else: identity IS the digest, so a forged mem resource is a claim about
+// content nobody hashed.
+type Resource interface {
+	op.Resource
+
+	// Hash returns the lowercase hex SHA-256 of the archived content. Identity-bearing — also encoded in the
+	// URI's <specific> as `sha256:<hash>`.
+	Hash() string
+
+	// SourcePath returns the sharded on-disk location of the archived content.
+	SourcePath() fsroot.Path
+
+	// Reader opens the archived content, memory-mapped. Close releases the mapping.
+	Reader() (io.ReadCloser, error)
+
+	// Pack returns the archived bytes, for the document's content section.
+	Pack() ([]byte, error)
+
+	// Unpack rebuilds a resource from a document's content section.
+	Unpack(runtimeEnvironment *op.RuntimeEnvironment, uri string, content []byte) (op.Resource, error)
+
+	// sealedResource marks the closed set of Resource implementations.
+	sealedResource()
+}
+
+// Interface guard: the unexported struct is the only Resource implementation.
+var _ Resource = (*resource)(nil)
+
+// resource is the concrete mem resource — what serializes, and the only thing implementing [Resource].
+//
+// Unexported so `&mem.resource{...}` cannot be written outside this package. Until 2026-08-25 `function`
+// embedded the exported struct across a package boundary; it now holds its own base and reaches content
+// through the framework helpers, which is what made sealing possible.
+type resource struct {
 	op.ResourceBase
 
-	// Hash is the lowercase hex SHA-256 of the archived content. Identity-bearing — also encoded in the URI's
-	// <specific> portion as `sha256:<Hash>`. Populated by both construction (post-hash) and rehydration (parsed
-	// from URI). Not persisted in serialized form because the URI carries the same value.
-	Hash string `json:"-" yaml:"-"`
+	// hash is the lowercase hex SHA-256 of the archived content. Identity-bearing.
+	hash string
+}
+
+// sealedResource marks resource as the member of the closed [Resource] set.
+func (r *resource) sealedResource() {}
+
+// Hash returns the lowercase hex SHA-256 of the archived content.
+//
+// Returns:
+//   - `string`: the digest, without an algorithm prefix.
+func (r *resource) Hash() string { return r.hash }
+
+// init wires the two things a sealed resource cannot state from its generated announcement.
+func init() {
+	op.RegisterResourceImplementation(reflect.TypeFor[Resource](), reflect.TypeFor[resource]())
+	op.RegisterResourceMint(reflect.TypeFor[Resource](), reflect.TypeFor[*resource]())
 }
 
 // NewResource constructs a *Resource and claims production via [op.ResourceCatalog.GetOrCreate].
@@ -83,9 +132,9 @@ type Resource struct {
 //     (metadata-only rehydration).
 //
 // Returns:
-//   - `*Resource`: canonical catalog entry, or the unlinked candidate when no catalog is present.
+//   - `Resource`: canonical catalog entry, or the unlinked candidate when no catalog is present.
 //   - `error`: unsupported value type, filesystem write failure, malformed URI, or identity construction failure.
-func NewResource(runtimeEnvironment *op.RuntimeEnvironment, producerID string, value any) (*Resource, error) {
+func NewResource(runtimeEnvironment *op.RuntimeEnvironment, producerID string, value any) (Resource, error) {
 
 	candidate, err := buildCandidate(runtimeEnvironment, value)
 	if err != nil {
@@ -103,9 +152,9 @@ func NewResource(runtimeEnvironment *op.RuntimeEnvironment, producerID string, v
 		return nil, err
 	}
 
-	canonical, ok := got.(*Resource)
+	canonical, ok := got.(*resource)
 	if !ok {
-		return nil, fmt.Errorf("mem.NewResource: catalog entry for %q is %T, want *mem.Resource", candidate.URI(), got)
+		return nil, fmt.Errorf("mem.NewResource: catalog entry for %q is %T, want *mem.resource", candidate.URI(), got)
 	}
 
 	return canonical, nil
@@ -129,9 +178,23 @@ func NewResource(runtimeEnvironment *op.RuntimeEnvironment, producerID string, v
 //   - `value`: []byte, [io.Reader], or a canonical tag URI string; same dispatch as [NewResource].
 //
 // Returns:
-//   - `*Resource`: canonical catalog entry, or the unlinked candidate when no catalog is present.
+//   - `Resource`: canonical catalog entry, or the unlinked candidate when no catalog is present.
 //   - `error`: unsupported value type, filesystem write failure, malformed URI, or identity construction failure.
-func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Resource, error) {
+func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (Resource, error) {
+	return discoverResource(runtimeEnvironment, value)
+}
+
+// discoverResource is [DiscoverResource] returning the concrete type, which rehydration needs because it
+// assigns through the receiver.
+//
+// Parameters:
+//   - `runtimeEnvironment`: the session runtime environment.
+//   - `value`: bytes, a reader, or a canonical tag URI.
+//
+// Returns:
+//   - `*resource`: canonical catalog entry, or the unlinked candidate when no catalog is present.
+//   - `error`: malformed input, or [op.ResourceBase] construction failure.
+func discoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*resource, error) {
 
 	candidate, err := buildCandidate(runtimeEnvironment, value)
 	if err != nil {
@@ -149,9 +212,9 @@ func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Re
 		return nil, err
 	}
 
-	canonical, ok := got.(*Resource)
+	canonical, ok := got.(*resource)
 	if !ok {
-		return nil, fmt.Errorf("mem.DiscoverResource: catalog entry for %q is %T, want *mem.Resource", candidate.URI(), got)
+		return nil, fmt.Errorf("mem.DiscoverResource: catalog entry for %q is %T, want *mem.resource", candidate.URI(), got)
 	}
 
 	return canonical, nil
@@ -168,7 +231,7 @@ func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Re
 //
 // Returns:
 //   - `op.AddressingMode`: [op.AddressingContent] — identity is the SHA-256 of the archived bytes.
-func (r *Resource) Addressing() op.AddressingMode {
+func (r *resource) Addressing() op.AddressingMode {
 
 	return op.AddressingContent
 }
@@ -184,7 +247,7 @@ func (r *Resource) Addressing() op.AddressingMode {
 //
 // Returns:
 //   - `bool`: true when target is []byte or string; false otherwise.
-func (r *Resource) CanConvertTo(target reflect.Type) bool {
+func (r *resource) CanConvertTo(target reflect.Type) bool {
 
 	return target == byteSliceType || target == stringType
 }
@@ -200,7 +263,7 @@ func (r *Resource) CanConvertTo(target reflect.Type) bool {
 // Returns:
 //   - `any`: projected value ([]byte or string).
 //   - `error`: unrecognized target type, missing source path, or read failure.
-func (r *Resource) ConvertTo(target reflect.Type) (result any, err error) {
+func (r *resource) ConvertTo(target reflect.Type) (result any, err error) {
 
 	if target != byteSliceType && target != stringType {
 		return nil, fmt.Errorf("mem.Resource: cannot convert to %s", target)
@@ -238,8 +301,8 @@ func (r *Resource) ConvertTo(target reflect.Type) (result any, err error) {
 // Returns:
 //   - `op.Digest`: {Algorithm: "sha256", Bytes: decoded Hash}.
 //   - `error`: non-nil if Hash is malformed; should not occur post-construction or post-rehydration.
-func (r *Resource) Digest() (op.Digest, error) {
-	return op.ParseDigest("sha256:" + r.Hash)
+func (r *resource) Digest() (op.Digest, error) {
+	return op.ParseDigest("sha256:" + r.hash)
 }
 
 // Equal reports whether r and other identify the same mem.Resource.
@@ -252,13 +315,13 @@ func (r *Resource) Digest() (op.Digest, error) {
 //
 // Returns:
 //   - `bool`: true when other is a *mem.Resource with the same URI as r.
-func (r *Resource) Equal(other any) bool {
+func (r *resource) Equal(other any) bool {
 
 	if other == nil {
 		return false
 	}
 
-	if _, ok := other.(*Resource); !ok {
+	if _, ok := other.(*resource); !ok {
 		return false
 	}
 
@@ -273,7 +336,7 @@ func (r *Resource) Equal(other any) bool {
 // Returns:
 //   - `[]byte`: the archived content bytes.
 //   - `error`: missing SourcePath (a URI-only rehydrated resource has no local content), or a read failure.
-func (r *Resource) Pack() ([]byte, error) {
+func (r *resource) Pack() ([]byte, error) {
 
 	reader, err := r.Reader()
 	if err != nil {
@@ -296,7 +359,7 @@ func (r *Resource) Pack() ([]byte, error) {
 // Returns:
 //   - `io.ReadCloser`: reader over the full archived content; Close releases the mmap.
 //   - `error`: missing SourcePath, or mmap failure.
-func (r *Resource) Reader() (io.ReadCloser, error) {
+func (r *resource) Reader() (io.ReadCloser, error) {
 	return op.ContentAddressedReader(r)
 }
 
@@ -312,7 +375,7 @@ func (r *Resource) Reader() (io.ReadCloser, error) {
 // Returns:
 //   - `fsroot.Path`: canonical archive path, or the zero fsroot.Path when the Resource has no [op.RuntimeEnvironment],
 //     no Root, or a <specific> that is not in `<algo>:<hex>` form.
-func (r *Resource) SourcePath() fsroot.Path {
+func (r *resource) SourcePath() fsroot.Path {
 	return op.ContentAddressedPath(r)
 }
 
@@ -323,7 +386,7 @@ func (r *Resource) SourcePath() fsroot.Path {
 //
 // Returns:
 //   - `string`: the compact JSON encoding of r.
-func (r *Resource) String() string {
+func (r *resource) String() string {
 
 	return r.Format(r)
 }
@@ -339,7 +402,7 @@ func (r *Resource) String() string {
 //
 // Returns:
 //   - `error`: missing RuntimeEnvironment on receiver, malformed JSON, or rehydration failure.
-func (r *Resource) UnmarshalJSON(data []byte) error {
+func (r *resource) UnmarshalJSON(data []byte) error {
 
 	if r.RuntimeEnvironment() == nil {
 		return errors.New("mem.Resource: UnmarshalJSON requires RuntimeEnvironment on receiver")
@@ -351,7 +414,7 @@ func (r *Resource) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	built, err := DiscoverResource(r.RuntimeEnvironment(), uri)
+	built, err := discoverResource(r.RuntimeEnvironment(), uri)
 	if err != nil {
 		return err
 	}
@@ -370,13 +433,13 @@ func (r *Resource) UnmarshalJSON(data []byte) error {
 //
 // Returns:
 //   - `error`: missing RuntimeEnvironment on receiver, or rehydration failure.
-func (r *Resource) UnmarshalText(text []byte) error {
+func (r *resource) UnmarshalText(text []byte) error {
 
 	if r.RuntimeEnvironment() == nil {
 		return errors.New("mem.Resource: UnmarshalText requires RuntimeEnvironment on receiver")
 	}
 
-	built, err := DiscoverResource(r.RuntimeEnvironment(), string(text))
+	built, err := discoverResource(r.RuntimeEnvironment(), string(text))
 	if err != nil {
 		return err
 	}
@@ -395,7 +458,7 @@ func (r *Resource) UnmarshalText(text []byte) error {
 //
 // Returns:
 //   - `error`: missing RuntimeEnvironment on receiver, decode failure, or rehydration failure.
-func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
+func (r *resource) UnmarshalYAML(unmarshal func(any) error) error {
 
 	if r.RuntimeEnvironment() == nil {
 		return errors.New("mem.Resource: UnmarshalYAML requires RuntimeEnvironment on receiver")
@@ -407,7 +470,7 @@ func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 		return err
 	}
 
-	built, err := DiscoverResource(r.RuntimeEnvironment(), uri)
+	built, err := discoverResource(r.RuntimeEnvironment(), uri)
 	if err != nil {
 		return err
 	}
@@ -431,7 +494,7 @@ func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 // Returns:
 //   - `op.Resource`: the reconstructed *mem.Resource, not interned in any catalog.
 //   - `error`: store write failure, identity construction failure, or a URI mismatch (integrity failure).
-func (r *Resource) Unpack(runtimeEnvironment *op.RuntimeEnvironment, uri string, content []byte) (op.Resource, error) {
+func (r *resource) Unpack(runtimeEnvironment *op.RuntimeEnvironment, uri string, content []byte) (op.Resource, error) {
 
 	candidate, err := buildCandidate(runtimeEnvironment, content)
 	if err != nil {

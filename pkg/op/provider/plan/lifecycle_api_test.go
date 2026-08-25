@@ -771,9 +771,9 @@ func TestGraphSaveLoad_ContentTransport(t *testing.T) {
 	}
 
 	// The function executes on the target host — compiled fresh from the transported source.
-	arrivedFunction, ok := transported[functionResource.URI()].(*function.Resource)
+	arrivedFunction, ok := transported[functionResource.URI()].(function.Resource)
 	if !ok {
-		t.Fatalf("transported %s is %T, want *function.Resource", functionResource.URI(),
+		t.Fatalf("transported %s is %T, want function.Resource", functionResource.URI(),
 			transported[functionResource.URI()])
 	}
 

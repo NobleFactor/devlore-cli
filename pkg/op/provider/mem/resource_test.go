@@ -20,10 +20,25 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
+// concrete reaches the struct behind a sealed [Resource].
+//
+// [op.Resource] declares neither Equal, Pack, nor the marshalers, so the sealed interface does not expose
+// them — before sealing they were reachable only because embedding leaked [op.ResourceBase]'s whole surface.
+// Every caller is in this package, so a white-box test asserting to the implementation is the honest way to
+// reach them rather than widening the exported contract.
+func concrete(t *testing.T, r Resource) *resource {
+	t.Helper()
+	c, ok := r.(*resource)
+	if !ok {
+		t.Fatalf("Resource is %T, want *resource", r)
+	}
+	return c
+}
+
 // --- Interface guards ---
 
 func TestResource_ImplementsInterface(t *testing.T) {
-	var _ op.Resource = (*Resource)(nil)
+	var _ op.Resource = (*resource)(nil)
 }
 
 // --- Test helpers ---
@@ -68,8 +83,8 @@ func TestNewResource_BytesHashesContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
-	if r.Hash != sha256Hex(payload) {
-		t.Errorf("Hash = %q, want %q", r.Hash, sha256Hex(payload))
+	if r.Hash() != sha256Hex(payload) {
+		t.Errorf("Hash = %q, want %q", r.Hash(), sha256Hex(payload))
 	}
 }
 
@@ -82,7 +97,7 @@ func TestNewResource_BytesURIEncodesDigest(t *testing.T) {
 		t.Fatalf("NewResource: %v", err)
 	}
 	want := "sha256:" + sha256Hex(payload)
-	if got := r.ReachabilityURI(); got != want {
+	if got := concrete(t, r).ReachabilityURI(); got != want {
 		t.Errorf("ReachabilityURI = %q, want %q", got, want)
 	}
 }
@@ -118,8 +133,8 @@ func TestNewResource_BytesEmpty(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewResource(empty bytes): %v", err)
 	}
-	if r.Hash != sha256Hex([]byte{}) {
-		t.Errorf("Hash for empty content = %q, want %q", r.Hash, sha256Hex([]byte{}))
+	if r.Hash() != sha256Hex([]byte{}) {
+		t.Errorf("Hash for empty content = %q, want %q", r.Hash(), sha256Hex([]byte{}))
 	}
 }
 
@@ -269,7 +284,7 @@ func TestSourcePath_ShardedLayout(t *testing.T) {
 		t.Fatalf("NewResource: %v", err)
 	}
 
-	want := slashpath.Join(".devlore", "mem", "resource", "sha256", r.Hash[0:2], r.Hash)
+	want := slashpath.Join(".devlore", "mem", "resource", "sha256", r.Hash()[0:2], r.Hash())
 	if got := r.SourcePath().Rel(); got != want {
 		t.Errorf("SourcePath = %q, want %q", got, want)
 	}
@@ -293,8 +308,8 @@ func TestDiscoverResource_RoundTripsURI(t *testing.T) {
 	if discovered.URI() != original.URI() {
 		t.Errorf("URI = %q, want %q", discovered.URI(), original.URI())
 	}
-	if discovered.Hash != original.Hash {
-		t.Errorf("Hash = %q, want %q", discovered.Hash, original.Hash)
+	if discovered.Hash() != original.Hash() {
+		t.Errorf("Hash = %q, want %q", discovered.Hash(), original.Hash())
 	}
 }
 
@@ -326,7 +341,7 @@ func TestConvertTo_Bytes(t *testing.T) {
 		t.Fatalf("NewResource: %v", err)
 	}
 
-	got, err := r.ConvertTo(reflect.TypeFor[[]byte]())
+	got, err := concrete(t, r).ConvertTo(reflect.TypeFor[[]byte]())
 	if err != nil {
 		t.Fatalf("ConvertTo []byte: %v", err)
 	}
@@ -347,7 +362,7 @@ func TestConvertTo_String(t *testing.T) {
 		t.Fatalf("NewResource: %v", err)
 	}
 
-	got, err := r.ConvertTo(reflect.TypeFor[string]())
+	got, err := concrete(t, r).ConvertTo(reflect.TypeFor[string]())
 	if err != nil {
 		t.Fatalf("ConvertTo string: %v", err)
 	}
@@ -364,7 +379,7 @@ func TestConvertTo_UnsupportedTarget(t *testing.T) {
 		t.Fatalf("NewResource: %v", err)
 	}
 
-	_, err = r.ConvertTo(reflect.TypeFor[int]())
+	_, err = concrete(t, r).ConvertTo(reflect.TypeFor[int]())
 	if err == nil {
 		t.Fatal("expected error for unsupported target")
 	}
@@ -389,7 +404,7 @@ func TestCanConvertTo_AcceptsBytesAndString(t *testing.T) {
 	}
 
 	for _, c := range cases {
-		if got := r.CanConvertTo(c.target); got != c.want {
+		if got := concrete(t, r).CanConvertTo(c.target); got != c.want {
 			t.Errorf("CanConvertTo(%s) = %v, want %v", c.target, got, c.want)
 		}
 	}
@@ -409,8 +424,8 @@ func TestEqual_SameBytes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("r2: %v", err)
 	}
-	if !r1.Equal(r2) {
-		t.Error("expected r1.Equal(r2) for byte-identical inputs")
+	if !concrete(t, r1).Equal(r2) {
+		t.Error("expected concrete(t, r1).Equal(r2) for byte-identical inputs")
 	}
 }
 
@@ -420,7 +435,7 @@ func TestEqual_DifferentBytes(t *testing.T) {
 
 	r1, _ := NewResource(activation.RuntimeEnvironment, activation.CallerID, []byte("a"))
 	r2, _ := NewResource(activation.RuntimeEnvironment, activation.CallerID, []byte("b"))
-	if r1.Equal(r2) {
+	if concrete(t, r1).Equal(r2) {
 		t.Error("expected Equal to be false for distinct content")
 	}
 }
@@ -429,10 +444,10 @@ func TestEqual_RejectsNonResource(t *testing.T) {
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
 	r, _ := NewResource(runtimeEnvironment, "", []byte("x"))
 
-	if r.Equal("not a resource") {
-		t.Error("expected Equal to reject non-*Resource")
+	if concrete(t, r).Equal("not a resource") {
+		t.Error("expected Equal to reject non-Resource")
 	}
-	if r.Equal(nil) {
+	if concrete(t, r).Equal(nil) {
 		t.Error("expected Equal to reject nil")
 	}
 }
@@ -458,20 +473,20 @@ func TestUnmarshalJSON_RehydratesFromURI(t *testing.T) {
 		t.Fatalf("DiscoverResource seed: %v", err)
 	}
 
-	if err := seeded.UnmarshalJSON(data); err != nil {
+	if err := concrete(t, seeded).UnmarshalJSON(data); err != nil {
 		t.Fatalf("UnmarshalJSON: %v", err)
 	}
 	if seeded.URI() != original.URI() {
 		t.Errorf("URI after unmarshal = %q, want %q", seeded.URI(), original.URI())
 	}
-	if seeded.Hash != original.Hash {
-		t.Errorf("Hash after unmarshal = %q, want %q", seeded.Hash, original.Hash)
+	if seeded.Hash() != original.Hash() {
+		t.Errorf("Hash after unmarshal = %q, want %q", seeded.Hash(), original.Hash())
 	}
 }
 
 func TestUnmarshalJSON_RequiresRuntimeEnvironment(t *testing.T) {
-	r := &Resource{}
-	if err := r.UnmarshalJSON([]byte(`"tag:..:sha256:abc#"`)); err == nil ||
+	r := &resource{}
+	if err := concrete(t, r).UnmarshalJSON([]byte(`"tag:..:sha256:abc#"`)); err == nil ||
 		!strings.Contains(err.Error(), "RuntimeEnvironment") {
 		t.Errorf("expected RuntimeEnvironment error, got %v", err)
 	}
@@ -491,7 +506,7 @@ func TestUnmarshalText_RehydratesFromURI(t *testing.T) {
 		t.Fatalf("DiscoverResource seed: %v", err)
 	}
 
-	if err := seeded.UnmarshalText([]byte(original.URI())); err != nil {
+	if err := concrete(t, seeded).UnmarshalText([]byte(original.URI())); err != nil {
 		t.Fatalf("UnmarshalText: %v", err)
 	}
 	if seeded.URI() != original.URI() {
@@ -523,7 +538,7 @@ func TestUnmarshalYAML_RehydratesFromURI(t *testing.T) {
 		return nil
 	}
 
-	if err := seeded.UnmarshalYAML(decode); err != nil {
+	if err := concrete(t, seeded).UnmarshalYAML(decode); err != nil {
 		t.Fatalf("UnmarshalYAML: %v", err)
 	}
 	if seeded.URI() != original.URI() {
@@ -561,9 +576,9 @@ func TestDigest_MatchesHash(t *testing.T) {
 		t.Errorf("Algorithm = %q, want \"sha256\"", d.Algorithm)
 	}
 
-	wantBytes, err := hex.DecodeString(r.Hash)
+	wantBytes, err := hex.DecodeString(r.Hash())
 	if err != nil {
-		t.Fatalf("decode Hash: %v", err)
+		t.Fatalf("decode hash: %v", err)
 	}
 	if !bytes.Equal(d.Bytes, wantBytes) {
 		t.Errorf("Bytes = %x, want %x", d.Bytes, wantBytes)
@@ -573,7 +588,7 @@ func TestDigest_MatchesHash(t *testing.T) {
 // --- Reader error path ---
 
 func TestReader_RejectsMissingSourcePath(t *testing.T) {
-	r := &Resource{}
+	r := &resource{}
 	if _, err := r.Reader(); err == nil {
 		t.Fatal("expected error for missing SourcePath")
 	}

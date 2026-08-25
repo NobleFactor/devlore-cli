@@ -59,12 +59,18 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 //   - `any`: the function's result, converted to a native Go value.
 //   - `error`: non-nil when the resource fails to initialize, an argument or the result cannot be converted, or the
 //     call itself fails.
-func (p *Provider) Call(callable *Resource, args []any, kwargs map[string]any) (any, error) {
+func (p *Provider) Call(callable Resource, args []any, kwargs map[string]any) (any, error) {
 
 	if callable == nil {
 		return nil, fmt.Errorf("function.Call: callable is nil")
 	}
-	if callable.invoker == nil {
+	// The invoker is implementation state, not part of the sealed contract — a caller holds the interface,
+	// and only this package can produce something that satisfies it.
+	concrete, ok := callable.(*resource)
+	if !ok {
+		return nil, fmt.Errorf("function.Call: callable is %T, want *function.resource", callable)
+	}
+	if concrete.invoker == nil {
 		return nil, fmt.Errorf("function.Call: invoker not initialized on the resource")
 	}
 
@@ -73,7 +79,7 @@ func (p *Provider) Call(callable *Resource, args []any, kwargs map[string]any) (
 		return nil, fmt.Errorf("function.Call: %w", err)
 	}
 
-	return callable.invoker.CallStarlark(starlarkCallable, args, kwargs)
+	return concrete.invoker.CallStarlark(starlarkCallable, args, kwargs)
 }
 
 // endregion

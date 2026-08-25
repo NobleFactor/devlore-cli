@@ -414,7 +414,7 @@ resource embed in the tree — `json` and `yaml` embed `op.ResourceBase` alone.
 implementing `op.Unpacker`, the derived loop would skip it, and the test would pass while content
 rehydration was broken. The set is now named explicitly, so a fifth unpacker has to be added deliberately.
 
-#### Phase 5 — `mem` and `function` — status: pending
+#### Phase 5 — `mem` and `function` — status: complete
 
 **`mem` moved here from phase 4 (USER, 2026-08-24): the two cannot be sealed separately.**
 `function.Resource` embeds `mem.Resource` cross-package, and Go cannot embed an unexported type from
@@ -438,6 +438,25 @@ sealed interface that no other provider raises.
 It also carries **the first out-of-package consumer any phase has had to change**:
 `pkg/op/provider/plan/lifecycle_api_test.go:774` asserts `.(*function.Resource)` and becomes
 `.(function.Resource)`. The other four external references are doc comments.
+
+**Landed 2026-08-25 (#662).** The embed came out without the `mem` mixin constructor the ruling
+anticipated — because phase 4's groundwork had already moved the content-address path formula into `op`.
+`function` now embeds `op.ResourceBase` like every other provider and reaches its pack through
+`op.ContentAddressedPath` / `op.ContentAddressedReader`. Four findings:
+
+1. **`function` inherited nine methods and genuinely used two.** `SourcePath` and the `Hash` field. `Pack`
+   and `Unpack` never delegated — they build their own transport envelope — and `sourceBytes` already
+   opened its own mmap. The other seven are the per-provider set every sealed provider writes for itself,
+   so supplying them was joining the convention rather than paying a cost.
+2. **The first out-of-package consumer any phase has had.** `pkg/op/provider/plan/lifecycle_api_test.go`
+   calls `ConvertTo` on a transported function, so `function.Resource` declares `CanConvertTo`/`ConvertTo`
+   — the first sealed interface to reach past `op.Resource` plus accessors. Every earlier provider's
+   consumers turned out to be in-package or doc comments.
+3. **`function`'s six exported fields had no external readers at all**, so they went unexported with no
+   interface methods. The transport envelope's fields stay exported — that struct is the wire form.
+4. **Running the lint gate before pushing caught four issues** a `vet` + `test` check could not see: a
+   cyclomatic-complexity ceiling breach in `ConvertTo`, three receiver-naming inconsistencies, and three
+   misspellings. The first phase where that ran before the push rather than after CI.
 
 #### Phase 6 — `pkg` — status: pending
 

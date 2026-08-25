@@ -16,11 +16,22 @@ import (
 	"go.starlark.net/syntax"
 )
 
+// concrete reaches the struct behind a sealed [Resource], for the implementation state the interface does
+// not expose — SourcePath, the compiled cache, and the transport metadata. All in-package.
+func concrete(t *testing.T, r Resource) *resource {
+	t.Helper()
+	c, ok := r.(*resource)
+	if !ok {
+		t.Fatalf("Resource is %T, want *resource", r)
+	}
+	return c
+}
+
 // --- Interface guards ---
 
 func TestResource_ImplementsResourceInterface(t *testing.T) {
 	// function.Resource embeds mem.Resource, which implements op.Resource.
-	var _ op.Resource = (*Resource)(nil)
+	var _ op.Resource = (*resource)(nil)
 }
 
 // --- Test helpers ---
@@ -128,27 +139,27 @@ def inc(x):
 		t.Fatalf("NewFunction: %v", err)
 	}
 
-	if f.SourcePath().Abs() == "" {
+	if concrete(t, f).SourcePath().Abs() == "" {
 		t.Fatal("SourcePath is empty — pack was not archived")
 	}
-	if f.Hash == "" {
+	if concrete(t, f).Hash() == "" {
 		t.Fatal("Hash is empty — source was not hashed")
 	}
-	if len(f.Compiled) == 0 {
+	if len(concrete(t, f).compiled) == 0 {
 		t.Fatal("Compiled cache is empty — bytecode was not retained")
 	}
-	if f.CompilerVersion != starlark.CompilerVersion {
-		t.Errorf("CompilerVersion = %d, want %d", f.CompilerVersion, starlark.CompilerVersion)
+	if concrete(t, f).compilerVersion != starlark.CompilerVersion {
+		t.Errorf("CompilerVersion = %d, want %d", concrete(t, f).compilerVersion, starlark.CompilerVersion)
 	}
 
-	if f.FuncName != "inc" {
-		t.Errorf("FuncName = %q, want %q", f.FuncName, "inc")
+	if concrete(t, f).funcName != "inc" {
+		t.Errorf("FuncName = %q, want %q", concrete(t, f).funcName, "inc")
 	}
-	if f.NumParams != 1 {
-		t.Errorf("NumParams = %d, want 1", f.NumParams)
+	if concrete(t, f).numParams != 1 {
+		t.Errorf("NumParams = %d, want 1", concrete(t, f).numParams)
 	}
-	if len(f.ParamNames) != 1 || f.ParamNames[0] != "x" {
-		t.Errorf("ParamNames = %v, want [x]", f.ParamNames)
+	if len(concrete(t, f).paramNames) != 1 || concrete(t, f).paramNames[0] != "x" {
+		t.Errorf("ParamNames = %v, want [x]", concrete(t, f).paramNames)
 	}
 }
 
@@ -201,7 +212,7 @@ def greet(name):
 	f, _ := NewResource(runtimeEnvironment, "", starFn)
 
 	// Wipe memory cache to force mmap fallback.
-	f.Compiled = nil
+	concrete(t, f).compiled = nil
 
 	target := reflect.TypeFor[func(string) string]()
 	bridged, err := op.Convert(runtimeEnvironment, f, target)
@@ -227,8 +238,8 @@ def identity(x):
 	f, _ := NewResource(runtimeEnvironment, "", starFn)
 
 	// Force version skew and wipe cache.
-	f.Compiled = nil
-	f.CompilerVersion = 0
+	concrete(t, f).compiled = nil
+	concrete(t, f).compilerVersion = 0
 
 	target := reflect.TypeFor[func(int) int]()
 	bridged, err := op.Convert(runtimeEnvironment, f, target)
@@ -245,7 +256,7 @@ def identity(x):
 func TestResource_Init_NotAPointer(t *testing.T) {
 
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
-	f := &Resource{}
+	f := &resource{}
 	target := reflect.TypeFor[int]() // not a func
 	_, err := op.Convert(runtimeEnvironment, f, target)
 	if err == nil {

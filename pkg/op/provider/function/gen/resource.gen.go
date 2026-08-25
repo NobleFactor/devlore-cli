@@ -20,6 +20,7 @@ func init() {
 			return provider.DiscoverResource(runtimeEnvironment, identity)
 		},
 		map[string][]string{
+			"Equal":        {"other"},
 			"CanConvertTo": {"target"},
 			"ConvertTo":    {"target"},
 			"Init":         {"thread"},
