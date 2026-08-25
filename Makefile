@@ -53,6 +53,20 @@ VERSION := $(VERSION)
 COMMIT := $(COMMIT)
 BUILD_DATE := $(BUILD_DATE)
 
+# Carry the frozen triple across the sub-make boundary, so one `make` invocation means one stamp for
+# every binary it produces.
+#
+# `build/star: FORCE` shells out to `$(MAKE) star`, and a sub-make is a NEW run: it re-parses this
+# file and the `?=` above would run a second `date` and a second `git describe`. Exporting puts the
+# frozen values in the sub-make's environment, where those same `?=` guards find them already defined
+# and skip the $(shell) entirely — the override path the comment above already describes.
+#
+# This extends the simply-expanded fix rather than reversing it. That fix stopped re-evaluation
+# WITHIN a run; the sub-make is the one boundary it did not reach, which is why build/star and
+# build/<host>/star could be stamped seconds apart and agree only by landing in the same one-second
+# tick of `date`.
+export VERSION COMMIT BUILD_DATE
+
 # The package holding the stamped variables. Named once: `verify-ldflags` asserts that every other
 # build definition in the repository names the same one.
 VERSION_PACKAGE := github.com/NobleFactor/devlore-cli/pkg/application
@@ -65,10 +79,35 @@ LDFLAGS := -ldflags "-X $(VERSION_PACKAGE).Version=$(VERSION) -X $(VERSION_PACKA
 # binaries, man pages, completions, and configs under this root.
 PREFIX ?= ~/.local
 
-### PLATFORMS
+### PLATFORM SELECTION
 
-# Platforms for cross-compilation.
-PLATFORMS := darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64 windows/arm64
+# Every platform the project supports. `dist` ships all of them, always — a release is not a
+# selection.
+ALL_PLATFORMS := darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64 windows/arm64
+
+# PLATFORM is the caller's selection: `all`, or one or more <goos>/<goarch> names. It stays empty
+# unless named, because build and dist want opposite defaults — you build what you are about to run,
+# and you ship everything.
+#
+#   make build                                  # this machine
+#   make build PLATFORM=linux/amd64
+#   make build PLATFORM=all                     # every supported platform
+#   make dist                                   # every supported platform
+#   make dist  PLATFORM="linux/amd64 darwin/arm64"
+#
+# The inner loop should not pay to link six platforms it is not about to run: warm, the full matrix
+# takes ~41s against ~13s for the host alone. Cross-compilation stays one word away rather than a tax
+# on every build.
+PLATFORM ?=
+
+# Resolve the selection against a target-supplied default: $(call select,<default list>). `all`
+# expands to every supported platform; empty means the caller did not choose, so the default stands.
+#
+# A function rather than a variable because the default differs per target, and because a command-line
+# PLATFORM cannot be reassigned from the makefile — a plain `PLATFORM := $(ALL_PLATFORMS)` inside an
+# ifeq is silently ignored and the loop builds a platform literally named "all". Verified by writing
+# it that way first.
+select = $(if $(PLATFORM),$(if $(filter all,$(PLATFORM)),$(ALL_PLATFORMS),$(PLATFORM)),$(1))
 
 ### BUILD_TAGS
 
@@ -125,9 +164,14 @@ SP := cmd/star/provider
 # Pinned explicitly rather than by clearing GOOS/GOARCH, so a recipe using $(HOST_GO) says why it
 # differs from a plain `go`. When the target IS the host these expand to the ambient values, so a
 # native build is byte-for-byte what it was.
+#
+# CGO_ENABLED=0 matches what products are built with, so `star` is one binary built one way rather
+# than two that differ in whether net and os/user are the cgo or the pure-Go implementations. The
+# codebase is pure Go — zero `import "C"` — so nothing on the host needs cgo, and every tool comes
+# out static.
 HOST_GOOS := $(shell go env GOHOSTOS)
 HOST_GOARCH := $(shell go env GOHOSTARCH)
-HOST_GO := GOOS=$(HOST_GOOS) GOARCH=$(HOST_GOARCH) go
+HOST_GO := GOOS=$(HOST_GOOS) GOARCH=$(HOST_GOARCH) CGO_ENABLED=0 go
 
 # The target the product is being built for, and whether that differs from the host. `go env` reports
 # the ambient GOOS/GOARCH when set and the host's otherwise, so this is the effective target either
@@ -147,12 +191,25 @@ HOST_DIR := build/$(HOST_GOOS)-$(HOST_GOARCH)
 
 # The split that decides what gets cross-compiled.
 #
-# PRODUCTS ship: they are built once per entry in $(PLATFORMS), into build/<goos>-<goarch>/. TOOLS are
-# development instruments — they run here, on this machine, against this checkout, and nowhere else, so
-# they are built once for the host and stay at build/<name>. `star` appears in both: the product copy
-# ships beside the others, while the host copy at build/star is what $(STAR) drives codegen with.
-PRODUCTS := lore star writ devlore-test
-TOOLS := devlore-docs devlore-index devlore-inventory
+# PRODUCTS ship, so they are built once per selected platform, into build/<goos>-<goarch>/. TOOLS
+# are instruments of this checkout — they run here, on this machine, against this tree, and nowhere
+# else — so they are built once for the host and stay flat at build/<name>.
+#
+# devlore-test is a TOOL: it is the graph test harness, and it does not ship today. Cross-compiling a
+# harness produces binaries no one can run and nothing distributes.
+PRODUCTS := lore star writ
+TOOLS := devlore-docs devlore-index devlore-inventory devlore-test
+
+# Products that are also run from THIS checkout. They ship, and they are used here, so each keeps a
+# flat copy at build/<name> beside its per-platform product — "the binary that runs on this machine"
+# gets one path that does not shift with the host triple, the guarantee $(STAR) has always relied on
+# for build/star.
+#
+# `star` is absent deliberately: build/star is produced by the `star:` target through the
+# `build/star: FORCE` bootstrap, which must run before codegen and therefore before this list is
+# reached. Adding it here would build the same bytes a second time and put two recipes in charge of
+# one path.
+HOST_COPIES := lore writ
 
 ## TARGETS
 
@@ -178,14 +235,14 @@ star-lkg: star ## Snapshot build/star as last-known-good (run after a green buil
 # GOEXE is ".exe" on Windows and empty elsewhere — binaries must carry it to be executable there.
 GOEXE := $(shell go env GOEXE)
 
-build: generate ## Build every product for every platform in PLATFORMS (override to restrict)
+build: generate ## Build every product for PLATFORM (default: this machine; `all` for every platform)
 	# The build comes to the machine: one host produces every platform's binaries, and installing
 	# anywhere is a copy. The codebase is pure Go — zero `import "C"` — so the whole matrix
 	# cross-compiles from here with GOOS/GOARCH alone, no per-platform toolchains and no build VMs.
 	#
-	# Restrict the inner loop with e.g. `make build PLATFORMS=darwin/arm64`. Generators already ran
-	# once, host-side, in `generate`; this loop only links.
-	for platform in $(PLATFORMS); do
+	# Widen with `make build PLATFORM=all`, or name a subset. Generators already ran once, host-side,
+	# in `generate`; this loop only links.
+	for platform in $(call select,$(HOST_GOOS)/$(HOST_GOARCH)); do
 		os=$${platform%/*}
 		arch=$${platform#*/}
 		ext=""
@@ -197,7 +254,7 @@ build: generate ## Build every product for every platform in PLATFORMS (override
 	done
 	# Development tools are host-only by construction — they act on this checkout, so a
 	# target-architecture copy would be unrunnable and meaningless.
-	for tool in $(TOOLS); do
+	for tool in $(TOOLS) $(HOST_COPIES); do
 		$(HOST_GO) build $(LDFLAGS) -o build/$$tool$(HOST_GOEXE) ./cmd/$$tool
 	done
 	# The stamp must reach the binary. `-X` against a symbol that does not exist is NOT an error —
@@ -205,11 +262,11 @@ build: generate ## Build every product for every platform in PLATFORMS (override
 	# 2026-08-16 shipped that way, unnoticed, because nothing compared the two. See
 	# docs/plans/version-stamping.md.
 	#
-	# Only the host's own copy can be executed, and it exists only when the host is in PLATFORMS —
-	# which it is by default, but not under a restricting override. A skip is announced rather than
+	# Only the host's own copy can be executed, and it exists only when the host is in the selection —
+	# which it is by default, but not under a restricting PLATFORM. A skip is announced rather than
 	# silently taken: a guard that says nothing reads exactly like a passing one.
 	if [ ! -x "$(HOST_DIR)/writ$(HOST_GOEXE)" ]; then
-		echo "$(HOST_GOOS)/$(HOST_GOARCH) is not in PLATFORMS: skipping the version-stamp check (nothing built here can run here)"
+		echo "$(HOST_GOOS)/$(HOST_GOARCH) is not in PLATFORM: skipping the version-stamp check (nothing built here can run here)"
 	else
 		stamped="$$($(HOST_DIR)/writ$(HOST_GOEXE) version --short)"
 		if [ "$$stamped" != "$(VERSION)" ]; then
@@ -251,11 +308,7 @@ test: generate ## Run tests (TAGS=all|integration|e2e|"", default: all)
 test-race: generate ## Run tests with race detector (TAGS=all|integration|e2e|"", default: all)
 	go test $(if $(_TAGS),-tags '$(_TAGS)') $$(go list ./... | grep -v '/pkg/op/provider$$') -count=1 -race -timeout 120s
 
-test-scenario: ## Run every scenario: the real binaries driven end to end in a sandbox
-	# Scenarios drive binaries that must RUN, so only the host's copies are of any use. Building the
-	# whole matrix here would cross-compile 20 binaries nothing in this target can execute — and CI
-	# runs this on three platforms.
-	$(MAKE) build PLATFORMS=$(HOST_GOOS)/$(HOST_GOARCH)
+test-scenario: build ## Run every scenario: the real binaries driven end to end in a sandbox
 	# The writ-deploy scenario (docs/plans/writ-deploy-scenario.md) — writ's alone.
 	WRIT_SCENARIO_RUN=1 go test -run TestWritDeployScenario -v -count=1 -timeout 600s ./cmd/writ
 	# Self install / uninstall, once per tool. Belongs to no single command, so it lives in cmd/scenario.
@@ -333,24 +386,21 @@ dev: ## Activate git hooks
 	git config core.hooksPath .githooks
 	echo "Hooks activated: .githooks/pre-commit"
 
-docs: ## Generate CLI documentation
-	# devlore-docs is a host tool and the docs it writes are host-independent; the matrix has nothing
-	# to contribute.
-	$(MAKE) build PLATFORMS=$(HOST_GOOS)/$(HOST_GOARCH)
+docs: build ## Generate CLI documentation
 	build/devlore-docs$(HOST_GOEXE) --output-dir=docs/cli --version=$(VERSION)
 
 ##@ Distribution
 
 dist: dist-all checksums ## Build distribution archives with checksums
 
-dist-all: build ## Build distribution archives for all platforms
+dist-all: build ## Build distribution archives for PLATFORM (default: every supported platform)
 	# Depends on `build` for its stamp check, not for its binaries. This is the path that ships
 	# (.github/workflows/release.yaml runs `make dist`), it cross-compiles with the same LDFLAGS and
 	# the same VERSION, and it cannot run what it produces for other platforms. `build` proves on the
 	# host that those flags bind to real symbols — which is the failure that shipped unnoticed until
 	# 2026-08-16. See docs/plans/version-stamping.md.
 	mkdir -p dist
-	for platform in $(PLATFORMS); do
+	for platform in $(call select,$(ALL_PLATFORMS)); do
 		os=$${platform%/*}
 		arch=$${platform#*/}
 		ext=""
