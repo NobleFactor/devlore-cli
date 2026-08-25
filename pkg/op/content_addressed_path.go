@@ -14,7 +14,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 )
 
-// ContentPath returns the sharded on-disk location of a content-addressed resource's packed bytes.
+// ContentAddressedPath returns the sharded on-disk location of a content-addressed resource's stored bytes.
 //
 // The layout is `.devlore/<package>/<type>/<algo>/<first-two-hex>/<hex>`, derived entirely from the resource's
 // own base: the run's root, the `<algo>:<hex>` reachability URI, and the type id. It therefore computes the
@@ -31,9 +31,9 @@ import (
 //   - `resource`: any resource whose reachability URI is `<algo>:<hex>`.
 //
 // Returns:
-//   - `fsroot.Path`: the content path, or the zero Path when there is no root or the URI is not in
-//     `<algo>:<hex>` form. A zero Path is the caller's signal that nothing was archived.
-func ContentPath(resource Resource) fsroot.Path {
+//   - `fsroot.Path`: the content-addressed path, or the zero Path when there is no root or the URI is not
+//     in `<algo>:<hex>` form. A zero Path is the caller's signal that this resource is not content-addressed.
+func ContentAddressedPath(resource Resource) fsroot.Path {
 
 	if resource == nil {
 		return fsroot.Path{}
@@ -64,31 +64,31 @@ func ContentPath(resource Resource) fsroot.Path {
 		".devlore", packageName, strings.ToLower(typeName), algo, shard, hexPart)
 }
 
-// ContentReader opens a content-addressed resource's packed bytes, memory-mapped.
+// ContentAddressedReader opens a content-addressed resource's stored bytes, memory-mapped.
 //
 // Each call opens a new mmap; the caller must Close the returned reader, which unmaps the file. The content is
 // never held in the Go heap.
 //
 // Parameters:
-//   - `resource`: any resource whose content lives at [ContentPath].
+//   - `resource`: any resource whose stored bytes live at [ContentAddressedPath].
 //
 // Returns:
 //   - `io.ReadCloser`: a reader over the full archived content.
-//   - `error`: no content path (nothing archived), or the mapping failed.
-func ContentReader(resource Resource) (io.ReadCloser, error) {
+//   - `error`: no content-addressed path (nothing archived), or the mapping failed.
+func ContentAddressedReader(resource Resource) (io.ReadCloser, error) {
 
-	abs := ContentPath(resource).Abs()
+	abs := ContentAddressedPath(resource).Abs()
 
 	if abs == "" {
-		return nil, errors.New("op.ContentReader: no content path — the resource was never archived")
+		return nil, errors.New("op.ContentAddressedReader: no content-addressed path — the resource was never archived")
 	}
 
 	mapped, err := mmap.Open(abs)
 	if err != nil {
-		return nil, fmt.Errorf("op.ContentReader: mmap %s: %w", abs, err)
+		return nil, fmt.Errorf("op.ContentAddressedReader: mmap %s: %w", abs, err)
 	}
 
-	return &contentReader{
+	return &contentAddressedReader{
 		mmap:    mapped,
 		section: io.NewSectionReader(mapped, 0, int64(mapped.Len())),
 	}, nil
@@ -96,8 +96,8 @@ func ContentReader(resource Resource) (io.ReadCloser, error) {
 
 // region SUPPORTING TYPES
 
-// contentReader is the mmap-backed [io.ReadCloser] returned by [ContentReader].
-type contentReader struct {
+// contentAddressedReader is the mmap-backed [io.ReadCloser] returned by [ContentAddressedReader].
+type contentAddressedReader struct {
 
 	// mmap is the underlying memory map; held so Close can unmap it.
 	mmap *mmap.ReaderAt
@@ -114,13 +114,13 @@ type contentReader struct {
 // Returns:
 //   - `int`: bytes read.
 //   - `error`: io.EOF at the end of the content, or a read failure.
-func (r *contentReader) Read(p []byte) (int, error) { return r.section.Read(p) }
+func (r *contentAddressedReader) Read(p []byte) (int, error) { return r.section.Read(p) }
 
 // Close unmaps the underlying file.
 //
 // Returns:
 //   - `error`: non-nil when unmapping fails.
-func (r *contentReader) Close() error { return r.mmap.Close() }
+func (r *contentAddressedReader) Close() error { return r.mmap.Close() }
 
 // endregion
 

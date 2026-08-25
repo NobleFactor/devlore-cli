@@ -298,7 +298,7 @@ func (r *Resource) Pack() ([]byte, error) {
 //   - `io.ReadCloser`: reader over the full archived content; Close releases the mmap.
 //   - `error`: missing SourcePath, or mmap failure.
 func (r *Resource) Reader() (io.ReadCloser, error) {
-	return op.ContentReader(r)
+	return op.ContentAddressedReader(r)
 }
 
 // SourcePath returns the on-disk archive path for this Resource under the runtime environment's [fsroot.Dir].
@@ -314,7 +314,7 @@ func (r *Resource) Reader() (io.ReadCloser, error) {
 //   - `fsroot.Path`: canonical archive path, or the zero fsroot.Path when the Resource has no [op.RuntimeEnvironment],
 //     no Root, or a <specific> that is not in `<algo>:<hex>` form.
 func (r *Resource) SourcePath() fsroot.Path {
-	return op.ContentPath(r)
+	return op.ContentAddressedPath(r)
 }
 
 // String returns the compact JSON encoding of the Resource for debug output.
