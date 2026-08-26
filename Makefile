@@ -85,30 +85,44 @@ PREFIX ?= ~/.local
 # selection.
 ALL_PLATFORMS := darwin/amd64 darwin/arm64 linux/amd64 linux/arm64 windows/amd64 windows/arm64
 
-# PLATFORM is the caller's selection: `all`, or one or more <goos>/<goarch> names. It stays empty
-# unless named, because build and dist want opposite defaults — you build what you are about to run,
-# and you ship everything.
+# PLATFORM is the caller's selection: the keyword `host`, the keyword `all`, or one or more
+# <goos>/<goarch> names. It stays empty unless named, because build and dist want opposite defaults
+# — you build what you are about to run, and you ship everything.
 #
-#   make build                                  # this machine
+#   make build                                  # host — build's default
+#   make build PLATFORM=host                    # the same, said out loud
 #   make build PLATFORM=linux/amd64
 #   make build PLATFORM=all                     # every supported platform
-#   make dist                                   # every supported platform
+#   make dist                                   # every supported platform — dist's default
 #   make dist  PLATFORM="linux/amd64 darwin/arm64"
+#
+# `host` rather than `current` or `local`: this file already names the machine it runs on six ways
+# (HOST_GOOS, HOST_GOARCH, HOST_GO, HOST_GOEXE, HOST_DIR, HOST_COPIES), every one of them from Go's
+# own GOHOSTOS/GOHOSTARCH, and CROSS is defined as target ≠ host. `PLATFORM=host` therefore reads as
+# precisely what it does — do not cross-compile — and a third synonym would only blur that.
+#
+# PLATFORM must stay empty by default. A non-empty default is never overridden by a target, so
+# dist's default would become unreachable and releases would go host-only without announcing it.
+# The defaults live at the call sites, as keywords, where each target can state its own.
 #
 # The inner loop should not pay to link six platforms it is not about to run: warm, the full matrix
 # takes ~41s against ~13s for the host alone. Cross-compilation stays one word away rather than a tax
 # on every build.
 PLATFORM ?=
 
-# Resolve the selection against a target-supplied default: $(call select,<default list>). `all`
-# expands to every supported platform; empty means the caller did not choose, so the default stands.
+# Expand the two keywords; anything else is already a list of <goos>/<goarch> names.
+expand = $(if $(filter all,$(1)),$(ALL_PLATFORMS),$(if $(filter host,$(1)),$(HOST_GOOS)/$(HOST_GOARCH),$(1)))
+
+# Resolve the selection against a target-supplied default: $(call select,host) or $(call select,all).
+# The caller's PLATFORM wins when named; otherwise the target's own default stands. Both go through
+# expand, so `host` and `all` mean the same thing whether typed or defaulted.
 #
 # A function rather than a variable because the default differs per target, and because a command-line
 # PLATFORM cannot be reassigned by a plain assignment — only `override` does that, and a bare
 # `PLATFORM := $(ALL_PLATFORMS)` inside an
 # ifeq is silently ignored and the loop builds a platform literally named "all". Verified by writing
 # it that way first.
-select = $(if $(PLATFORM),$(if $(filter all,$(PLATFORM)),$(ALL_PLATFORMS),$(PLATFORM)),$(1))
+select = $(call expand,$(if $(PLATFORM),$(PLATFORM),$(1)))
 
 ### STAR
 
@@ -249,7 +263,7 @@ build: generate ## Build every product for PLATFORM (default: this machine; `all
 	#
 	# Widen with `make build PLATFORM=all`, or name a subset. Generators already ran once, host-side,
 	# in `generate`; this loop only links.
-	for platform in $(call select,$(HOST_GOOS)/$(HOST_GOARCH)); do
+	for platform in $(call select,host); do
 		os=$${platform%/*}
 		arch=$${platform#*/}
 		ext=""
@@ -434,7 +448,7 @@ dist-all: ## Build distribution archives for PLATFORM (default: every supported 
 	# host that those flags bind to real symbols — which is the failure that shipped unnoticed until
 	# 2026-08-16. See docs/plans/version-stamping.md.
 	mkdir -p dist
-	for platform in $(call select,$(ALL_PLATFORMS)); do
+	for platform in $(call select,all); do
 		os=$${platform%/*}
 		arch=$${platform#*/}
 		ext=""
