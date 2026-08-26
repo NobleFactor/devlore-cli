@@ -12,9 +12,9 @@ updated: 2026-03-09
 
 Replace all direct `os.*` filesystem calls in providers with operations scoped through `op.Root`, an interface with three concrete implementations:
 
-- `confinedRoot` wraps `*os.Root` (Go 1.24) for OS-enforced chroot-style confinement during execution — symlinks cannot escape, `..` traversal is blocked
-- `RootReader` delegates to `os.*` for unconfined read-only access during planning — write operations return `ErrReadOnly`
-- `RootReaderWriter` delegates to `os.*` for unconfined read-write access during testing
+- `sandboxedRoot` wraps `*os.Root` (Go 1.24) for OS-enforced chroot-style sandbox during execution — symlinks cannot escape, `..` traversal is blocked
+- `RootReader` delegates to `os.*` for unsandboxed read-only access during planning — write operations return `ErrReadOnly`
+- `RootReaderWriter` delegates to `os.*` for unsandboxed read-write access during testing
 
 All I/O is constrained to the authority boundary defined by `Context.Root`. This eliminates manual path validation (`isSubpath`), simplifies the recovery system (recovery lives within root, guaranteeing same-partition), and removes platform-specific recovery base discovery code. Provider code is mode-agnostic — it calls `Root.ReadFile(p)`, `Root.Stat(p)`, etc. regardless of which implementation backs the interface.
 
@@ -24,18 +24,18 @@ All I/O is constrained to the authority boundary defined by `Context.Root`. This
 
 ## Goals
 
-1. **OS-enforced authority boundary** — all provider file operations are confined by the kernel through `Context.Root` (backed by `confinedRoot` wrapping `*os.Root`), not by application-level path checks
+1. **OS-enforced authority boundary** — all provider file operations are sandboxed by the kernel through `Context.Root` (backed by `sandboxedRoot` wrapping `*os.Root`), not by application-level path checks
 2. **Simplified recovery** — recovery directory lives inside root; no mount-point discovery, no cross-device checks, no platform-specific `getRecoveryBase`
 3. **Root-relative paths** — `op.Path` holds `{root, rel}` as canonical form with derived `abs`; replaces `file.SourcePath`; serializes as JSON `{root, rel}`
 4. **Shared recovery service** — `op.RecoverySite` on Context provides `ArchiveFile`/`RestoreFile` (zero-copy rename) and `ArchiveData`/`RestoreData` (byte serialization) for all providers
-5. **Dual-interface Root** — `op.Root` interface with three implementations: `confinedRoot` (execution), `RootReader` (planning), `RootReaderWriter` (testing); provider code is mode-agnostic
+5. **Dual-interface Root** — `op.Root` interface with three implementations: `sandboxedRoot` (execution), `RootReader` (planning), `RootReaderWriter` (testing); provider code is mode-agnostic
 6. **Provider lifecycle** — Root is closed on teardown via `Root.Close()`
 
 ## Current State
 
 | Component             | Status                                | Notes                                                                      |
 | --------------------- | ------------------------------------- | -------------------------------------------------------------------------- |
-| `Context.Root`        | `op.Root` interface                   | Three implementations: `confinedRoot`, `RootReader`, `RootReaderWriter`    |
+| `Context.Root`        | `op.Root` interface                   | Three implementations: `sandboxedRoot`, `RootReader`, `RootReaderWriter`    |
 | `file.Provider` I/O   | Root-scoped via private helpers       | All 9 helpers dispatch through `op.Root`; no nil-safe fallbacks            |
 | `mem` extract         | Root-scoped `ReadFile`                | `Extract`/`ExtractWithName` accept `op.Root`                              |
 | Recovery system       | `op.RecoverySite` on Context          | Shared service: `ArchiveFile`/`RestoreFile` + `ArchiveData`/`RestoreData` |
@@ -51,12 +51,12 @@ All I/O is constrained to the authority boundary defined by `Context.Root`. This
 
 ### os.Root on Context
 
-`Context` holds the `op.Root` interface and a `*RecoverySite`. Providers access both through `Context()`. The executor creates `op.NewConfinedRoot(dir)` before graph execution and closes it after. Planning uses `op.NewRootReader(dir)` for read-only access. Tests use `op.NewRootReaderWriter(dir)` for unconfined read-write access.
+`Context` holds the `op.Root` interface and a `*RecoverySite`. Providers access both through `Context()`. The executor creates `op.NewSandboxedRoot(dir)` before graph execution and closes it after. Planning uses `op.NewRootReader(dir)` for read-only access. Tests use `op.NewRootReaderWriter(dir)` for unsandboxed read-write access.
 
 ```go
 type Context struct {
     context.Context
-    Root         Root            // op.Root interface — confinedRoot, RootReader, or RootReaderWriter
+    Root         Root            // op.Root interface — sandboxedRoot, RootReader, or RootReaderWriter
     RecoverySite *RecoverySite   // shared recovery service for all providers
     // ... other fields unchanged
 }
@@ -110,7 +110,7 @@ The recovery directory is `.devlore/recovery/` within root. The RecoverySite man
 
 ### Provider I/O through Root
 
-Every `os.*` call in a provider is replaced by the corresponding `root.*` call taking `op.Path`. Providers obtain root via `p.Context().Root`. The `op.Root` interface dispatches to the concrete implementation: `confinedRoot` uses `p.Rel()`, unconfined implementations use `p.Abs()`.
+Every `os.*` call in a provider is replaced by the corresponding `root.*` call taking `op.Path`. Providers obtain root via `p.Context().Root`. The `op.Root` interface dispatches to the concrete implementation: `sandboxedRoot` uses `p.Rel()`, unsandboxed implementations use `p.Abs()`.
 
 | Current                      | Replacement                        |
 | ---------------------------- | ---------------------------------- |
@@ -291,9 +291,9 @@ Replace the bare `*os.Root` on Context with an `op.Root` interface backed by thr
 #### 8a: op.Root interface (done)
 
 - [x] Define `op.Root` interface with 15 methods: 5 read, 6 write, `NewPath` factory, `FS`, `Name`, `Close`
-- [x] Implement `confinedRoot` wrapping `*os.Root` — delegates using `p.Rel()`
-- [x] Implement `RootReader` — unconfined read-only, write ops return `ErrReadOnly`
-- [x] Implement `RootReaderWriter` — unconfined read-write via `os.*` using `p.Abs()`
+- [x] Implement `sandboxedRoot` wrapping `*os.Root` — delegates using `p.Rel()`
+- [x] Implement `RootReader` — unsandboxed read-only, write ops return `ErrReadOnly`
+- [x] Implement `RootReaderWriter` — unsandboxed read-write via `os.*` using `p.Abs()`
 - [x] Composition chain: `rootBase` → `RootReader` → `RootReaderWriter`
 - [x] Interface guards for all three implementations
 - [x] Comprehensive tests: 46 subtests across all three modes
@@ -315,7 +315,7 @@ Replace the bare `*os.Root` on Context with an `op.Root` interface backed by thr
 #### 8c: Wiring and access levels
 
 - [x] Change `Context.Root` from `*os.Root` to `op.Root`
-- [x] Update executor: `op.NewConfinedRoot(dir)` instead of `os.OpenRoot(dir)`
+- [x] Update executor: `op.NewSandboxedRoot(dir)` instead of `os.OpenRoot(dir)`
 - [x] Make `ExecutorOptions.Root` mandatory — fail fast if empty
 - [x] Update test runner: `op.NewRootReaderWriter(tmpDir)`
 - [x] Migrate `file.SourcePath` → `op.Path` across all 80+ access sites
@@ -329,7 +329,7 @@ Replace the bare `*os.Root` on Context with an `op.Root` interface backed by thr
 **Files**:
 
 - `pkg/op/context.go` — Modify: `Root op.Root`
-- `internal/execution/executor.go` — Modify: `op.NewConfinedRoot`, mandatory validation
+- `internal/execution/executor.go` — Modify: `op.NewSandboxedRoot`, mandatory validation
 - `internal/e2e/testrunner/runner.go` — Modify: `op.NewRootReaderWriter`
 - `pkg/op/recovery_site.go` — Modify: `ArchiveFile(Path)`, `RestoreFile(Path, string)`
 - `pkg/op/provider/file/resource.go` — Modify: `SourcePath` → `op.Path`
@@ -356,7 +356,7 @@ Replace the bare `*os.Root` on Context with an `op.Root` interface backed by thr
 | `pkg/op/provider/file/recovery_unix.go`    | Deleted | Mount-point discovery eliminated                                 |
 | `pkg/op/provider/file/recovery_windows.go` | Deleted | Volume detection eliminated                                      |
 | `pkg/op/provider/mem/extract.go`           | Modify  | Root-scoped source reads                                         |
-| `internal/execution/executor.go`           | Modify  | `op.NewConfinedRoot`, mandatory validation, instantiate RecoverySite |
+| `internal/execution/executor.go`           | Modify  | `op.NewSandboxedRoot`, mandatory validation, instantiate RecoverySite |
 | `internal/starlark/binding_set.go`         | Modify  | Instantiate `RecoverySite`                                       |
 | `internal/e2e/testrunner/runner.go`        | Modify  | `op.NewRootReaderWriter`, instantiate RecoverySite               |
 | `internal/e2e/testrunner/test_context.go`  | Modify  | Root-aware `t.tmp()` under `.devlore/tmp`                        |
@@ -373,7 +373,7 @@ Replace the bare `*os.Root` on Context with an `op.Root` interface backed by thr
 
 ## Resolved Questions
 
-- [x] **op.Root location**: Lives on `Context` as `op.Root` interface. Must be specified at creation time. No exceptions. Three implementations: `confinedRoot` (execution), `RootReader` (planning), `RootReaderWriter` (testing).
+- [x] **op.Root location**: Lives on `Context` as `op.Root` interface. Must be specified at creation time. No exceptions. Three implementations: `sandboxedRoot` (execution), `RootReader` (planning), `RootReaderWriter` (testing).
 
 - [x] **Recovery directory**: `.devlore/recovery/`. Recovery system extracted into `pkg/op/recovery_site.go` as `op.RecoverySite` — a context-aware service holding `Context` (same pattern as `ProviderBase`). Lives in `pkg/op/` to avoid import cycles. Providers access it via `p.Context().RecoverySite`. Supports both file archival (zero-copy rename, no data movement) and data archival (byte serialization) for file and mem providers respectively.
 

@@ -41,8 +41,6 @@ var (
 )
 
 // Provider provides file system actions.
-//
-// +devlore:access=both
 type Provider struct {
 	op.ProviderBase
 }

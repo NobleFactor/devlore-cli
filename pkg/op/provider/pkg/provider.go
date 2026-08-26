@@ -15,8 +15,6 @@ import (
 // It carries no convergence policy of its own: each verb projects its [*Resource] slice into a [platform.PURL]
 // slice, calls the router once, and adapts the router's per-package [platform.Receipt] slice into the provider's
 // [*Receipt] compensation state. All convergence and verification live in the platform's leaf drivers.
-//
-// +devlore:access=planned
 type Provider struct {
 	op.ProviderBase
 }

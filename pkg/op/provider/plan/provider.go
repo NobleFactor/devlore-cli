@@ -48,8 +48,6 @@ var (
 // Any collision across the three tiers fails Provider construction with a message naming both providers and the
 // offending method. promotedBuiltins is write-once at construction; the adapters are lazily populated under
 // `adaptersMutex`.
-//
-// +devlore:access=immediate
 type Provider struct {
 	op.ProviderBase
 	invocations      *op.InvocationRegistry    // session-scoped ledger of plan-mode invocations
@@ -343,7 +341,7 @@ func (p *Provider) Clear() error {
 //   - `error`: non-nil when the file cannot be read, the format is unsupported, or decoding fails.
 func (p *Provider) LoadDefinition(path string) (*op.Graph, error) {
 
-	// Confinement: plan documents are store/CLI documents at caller-named paths, not confined-tree
+	// Unsandboxed: plan documents are store/CLI documents at caller-named paths, not sandboxed-tree
 	// resources. A relative caller-named path resolves against the session root (#584 phase 2) — never the
 	// process cwd.
 	if !filepath.IsAbs(path) && p.RuntimeEnvironment().HasRoot() {
@@ -392,7 +390,7 @@ func (p *Provider) SaveDefinition(graph *op.Graph, path string) (err error) {
 
 	var file *os.File
 
-	// Confinement: plan documents are store/CLI documents at caller-named paths, not confined-tree
+	// Unsandboxed: plan documents are store/CLI documents at caller-named paths, not sandboxed-tree
 	// resources. A relative caller-named path resolves against the session root (#584 phase 2) — never the
 	// process cwd.
 	if !filepath.IsAbs(path) && p.RuntimeEnvironment().HasRoot() {
@@ -448,7 +446,7 @@ func (p *Provider) SaveDefinition(graph *op.Graph, path string) (err error) {
 //
 // The spec carries no live [fsroot.Dir] — only the resolved `rootPath` anchor; each
 // [Provider.Run]'s executor mints (and closes) its own Root from it (issue #393). The resolved anchor is probed
-// here via [fsroot.OpenConfined] and released immediately, so a bad root path still fails at the `plan.spec` call
+// here via [fsroot.OpenExisting] and released immediately, so a bad root path still fails at the `plan.spec` call
 // site rather than at run time. The returned spec's [op.ReceiverRegistry] is a freshly-built one from the announced
 // providers — independent of the planning runtime environment's registry.
 //
@@ -464,13 +462,13 @@ func (p *Provider) SaveDefinition(graph *op.Graph, path string) (err error) {
 // Parameters:
 //   - `programName`: the tool name; flows into [application.Application.Name] and drives the variable resolver's
 //     env-prefix derivation. Empty string → defaults to the planning env's `Application.Name`.
-//   - `rootPath`: the absolute path the confined [fsroot.Dir] is anchored at. Empty string → defaults to the planning
+//   - `rootPath`: the absolute path the sandboxed [fsroot.Dir] is anchored at. Empty string → defaults to the planning
 //     env's `Root.Name()`.
 //   - `flags`: the [application.Application.Flags] map. Nil → defaults to the planning env's `Application.Flags`.
 //
 // Returns:
 //   - `*op.RuntimeEnvironmentSpec`: the constructed spec.
-//   - `error`: non-nil when the [fsroot.OpenConfined] probe fails (the target root does not exist or is not
+//   - `error`: non-nil when the [fsroot.OpenExisting] probe fails (the target root does not exist or is not
 //     accessible).
 func (p *Provider) Spec(programName, rootPath string, flags map[string]any) (*op.RuntimeEnvironmentSpec, error) {
 
@@ -486,9 +484,9 @@ func (p *Provider) Spec(programName, rootPath string, flags map[string]any) (*op
 		flags = runtimeEnvironment.Application.Flags
 	}
 
-	// The fail-fast probe (issue #393): the mint itself is the validity check — open confined, release
+	// The fail-fast probe (issue #393): the mint itself is the validity check — open sandboxed, release
 	// immediately — so the spec-time error contract survives without the spec retaining a live handle.
-	probe, err := fsroot.OpenConfined(rootPath)
+	probe, err := fsroot.OpenExisting(rootPath)
 	if err != nil {
 		return nil, fmt.Errorf("plan.Provider.Spec: open root %s: %w", rootPath, err)
 	}

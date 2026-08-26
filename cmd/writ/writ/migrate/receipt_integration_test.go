@@ -73,9 +73,9 @@ func TestExecutionTrace_SerializesAsMigrationReceipt(t *testing.T) {
 	}
 
 	receiptPath := filepath.Join(tmp, ".writ-migrate-receipt.json")
-	docRoot, docRootErr := fsroot.OpenConfined(tmp)
+	docRoot, docRootErr := fsroot.OpenExisting(tmp)
 	if docRootErr != nil {
-		t.Fatalf("fsroot.OpenConfined: %v", docRootErr)
+		t.Fatalf("fsroot.OpenExisting: %v", docRootErr)
 	}
 	t.Cleanup(func() { _ = docRoot.Close() })
 	if err := document.WriteFile(docRoot, docRoot.NewPath(receiptPath), trace); err != nil {

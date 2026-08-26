@@ -527,7 +527,7 @@ func (g *gitTransport) writeSyncInfo(cacheDir, ref string, syncedAt time.Time) e
 	// wholesale — before Sync there may be nothing for a caller to open, and a handle held across the clone
 	// would block the directory replacement on Windows. By this write the tree its subprocess just made
 	// exists, so opening is a query.
-	root, err := fsroot.OpenConfined(cacheDir)
+	root, err := fsroot.OpenExisting(cacheDir)
 	if err != nil {
 		return err
 	}

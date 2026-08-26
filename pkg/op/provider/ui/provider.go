@@ -15,8 +15,6 @@ import (
 )
 
 // Provider exposes the [status.Narrator] capability to starlark.
-//
-// +devlore:access=immediate
 type Provider struct {
 	op.ProviderBase
 }

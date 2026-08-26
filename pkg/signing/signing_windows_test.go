@@ -34,7 +34,7 @@ const (
 // TestGenerateLocalKey_PrivateKeyIsProtectedOnWindows is the assertion this campaign exists to make.
 func TestGenerateLocalKey_PrivateKeyIsProtectedOnWindows(t *testing.T) {
 
-	configRoot, err := fsroot.OpenConfined(t.TempDir())
+	configRoot, err := fsroot.OpenExisting(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,7 @@ func TestGenerateLocalKey_PrivateKeyIsProtectedOnWindows(t *testing.T) {
 // protected key inside a world-traversable directory is a weaker guarantee than it looks.
 func TestGenerateLocalKey_SigningDirectoryIsProtectedOnWindows(t *testing.T) {
 
-	configRoot, err := fsroot.OpenConfined(t.TempDir())
+	configRoot, err := fsroot.OpenExisting(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -95,7 +95,7 @@ func TestGenerateLocalKey_SigningDirectoryIsProtectedOnWindows(t *testing.T) {
 // to be copied into someone else's allowed_signers.
 func TestGenerateLocalKey_PublicHalfIsNotProtected(t *testing.T) {
 
-	configRoot, err := fsroot.OpenConfined(t.TempDir())
+	configRoot, err := fsroot.OpenExisting(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}

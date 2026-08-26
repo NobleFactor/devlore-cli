@@ -594,7 +594,7 @@ func TestExtract_EscapingSymlinkTargetLandsVerbatim(t *testing.T) {
 
 		// The containment: a follow through a confined root refuses the escape. Stat follows the terminal
 		// link, and the refusal must not read as a missing file.
-		root, err := fsroot.OpenConfined(prefix)
+		root, err := fsroot.OpenExisting(prefix)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -224,7 +224,7 @@ func TestCopyFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	dstRoot, err := fsroot.OpenConfined(tmpDir)
+	dstRoot, err := fsroot.OpenExisting(tmpDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +250,7 @@ func TestCopyFile_NonExistentSource(t *testing.T) {
 	tmpDir := t.TempDir()
 	src := filepath.Join(tmpDir, "nonexistent.txt")
 
-	dstRoot, err := fsroot.OpenConfined(tmpDir)
+	dstRoot, err := fsroot.OpenExisting(tmpDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -265,7 +265,7 @@ func TestCopyFile_NonExistentSource(t *testing.T) {
 func TestCopyDir(t *testing.T) {
 	src := t.TempDir()
 
-	dstRoot, err := fsroot.OpenConfined(t.TempDir())
+	dstRoot, err := fsroot.OpenExisting(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -432,7 +432,7 @@ func TestWriteAndReadManifest(t *testing.T) {
 	}
 
 	// Write manifest.
-	prefixRoot, err := fsroot.OpenConfined(tmpDir)
+	prefixRoot, err := fsroot.OpenExisting(tmpDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -538,7 +538,7 @@ func TestManifestUninstall(t *testing.T) {
 	}
 
 	// Write manifest.
-	prefixRoot, err := fsroot.OpenConfined(tmpDir)
+	prefixRoot, err := fsroot.OpenExisting(tmpDir)
 	if err != nil {
 		t.Fatal(err)
 	}

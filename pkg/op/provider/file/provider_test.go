@@ -2114,7 +2114,7 @@ func TestChecksumFile_ComputesDigest(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	root, err := fsroot.OpenConfined(tmp)
+	root, err := fsroot.OpenExisting(tmp)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2136,7 +2136,7 @@ func TestChecksumFile_NonExistent(t *testing.T) {
 
 	tmp := t.TempDir()
 
-	root, err := fsroot.OpenConfined(tmp)
+	root, err := fsroot.OpenExisting(tmp)
 	if err != nil {
 		t.Fatal(err)
 	}

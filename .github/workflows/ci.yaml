@@ -29,7 +29,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.26"
+          go-version: "1.27"
 
       # The Makefile requires GNU make 3.82+ for `.ONESHELL:`, and macOS ships 3.81 — the last
       # GPLv2 release, so it will never advance. Without this the multi-line recipes are split into
@@ -70,8 +70,8 @@ jobs:
         run: |
           for attempt in 1 2 3; do
             curl -sSfL --connect-timeout 15 --max-time 120 \
-              https://raw.githubusercontent.com/golangci/golangci-lint/v2.12.2/install.sh |
-              sh -s -- -b "$(go env GOPATH)/bin" v2.12.2 && break
+              https://raw.githubusercontent.com/golangci/golangci-lint/v2.13.1/install.sh |
+              sh -s -- -b "$(go env GOPATH)/bin" v2.13.1 && break
             echo "golangci-lint install attempt $attempt failed; retrying in 5s" >&2
             sleep 5
           done
@@ -127,7 +127,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.26"
+          go-version: "1.27"
 
       # The Makefile requires GNU make 3.82+ for `.ONESHELL:`, and macOS ships 3.81 — the last
       # GPLv2 release, so it will never advance. Without this the multi-line recipes are split into
@@ -165,7 +165,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.26"
+          go-version: "1.27"
 
       # The Makefile requires GNU make 3.82+ for `.ONESHELL:`, and macOS ships 3.81 — the last
       # GPLv2 release, so it will never advance. Without this the multi-line recipes are split into

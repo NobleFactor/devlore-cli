@@ -21,8 +21,6 @@ var _ op.Provider = (*Provider)(nil)
 
 // Provider provides shell script analysis operations: lint (shellcheck), format (shfmt),
 // parse (structural extraction), and complexity (cyclomatic metrics).
-//
-// +devlore:access=immediate
 type Provider struct {
 	op.ProviderBase
 }

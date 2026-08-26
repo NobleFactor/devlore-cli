@@ -13,8 +13,6 @@ import (
 var _ op.Provider = (*Provider)(nil) // Interface Guard: ensures *Provider implements op.Provider.
 
 // Provider provides git actions.
-//
-// +devlore:access=planned
 type Provider struct {
 	op.ProviderBase
 
@@ -157,7 +155,7 @@ func (p *Provider) CompensateClone(activationRecord *op.ActivationRecord, receip
 		return nil
 	}
 
-	// Confinement: the clone tree belongs to the external git subprocess, which Root never binds.
+	// Unsandboxed: the clone tree belongs to the external git subprocess, which Root never binds.
 	return os.RemoveAll(resource.SourcePath().Abs())
 }
 

@@ -166,7 +166,7 @@ func installManPages(rootCmd *cobra.Command, header *doc.GenManHeader, manRoot f
 		return fmt.Errorf("failed to create directory %s: %w", manRoot.Name(), err)
 	}
 
-	// Confinement: cobra's generator writes the page files itself, given a directory path — those writes are
+	// Unsandboxed: cobra's generator writes the page files itself, given a directory path — those writes are
 	// not ours to route through the root. What we own, the directory and its mode, goes through it above.
 	if err := doc.GenManTree(rootCmd, header, manRoot.Name()); err != nil {
 		return fmt.Errorf("failed to generate man pages: %w", err)

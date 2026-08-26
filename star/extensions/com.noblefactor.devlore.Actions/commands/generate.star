@@ -9,10 +9,6 @@
 #
 # The Provider struct carries directives:
 #
-# // +devlore:access= controls which artifacts ALL its methods appear in:
-#   access=immediate  — immediate receiver only (default if no directive)
-#   access=planned    — planned receiver + graph action wrapper
-#   access=both       — all three artifacts
 #
 # Methods carry directives:
 #
@@ -131,21 +127,6 @@ def lc_first(name):
 # Directive Parsing
 # =============================================================================
 
-def struct_access(path):
-    """Extract the +devlore:access level from the Provider struct's doc comment.
-
-    Returns 'immediate' if no directive is found (the default).
-    """
-    doc = goast.type_doc(path)
-    for line in doc.split("\n"):
-        line = line.strip().lstrip("/").strip()
-        if "+devlore:access=" in line:
-            idx = line.index("+devlore:access=")
-            value = line[idx + len("+devlore:access="):].strip()
-            if value not in ["immediate", "planned", "both"]:
-                fail("invalid +devlore:access value %r on Provider struct (valid: immediate, planned, both)" % value)
-            return value
-    return "immediate"
 
 def struct_root(path):
     """Extract the +devlore:root flag from the Provider struct's doc comment.
@@ -1464,7 +1445,10 @@ def run(command, ctx):
     # -------------------------------------------------------------------------
     provider = path.split("/")[-1]
     struct_short = provider.title()
-    access = struct_access(path)
+    # The provider-level access directive was retired 2026-08-25. Nothing supplies namespace
+    # placement yet: the per-method classification that replaces it (3.6-method-classification.md)
+    # is designed and unimplemented, so every provider falls to the documented default.
+    access = "immediate"
     root = struct_root(path)
 
     ui.note("Provider access: " + access)

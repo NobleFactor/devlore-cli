@@ -785,7 +785,7 @@ func (tc *TestContext) starSetConfig(
 //
 // Returns:
 //   - starlark.Value: starlark.None on success.
-//   - `error`: non-nil on argument-shape failure, projection failure, [fsroot.OpenConfined] failure,
+//   - `error`: non-nil on argument-shape failure, projection failure, [fsroot.OpenExisting] failure,
 //     [platform.Detect] failure, or any preflight / dispatch failure from [op.GraphExecutor.Run].
 func (tc *TestContext) starRun(
 	_ *starlark.Thread,

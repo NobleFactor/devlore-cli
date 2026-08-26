@@ -100,9 +100,9 @@ func gitCloneResumeThenFail(t *testing.T, format string) {
 	}
 
 	tracePath := filepath.Join(tmp, "trace."+format)
-	docRoot, docRootErr := fsroot.OpenConfined(tmp)
+	docRoot, docRootErr := fsroot.OpenExisting(tmp)
 	if docRootErr != nil {
-		t.Fatalf("fsroot.OpenConfined: %v", docRootErr)
+		t.Fatalf("fsroot.OpenExisting: %v", docRootErr)
 	}
 	t.Cleanup(func() { _ = docRoot.Close() })
 	if writeErr := document.WriteFile(docRoot, docRoot.NewPath(tracePath), executor.Trace()); writeErr != nil {

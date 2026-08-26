@@ -22,8 +22,6 @@ var _ op.Provider = (*Provider)(nil) // Interface Guard
 //
 // The package was resource-only until phase-8 step 10 added [Provider.Call] — the leaf action that evaluates a
 // callable — so a starlark function or lambda passes through planning as a [*Resource] and is invoked at dispatch.
-//
-// +devlore:access=planned
 type Provider struct {
 	op.ProviderBase
 }

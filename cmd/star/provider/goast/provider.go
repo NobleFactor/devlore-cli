@@ -2,8 +2,6 @@
 // Copyright Noble Factor. All rights reserved.
 
 // Package goast provides Go AST operations as a Starlark receiver.
-//
-// +devlore:access=immediate
 package goast
 
 import (
@@ -29,8 +27,6 @@ import (
 )
 
 // Provider provides Go AST operations as a Starlark receiver.
-//
-// +devlore:access=immediate
 type Provider struct {
 	op.ProviderBase
 	fileCache sync.Map // path → *parsedFile (AST cache)

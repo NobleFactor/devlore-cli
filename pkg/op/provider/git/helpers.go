@@ -422,7 +422,7 @@ func isDirtyRepo(path string) bool {
 //   - `bare`: true when the repository is bare; meaningful only when repo is true.
 func isGitRepo(path string) (repo, bare bool) {
 
-	// Confinement: read-only probes of a git tree outside the target root — external git is never Root-bound.
+	// Unsandboxed: read-only probes of a git tree outside the target root — external git is never Root-bound.
 	if info, err := os.Stat(filepath.Join(path, ".git")); err == nil && info.IsDir() {
 		return true, false
 	}

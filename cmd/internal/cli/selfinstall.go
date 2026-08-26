@@ -735,8 +735,8 @@ func installBinary(prefixRoot fsroot.Dir, name string) (string, error) {
 		return "", fmt.Errorf("failed to get executable path: %w", err)
 	}
 
-	// Confinement: the running executable is wherever the operator launched it from — outside the prefix by
-	// definition on a first install, and not ours to confine. The destination side goes through the root.
+	// Unsandboxed: the running executable is wherever the operator launched it from — outside the prefix by
+	// definition on a first install, and not ours to sandbox. The destination side goes through the root.
 	currentExe, err = filepath.EvalSymlinks(currentExe)
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve symlinks: %w", err)
@@ -784,7 +784,7 @@ func installManPagesTo(rootCmd *cobra.Command, prefixRoot fsroot.Dir, dir fsroot
 		Manual:  header.Manual,
 	}
 
-	// Confinement: cobra's generator writes the page files itself, given a directory path — those writes are
+	// Unsandboxed: cobra's generator writes the page files itself, given a directory path — those writes are
 	// not ours to route through the root. What we own, the directory and its mode, went through it above.
 	if err := doc.GenManTree(rootCmd, h, dir.Abs()); err != nil {
 		return nil, fmt.Errorf("failed to generate man pages: %w", err)
@@ -1026,7 +1026,7 @@ func initWritLayers() (created []string, err error) {
 // copyFile copies a file from `src` on the host filesystem to `dst` within `dstRoot`.
 //
 // The source is deliberately a plain path: it is the running executable or a build tree, outside any root we
-// own. The destination is the side that gets confined (#405, phase 2b).
+// own. The destination is the side that gets sandboxed (#405, phase 2b).
 //
 // Parameters:
 //   - `dstRoot`: the tree the destination belongs to, opened by the caller.
@@ -1036,7 +1036,7 @@ func initWritLayers() (created []string, err error) {
 // Returns:
 //   - `error`: non-nil when the source cannot be read or the destination cannot be written.
 func copyFile(dstRoot fsroot.Dir, src string, dst fsroot.Path) error {
-	source, err := os.Open(src) //nolint:gosec // G304: Confinement: the source is a caller-named path outside the root
+	source, err := os.Open(src) //nolint:gosec // G304: Unsandboxed: the source is a caller-named path outside the root
 	if err != nil {
 		return fmt.Errorf("failed to open source: %w", err)
 	}

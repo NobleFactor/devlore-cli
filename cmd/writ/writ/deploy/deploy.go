@@ -386,7 +386,7 @@ func occupantIsOurs(entry readback.Entry) bool {
 //   - `string`: the scope, or "default".
 func scopeLabel(graph *op.Graph) string {
 
-	if origin := graph.Origin(); origin != nil && origin.Scope() != "" {
+	if origin := graph.Origin(); origin.Scope() != "" {
 		return origin.Scope()
 	}
 	return "default"

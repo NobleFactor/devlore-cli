@@ -31,8 +31,6 @@ import (
 var _ op.Provider = (*Provider)(nil) // Interface Guard
 
 // Provider provides archive extraction actions.
-//
-// +devlore:access=planned
 type Provider struct {
 	op.ProviderBase
 }

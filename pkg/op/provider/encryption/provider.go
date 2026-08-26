@@ -14,8 +14,6 @@ import (
 )
 
 // Provider provides encryption and decryption actions.
-//
-// +devlore:access=planned
 type Provider struct {
 	op.ProviderBase
 

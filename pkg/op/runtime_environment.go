@@ -172,7 +172,7 @@ type RuntimeEnvironment struct {
 //
 // It defaults the absent optionals (Status → [status.Narrator] over [sink.Stderr], Result → [result.Pipeline] writing
 // JSON to [sink.Stdout], a fresh [ResourceCatalog], the detected [platform.Platform], the registry's module set),
-// mints the environment's [fsroot.Dir] via [fsroot.OpenConfined] when [RuntimeEnvironmentSpec.RootPath] is non-empty, and
+// mints the environment's [fsroot.Dir] via [fsroot.OpenExisting] when [RuntimeEnvironmentSpec.RootPath] is non-empty, and
 // wires the [RecoverySite] when a Root was minted. The environment owns the minted Root — a spec never carries a
 // live handle (issue #393) — and [RuntimeEnvironment.Close] releases it.
 //
@@ -182,7 +182,7 @@ type RuntimeEnvironment struct {
 //
 // Returns:
 //   - `*RuntimeEnvironment`: the constructed runtime environment; nil when the mint fails.
-//   - `error`: non-nil when [fsroot.OpenConfined] fails at the spec's anchor path.
+//   - `error`: non-nil when [fsroot.OpenExisting] fails at the spec's anchor path.
 func NewRuntimeEnvironment(ctx context.Context, spec *RuntimeEnvironmentSpec) (*RuntimeEnvironment, error) {
 
 	assert.NonZero("spec", spec)
@@ -332,7 +332,7 @@ func (re *RuntimeEnvironment) Root() fsroot.Dir {
 	}
 
 	re.rootOnce.Do(func() {
-		minted, err := fsroot.OpenConfined(re.rootPath)
+		minted, err := fsroot.OpenExisting(re.rootPath)
 		assert.NoError("op.RuntimeEnvironment.Root: mint root after successful preflight", err)
 		re.root = minted
 	})
@@ -1026,7 +1026,7 @@ func (c *RuntimeEnvironmentSpec) WithStatus(narrator *status.Narrator) *RuntimeE
 //   - `error`: a wrapped error when the anchor cannot be opened.
 func probeRootAnchor(path string) error {
 
-	probe, err := fsroot.OpenConfined(path)
+	probe, err := fsroot.OpenExisting(path)
 	if err != nil {
 		return fmt.Errorf("open root %s: %w", path, err)
 	}
@@ -1048,7 +1048,7 @@ func probeRootAnchor(path string) error {
 //   - `error`: a wrapped error when the temporary directory cannot be created or removed.
 func probeScratchAnchor() error {
 
-	// Confinement: this is the probe that proves fsroot's own scratch anchor usable, so it cannot itself run
+	// Unsandboxed: this is the probe that proves fsroot's own scratch anchor usable, so it cannot itself run
 	// through a root — there is no root to run it through until it succeeds.
 	dir, err := os.MkdirTemp("", "devlore-scratch-probe-*")
 	if err != nil {

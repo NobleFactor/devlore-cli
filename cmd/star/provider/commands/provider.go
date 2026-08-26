@@ -17,8 +17,6 @@ import (
 var _ op.Provider = (*Provider)(nil)
 
 // Provider provides command tree navigation and execution operations.
-//
-// +devlore:access=immediate
 type Provider struct {
 	op.ProviderBase
 }

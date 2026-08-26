@@ -5,6 +5,7 @@
 package lint
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -22,8 +23,6 @@ var _ op.Provider = (*Provider)(nil)
 
 // Provider provides static analysis operations: Go linting (golangci-lint), shell linting
 // (shellcheck + shfmt), markdown linting (markdownlint-cli2), and tool availability checking.
-//
-// +devlore:access=immediate
 type Provider struct {
 	op.ProviderBase
 }
@@ -395,16 +394,128 @@ func appendGoIssues(result *GoResult, issues []goIssueRaw) {
 	}
 }
 
+// moduleFileNames are the files `go mod tidy` may rewrite, in the order the failure detail lists them.
+var moduleFileNames = []string{"go.mod", "go.sum"}
+
+// moduleFile is one snapshotted module file: its bytes, its mode, and whether it existed at all.
+type moduleFile struct {
+	content []byte
+	mode    os.FileMode
+	present bool
+}
+
+// checkModTidy reports whether `go mod tidy` would rewrite the module files.
+//
+// The comparison is against the files' own pre-tidy content, never against HEAD. A HEAD comparison cannot
+// distinguish a change tidy made from one the caller made, so every uncommitted `go.mod` edit failed the check —
+// and the check gated the very commit that would have cleared it (#686). It also demanded a git repository with a
+// committed baseline; the snapshot comparison demands neither.
+//
+// Tidy runs for real, so the module files are restored when it rewrites them: the check reports without
+// rewriting the caller's tree, and a failing lint leaves the source exactly as it found it.
+//
+// Parameters:
+//   - `ctx`: the session context bounding the `go mod tidy` invocation.
+//
+// Returns:
+//   - `tidy`: true when `go mod tidy` leaves every file in [moduleFileNames] byte-identical.
+//   - `detail`: the failure explanation; empty when `tidy` is true.
 func checkModTidy(ctx context.Context) (tidy bool, detail string) {
+
+	before, err := snapshotModuleFiles()
+	if err != nil {
+		return false, err.Error()
+	}
+
 	tidyCmd := exec.CommandContext(ctx, "go", "mod", "tidy")
-	if output, err := tidyCmd.CombinedOutput(); err != nil {
-		return false, fmt.Sprintf("go mod tidy failed: %s\n%s", err, string(output))
+	if output, tidyErr := tidyCmd.CombinedOutput(); tidyErr != nil {
+		return false, fmt.Sprintf("go mod tidy failed: %s\n%s", tidyErr, string(output))
 	}
-	diffCmd := exec.CommandContext(ctx, "git", "diff", "--exit-code", "go.mod", "go.sum")
-	if output, err := diffCmd.CombinedOutput(); err != nil {
-		return false, fmt.Sprintf("go.mod or go.sum not tidy:\n%s", string(output))
+
+	after, err := snapshotModuleFiles()
+	if err != nil {
+		return false, err.Error()
 	}
-	return true, ""
+
+	rewritten := make([]string, 0, len(moduleFileNames))
+
+	for _, name := range moduleFileNames {
+		if before[name].present != after[name].present || !bytes.Equal(before[name].content, after[name].content) {
+			rewritten = append(rewritten, name)
+		}
+	}
+
+	if len(rewritten) == 0 {
+		return true, ""
+	}
+
+	if restoreErr := restoreModuleFiles(before); restoreErr != nil {
+		return false, fmt.Sprintf("go mod tidy would rewrite %s, and restoring the originals failed: %s",
+			strings.Join(rewritten, " and "),
+			restoreErr)
+	}
+
+	return false, fmt.Sprintf("go mod tidy would rewrite %s — run `go mod tidy` and commit the result",
+		strings.Join(rewritten, " and "))
+}
+
+// snapshotModuleFiles reads every file in [moduleFileNames], recording an absent file as a zero [moduleFile].
+//
+// Returns:
+//   - `map[string]moduleFile`: one entry per name in [moduleFileNames], present or not.
+//   - `error`: non-nil when a file exists but cannot be read or stat'd.
+func snapshotModuleFiles() (map[string]moduleFile, error) {
+
+	snapshot := make(map[string]moduleFile, len(moduleFileNames))
+
+	for _, name := range moduleFileNames {
+
+		info, err := os.Stat(name)
+		if err != nil {
+			if os.IsNotExist(err) {
+				snapshot[name] = moduleFile{}
+				continue
+			}
+			return nil, fmt.Errorf("stat %s: %w", name, err)
+		}
+
+		content, err := os.ReadFile(name)
+		if err != nil {
+			return nil, fmt.Errorf("read %s: %w", name, err)
+		}
+
+		snapshot[name] = moduleFile{content: content, mode: info.Mode().Perm(), present: true}
+	}
+
+	return snapshot, nil
+}
+
+// restoreModuleFiles writes `snapshot` back over the module files, removing any that tidy created.
+//
+// Parameters:
+//   - `snapshot`: the pre-tidy state from [snapshotModuleFiles].
+//
+// Returns:
+//   - `error`: non-nil on the first file that cannot be restored.
+func restoreModuleFiles(snapshot map[string]moduleFile) error {
+
+	for _, name := range moduleFileNames {
+
+		original := snapshot[name]
+
+		if !original.present {
+			if err := os.Remove(name); err != nil && !os.IsNotExist(err) {
+				return fmt.Errorf("remove %s: %w", name, err)
+			}
+			continue
+		}
+
+		if err := os.WriteFile(name, original.content, original.mode); err != nil {
+			return fmt.Errorf("write %s: %w", name, err)
+		}
+	}
+
+	return nil
 }
 
 func checkTool(binary string) string {

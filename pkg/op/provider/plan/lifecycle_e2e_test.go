@@ -255,9 +255,9 @@ func saveAndReload(t *testing.T, tmp string, trace *op.Trace) *op.Trace {
 	t.Helper()
 
 	tracePath := filepath.Join(tmp, "trace.json")
-	docRoot, docRootErr := fsroot.OpenConfined(tmp)
+	docRoot, docRootErr := fsroot.OpenExisting(tmp)
 	if docRootErr != nil {
-		t.Fatalf("fsroot.OpenConfined: %v", docRootErr)
+		t.Fatalf("fsroot.OpenExisting: %v", docRootErr)
 	}
 	t.Cleanup(func() { _ = docRoot.Close() })
 	if err := document.WriteFile(docRoot, docRoot.NewPath(tracePath), trace); err != nil {

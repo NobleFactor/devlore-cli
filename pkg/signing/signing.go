@@ -113,7 +113,7 @@ func (k *keyfileSigner) Sign(namespace string, canonical []byte) (*op.Signature,
 //   - `error`: non-nil when no key can be loaded or generated.
 func DefaultSigner(configRoot fsroot.Dir, identityPath string) (Signer, error) {
 
-	// Confinement: the publisher's own SSH directory is not ours to confine — we read a key they placed
+	// Unsandboxed: the publisher's own SSH directory is not ours to sandbox — we read a key they placed
 	// there, under their own permissions, and a root anchored at our config tree cannot address it.
 	if signer, err := loadSSHKeyfile(identityPath); err == nil {
 		return signer, nil

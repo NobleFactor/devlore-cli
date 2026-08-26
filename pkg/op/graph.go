@@ -694,8 +694,12 @@ func (g *Graph) Nodes() []*Node { return g.root.descendantNodes() }
 // with the original — mutations to those reference-typed children would reach back. Callers must treat the returned
 // value as read-only.
 //
+// Never nil: the graph stores the concrete [OriginBase] carrier by value ([graphMetadata.origin]), so a graph
+// built without an origin — or loaded from a document carrying none — reports the zero origin, whose Tool and
+// Scope are empty strings. Callers test those, never the interface against nil.
+//
 // Returns:
-//   - `Origin`: the tool-stamped metadata.
+//   - `Origin`: the tool-stamped metadata; the zero origin when none was supplied.
 func (g *Graph) Origin() Origin { return g.origin }
 
 // ResourceCatalog returns the [ResourceCatalog] carried by the graph from planning into execution.

@@ -20,8 +20,6 @@ import (
 )
 
 // Provider provides PowerShell 7+ command execution.
-//
-// +devlore:access=planned
 type Provider struct {
 	op.ProviderBase
 }

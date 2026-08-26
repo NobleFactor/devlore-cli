@@ -34,8 +34,6 @@ type Stats struct {
 }
 
 // Provider computes line and byte statistics for Starlark source files.
-//
-// +devlore:access=immediate
 type Provider struct {
 	op.ProviderBase
 	Root string

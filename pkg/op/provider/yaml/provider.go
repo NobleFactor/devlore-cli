@@ -12,8 +12,6 @@ import (
 )
 
 // Provider provides YAML encoding and decoding operations.
-//
-// +devlore:access=both
 type Provider struct {
 	op.ProviderBase
 }

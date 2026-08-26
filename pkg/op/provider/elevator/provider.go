@@ -28,8 +28,6 @@ var errNotImplemented = fmt.Errorf(
 // It fulfills the elevation policy via two strategies — `ProcessSpawn` (a privileged worker) and `IdentityAssumption`
 // (just-in-time token minting through the [Broker]). STUB: the methods are unimplemented and the provider is not yet
 // announced.
-//
-// +devlore:access=planned
 type Provider struct {
 	op.ProviderBase
 }

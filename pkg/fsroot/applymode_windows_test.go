@@ -36,7 +36,7 @@ const (
 
 func TestApplyMode_PrivateFileGetsProtectedDACL(t *testing.T) {
 
-	root := testConfinedDir(t)
+	root := testSandboxedDir(t)
 
 	target := root.NewPath("secret.txt")
 	if err := root.WriteFile(target, []byte("private"), 0o600); err != nil {
@@ -68,7 +68,7 @@ func TestApplyMode_PrivateFileGetsProtectedDACL(t *testing.T) {
 
 func TestApplyMode_PrivateDirectoryGetsProtectedDACL(t *testing.T) {
 
-	root := testConfinedDir(t)
+	root := testSandboxedDir(t)
 
 	target := root.NewPath("state")
 	if err := root.Mkdir(target, 0o700); err != nil {
@@ -84,7 +84,7 @@ func TestApplyMode_PrivateDirectoryGetsProtectedDACL(t *testing.T) {
 
 func TestApplyMode_ChmodRestrictsAnExistingFile(t *testing.T) {
 
-	root := testConfinedDir(t)
+	root := testSandboxedDir(t)
 
 	target := root.NewPath("later.txt")
 	if err := root.WriteFile(target, []byte("shared"), 0o644); err != nil {
@@ -106,7 +106,7 @@ func TestApplyMode_ChmodRestrictsAnExistingFile(t *testing.T) {
 
 func TestApplyMode_NonPrivateModeIsLeftAlone(t *testing.T) {
 
-	root := testConfinedDir(t)
+	root := testSandboxedDir(t)
 
 	target := root.NewPath("shared.txt")
 	if err := root.WriteFile(target, []byte("shared"), 0o644); err != nil {
@@ -140,7 +140,7 @@ func TestApplyMode_ScratchDirRestrictsItsContents(t *testing.T) {
 
 func TestApplyMode_OpenFileCreateIsEnforced(t *testing.T) {
 
-	root := testConfinedDir(t)
+	root := testSandboxedDir(t)
 
 	target := root.NewPath("opened.txt")
 
@@ -179,20 +179,20 @@ func hasTrustee(sddl, alias, sid string) bool {
 		strings.Contains(sddl, ";;;"+sid+aceTrusteeEnd)
 }
 
-// testConfinedDir opens a confined root at a per-test temporary directory, closed at test end.
+// testSandboxedDir opens a sandboxed root at a per-test temporary directory, closed at test end.
 //
 // Parameters:
 //   - `t`: the test.
 //
 // Returns:
-//   - `Root`: the confined root.
-func testConfinedDir(t *testing.T) Dir {
+//   - `Root`: the sandboxed root.
+func testSandboxedDir(t *testing.T) Dir {
 
 	t.Helper()
 
-	root, err := OpenConfined(t.TempDir())
+	root, err := OpenExisting(t.TempDir())
 	if err != nil {
-		t.Fatalf("OpenConfined: %v", err)
+		t.Fatalf("OpenExisting: %v", err)
 	}
 	t.Cleanup(func() { _ = root.Close() })
 

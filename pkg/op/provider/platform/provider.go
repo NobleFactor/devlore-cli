@@ -12,8 +12,6 @@ import (
 //
 // All accessors delegate to the platform capability (`platform.Platform`) on the provider's
 // [op.RuntimeEnvironment]. When the context has no platform (nil), accessors return zero values.
-//
-// +devlore:access=both
 type Provider struct {
 	op.ProviderBase
 }

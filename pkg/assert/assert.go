@@ -18,7 +18,7 @@ import (
 
 // AssertionError is the typed panic value produced by every helper in this package.
 //
-// Function holds the short form of the calling function (last path segment, e.g. "fsroot.OpenConfined") rather
+// Function holds the short form of the calling function (last path segment, e.g. "fsroot.OpenExisting") rather
 // than the fully qualified import path; File and Line point at the assert function's call site.
 type AssertionError struct {
 	Function string
@@ -281,7 +281,7 @@ func raise(skip int, message string) {
 //
 // Examples:
 //
-//	"github.com/NobleFactor/devlore-cli/pkg/fsroot.OpenConfined" → "fsroot.OpenConfined"
+//	"github.com/NobleFactor/devlore-cli/pkg/fsroot.OpenExisting" → "fsroot.OpenExisting"
 //	"github.com/.../file.(*Provider).Link"                       → "file.(*Provider).Link"
 //	""                                                           → "?"
 //

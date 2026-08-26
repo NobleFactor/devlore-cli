@@ -293,7 +293,7 @@ func foldRun(environment *op.RuntimeEnvironment, r run, inventory *Inventory) {
 	}
 
 	origin := graph.Origin()
-	if origin == nil || origin.Tool() != "writ" {
+	if origin.Tool() != "writ" {
 		return
 	}
 

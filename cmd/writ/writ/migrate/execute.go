@@ -128,7 +128,7 @@ func WriteMigratedMarker(sourceRoot string, graph *op.Graph, analysis *Migration
 	}
 
 	// The migration source tree exists — the migration just ran in it — so opening is a query (#558).
-	root, err := fsroot.OpenConfined(sourceRoot)
+	root, err := fsroot.OpenExisting(sourceRoot)
 	if err != nil {
 		return err
 	}

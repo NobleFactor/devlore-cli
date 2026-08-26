@@ -47,7 +47,7 @@ func newTriad(t *testing.T, dir string) triadEnv {
 	return triadEnv{Root: runtimeEnvironment.Root(), Site: op.NewRecoverySite(runtimeEnvironment), Dir: dir}
 }
 
-func newTriadConfined(t *testing.T) triadEnv {
+func newTriadSandboxed(t *testing.T) triadEnv {
 
 	t.Helper()
 
@@ -60,7 +60,7 @@ func TestTriad_RootProducesPath(t *testing.T) {
 		name     string
 		newTriad func(t *testing.T) triadEnv
 	}{
-		{"confinedDir", newTriadConfined},
+		{"sandboxedDir", newTriadSandboxed},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 
@@ -90,7 +90,7 @@ func TestTriad_RootProducesPathFromAbsolute(t *testing.T) {
 		name     string
 		newTriad func(t *testing.T) triadEnv
 	}{
-		{"confinedDir", newTriadConfined},
+		{"sandboxedDir", newTriadSandboxed},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 
@@ -115,7 +115,7 @@ func TestTriad_ArchiveFileRestoreFile(t *testing.T) {
 		name     string
 		newTriad func(t *testing.T) triadEnv
 	}{
-		{"confinedDir", newTriadConfined},
+		{"sandboxedDir", newTriadSandboxed},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 
@@ -177,7 +177,7 @@ func TestTriad_ArchiveDataRestoreData(t *testing.T) {
 		name     string
 		newTriad func(t *testing.T) triadEnv
 	}{
-		{"confinedDir", newTriadConfined},
+		{"sandboxedDir", newTriadSandboxed},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 
@@ -211,7 +211,7 @@ func TestTriad_NestedPathRecreation(t *testing.T) {
 		name     string
 		newTriad func(t *testing.T) triadEnv
 	}{
-		{"confinedDir", newTriadConfined},
+		{"sandboxedDir", newTriadSandboxed},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 
@@ -265,7 +265,7 @@ func TestTriad_WriteReadThroughRoot(t *testing.T) {
 		name     string
 		newTriad func(t *testing.T) triadEnv
 	}{
-		{"confinedDir", newTriadConfined},
+		{"sandboxedDir", newTriadSandboxed},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 
@@ -304,7 +304,7 @@ func TestTriad_MkdirAllThroughRoot(t *testing.T) {
 		name     string
 		newTriad func(t *testing.T) triadEnv
 	}{
-		{"confinedDir", newTriadConfined},
+		{"sandboxedDir", newTriadSandboxed},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 
@@ -333,7 +333,7 @@ func TestTriad_RenameThroughRoot(t *testing.T) {
 		name     string
 		newTriad func(t *testing.T) triadEnv
 	}{
-		{"confinedDir", newTriadConfined},
+		{"sandboxedDir", newTriadSandboxed},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 
@@ -368,7 +368,7 @@ func TestTriad_RenameThroughRoot(t *testing.T) {
 
 func TestTriad_MultipleArchivesCoexist(t *testing.T) {
 
-	env := newTriadConfined(t)
+	env := newTriadSandboxed(t)
 
 	for i, name := range []string{"a.txt", "b.txt", "c.txt"} {
 
@@ -404,7 +404,7 @@ func TestTriad_PathJSONFromRoot(t *testing.T) {
 
 	tempDir := t.TempDir()
 
-	root, err := fsroot.OpenConfined(tempDir)
+	root, err := fsroot.OpenExisting(tempDir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -436,15 +436,15 @@ func TestTriad_PathJSONFromRoot(t *testing.T) {
 	}
 }
 
-func TestTriad_ConfinedDirBlocksTraversal(t *testing.T) {
+func TestTriad_SandboxedDirBlocksTraversal(t *testing.T) {
 
-	env := newTriadConfined(t)
+	env := newTriadSandboxed(t)
 	p := env.Root.NewPath("../escape.txt")
 
-	// Confined fsroot should reject this.
+	// Sandboxed fsroot should reject this.
 
 	_, err := env.Root.Stat(p)
 	if err == nil {
-		t.Error("Stat(../escape.txt) should fail in confined mode")
+		t.Error("Stat(../escape.txt) should fail in sandboxed mode")
 	}
 }

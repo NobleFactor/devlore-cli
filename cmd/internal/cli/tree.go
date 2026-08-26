@@ -13,7 +13,7 @@ import (
 // OpenTree creates the directory at `dir` if it is absent, then opens a confined root at it.
 //
 // CLI-side trees are addressed before they exist — a first install creates its prefix, and the config, state
-// and cache trees appear on first use — but [fsroot.OpenConfined] is a query: it opens what is there and errors
+// and cache trees appear on first use — but [fsroot.OpenExisting] is a query: it opens what is there and errors
 // when nothing is. This is the compound operation that reconciles the two, and it is deliberately named for the
 // creation so that opening keeps meaning only opening.
 //
@@ -41,7 +41,7 @@ func OpenTree(dir string) (fsroot.Dir, error) {
 		return nil, fmt.Errorf("open tree %s: not an absolute path on this platform", dir)
 	}
 
-	volume, err := fsroot.OpenConfined(filepath.VolumeName(dir) + string(filepath.Separator))
+	volume, err := fsroot.OpenExisting(filepath.VolumeName(dir) + string(filepath.Separator))
 	if err != nil {
 		return nil, fmt.Errorf("open tree %s: anchor at volume: %w", dir, err)
 	}
@@ -53,7 +53,7 @@ func OpenTree(dir string) (fsroot.Dir, error) {
 		return nil, fmt.Errorf("open tree %s: create: %w", dir, err)
 	}
 
-	root, err := fsroot.OpenConfined(dir)
+	root, err := fsroot.OpenExisting(dir)
 	if err != nil {
 		return nil, fmt.Errorf("open tree %s: %w", dir, err)
 	}

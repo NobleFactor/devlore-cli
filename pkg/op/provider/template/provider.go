@@ -16,8 +16,6 @@ import (
 // Provider provides template expansion actions.
 //
 // It takes input content and produces output content through Go template expansion — no filesystem access.
-//
-// +devlore:access=both
 type Provider struct {
 	op.ProviderBase
 }

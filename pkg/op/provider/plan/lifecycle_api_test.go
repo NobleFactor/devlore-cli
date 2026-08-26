@@ -109,9 +109,9 @@ func TestGraphSaveLoadExecuteTrace_ViaPublicAPI(t *testing.T) {
 	if trace.GraphChecksum != loaded.Checksum() {
 		t.Errorf("trace.GraphChecksum %q != loaded graph checksum %q", trace.GraphChecksum, loaded.Checksum())
 	}
-	docRoot, docRootErr := fsroot.OpenConfined(tmp)
+	docRoot, docRootErr := fsroot.OpenExisting(tmp)
 	if docRootErr != nil {
-		t.Fatalf("fsroot.OpenConfined: %v", docRootErr)
+		t.Fatalf("fsroot.OpenExisting: %v", docRootErr)
 	}
 	t.Cleanup(func() { _ = docRoot.Close() })
 	if err := document.WriteFile(docRoot, docRoot.NewPath(tracePath), trace); err != nil {
@@ -344,9 +344,9 @@ func TestGraphSaveLoadResume_ViaPublicAPI(t *testing.T) {
 	if original.Catalog == nil || len(original.Catalog.Entries) == 0 {
 		t.Fatalf("Trace.Catalog: want a non-empty resource ledger snapshot, got %+v", original.Catalog)
 	}
-	docRoot, docRootErr := fsroot.OpenConfined(tmp)
+	docRoot, docRootErr := fsroot.OpenExisting(tmp)
 	if docRootErr != nil {
-		t.Fatalf("fsroot.OpenConfined: %v", docRootErr)
+		t.Fatalf("fsroot.OpenExisting: %v", docRootErr)
 	}
 	t.Cleanup(func() { _ = docRoot.Close() })
 	if writeErr := document.WriteFile(docRoot, docRoot.NewPath(tracePath), original); writeErr != nil {
@@ -460,9 +460,9 @@ func resumeThenFailRollsBack(t *testing.T, format string) {
 	}
 
 	tracePath := filepath.Join(tmp, "trace."+format)
-	docRoot, docRootErr := fsroot.OpenConfined(tmp)
+	docRoot, docRootErr := fsroot.OpenExisting(tmp)
 	if docRootErr != nil {
-		t.Fatalf("fsroot.OpenConfined: %v", docRootErr)
+		t.Fatalf("fsroot.OpenExisting: %v", docRootErr)
 	}
 	t.Cleanup(func() { _ = docRoot.Close() })
 	if writeErr := document.WriteFile(docRoot, docRoot.NewPath(tracePath), executor.Trace()); writeErr != nil {
@@ -562,9 +562,9 @@ func resumePromiseFidelity(t *testing.T, format string) {
 	}
 
 	tracePath := filepath.Join(tmp, "trace."+format)
-	docRoot, docRootErr := fsroot.OpenConfined(tmp)
+	docRoot, docRootErr := fsroot.OpenExisting(tmp)
 	if docRootErr != nil {
-		t.Fatalf("fsroot.OpenConfined: %v", docRootErr)
+		t.Fatalf("fsroot.OpenExisting: %v", docRootErr)
 	}
 	t.Cleanup(func() { _ = docRoot.Close() })
 	if writeErr := document.WriteFile(docRoot, docRoot.NewPath(tracePath), executor.Trace()); writeErr != nil {
