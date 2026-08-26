@@ -373,7 +373,11 @@ GOLANGCI_LINT_VERSION ?= v2.13.1
 
 golangci-lint-pinned: ## Verify the pinned golangci-lint is the one on PATH
 	installed="$$(golangci-lint version --short 2>/dev/null || echo none)"
-	if [ "$$installed" != "$(GOLANGCI_LINT_VERSION)" ]; then
+	# `version --short` prints 2.13.1 while the pin is written v2.13.1 — the form the install URL
+	# and the install command both need. Strip a leading v from each side rather than from the
+	# variable, so the comparison survives golangci-lint changing which form it reports.
+	expected="$(GOLANGCI_LINT_VERSION)"
+	if [ "$${installed#v}" != "$${expected#v}" ]; then
 		echo "ERROR: golangci-lint $$installed on PATH, expected $(GOLANGCI_LINT_VERSION)."
 		echo "  Install: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/$(GOLANGCI_LINT_VERSION)/install.sh | \\"
 		echo "             sh -s -- -b \"\$$(go env GOPATH)/bin\" $(GOLANGCI_LINT_VERSION)"
