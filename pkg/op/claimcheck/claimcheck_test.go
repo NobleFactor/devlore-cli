@@ -4,6 +4,7 @@
 package claimcheck_test
 
 import (
+	"os"
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op/claimcheck"
@@ -17,10 +18,7 @@ import (
 // than once per provider inside codegen.
 func TestEveryClaimHolds(t *testing.T) {
 
-	// Every platform CI builds, not just the developer's. Build tags select different bodies, so a claim can
-	// hold here and fail on the machine that ships it — and the host platform is the one nobody checks, because
-	// it is the one that always passed.
-	for _, goos := range []string{"", "darwin", "linux", "windows"} {
+	for _, goos := range platformsUnderTest() {
 
 		label := goos
 		if label == "" {
@@ -39,6 +37,29 @@ func TestEveryClaimHolds(t *testing.T) {
 			}
 		})
 	}
+}
+
+// platformsUnderTest names the GOOS values this run checks — the host alone, unless asked for all of them.
+//
+// Build tags select different bodies, so a claim can hold on the machine that writes it and fail on the machine
+// that ships it. Checking every platform everywhere is the obvious way to cover that, and it is the wrong one:
+// one load is a full type-check pass of the module, and CI runs five legs, so a four-platform sweep per leg
+// costs twenty loads to answer twelve questions. It also does not fit — four sequential loads under -race
+// overran test-race's 120s ceiling on darwin and windows, which is what sent this here.
+//
+// The matrix already spans the platforms. Its legs are darwin-arm64, linux-amd64, linux-arm64, windows-amd64,
+// and windows-arm64, so each leg checking its own host covers darwin, linux, and windows between them, at one
+// load apiece. That is what makes the matrix load-bearing rather than decorative.
+//
+// The cost is local: `make test` on a mac checks darwin and lets CI find a linux-only violation. Set
+// DEVLORE_CLAIMCHECK_ALL_PLATFORMS to sweep all four from one machine before pushing.
+func platformsUnderTest() []string {
+
+	if os.Getenv("DEVLORE_CLAIMCHECK_ALL_PLATFORMS") != "" {
+		return []string{"", "darwin", "linux", "windows"}
+	}
+
+	return []string{""}
 }
 
 // TestCheck_CatchesEveryViolationShape proves the checker can fail, and on the shapes that matter.
