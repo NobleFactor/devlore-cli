@@ -14,10 +14,13 @@ import (
 
 func init() {
 	op.AnnounceProvider(reflect.TypeFor[provider.Provider](),
-		op.RoleModule,
+		op.RoleModule|op.RoleAction,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
 		map[string]op.MethodMetadata{
-			"Get":  {ParameterNames: []string{}, Modifiers: op.ModifierProperty},
+			"Get": {
+				ParameterNames: []string{},
+				Modifiers:      op.ModifierProperty,
+			},
 			"Show": {ParameterNames: []string{}},
 			"Sync": {ParameterNames: []string{}},
 		})

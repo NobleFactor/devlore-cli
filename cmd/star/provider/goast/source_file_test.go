@@ -65,7 +65,7 @@ var MaxRetries = 3
 `
 
 func TestSourceFile_Decls(t *testing.T) {
-	sf, err := LoadSourceFile(testSource)
+	sf, err := parseSourceFile(testSource)
 	if err != nil {
 		t.Fatalf("LoadSourceFile: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestSourceFile_Decls(t *testing.T) {
 }
 
 func TestSourceFile_Types(t *testing.T) {
-	sf, err := LoadSourceFile(testSource)
+	sf, err := parseSourceFile(testSource)
 	if err != nil {
 		t.Fatalf("LoadSourceFile: %v", err)
 	}
@@ -153,7 +153,7 @@ func TestSourceFile_Types(t *testing.T) {
 }
 
 func TestSourceFile_Funcs(t *testing.T) {
-	sf, err := LoadSourceFile(testSource)
+	sf, err := parseSourceFile(testSource)
 	if err != nil {
 		t.Fatalf("LoadSourceFile: %v", err)
 	}
@@ -176,7 +176,7 @@ func TestSourceFile_Funcs(t *testing.T) {
 }
 
 func TestSourceFile_Consts(t *testing.T) {
-	sf, err := LoadSourceFile(testSource)
+	sf, err := parseSourceFile(testSource)
 	if err != nil {
 		t.Fatalf("LoadSourceFile: %v", err)
 	}
@@ -202,7 +202,7 @@ func TestSourceFile_Consts(t *testing.T) {
 }
 
 func TestSourceFile_Vars(t *testing.T) {
-	sf, err := LoadSourceFile(testSource)
+	sf, err := parseSourceFile(testSource)
 	if err != nil {
 		t.Fatalf("LoadSourceFile: %v", err)
 	}
@@ -220,7 +220,7 @@ func TestSourceFile_Vars(t *testing.T) {
 }
 
 func TestSourceFile_FloatingComments(t *testing.T) {
-	sf, err := LoadSourceFile(testSource)
+	sf, err := parseSourceFile(testSource)
 	if err != nil {
 		t.Fatalf("LoadSourceFile: %v", err)
 	}
@@ -295,7 +295,7 @@ func TestSourceFile_FloatingComments(t *testing.T) {
 }
 
 func TestSourceFile_CleanupAndSave(t *testing.T) {
-	sf, err := LoadSourceFile(testSource)
+	sf, err := parseSourceFile(testSource)
 	if err != nil {
 		t.Fatalf("LoadSourceFile: %v", err)
 	}
@@ -321,7 +321,7 @@ func TestSourceFile_CleanupAndSave(t *testing.T) {
 	got := string(result)
 
 	// The output should be valid Go — parse it.
-	_, err = LoadSourceFile(got)
+	_, err = parseSourceFile(got)
 	if err != nil {
 		t.Fatalf("Save output is not valid Go: %v\n---\n%s", err, got)
 	}
@@ -396,7 +396,7 @@ func helper() {
 `
 
 func TestSourceFile_AllStyles_RoundTrip(t *testing.T) {
-	sf, err := LoadSourceFile(allStylesSource)
+	sf, err := parseSourceFile(allStylesSource)
 	if err != nil {
 		t.Fatalf("LoadSourceFile: %v", err)
 	}
@@ -421,7 +421,7 @@ func TestSourceFile_AllStyles_RoundTrip(t *testing.T) {
 
 	// --- Must be valid Go ---
 
-	sf2, err := LoadSourceFile(got)
+	sf2, err := parseSourceFile(got)
 	if err != nil {
 		t.Fatalf("output is not valid Go:\n%v\n---OUTPUT---\n%s", err, got)
 	}
@@ -483,7 +483,7 @@ func NewAccessor(v interface{}) *Accessor {
 
 type Accessor struct{}
 `
-	sf, err := LoadSourceFile(src)
+	sf, err := parseSourceFile(src)
 	if err != nil {
 		t.Fatalf("LoadSourceFile: %v", err)
 	}
@@ -531,7 +531,7 @@ func TestSourceFile_RealFile_RoundTrip(t *testing.T) {
 				t.Skipf("cannot read %s: %v", path, err)
 			}
 
-			sf, err := LoadSourceFile(string(content))
+			sf, err := parseSourceFile(string(content))
 			if err != nil {
 				t.Fatalf("LoadSourceFile: %v", err)
 			}
@@ -554,7 +554,7 @@ func TestSourceFile_RealFile_RoundTrip(t *testing.T) {
 			}
 			got := string(result)
 
-			_, err = LoadSourceFile(got)
+			_, err = parseSourceFile(got)
 			if err != nil {
 				t.Fatalf("output is not valid Go:\n%v\n---FIRST 80 LINES---\n%s", err, firstNLines(got, 80))
 			}

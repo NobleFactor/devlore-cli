@@ -450,7 +450,7 @@ func (p *Provider) LoadSourceFile(path string) (*SourceFile, error) {
 	if err != nil {
 		return nil, fmt.Errorf("goast.load_source_file: %w", err)
 	}
-	sf, err := LoadSourceFile(string(content))
+	sf, err := parseSourceFile(string(content))
 	if err != nil {
 		return nil, fmt.Errorf("goast.load_source_file: %w", err)
 	}

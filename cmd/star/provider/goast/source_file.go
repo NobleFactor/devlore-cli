@@ -48,7 +48,12 @@ type SourceFile struct {
 	width     int
 }
 
-// LoadSourceFile parses Go source content and builds a semantic tree.
+// parseSourceFile parses Go source content and builds a semantic tree.
+//
+// Unexported, and named for what it does: it takes CONTENT, where [Provider.LoadSourceFile] takes a path and
+// reads it. Both were called LoadSourceFile until 2026-08-26, which was inaccurate and then became a build
+// failure — the announced method emits an action-name const into the package root, where it collided with this
+// function and would not compile.
 //
 // Parameters:
 //   - `content`: the Go source text to parse.
@@ -56,7 +61,7 @@ type SourceFile struct {
 // Returns:
 //   - `*SourceFile`: the constructed semantic tree.
 //   - `error`: non-nil if the content fails to parse, or a floating comment cannot be classified.
-func LoadSourceFile(content string) (*SourceFile, error) {
+func parseSourceFile(content string) (*SourceFile, error) {
 
 	fileSet := token.NewFileSet()
 
