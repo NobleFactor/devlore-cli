@@ -33,14 +33,8 @@ func init() {
 				ParameterNames: []string{"path"},
 				Claims:         op.ClaimSandboxed,
 			},
-			"Find": {
-				ParameterNames: []string{"pattern", "include_gitignored?=false"},
-				Claims:         op.ClaimSandboxed,
-			},
-			"Glob": {
-				ParameterNames: []string{"pattern", "include_gitignored?=false"},
-				Claims:         op.ClaimSandboxed,
-			},
+			"Find": {ParameterNames: []string{"pattern", "include_gitignored?=false"}},
+			"Glob": {ParameterNames: []string{"pattern", "include_gitignored?=false"}},
 			"IsDir": {
 				ParameterNames: []string{"path"},
 				Claims:         op.ClaimSandboxed,
@@ -101,10 +95,7 @@ func init() {
 				ParameterNames: []string{},
 				Claims:         op.ClaimDeterministic,
 			},
-			"WalkTree": {
-				ParameterNames: []string{"root", "fn", "include_gitignored?=false"},
-				Claims:         op.ClaimSandboxed,
-			},
+			"WalkTree": {ParameterNames: []string{"root", "fn", "include_gitignored?=false"}},
 			"WriteBytes": {
 				ParameterNames: []string{"destination_path", "content", "mode?={{ umask 0o666 }}", "user?=\"\"", "group?=\"\""},
 				Claims:         op.ClaimSandboxed,

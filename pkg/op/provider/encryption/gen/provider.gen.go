@@ -21,9 +21,6 @@ func init() {
 				ParameterNames: []string{"source", "destination_path", "mode?=0o600"},
 				Claims:         op.ClaimSandboxed,
 			},
-			"EncryptFile": {
-				ParameterNames: []string{"source", "destination_path", "mode?=0o600"},
-				Claims:         op.ClaimSandboxed,
-			},
+			"EncryptFile": {ParameterNames: []string{"source", "destination_path", "mode?=0o600"}},
 		})
 }

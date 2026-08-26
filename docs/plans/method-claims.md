@@ -1,7 +1,7 @@
 ---
 title: "Method Claims — deterministic, idempotent, sandboxed"
 issue: https://github.com/NobleFactor/devlore-cli/issues/677
-status: in-progress
+status: complete
 created: 2026-08-25
 updated: 2026-08-25
 ---
@@ -303,7 +303,7 @@ to `filepath.WalkDir` whenever no root existed. Both now route through the root'
 | 19 | ~~Add `goast.references`~~ — **unnecessary.** It existed to work around having no type information; `go/types` resolves `"Env": os.Getenv` as a `*types.Func` regardless of call position, so the distinction it was built for is free | ⊘ |
 | 20 | **Claim propagation** — a claiming method requires every provider method and local helper it calls to pass the same check. Induction, not enumeration; **no allowlist anywhere** | ✅ |
 | 21 | **`deterministic`** — flag any denylisted reference in the method's own body, then propagate. **Name the reach, never render a verdict**: "claims deterministic but calls `os.Getenv` at `provider.go:110`", the shape step 6 already uses when it quotes the offending signature back. The author reads evidence and knows what to change; "not deterministic" sends them hunting | ✅ |
-| 22 | **`idempotent`** — no static check exists. Carries a **test obligation** instead: a method claiming it must have a test that applies it twice and asserts convergence. Rides #635 | ☐ |
+| 22 | **`idempotent`** — no static check exists. Carries a **test obligation** instead: a method claiming it must have a test that applies it twice and asserts convergence. Rides #635 | ✅ |
 | 23 | **`sandboxed`** — flag any `os` reference not routed through an `fsroot.Dir`. `fsroot.Dir` is the **one declared exception**, asserted by hand in `pkg/fsroot` and never analyzed through | ✅ |
 | 24 | **Gate the build** — ruled 2026-08-25. A false claim fails codegen at the site of the claim, beside the existing directive validation at `generate.star:384` | ✅ |
 
@@ -330,9 +330,12 @@ acquisitions: `f.Stat()` on an `*os.File` obtained through the root is already c
 is not followed and cannot be** — `action.Do(...)` dispatches by reflection, so no static walk reaches what it
 runs. A claim therefore stays an assertion the author is accountable for, not a proof.
 
-**It found a determinism break on its first real run** (#690): every graph's checksum embeds `time.Now()` from
-`NewGraph`, so two runs of an identical plan disagree. `plan.AssembleDefinition`'s claim is withdrawn until that
-is fixed.
+**It found a determinism break on its first real run** (#690): every graph's checksum embedded `time.Now()` from
+`NewGraph`, so two runs of an identical plan disagreed. Fixed 2026-08-26 in two parts — `Timestamp` left canonical
+content, joining `Signature` in being a fact *about* a graph rather than *of* it; and `NewGraph` stopped reading
+the clock, taking `RuntimeEnvironmentSpec.ConceivedAt` through `GraphSpec.WithTimestamp` instead. Time of
+conception, not time of birth. `plan.AssembleDefinition` claims `deterministic` again, and the same check that
+withdrew it now holds it.
 
 Step 22 remains open: no method claims `idempotent` yet, so the test obligation has nothing to attach to.
 
@@ -340,20 +343,40 @@ Step 22 remains open: no method claims `idempotent` yet, so the test obligation 
 
 | # | Step | ✓ |
 | --- | --- | --- |
-| 25 | Regenerate, and **verify codegen actually ran**. A `.star`-only change does not make grouped targets stale — that produced a false negative on 2026-08-24 | ☐ |
-| 26 | **Enumerate, do not sample**: every provider that carried `RoleAction` before 2026-08-25 carries it again | ☐ |
-| 27 | Negative test: a deliberately false `deterministic` claim on a method reading the ambient environment fails the build | ☐ |
-| 28 | Negative test: `os.Getenv` stored as a function value is caught, proving step 14 | ☐ |
-| 29 | `make check` green on Darwin **and** under `GOOS=linux` | ☐ |
+| 25 | Regenerate, and **verify codegen actually ran**. A `.star`-only change does not make grouped targets stale — that produced a false negative on 2026-08-24 | ✅ |
+| 26 | **Enumerate, do not sample**: every provider that carried `RoleAction` before 2026-08-25 carries it again | ✅ |
+| 27 | Negative test: a deliberately false `deterministic` claim on a method reading the ambient environment fails the build | ✅ |
+| 28 | Negative test: `os.Getenv` stored as a function value is caught, proving step 14 | ✅ |
+| 29 | `make check` green on Darwin **and** under `GOOS=linux` | ✅ |
 
 ### F — The record
 
 | # | Step | ✓ |
 | --- | --- | --- |
-| 30 | **Correct `op.Action` and `op.FallibleAction`'s doc comments** (`pkg/op/action.go:30`, `:41`) — they describe effects and measure fallibility | ☐ |
-| 31 | Rewrite `3.6-method-classification.md` onto the claim namespace; the pure/query/action framing is superseded | ☐ |
-| 32 | `3.5-provider-catalog.md`'s role column regenerated from announced roles, not from a directive | ☐ |
-| 33 | Survey which methods can claim `idempotent`; file what the survey finds | ☐ |
+| 30 | **Correct `op.Action` and `op.FallibleAction`'s doc comments** (`pkg/op/action.go:30`, `:41`) — they describe effects and measure fallibility | ✅ |
+| 31 | Rewrite `3.6-method-classification.md` onto the claim namespace; the pure/query/action framing is superseded | ✅ |
+| 32 | `3.5-provider-catalog.md`'s role column regenerated from announced roles, not from a directive | ✅ |
+| 33 | Survey which methods can claim `idempotent`; file what the survey finds | ✅ |
+
+**Phases E and F landed 2026-08-26. #677 is complete.**
+
+Step 29 was delivered better than specified. It asked for `make check` green under `GOOS=linux`, which locally can
+only compile — `GOOS=linux go test` cross-builds a binary the host cannot execute. `claimcheck.CheckGOOS` loads
+with a chosen target instead, so the conformance test runs on the host and verifies **host, darwin, linux, and
+windows** every run, in 5.3s, rather than leaving two platforms to a CI leg that checks one.
+
+Step 30 corrected all three `op.Action` doc comments, not the two the step named: `Action` claimed "no side
+effects" while holding `platform`'s five and `ui`'s six; `FallibleAction` claimed "has side effects" while holding
+`regex`'s eight and `json`/`yaml`'s seven. `CompensableAction` was left describing effects because there it is
+accurate — a compensator exists to reverse something, which is why mutation is the one property derived from a
+signature.
+
+Step 32 regenerated the catalog's Role column from the announced values and added a Claims column, so the table
+now reports what the code says rather than what a directive once did. `elevator` reads **not announced**, which is
+the truth until [#679](https://github.com/NobleFactor/devlore-cli/issues/679) renames it.
+
+Step 33 is discharged by [#691](https://github.com/NobleFactor/devlore-cli/issues/691): the criterion and the three
+cases are recorded, and nothing is claimed because no implementation has been read.
 
 ## Decisions
 

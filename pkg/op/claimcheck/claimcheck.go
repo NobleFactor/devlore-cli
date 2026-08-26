@@ -18,6 +18,7 @@ import (
 	"go/ast"
 	"go/token"
 	"go/types"
+	"os"
 	"sort"
 	"strings"
 
@@ -70,12 +71,35 @@ func (v Violation) String() string {
 //   - `error`: non-nil when loading fails or a package carries type errors.
 func Check(patterns ...string) ([]Violation, error) {
 
+	return CheckGOOS("", patterns...)
+}
+
+// CheckGOOS is [Check] against a chosen target platform.
+//
+// A claim can hold on one platform and fail on another: build tags select different bodies, so the call graph a
+// method reaches is not the same everywhere. Verifying only the developer's platform would leave the others to
+// CI, and CI runs one of them.
+//
+// Parameters:
+//   - `goos`: the target platform, e.g. "linux"; empty loads for the host.
+//   - `patterns`: go package patterns.
+//
+// Returns:
+//   - `[]Violation`: the violations found for that platform.
+//   - `error`: non-nil when loading fails or a package carries type errors.
+func CheckGOOS(goos string, patterns ...string) ([]Violation, error) {
+
 	mode := packages.NeedName | packages.NeedSyntax | packages.NeedTypes | packages.NeedTypesInfo |
 		packages.NeedDeps | packages.NeedImports | packages.NeedFiles
 
-	loaded, err := packages.Load(&packages.Config{Mode: mode, Tests: false}, patterns...)
+	config := &packages.Config{Mode: mode, Tests: false}
+	if goos != "" {
+		config.Env = append(os.Environ(), "GOOS="+goos)
+	}
+
+	loaded, err := packages.Load(config, patterns...)
 	if err != nil {
-		return nil, fmt.Errorf("claimcheck: load %v: %w", patterns, err)
+		return nil, fmt.Errorf("claimcheck: load %v for GOOS=%q: %w", patterns, goos, err)
 	}
 
 	var violations []Violation
@@ -130,13 +154,21 @@ var forbidden = map[string][]string{
 // stand. The distinction is per function, so the package cannot simply be forbidden.
 var sandboxedTraversal = map[string]bool{"Glob": true, "Walk": true, "WalkDir": true}
 
-// trustBoundary is the package propagation stops at.
+// trustBoundaries are the packages propagation stops at.
 //
-// `pkg/fsroot` IS the sandbox -- kernel-enforced confinement via os.OpenRoot -- so its own body necessarily calls
-// the capability it provides. Walking through it would report every sandboxed method as escaping, which is the
-// analysis contradicting the design rather than checking it. The assertion that fsroot confines is discharged by
-// hand, once, in that package.
-const trustBoundary = "github.com/NobleFactor/devlore-cli/pkg/fsroot"
+// Each is asserted by hand, once, in the package itself. Analyzing through either would have the check contradict
+// the design rather than test it.
+//
+//   - `pkg/fsroot` IS the sandbox. Confinement is the kernel's, via os.OpenRoot, so its own body necessarily
+//     calls the capability it provides; walking through it reports every sandboxed method as escaping itself.
+//   - `pkg/assert` reaches runtime.Callers only to render a stack frame while raising. That call sits on the
+//     abort path of a failed assertion — a program-construction error that panics — never on a path a caller's
+//     result depends on. Statically it is reachable from anything that asserts, which is nearly everything;
+//     dynamically it runs only as the process is dying.
+var trustBoundaries = map[string]bool{
+	"github.com/NobleFactor/devlore-cli/pkg/assert": true,
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot": true,
+}
 
 // inspectPackage reports the violations carried by one loaded package.
 //
@@ -224,21 +256,32 @@ type walker struct {
 //   - `via`: the hop chain that led here, empty at the claiming method itself.
 func (w *walker) walk(from declaration, via string) {
 
+	// Identifiers, not selectors. A qualified call reaches its function through a selector whose .Sel is an
+	// identifier, and a same-package call is a bare identifier with no selector at all -- so inspecting selectors
+	// saw `p.lstat(...)` and was blind to `helper()`, which is how most of a provider's own helpers are called.
+	// Resolving identifiers covers both, and the type check discards the rest: a package qualifier resolves to a
+	// PkgName, a field to a Var, a type to a TypeName.
 	ast.Inspect(from.body, func(node ast.Node) bool {
 
-		selector, ok := node.(*ast.SelectorExpr)
+		identifier, ok := node.(*ast.Ident)
 		if !ok {
 			return true
 		}
 
-		function, ok := from.info.Uses[selector.Sel].(*types.Func)
-		if !ok || function.Pkg() == nil || isMethod(function) {
-			// Not a package-level function: a type, a constant, a sentinel, a field, or a method on a value the
-			// caller already holds. None of those acquires a capability.
+		function, ok := from.info.Uses[identifier].(*types.Func)
+		if !ok || function.Pkg() == nil {
+			// Not a function at all: a type, a constant, a sentinel, a field, or a package qualifier.
 			return true
 		}
 
-		w.record(function, selector, from.fset, via)
+		// Recording and following ask different questions, so the method test gates only one of them. A method on
+		// a foreign value is not an acquisition -- f.Stat() on an *os.File obtained through the root is already
+		// confined -- but a method of OURS is exactly what propagation must walk, since p.lstat(...) and
+		// p.newTracker(...) are how a provider reaches most of what it reaches.
+		if !isMethod(function) {
+			w.record(function, identifier, from.fset, via)
+		}
+
 		w.follow(function, via)
 
 		return true
@@ -249,10 +292,10 @@ func (w *walker) walk(from declaration, via string) {
 //
 // Parameters:
 //   - `function`: the resolved callee.
-//   - `selector`: where it was called.
+//   - `at`: the identifier naming it, for the position.
 //   - `fset`: the file set the call belongs to.
 //   - `via`: the hop chain that led here.
-func (w *walker) record(function *types.Func, selector *ast.SelectorExpr, fset *token.FileSet, via string) {
+func (w *walker) record(function *types.Func, at *ast.Ident, fset *token.FileSet, via string) {
 
 	reachedPkg := function.Pkg().Path()
 	reach := reachedPkg + "." + function.Name()
@@ -269,7 +312,7 @@ func (w *walker) record(function *types.Func, selector *ast.SelectorExpr, fset *
 			Method:   w.method,
 			Claim:    claim,
 			Reach:    reach,
-			Position: position(fset, selector.Pos()),
+			Position: position(fset, at.Pos()),
 			Via:      via,
 		})
 	}
@@ -282,10 +325,8 @@ func (w *walker) record(function *types.Func, selector *ast.SelectorExpr, fset *
 //   - `via`: the hop chain that led here.
 func (w *walker) follow(function *types.Func, via string) {
 
-	// pkg/fsroot is the declared trust boundary, asserted by hand and never analyzed through: it is the
-	// sanctioned way to reach the filesystem, so of course its own body calls os.OpenRoot. Walking into it would
-	// report the sandbox as an escape from itself.
-	if function.Pkg().Path() == trustBoundary || w.walked[function] {
+	// A declared trust boundary is never walked through; [trustBoundaries] records why each one is there.
+	if trustBoundaries[function.Pkg().Path()] || w.walked[function] {
 		return
 	}
 

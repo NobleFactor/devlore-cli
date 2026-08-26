@@ -170,7 +170,7 @@ func (p *Provider) Copy(
 		return product, receipt, err
 	}
 
-	if err := applyOwnership(product.SourcePath.Abs(), user, group); err != nil {
+	if err := applyOwnership(p.RuntimeEnvironment().Root(), product.SourcePath.Abs(), user, group); err != nil {
 		return product, receipt, err
 	}
 
@@ -386,7 +386,7 @@ func (p *Provider) Mkdir(
 		return nil, receipt, err
 	}
 
-	if err := applyOwnership(leaf, user, group); err != nil {
+	if err := applyOwnership(p.RuntimeEnvironment().Root(), leaf, user, group); err != nil {
 		return nil, receipt, err
 	}
 
@@ -841,8 +841,6 @@ func (p *Provider) removeEntry(
 //   - `error`: non-nil on tracker construction, stat, or any error returned by `fn`.
 //
 // +devlore:defaults includeGitignored=false
-//
-// +devlore:claim=sandboxed
 func (p *Provider) WalkTree(
 	activationRecord *op.ActivationRecord,
 	root *Directory,
@@ -1249,8 +1247,6 @@ func (p *Provider) Exists(path string) (bool, error) {
 //   - `error`: non-nil when the pattern escapes the scoped root, or on tracker construction or walk failure.
 //
 // +devlore:defaults includeGitignored=false
-//
-// +devlore:claim=sandboxed
 func (p *Provider) Find(pattern string, includeGitignored bool) (product []Resource, err error) {
 
 	scopedRoot := p.Root()
@@ -1381,8 +1377,6 @@ func (p *Provider) findWalkFunc(
 //   - `error`: non-nil on a malformed pattern.
 //
 // +devlore:defaults includeGitignored=false
-//
-// +devlore:claim=sandboxed
 func (p *Provider) Glob(pattern string, includeGitignored bool) ([]Resource, error) {
 
 	root := p.RuntimeEnvironment().Root()
@@ -2360,7 +2354,7 @@ func (p *Provider) write(
 		return product, receipt, err
 	}
 
-	if err := applyOwnership(product.SourcePath.Abs(), user, group); err != nil {
+	if err := applyOwnership(p.RuntimeEnvironment().Root(), product.SourcePath.Abs(), user, group); err != nil {
 		return product, receipt, err
 	}
 

@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 )
 
 // Ownership resolution is Unix-only, and the constraint scopes these rather than skipping them.
@@ -46,8 +48,14 @@ func TestApplyOwnership_CurrentUserIsNoOp(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
+	root, err := fsroot.OpenExisting(tmp)
+	if err != nil {
+		t.Fatalf("fsroot.OpenExisting: %v", err)
+	}
+	defer func() { _ = root.Close() }()
+
 	user, group := strconv.Itoa(os.Getuid()), strconv.Itoa(os.Getgid())
-	if err := applyOwnership(target, user, group); err != nil {
+	if err := applyOwnership(root, target, user, group); err != nil {
 		t.Errorf("applyOwnership(%q, %q): %v", user, group, err)
 	}
 }
