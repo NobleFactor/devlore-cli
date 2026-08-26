@@ -17,7 +17,10 @@ func init() {
 		op.RoleModule,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
 		map[string]op.MethodMetadata{
-			"AssembleDefinition": {ParameterNames: []string{"invocations", "slots?", "on_error?", "on_retry?", "retry_policy?", "transition_policy?", "origin?"}},
+			"AssembleDefinition": {
+				ParameterNames: []string{"invocations", "slots?", "on_error?", "on_retry?", "retry_policy?", "transition_policy?", "origin?"},
+				Claims:         op.ClaimDeterministic,
+			},
 			"Case": {
 				ParameterNames: []string{"when", "then"},
 				Claims:         op.ClaimDeterministic,

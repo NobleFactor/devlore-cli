@@ -149,7 +149,7 @@ func NewGraph(spec *GraphSpec) (*Graph, error) {
 
 	g, err := buildGraph(root, graphMetadata{
 		schemaVersion:   GraphSchemaVersion,
-		timestamp:       time.Now(),
+		timestamp:       spec.timestamp,
 		origin:          graphOrigin,
 		resourceCatalog: resourceCatalog,
 	})
@@ -801,10 +801,14 @@ func (g *Graph) UnitCount() int { return len(g.Nodes()) + len(g.Subgraphs()) }
 //   - `error`: non-nil if YAML marshaling fails.
 func (g *Graph) CanonicalContent() ([]byte, error) {
 
+	// Timestamp is deliberately absent, as Signature always has been. Both are facts ABOUT a graph rather than
+	// OF it: a signature is taken over the content and cannot be in it, and a build time says when this graph was
+	// made, not what it is. Including the timestamp meant two runs of an identical plan produced different
+	// checksums with no input having changed -- the thing 2.4 says must not happen (#690). Provenance survives on
+	// the graph and in the serialized document; only identity stops depending on it.
 	type canonicalGraph struct {
 		Kind          string      `yaml:"kind"`
 		SchemaVersion uint32      `yaml:"schema_version"`
-		Timestamp     string      `yaml:"timestamp"`
 		Children      []string    `yaml:"children"`
 		Edges         []Edge      `yaml:"edges,omitempty"`
 		Subgraphs     []*Subgraph `yaml:"subgraphs,omitempty"`
@@ -827,7 +831,6 @@ func (g *Graph) CanonicalContent() ([]byte, error) {
 	canonical := canonicalGraph{
 		Kind:          g.kind,
 		SchemaVersion: g.schemaVersion,
-		Timestamp:     g.timestamp.Format(time.RFC3339),
 		Children:      g.root.childIDs(),
 		Edges:         rootEdges,
 		Subgraphs:     subgraphs,
@@ -1086,6 +1089,12 @@ type GraphSpec struct {
 	Root            SubgraphSpec
 	Origin          Origin
 	ResourceCatalog *ResourceCatalog
+
+	// timestamp is when the planning session began, supplied via [GraphSpec.WithTimestamp].
+	//
+	// Unexported because it is provenance the framework threads through, not something a caller assembles a graph
+	// out of. Zero when unsupplied, which costs provenance and never correctness.
+	timestamp time.Time
 }
 
 // WithElevationOffer sets the root subgraph's [ElevationOffer] and returns the spec for chaining.
@@ -1157,6 +1166,27 @@ func (s *GraphSpec) WithResourceCatalog(catalog *ResourceCatalog) *GraphSpec {
 //   - `*GraphSpec`: the receiver, for chaining.
 func (s *GraphSpec) WithRetryPolicy(retryPolicy *RetryPolicy) *GraphSpec {
 	s.Root.WithRetryPolicy(retryPolicy)
+	return s
+}
+
+// WithTimestamp records when the planning session that produced this graph began.
+//
+// Supplied, never read: graph construction is a pure function of its spec, so two runs of the same plan build
+// byte-identical graphs (#690). The value is [RuntimeEnvironment.ConceivedAt] -- time of conception, not time of
+// birth -- so every graph a session assembles shares it and they stay comparable.
+//
+// An unset timestamp is the zero time, which serializes as such. That is a provenance gap, never a correctness
+// one: identity does not depend on it ([Graph.CanonicalContent] omits it, as it always has omitted the signature).
+//
+// Parameters:
+//   - `timestamp`: when the session began.
+//
+// Returns:
+//   - `*GraphSpec`: the spec, for chaining.
+func (s *GraphSpec) WithTimestamp(timestamp time.Time) *GraphSpec {
+
+	s.timestamp = timestamp
+
 	return s
 }
 

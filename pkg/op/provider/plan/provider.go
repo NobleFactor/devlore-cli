@@ -148,6 +148,8 @@ func (p *Provider) InvocationRegistry() *op.InvocationRegistry { return p.invoca
 //     of one entry per orphan.
 //
 // +devlore:defaults retryPolicy=nil, onError=nil, onRetry=nil, transitionPolicy=nil, slots=nil, origin=
+//
+// +devlore:claim=deterministic
 func (p *Provider) AssembleDefinition(
 	invocations []*op.Invocation,
 	slots map[string]any,
@@ -208,7 +210,8 @@ func (p *Provider) AssembleDefinition(
 		WithOnError(onErrorSg).
 		WithOnRetry(onRetrySg).
 		WithRetryPolicy(retryPolicy).
-		WithTransitionPolicy(transitionPolicy)
+		WithTransitionPolicy(transitionPolicy).
+		WithTimestamp(p.RuntimeEnvironment().ConceivedAt)
 	for name, value := range bindings {
 		spec.WithSlot(name, value)
 	}

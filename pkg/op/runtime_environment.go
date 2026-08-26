@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
@@ -83,6 +84,16 @@ type RuntimeEnvironment struct {
 	// Same instance that flows to `cli.UI()` and through every status emission point. Populated by
 	// [RuntimeEnvironmentSpec.Build] (defaults to a [status.Narrator] writing through [sink.Stderr] when the spec field
 	// is nil; pass a Narrator wrapping [sink.Discard] to suppress).
+	// ConceivedAt is when this session began — the one clock read a planning run makes.
+	//
+	// Every graph the session assembles carries it, so graphs from one planning run share a timestamp and are
+	// comparable, where a per-graph construction instant made each one unique for no reason. Time of conception,
+	// not time of birth.
+	//
+	// It also puts the clock read somewhere visible. Graph construction is now a pure function of its spec, which
+	// is what lets a method assembling one claim `+devlore:claim=deterministic` with a straight face (#690).
+	ConceivedAt time.Time
+
 	Status *status.Narrator
 
 	// RecoverySite is the shared recovery service for archiving and restoring resources during compensation.
@@ -239,6 +250,7 @@ func NewRuntimeEnvironment(ctx context.Context, spec *RuntimeEnvironmentSpec) (*
 		Platform:         platformCapability,
 		ResourceCatalog:  resourceCatalog,
 		rootPath:         spec.RootPath,
+		ConceivedAt:      spec.ConceivedAt,
 		Status:           statusNarrator,
 		Result:           resultPipeline,
 		variableResolver: NewVariableResolver(spec.Application),
@@ -842,6 +854,12 @@ func NewRuntimeEnvironmentConfig() *RuntimeEnvironmentConfig {
 type RuntimeEnvironmentSpec struct {
 
 	// ProgramName identifies the running tool (e.g., "lore", "writ").
+	// ConceivedAt is when this session began, stamped once by [NewRuntimeEnvironmentSpec].
+	//
+	// Carried to [RuntimeEnvironment.ConceivedAt] and from there onto every graph the session assembles. Time of
+	// conception, not time of birth.
+	ConceivedAt time.Time
+
 	ProgramName string
 
 	// Modules lists the selected modules to expose as Starlark globals.
@@ -903,6 +921,7 @@ func NewRuntimeEnvironmentSpec(programName string) *RuntimeEnvironmentSpec {
 
 	return &RuntimeEnvironmentSpec{
 		ProgramName: programName,
+		ConceivedAt: time.Now(),
 	}
 }
 

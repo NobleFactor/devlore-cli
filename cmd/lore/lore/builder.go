@@ -150,7 +150,8 @@ func Build(cfg BuildConfig) (*BuildResult, error) {
 	// into the environment's catalog — a fresh one here would strand them (the empty-section defect
 	// scoped verification exposed, 2026-08-22).
 	graph, err := op.NewGraph(op.NewGraphSpec().WithOrigin(origin).WithUnits(phases...).
-		WithResourceCatalog(sharedEnvironment.ResourceCatalog))
+		WithResourceCatalog(sharedEnvironment.ResourceCatalog).
+		WithTimestamp(sharedEnvironment.ConceivedAt))
 	if err != nil {
 		return nil, fmt.Errorf("lore.Build: %w", err)
 	}
