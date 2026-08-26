@@ -27,6 +27,7 @@ var _ op.Provider = (*Provider)(nil) // Interface Guard
 // the planner primitives carry bare action names on the created graph nodes (choose, gather, subgraph, …).
 //
 // +devlore:root=true
+// +devlore:surface=graph
 type Provider struct {
 	op.ProviderBase
 }

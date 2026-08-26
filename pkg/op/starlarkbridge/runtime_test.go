@@ -239,7 +239,35 @@ type bridgePlannedRootFixture struct{ op.ProviderBase }
 
 func (*bridgePlannedRootFixture) Launch() string { return "" }
 
+// bridgeMixedClaimFixture has one deterministic method and one that claims nothing, so a hermetic runtime must
+// admit part of it rather than all or none.
+type bridgeMixedClaimFixture struct{ op.ProviderBase }
+
+func (*bridgeMixedClaimFixture) Pure() string { return "pure" }
+
+func (*bridgeMixedClaimFixture) Impure() string { return "impure" }
+
+// bridgeNoClaimFixture claims nothing at all: a hermetic runtime admits none of it, which is a loud failure.
+type bridgeNoClaimFixture struct{ op.ProviderBase }
+
+func (*bridgeNoClaimFixture) Reach() string { return "reach" }
+
 func init() {
+	op.AnnounceProvider(reflect.TypeFor[bridgeMixedClaimFixture](), op.RoleModule,
+		func(re *op.RuntimeEnvironment) (any, error) {
+			return &bridgeMixedClaimFixture{ProviderBase: op.NewProviderBase(re)}, nil
+		},
+		map[string]op.MethodMetadata{
+			"Pure":   {ParameterNames: []string{}, Claims: op.ClaimDeterministic},
+			"Impure": {ParameterNames: []string{}},
+		})
+
+	op.AnnounceProvider(reflect.TypeFor[bridgeNoClaimFixture](), op.RoleModule,
+		func(re *op.RuntimeEnvironment) (any, error) {
+			return &bridgeNoClaimFixture{ProviderBase: op.NewProviderBase(re)}, nil
+		},
+		map[string]op.MethodMetadata{"Reach": {ParameterNames: []string{}}})
+
 	announce := func(providerType reflect.Type, roles op.ProviderRole, method string, construct op.ProviderConstructor) {
 		op.AnnounceProvider(providerType, roles, construct,
 			map[string]op.MethodMetadata{method: {ParameterNames: []string{}}})
@@ -342,6 +370,69 @@ func TestNewRuntime_ModuleRoot_InstallsEachMethodAndPanicsOnCollision(t *testing
 		Modules: bridgeFixtureModules(t, "bridgeRootModuleFixtureA", "bridgeRootModuleFixtureB"),
 	}
 	NewRuntime(collision)
+}
+
+// endregion
+
+// region HERMETIC FILTER
+
+func TestNewRuntime_Hermetic_AdmitsOnlyClaimingMethods(t *testing.T) {
+
+	env := &op.RuntimeEnvironment{Modules: bridgeFixtureModules(t, "bridgeMixedClaimFixture")}
+
+	t.Run("non-hermetic admits every method", func(t *testing.T) {
+
+		receiver := requireGlobal(t, NewRuntime(env).Predeclared(), "bridgeMixedClaimFixture")
+
+		for _, name := range []string{"pure", "impure"} {
+			if _, err := receiver.Attr(name); err != nil {
+				t.Errorf("Attr(%q): %v; a non-hermetic runtime filters nothing", name, err)
+			}
+		}
+	})
+
+	t.Run("hermetic admits the claiming method only", func(t *testing.T) {
+
+		receiver := requireGlobal(t, NewRuntime(env, Hermetic()).Predeclared(), "bridgeMixedClaimFixture")
+
+		if _, err := receiver.Attr("pure"); err != nil {
+			t.Errorf("Attr(pure): %v; a method claiming deterministic must survive the filter", err)
+		}
+
+		if _, err := receiver.Attr("impure"); err == nil {
+			t.Error("Attr(impure) succeeded; a method claiming nothing must not reach a hermetic surface")
+		}
+	})
+}
+
+func TestNewRuntime_Hermetic_ProviderWithNothingAdmitted_Fails(t *testing.T) {
+
+	env := &op.RuntimeEnvironment{Modules: bridgeFixtureModules(t, "bridgeNoClaimFixture")}
+
+	defer func() {
+		if recover() == nil {
+			t.Error("selecting a provider whose every method is refused must fail loudly, not yield an empty global")
+		}
+	}()
+
+	NewRuntime(env, Hermetic())
+}
+
+// requireGlobal fetches a predeclared global as a [starlark.HasAttrs], failing the test when it is absent.
+func requireGlobal(t *testing.T, predeclared starlark.StringDict, name string) starlark.HasAttrs {
+	t.Helper()
+
+	value, present := predeclared[name]
+	if !present {
+		t.Fatalf("predeclared lacks %q", name)
+	}
+
+	receiver, ok := value.(starlark.HasAttrs)
+	if !ok {
+		t.Fatalf("predeclared[%q] is %T, want starlark.HasAttrs", name, value)
+	}
+
+	return receiver
 }
 
 // endregion

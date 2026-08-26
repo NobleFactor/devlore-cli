@@ -110,13 +110,6 @@ def to_snake(name):
             result.append(ch)
     return "".join(result)
 
-def access_title(access):
-    """Convert an access string to its Go title-case constant suffix.
-
-    'immediate' → 'Immediate', 'planned' → 'Planned', 'both' → 'Both'
-    """
-    return access[0].upper() + access[1:]
-
 def lc_first(name):
     """Lowercase the first character of a name."""
     if not name:
@@ -127,6 +120,30 @@ def lc_first(name):
 # Directive Parsing
 # =============================================================================
 
+
+def struct_surface(path):
+    """Extract the +devlore:surface directive from the Provider struct's doc comment.
+
+    A provider is eligible for both surfaces by default -- the graph, and the module surface of any
+    starlarkbridge.Runtime that selects it. Two providers are not, and they are opposites:
+
+      +devlore:surface=graph   flow -- its methods ARE the graph combinators and mean nothing outside a graph
+      +devlore:surface=module  plan -- there is no scenario for planning the planner
+
+    Returns "graph", "module", or "" for the default. The value maps onto the dispatch zone of ProviderRole:
+    graph is RoleAction alone, module is RoleModule alone, and the default is both. Which METHODS of an eligible
+    provider reach a given runtime is a separate question, answered per-runtime from their claims.
+    """
+    doc = goast.type_doc(path)
+    for line in doc.split("\n"):
+        line = line.strip().lstrip("/").strip()
+        if "+devlore:surface=" in line:
+            idx = line.index("+devlore:surface=")
+            value = line[idx + len("+devlore:surface="):].strip()
+            if value not in ["graph", "module"]:
+                fail("invalid +devlore:surface value %r on Provider struct (valid: graph, module; omit for both)" % value)
+            return value
+    return ""
 
 def struct_root(path):
     """Extract the +devlore:root flag from the Provider struct's doc comment.
@@ -188,6 +205,60 @@ def parse_defaults(doc, method_name):
                     fail("method %s: +devlore:defaults specifies %r more than once" % (method_name, k))
                 result[k] = v
     return result
+
+KNOWN_CLAIMS = ["deterministic", "idempotent", "sandboxed"]
+
+def parse_claims(doc, method_name):
+    """Parse +devlore:claim= from a method doc comment.
+
+    +devlore:claim=a, b, c states the guarantees a method makes, comma-separated on one line, following the
+    +devlore:defaults precedent. Returns the claim names sorted, so a regenerated file never churns on the order
+    the author happened to write them in. An absent directive claims nothing, which is the fail-closed default.
+
+    Syntactic validation (each violation aborts codegen via fail):
+      - the directive may appear at most once per method
+      - it must name at least one claim
+      - every claim must be one of KNOWN_CLAIMS
+      - no claim may appear twice
+    """
+    claims = []
+    seen = {}
+    declared = False
+    for line in doc.split("\n"):
+        line = line.strip().lstrip("/").strip()
+        if not line.startswith("+devlore:claim"):
+            continue
+        if not line.startswith("+devlore:claim="):
+            fail("method %s: +devlore:claim takes an '=' and a comma-separated claim list (got %r)" % (method_name, line))
+        if declared:
+            fail("method %s: +devlore:claim appears more than once; name every claim on one line" % method_name)
+        declared = True
+        body = line[len("+devlore:claim="):].strip()
+        if body == "":
+            fail("method %s: +devlore:claim= names no claim" % method_name)
+        for claim in body.split(","):
+            claim = claim.strip()
+            if claim == "":
+                fail("method %s: +devlore:claim has an empty entry in %r" % (method_name, body))
+            if claim not in KNOWN_CLAIMS:
+                fail("method %s: unknown claim %r; known claims are %s" % (method_name, claim, ", ".join(KNOWN_CLAIMS)))
+            if claim in seen:
+                fail("method %s: +devlore:claim names %r more than once" % (method_name, claim))
+            seen[claim] = True
+            claims.append(claim)
+    return sorted(claims)
+
+def claims_expression(claims):
+    """Render a claim name list as the Go bit-set expression for op.MethodMetadata.Claims.
+
+    Returns "" for the empty set, so the caller can omit the field entirely rather than emitting a zero value.
+    """
+    if not claims:
+        return ""
+    terms = []
+    for claim in claims:
+        terms.append("op.Claim" + claim[0].upper() + claim[1:])
+    return "|".join(terms)
 
 def parse_property(doc, method_name):
     """Parse +devlore:property from a method doc comment.
@@ -395,9 +466,19 @@ def build_method_descriptors(methods, all_names, defaults_map, planner_map):
             if m.returns == "" or m.returns == "error":
                 fail("method %s: +devlore:property requires a value-returning method, but it returns %r" % (m.name, m.returns))
 
+        # +devlore:claim= states the guarantees the method makes. Only the shape-checkable rule lands here: a
+        # method returning a receipt or a recovery stack mutates by construction, so it can never be
+        # deterministic. Whether a deterministic claim is TRUE is the call-graph check's job, not this one.
+        claims = parse_claims(m.doc, m.name)
+        if "deterministic" in claims:
+            if "Receipt" in m.returns or "RecoveryStack" in m.returns:
+                fail("method %s: claims deterministic but returns %r, which mutates by construction" % (m.name, m.returns))
+
         desc = {
             "name": m.name,
             "returns": m.returns,
+            "claims": claims,
+            "claims_expr": claims_expression(claims),
             "doc": m.doc,
             "params": params,
             "compensable": compensable,
@@ -950,7 +1031,7 @@ def compute_provider_import(path):
         return module_path + "/" + rel
     return module_path
 
-def emit_provider_receiver(command, path, provider, struct_short, struct_name, access, root,
+def emit_provider_receiver(command, path, provider, struct_short, struct_name, surface, root,
                       all_method_names, provider_descriptors,
                       output_dir, write_files):
     """Generate receivers in gen/ mode with type graph walking."""
@@ -1042,8 +1123,8 @@ def emit_provider_receiver(command, path, provider, struct_short, struct_name, a
     # Generate: Provider immediate receiver (gen/immediate.gen.go)
     # -------------------------------------------------------------------------
     namespace = provider
-    if access == "planned":
-        # Planned providers also get immediate for gen/ mode
+    if surface == "graph":
+        # A graph-only provider is reached through plan.<provider> in gen/ mode
         namespace = "plan." + provider
 
     # Collect cross-package imports from provider method result_exprs and struct_params
@@ -1059,8 +1140,7 @@ def emit_provider_receiver(command, path, provider, struct_short, struct_name, a
         "provider_import": provider_import,
         "methods": provider_method_descs,
         "all_methods": list(all_names_raw.keys()),
-        "access": access,
-        "access_title": access_title(access),
+        "surface": surface,
         "root": root,
     }
     if provider_cross_imports:
@@ -1074,19 +1154,19 @@ def emit_provider_receiver(command, path, provider, struct_short, struct_name, a
              struct_short, len(provider_method_descs), output_dir, write_files)
 
     # Generate module tests (starlark module protocol).
-    if access in ["immediate", "both"]:
+    if surface != "graph":
         emit_file(command, "module_test", provider_desc, "gen/module.gen_test.go",
                  struct_short, len(provider_method_descs), output_dir, write_files)
 
     # Generate action tests (action wrappers — dry-run, compensable, undo).
-    if access in ["planned", "both"]:
+    if surface != "module":
         emit_file(command, "action_test", provider_desc, "gen/action.gen_test.go",
                  struct_short, len(provider_method_descs), output_dir, write_files)
 
     # Generate action-name consts (step 32) into the PACKAGE ROOT — one op.ActionName per plan-mode action, so
-    # callers write plan.Plan(file.WriteText, …) instead of a string literal. Gated on the same access that gives
+    # callers write plan.Plan(file.WriteText, …) instead of a string literal. Gated on the same surface that gives
     # a provider actions; the collision guard fails loudly if a const name shadows a package-level identifier.
-    if access in ["planned", "both"]:
+    if surface != "module":
         action_const_names = [d["name"] for d in provider_method_descs]
         validate_action_name_consts(path, provider, action_const_names)
         emit_file(command, "action_names", provider_desc, "action_names.gen.go",
@@ -1324,15 +1404,19 @@ def prepare_render_data(descriptor, template_name):
 
     # Pre-compute descriptor fields for provider template
     if template_name == "provider":
-        access = desc.get("access", "immediate")
+        # Surface eligibility, not invocation mode. Every provider reaches both the graph and a runtime's module
+        # surface unless it declares otherwise, because a graph accepts anything with an action signature and
+        # module membership is decided per METHOD, per runtime, from the claims -- never per provider. The two
+        # exceptions are opposites: flow is graph-only, plan is module-only.
+        surface = desc.get("surface", "")
         root = desc.get("root", False)
-        desc["has_actions"] = access in ["planned", "both"]
-        desc["has_planned"] = access in ["planned", "both"]
-        desc["has_immediate"] = access in ["immediate", "both"]
-        if access == "immediate":
-            roles = "op.RoleModule"
-        elif access == "planned":
+        desc["has_actions"] = surface != "module"
+        desc["has_planned"] = surface != "module"
+        desc["has_immediate"] = surface != "graph"
+        if surface == "graph":
             roles = "op.RoleAction"
+        elif surface == "module":
+            roles = "op.RoleModule"
         else:
             roles = "op.RoleModule|op.RoleAction"
         if root:
@@ -1347,6 +1431,19 @@ def prepare_render_data(descriptor, template_name):
         md = dict(m)
         md["snake_name"] = to_snake(m["name"])
         md["param_names_list"] = compute_param_names_list(m)
+
+        # The metadata literal carries ParameterNames plus zero or more optional fields. Collecting them as
+        # rendered lines keeps the template at two branches -- compact when there are none, expanded when there
+        # are -- instead of one branch per combination of Claims, Modifiers, and Planner.
+        extras = []
+        if md.get("claims_expr"):
+            extras.append("Claims:         " + md["claims_expr"] + ",")
+        if md.get("property"):
+            extras.append("Modifiers:      op.ModifierProperty,")
+        if md.get("planner"):
+            extras.append("Planner:        reflect.TypeFor[provider." + md["planner"] + "](),")
+        md["metadata_extras"] = extras
+
         enriched.append(md)
     desc["methods"] = enriched
 
@@ -1441,17 +1538,14 @@ def run(command, ctx):
     ui.note("Found " + str(len(filtered)) + " methods for " + struct_name)
 
     # -------------------------------------------------------------------------
-    # Derive names and access/root from struct directives
+    # Derive names and surface/root from struct directives
     # -------------------------------------------------------------------------
     provider = path.split("/")[-1]
     struct_short = provider.title()
-    # The provider-level access directive was retired 2026-08-25. Nothing supplies namespace
-    # placement yet: the per-method classification that replaces it (3.6-method-classification.md)
-    # is designed and unimplemented, so every provider falls to the documented default.
-    access = "immediate"
+    surface = struct_surface(path)
     root = struct_root(path)
 
-    ui.note("Provider access: " + access)
+    ui.note("Provider surface: " + (surface if surface else "graph and module"))
     if root:
         ui.note("Provider root: true")
 
@@ -1501,6 +1595,6 @@ def run(command, ctx):
     if not gen_mode:
         fail("--gen is required")
 
-    emit_provider_receiver(command, path, provider, struct_short, struct_name, access, root,
+    emit_provider_receiver(command, path, provider, struct_short, struct_name, surface, root,
                       all_method_names, all_descriptors,
                       output_dir, write_files)

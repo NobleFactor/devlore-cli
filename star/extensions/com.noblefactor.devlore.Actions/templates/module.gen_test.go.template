@@ -19,7 +19,7 @@ import (
 
 func TestModule_AttrNames(t *testing.T) {
 
-{{- if eq .access "immediate"}}
+{{- if eq .surface "module"}}
 	r := starlarkbridge.NewProvider(providerReceiverType(t), {{.provider_type_prefix}}NewProvider(newCtx(t)))
 {{- else}}
 	r, err := starlarkbridge.NewGoReceiver({{.provider_type_prefix}}NewProvider(newCtx(t)))
@@ -40,7 +40,7 @@ func TestModule_AttrNames(t *testing.T) {
 
 func TestModule_Attr(t *testing.T) {
 
-{{- if eq .access "immediate"}}
+{{- if eq .surface "module"}}
 	r := starlarkbridge.NewProvider(providerReceiverType(t), {{.provider_type_prefix}}NewProvider(newCtx(t)))
 {{- else}}
 	r, err := starlarkbridge.NewGoReceiver({{.provider_type_prefix}}NewProvider(newCtx(t)))
@@ -64,7 +64,7 @@ func TestModule_Attr_Unknown(t *testing.T) {
 
 	var r starlark.HasAttrs
 	var err error
-{{- if eq .access "immediate"}}
+{{- if eq .surface "module"}}
 	r = starlarkbridge.NewProvider(providerReceiverType(t), {{.provider_type_prefix}}NewProvider(newCtx(t)))
 {{- else}}
 	r, err = starlarkbridge.NewGoReceiver({{.provider_type_prefix}}NewProvider(newCtx(t)))
@@ -80,7 +80,7 @@ func TestModule_Attr_Unknown(t *testing.T) {
 
 func TestModule_Type(t *testing.T) {
 
-{{- if eq .access "immediate"}}
+{{- if eq .surface "module"}}
 	r := starlarkbridge.NewProvider(providerReceiverType(t), {{.provider_type_prefix}}NewProvider(newCtx(t)))
 {{- else}}
 	r, err := starlarkbridge.NewGoReceiver({{.provider_type_prefix}}NewProvider(newCtx(t)))

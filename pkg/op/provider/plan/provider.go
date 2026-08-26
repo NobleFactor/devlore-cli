@@ -48,6 +48,7 @@ var (
 // Any collision across the three tiers fails Provider construction with a message naming both providers and the
 // offending method. promotedBuiltins is write-once at construction; the adapters are lazily populated under
 // `adaptersMutex`.
+// +devlore:surface=module
 type Provider struct {
 	op.ProviderBase
 	invocations      *op.InvocationRegistry    // session-scoped ledger of plan-mode invocations

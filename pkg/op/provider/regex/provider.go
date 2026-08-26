@@ -121,6 +121,8 @@ func (p *Provider) FindSubmatch(pattern, text string) ([]string, error) {
 // Returns:
 //   - `bool`: true if the pattern matches.
 //   - `error`: non-nil if the pattern is invalid.
+//
+// +devlore:claim=deterministic
 func (p *Provider) Match(pattern, text string) (bool, error) {
 
 	re, err := p.compile(pattern)
