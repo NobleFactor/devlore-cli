@@ -73,17 +73,33 @@ is real behavior on that platform, not a missing conditional.
    Phase 4 makes the legs required — mandatory, not optional, and not to be deferred past the next
    merge after phase 3.
 
-   **Mechanism corrected during phase 1.** The original wording specified
-   `continue-on-error: true`. That is both unnecessary and harmful here. The `develop` ruleset
-   (`12426847`) requires exactly one status check — `quality-gate` — so any job absent from that
-   list cannot block a merge whatever it reports. `continue-on-error` would add nothing except
-   suppressing the red, and **the red is the phase-2 triage data**. The job therefore lands
-   without it: failing legs report as failures, visibly, and still block nothing. Phase 4 reduces
-   to a ruleset change with no further edit to `ci.yaml`.
+   **That window closed on 2026-08-26.** Non-blocking was a means of collecting triage data while
+   phase 3 fixed what it found, not a judgement that a red platform leg is tolerable. It never was.
+   Every leg — Windows included, on both architectures — must pass. All twelve checks were green on
+   `fd8c5510` when the ruleset landed, so this is the standing state rather than an aspiration.
 
-   A side finding from the same query, recorded for its own sake: the existing
-   `scenario (macos-latest)` and `scenario (windows-latest)` legs are **not** required checks
-   either. A red Windows scenario does not block a merge today.
+   **Mechanism corrected during phase 1.** The original wording specified
+   `continue-on-error: true`. That is both unnecessary and harmful here. At the time, the org
+   ruleset (`12426847`) required exactly one status check — `quality-gate` — so any job absent from
+   that list could not block a merge whatever it reported. `continue-on-error` would have added
+   nothing except suppressing the red, and **the red was the phase-2 triage data**. The job
+   therefore landed without it: failing legs reported as failures, visibly, and blocked nothing.
+   Phase 4 reduced to a ruleset change with no further edit to `ci.yaml`.
+
+   **Superseded 2026-08-26 by phase 4.** Repository ruleset `21539972` on devlore-cli now requires
+   eleven contexts — `quality-gate` plus the ten platform legs — and **all of them must pass**. It
+   is no longer true here that only `quality-gate` is required; the paragraph above describes the
+   arrangement as it stood before that ruleset existed. A red leg blocks the merge for anyone who is
+   not a bypass actor, and
+   the side finding recorded here at the time, that `scenario (macos-latest)` and
+   `scenario (windows-latest)` were not required and a red Windows scenario did not block a merge,
+   no longer holds. Both statements are kept as written because they were true of the arrangement
+   this phase reasoned about, and the reasoning does not survive being quietly retrofitted.
+
+   Tier 2 lives in a **repository** ruleset rather than the organization one: `test (darwin-arm64)`
+   and its siblings exist only in devlore-cli, and `12426847` targets `~ALL` repositories, so
+   requiring them there would leave every other repository waiting forever for a check that never
+   arrives. See [noblefactor-ops `docs/github-branch-protection.md`](https://github.com/NobleFactor/noblefactor-ops/blob/develop/docs/github-branch-protection.md).
 3. **`quality-gate` stays on ubuntu-latest.** macOS runners bill at 10× and the shell-lint step
    installs `shellcheck` via `apt`. Darwin was considered and rejected on cost and tooling.
 
@@ -334,7 +350,7 @@ reachable by the previous ubuntu-only gate.
 
 Branch count and grouping are sized after phase 2, since the failure count is unknown today.
 
-### Phase 4: Enforce — no branch; a ruleset change
+### Phase 4: Enforce — no branch; a ruleset change (status: in-progress)
 
 Nothing in `ci.yaml` changes, per ruling 2's correction.
 
@@ -344,22 +360,39 @@ windows/arm64. This phase must name all five per job, or the two arm64 legs stay
 the rest are enforced, which is the worst of both arrangements: a gate that looks complete and
 is not.
 
-- [ ] Add the five `test (…)` legs to `required_status_checks` on ruleset `12426847`, which
-      today lists only `quality-gate`:
-      `test (darwin-arm64)`, `test (linux-amd64)`, `test (linux-arm64)`,
-      `test (windows-amd64)`, `test (windows-arm64)`
-- [ ] Consider adding the five `scenario (…)` legs at the same time — same descriptors,
-      `scenario (darwin-arm64)` through `scenario (windows-arm64)`. They are not required either,
-      so a red Windows scenario does not currently block a merge.
-- [ ] These strings are stable by construction: both jobs set an explicit
+Enforced 2026-08-26 — but **not** on `12426847`, as this phase originally specified. That ruleset
+is organization-scoped and targets `~ALL` repositories. `test (darwin-arm64)` and its siblings exist
+only in devlore-cli, so requiring them there would have left every other NobleFactor repository
+waiting forever for a check that never arrives, blocking all of their merges. Tier 2 belongs in a
+repository ruleset; see
+[noblefactor-ops `docs/github-branch-protection.md`](https://github.com/NobleFactor/noblefactor-ops/blob/develop/docs/github-branch-protection.md).
+
+- [x] Repository ruleset **`21539972` — "Cross-platform required checks"** created on devlore-cli,
+      requiring all eleven contexts: `quality-gate`, the five `test (…)` legs, and the five
+      `scenario (…)` legs. Tier 1 is included beside tier 2 so the repository's whole requirement
+      reads in one place rather than split across two rulesets.
+- [x] Same refs as the org ruleset. `strict_required_status_checks_policy` left **false**, matching
+      it — `strict` would force every pull request current with `develop` before merging, re-running
+      eleven checks each time the base advances.
+- [x] Bypass: `OrganizationAdmin` and `RepositoryRole`/5 at **`pull_request`** mode. Override at
+      merge, never a direct push.
+- [x] Contexts confirmed against a real run — `develop` at `fd8c5510`, all eleven green — before
+      being written into the ruleset, not read off the workflow file.
+- [x] These strings are stable by construction: both jobs set an explicit
       `name: <job> (${{ matrix.platform }})`, so the context is the platform descriptor and
       nothing else. Without that, GitHub composes the name from **every** matrix value — the first
       run of this matrix reported `test (windows-11-arm, false)`, leaking the runner image and the
       race flag into a string the ruleset must match exactly, and renaming all five contexts the
       moment another matrix key is added. A required context whose name does not match is a check
       that never arrives, which blocks every merge rather than none.
-- [ ] Confirm a deliberately failing test on Windows blocks a merge. The gate is not proven until
-      it has refused something.
+- [ ] Prove the gate refuses. **Still outstanding**, and the only reason this phase is not complete:
+      the ruleset is in force but has turned nothing away yet, and a gate nobody has watched refuse
+      is a claim rather than a gate.
+
+      To be read precisely — this is a controlled proof, not a tolerance. A test is broken on
+      purpose on a throwaway branch, the merge is confirmed refused, and the branch is discarded.
+      Nothing red reaches `develop`, and nothing about it softens the requirement above: a failing
+      Windows leg blocks, and is fixed rather than waited out.
 
 ## Verification
 
