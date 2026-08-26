@@ -59,6 +59,8 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 //   - `error`: any error from the mode floor, reading, decrypting, or writing.
 //
 // +devlore:defaults mode=0o600
+//
+// +devlore:claim=sandboxed
 func (p *Provider) DecryptSopsFile(activationRecord *op.ActivationRecord, source *file.Regular, destinationPath string, mode os.FileMode) (*file.Regular, *Receipt, error) {
 
 	if err := enforceSecretFloor(mode); err != nil {
@@ -143,6 +145,8 @@ func (p *Provider) CompensateDecryptSopsFile(activationRecord *op.ActivationReco
 //   - `error`: any error from reading, encrypting, or writing.
 //
 // +devlore:defaults mode=0o600
+//
+// +devlore:claim=sandboxed
 func (p *Provider) EncryptFile(activationRecord *op.ActivationRecord, source *file.Regular, destinationPath string, mode os.FileMode) (*file.Regular, *Receipt, error) {
 
 	result, err := file.DiscoverRegular(p.RuntimeEnvironment(), destinationPath)

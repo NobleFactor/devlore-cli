@@ -405,17 +405,26 @@ func TestNewRuntime_Hermetic_AdmitsOnlyClaimingMethods(t *testing.T) {
 	})
 }
 
-func TestNewRuntime_Hermetic_ProviderWithNothingAdmitted_Fails(t *testing.T) {
+func TestNewRuntime_Hermetic_ProviderWithNothingAdmitted_ReportsAtTheCallSite(t *testing.T) {
 
 	env := &op.RuntimeEnvironment{Modules: bridgeFixtureModules(t, "bridgeNoClaimFixture")}
 
-	defer func() {
-		if recover() == nil {
-			t.Error("selecting a provider whose every method is refused must fail loudly, not yield an empty global")
-		}
-	}()
+	// Selecting every module is the natural default, and a per-method filter exists so a caller need not curate
+	// the list. Refusing a provider whole at construction would make that impossible, so the global is installed
+	// with every attribute denied and the author hears about it where they reached for it -- naming the method,
+	// which a construction-time failure naming the provider could not.
+	receiver := requireGlobal(t, NewRuntime(env, Hermetic()).Predeclared(), "bridgeNoClaimFixture")
 
-	NewRuntime(env, Hermetic())
+	_, err := receiver.Attr("reach")
+	if err == nil {
+		t.Fatal("Attr(reach) succeeded; a method claiming nothing must not reach a hermetic surface")
+	}
+
+	for _, want := range []string{"bridgeNoClaimFixture.reach", "hermetic", "deterministic"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("Attr(reach) error %q lacks %q; the message must name the method and say why", err, want)
+		}
+	}
 }
 
 // requireGlobal fetches a predeclared global as a [starlark.HasAttrs], failing the test when it is absent.

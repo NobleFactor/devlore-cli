@@ -99,6 +99,8 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 //
 // Returns:
 //   - *op.InvocationRegistry: the session ledger; never nil during planning.
+//
+// +devlore:claim=deterministic
 func (p *Provider) InvocationRegistry() *op.InvocationRegistry { return p.invocations }
 
 // endregion
@@ -146,6 +148,8 @@ func (p *Provider) InvocationRegistry() *op.InvocationRegistry { return p.invoca
 //     of one entry per orphan.
 //
 // +devlore:defaults retryPolicy=nil, onError=nil, onRetry=nil, transitionPolicy=nil, slots=nil, origin=
+//
+// +devlore:claim=deterministic
 func (p *Provider) AssembleDefinition(
 	invocations []*op.Invocation,
 	slots map[string]any,
@@ -251,6 +255,8 @@ func (p *Provider) AssembleDefinition(
 // Returns:
 //   - `*flow.Case`: the constructed case, ready to pass to plan.choose.
 //   - `error`: non-nil when either body is malformed.
+//
+// +devlore:claim=deterministic
 func (p *Provider) Case(when, then any) (*flow.Case, error) {
 
 	when, err := p.desugarLambdaBody(when)
@@ -282,6 +288,8 @@ func (p *Provider) Case(when, then any) (*flow.Case, error) {
 // Returns:
 //   - `*op.Invocation`: the registered invocation; its `Target` is the planned unit.
 //   - `error`: non-nil when `name` resolves to no known action, or the planner / registry rejects the call.
+//
+// +devlore:claim=deterministic
 func (p *Provider) Plan(name op.ActionName, args []any, kwargs map[string]any) (*op.Invocation, error) {
 
 	dot := strings.LastIndex(string(name), ".")
@@ -321,6 +329,8 @@ func (p *Provider) Plan(name op.ActionName, args []any, kwargs map[string]any) (
 // Returns:
 //   - `error`: always nil today; the signature carries an error return so future implementations (e.g., canceling
 //     a session-scoped resource) can surface failures without breaking the bridge-side builtin signature.
+//
+// +devlore:claim=deterministic
 func (p *Provider) Clear() error {
 
 	p.invocations.Reset()
@@ -554,6 +564,8 @@ func (p *Provider) Run(graph *op.Graph, spec *op.RuntimeEnvironmentSpec) (any, e
 //
 // Returns:
 //   - op.Origin: an Origin with Scope set; Tool is stamped by [Provider.AssembleDefinition].
+//
+// +devlore:claim=deterministic
 func (p *Provider) Origin(scope string) op.Origin {
 	return op.NewOriginBase("", scope, op.AnnotationMap{})
 }
@@ -612,6 +624,8 @@ func (p *Provider) ResolveAttr(name string) any {
 //
 // Returns:
 //   - *op.Variable: the projected variable reference.
+//
+// +devlore:claim=deterministic
 func (p *Provider) Item(field string) *op.Variable {
 
 	return p.Variable("item", nil, field)
@@ -635,6 +649,8 @@ func (p *Provider) Item(field string) *op.Variable {
 //
 // Returns:
 //   - *op.Variable: the variable reference value (Value and Source are zero until the resolver fills them).
+//
+// +devlore:claim=deterministic
 func (p *Provider) Variable(name string, defaultValue any, field string) *op.Variable {
 
 	_ = defaultValue // Phase 3 wires default propagation into the parameter surface.

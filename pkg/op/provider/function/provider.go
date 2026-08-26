@@ -57,6 +57,8 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 //   - `any`: the function's result, converted to a native Go value.
 //   - `error`: non-nil when the resource fails to initialize, an argument or the result cannot be converted, or the
 //     call itself fails.
+//
+// +devlore:claim=deterministic
 func (p *Provider) Call(callable Resource, args []any, kwargs map[string]any) (any, error) {
 
 	if callable == nil {

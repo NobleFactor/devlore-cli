@@ -35,6 +35,8 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 //
 // Returns:
 //   - `string`: the architecture identifier, or "" if platform is nil.
+//
+// +devlore:claim=deterministic
 func (p *Provider) Arch() string {
 	if platform := p.RuntimeEnvironment().Platform; platform != nil {
 		return platform.Arch()
@@ -46,6 +48,8 @@ func (p *Provider) Arch() string {
 //
 // Returns:
 //   - `string`: the distribution name, or "" if unavailable or platform is nil.
+//
+// +devlore:claim=deterministic
 func (p *Provider) Distro() string {
 	if platform := p.RuntimeEnvironment().Platform; platform != nil {
 		return platform.Distro()
@@ -57,6 +61,8 @@ func (p *Provider) Distro() string {
 //
 // Returns:
 //   - `string`: the hostname, or "" if unavailable or platform is nil.
+//
+// +devlore:claim=deterministic
 func (p *Provider) Hostname() string {
 	if platform := p.RuntimeEnvironment().Platform; platform != nil {
 		return platform.Hostname()
@@ -68,6 +74,8 @@ func (p *Provider) Hostname() string {
 //
 // Returns:
 //   - `string`: the OS identifier, or "" if platform is nil.
+//
+// +devlore:claim=deterministic
 func (p *Provider) OS() string {
 	if platform := p.RuntimeEnvironment().Platform; platform != nil {
 		return platform.OS()
@@ -79,6 +87,8 @@ func (p *Provider) OS() string {
 //
 // Returns:
 //   - `string`: the version, or "" if unavailable or platform is nil.
+//
+// +devlore:claim=deterministic
 func (p *Provider) Version() string {
 	if platform := p.RuntimeEnvironment().Platform; platform != nil {
 		return platform.Version()

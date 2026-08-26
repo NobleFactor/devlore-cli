@@ -253,8 +253,8 @@ tests.**
 | 11 | **Consult the filter at install time, not after.** `applyDenials` wraps a *global* in a `filteredReceiver`; a root provider installs each method as its own top-level global, which the deny map cannot reach. One `admits(module, method)` predicate, asked in both the attribute path and the root path | `runtime.go:85`, `:110`, `:310` | ✅ |
 | 12 | Skip a provider with no methods **silently** — `elevation` while dormant, `mem` which has no `Provider` | `runtime.go:85` | ✅ |
 | 13 | Fail **loudly** when every method of a selected provider is filtered out | `runtime.go:85` | ✅ |
-| 14 | **Annotate the providers.** Apply `+devlore:claim=` to every method that qualifies — roughly 28 `deterministic` (`regex` 8, `plan`'s construction surface, `file`'s path algebra, `json`, `yaml`, `platform`, `ui`) plus the `sandboxed` I/O family. **Ordering constraint, found 2026-08-26**: step 15 cannot precede this. Only `regex.Match` claims anything today, so making `lore` hermetic first would trip step 13's loud failure on every provider it selects | — | ☐ |
-| 15 | Wire the option: `lore`'s planning runtime hermetic, `star`'s scripting runtime not | `cmd/lore/lore/builder.go:111`, `cmd/star/star/application.go:84` | ☐ |
+| 14 | **Annotate the providers.** Apply `+devlore:claim=` to every method that qualifies — roughly 28 `deterministic` (`regex` 8, `plan`'s construction surface, `file`'s path algebra, `json`, `yaml`, `platform`, `ui`) plus the `sandboxed` I/O family. **Ordering constraint, found 2026-08-26**: step 15 cannot precede this. Only `regex.Match` claims anything today, so making `lore` hermetic first would trip step 13's loud failure on every provider it selects | — | ✅ |
+| 15 | Wire the option: `lore`'s planning runtime hermetic, `star`'s scripting runtime not | `cmd/lore/lore/builder.go:111`, `cmd/star/star/application.go:84` | ✅ |
 | 16 | `DenyAttributes` keeps working unchanged — explicit caller-driven narrowing is a separate concern from the hermeticity filter | `runtime.go:451` | ✅ |
 
 **Phase C landed 2026-08-26** (steps 10–13, 16). `Hermetic()` is a `RuntimeOption`; `admits(method)` is
@@ -272,6 +272,27 @@ comment claims. The filter covers it anyway, against the day one appears.
 Proved by `TestNewRuntime_Hermetic_AdmitsOnlyClaimingMethods` (a fixture with one claiming and one silent method:
 non-hermetic admits both, hermetic admits one) and `TestNewRuntime_Hermetic_ProviderWithNothingAdmitted_Fails`.
 `make test` green, 103 packages.
+
+**Steps 14–15 landed 2026-08-26.** 43 claims across ten providers: `deterministic` on `regex` (8), `plan`'s
+construction surface (8), `ui` (6), `platform` (5), `json` (4), `file`'s path algebra (4), `yaml` (3),
+`function.call` (1); `sandboxed` on `file`'s 21 I/O methods and on `archive` and `encryption` (2 each). `file`
+reaches complete coverage — every one of its 25 announced methods carries a claim.
+
+`lore` is wired hermetic at `builder.go:610`; `star` is not.
+
+**The loud-failure rule from step 13 was reversed.** It made select-all impossible under hermeticity, and
+select-all is the point of a per-method filter — a caller should not have to curate the module list. A fully
+refused provider now installs with every attribute denied, so the author hears about it where they reached for
+it: `shell.exec is not available in this runtime: this runtime is hermetic and the method makes no deterministic
+claim`. That names the method, which a construction-time failure naming the provider could not.
+
+**Two selection reports** narrate what each end decided, both behind `TODO(#507)` pending the diagnostics API
+(#507, epic #449): `starlarkbridge.Runtime.reportSelection` at planning, `op.GraphExecutor.reportGraphReach`
+before dispatch. `2.8-eventing-infrastructure.md` back-references them as a first consumer to design against.
+
+**Annotating found two real sandbox escapes**, fixed and closed as #687: `file.Glob` used `filepath.Glob`
+(absolute patterns honored verbatim, `..` surviving Join's clean, symlinks followed out) and `walkDir` fell back
+to `filepath.WalkDir` whenever no root existed. Both now route through the root's kernel-confined `FS()`.
 
 ### D — Verifying the claims
 

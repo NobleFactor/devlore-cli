@@ -33,6 +33,8 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 // Returns:
 //   - `any`: the decoded Go value (maps, slices, and scalars per encoding/json).
 //   - `error`: non-nil when `data` is not valid JSON.
+//
+// +devlore:claim=deterministic
 func (p *Provider) Decode(data string) (any, error) {
 
 	var result any
@@ -50,6 +52,8 @@ func (p *Provider) Decode(data string) (any, error) {
 // Returns:
 //   - `string`: the compact JSON encoding of `value`.
 //   - `error`: non-nil when `value` cannot be marshaled to JSON.
+//
+// +devlore:claim=deterministic
 func (p *Provider) Encode(value any) (string, error) {
 
 	data, err := json.Marshal(value)
@@ -68,6 +72,8 @@ func (p *Provider) Encode(value any) (string, error) {
 // Returns:
 //   - `string`: the indented JSON encoding of `value`.
 //   - `error`: non-nil when `value` cannot be marshaled to JSON.
+//
+// +devlore:claim=deterministic
 func (p *Provider) EncodeIndent(value any, indent string) (string, error) {
 
 	data, err := json.MarshalIndent(value, "", indent)
@@ -94,6 +100,8 @@ func (p *Provider) EncodeIndent(value any, indent string) (string, error) {
 // Returns:
 //   - `Resource`: the canonical catalog entry holding the parsed value.
 //   - `error`: non-nil when `data` is not valid JSON or catalog interning fails.
+//
+// +devlore:claim=deterministic
 func (p *Provider) Parse(activationRecord *op.ActivationRecord, data string) (Resource, error) {
 
 	return NewResource(p.RuntimeEnvironment(), activationRecord.CallerID, []byte(data))

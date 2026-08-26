@@ -17,7 +17,13 @@ func init() {
 		op.RoleModule|op.RoleAction,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
 		map[string]op.MethodMetadata{
-			"DecryptSopsFile": {ParameterNames: []string{"source", "destination_path", "mode?=0o600"}},
-			"EncryptFile":     {ParameterNames: []string{"source", "destination_path", "mode?=0o600"}},
+			"DecryptSopsFile": {
+				ParameterNames: []string{"source", "destination_path", "mode?=0o600"},
+				Claims:         op.ClaimSandboxed,
+			},
+			"EncryptFile": {
+				ParameterNames: []string{"source", "destination_path", "mode?=0o600"},
+				Claims:         op.ClaimSandboxed,
+			},
 		})
 }

@@ -17,7 +17,13 @@ func init() {
 		op.RoleModule|op.RoleAction,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
 		map[string]op.MethodMetadata{
-			"Extract":       {ParameterNames: []string{"source", "prefix_path"}},
-			"ExtractStream": {ParameterNames: []string{"src", "prefix_path"}},
+			"Extract": {
+				ParameterNames: []string{"source", "prefix_path"},
+				Claims:         op.ClaimSandboxed,
+			},
+			"ExtractStream": {
+				ParameterNames: []string{"src", "prefix_path"},
+				Claims:         op.ClaimSandboxed,
+			},
 		})
 }

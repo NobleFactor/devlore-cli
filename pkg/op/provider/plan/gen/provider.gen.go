@@ -17,17 +17,41 @@ func init() {
 		op.RoleModule,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
 		map[string]op.MethodMetadata{
-			"AssembleDefinition": {ParameterNames: []string{"invocations", "slots?", "on_error?", "on_retry?", "retry_policy?", "transition_policy?", "origin?"}},
-			"Case":               {ParameterNames: []string{"when", "then"}},
-			"Clear":              {ParameterNames: []string{}},
-			"InvocationRegistry": {ParameterNames: []string{}},
-			"Item":               {ParameterNames: []string{"field"}},
-			"LoadDefinition":     {ParameterNames: []string{"path"}},
-			"Origin":             {ParameterNames: []string{"scope"}},
-			"Plan":               {ParameterNames: []string{"name", "*args", "**kwargs"}},
-			"Run":                {ParameterNames: []string{"graph", "spec"}},
-			"SaveDefinition":     {ParameterNames: []string{"graph", "path"}},
-			"Spec":               {ParameterNames: []string{"program_name?=\"\"", "root_path?=\"\"", "flags?"}},
-			"Variable":           {ParameterNames: []string{"name", "default_value?", "field?=\"\""}},
+			"AssembleDefinition": {
+				ParameterNames: []string{"invocations", "slots?", "on_error?", "on_retry?", "retry_policy?", "transition_policy?", "origin?"},
+				Claims:         op.ClaimDeterministic,
+			},
+			"Case": {
+				ParameterNames: []string{"when", "then"},
+				Claims:         op.ClaimDeterministic,
+			},
+			"Clear": {
+				ParameterNames: []string{},
+				Claims:         op.ClaimDeterministic,
+			},
+			"InvocationRegistry": {
+				ParameterNames: []string{},
+				Claims:         op.ClaimDeterministic,
+			},
+			"Item": {
+				ParameterNames: []string{"field"},
+				Claims:         op.ClaimDeterministic,
+			},
+			"LoadDefinition": {ParameterNames: []string{"path"}},
+			"Origin": {
+				ParameterNames: []string{"scope"},
+				Claims:         op.ClaimDeterministic,
+			},
+			"Plan": {
+				ParameterNames: []string{"name", "*args", "**kwargs"},
+				Claims:         op.ClaimDeterministic,
+			},
+			"Run":            {ParameterNames: []string{"graph", "spec"}},
+			"SaveDefinition": {ParameterNames: []string{"graph", "path"}},
+			"Spec":           {ParameterNames: []string{"program_name?=\"\"", "root_path?=\"\"", "flags?"}},
+			"Variable": {
+				ParameterNames: []string{"name", "default_value?", "field?=\"\""},
+				Claims:         op.ClaimDeterministic,
+			},
 		})
 }

@@ -607,7 +607,12 @@ func prepareScriptEnv(
 	cfg BuildConfig,
 ) (*starlark.Thread, starlark.StringDict, *PackageContext) {
 
-	runtime := starlarkbridge.NewRuntime(sharedEnvironment, starlarkbridge.DenyAttributes("plan", lifecycleVerbs...))
+	// Hermetic: lore plans, and a plan must produce the same graph on any machine. The filter is per method, so
+	// file contributes its path algebra and not its mutators -- those reach the script through plan.file.* , the
+	// graph namespace, which is unfiltered because a graph accepts anything with an action signature.
+	runtime := starlarkbridge.NewRuntime(sharedEnvironment,
+		starlarkbridge.Hermetic(),
+		starlarkbridge.DenyAttributes("plan", lifecycleVerbs...))
 
 	lifecycle := release.Lifecycle()
 

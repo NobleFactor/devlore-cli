@@ -24,6 +24,7 @@ import (
 	"sync"
 
 	"golang.org/x/net/http2"
+	//nolint:staticcheck // SA1019: no http.Server exists to carry Protocols until the control plane is wired (#689).
 	"golang.org/x/net/http2/h2c"
 
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
@@ -98,6 +99,10 @@ func (s *Router) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/runs/{runID}/events", s.handleEvents)
 	mux.HandleFunc("GET /v1/runs/{runID}", s.handleStatus)
 
+	// h2c is deprecated in favor of http.Server.Protocols, which cannot be used here: Handler() returns a
+	// handler and has no server to set the field on -- nothing constructs an http.Server around it yet. The
+	// migration belongs with whoever wires this up; see #689.
+	//nolint:staticcheck // SA1019: no http.Server exists to carry Protocols until the control plane is wired (#689).
 	return h2c.NewHandler(mux, &http2.Server{})
 }
 

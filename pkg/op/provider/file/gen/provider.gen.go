@@ -17,30 +17,105 @@ func init() {
 		op.RoleModule|op.RoleAction,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
 		map[string]op.MethodMetadata{
-			"Backup":     {ParameterNames: []string{"source", "backup_suffix"}},
-			"Copy":       {ParameterNames: []string{"source", "destination_path", "mode?={{ umask 0o755 }}", "user?=\"\"", "group?=\"\""}},
-			"Discover":   {ParameterNames: []string{"path", "kind?=any", "after?"}},
-			"Exists":     {ParameterNames: []string{"path"}},
-			"Find":       {ParameterNames: []string{"pattern", "include_gitignored?=false"}},
-			"Glob":       {ParameterNames: []string{"pattern", "include_gitignored?=false"}},
-			"IsDir":      {ParameterNames: []string{"path"}},
-			"IsFile":     {ParameterNames: []string{"path"}},
-			"Join":       {ParameterNames: []string{"*parts"}},
-			"Link":       {ParameterNames: []string{"source_path", "target_path", "verbatim?=false"}},
-			"Mkdir":      {ParameterNames: []string{"path", "mode?={{ umask 0o777 }}", "user?=\"\"", "group?=\"\""}},
-			"Move":       {ParameterNames: []string{"source", "destination_path"}},
-			"Name":       {ParameterNames: []string{"path"}},
-			"Observe":    {ParameterNames: []string{"resource"}},
-			"Parent":     {ParameterNames: []string{"path"}},
-			"ReadBytes":  {ParameterNames: []string{"resource"}},
-			"ReadText":   {ParameterNames: []string{"resource"}},
-			"Remove":     {ParameterNames: []string{"target", "prune?=false", "boundary?=\"\"", "on_missing?=stop"}},
-			"RemoveAll":  {ParameterNames: []string{"target", "prune?=false", "boundary?=\"\"", "on_missing?=stop"}},
-			"Resolve":    {ParameterNames: []string{"path", "kind?=any", "after?"}},
-			"Root":       {ParameterNames: []string{}},
-			"WalkTree":   {ParameterNames: []string{"root", "fn", "include_gitignored?=false"}},
-			"WriteBytes": {ParameterNames: []string{"destination_path", "content", "mode?={{ umask 0o666 }}", "user?=\"\"", "group?=\"\""}},
-			"WriteFile":  {ParameterNames: []string{"target_path", "src", "mode"}},
-			"WriteText":  {ParameterNames: []string{"destination_path", "content", "mode?={{ umask 0o666 }}", "user?=\"\"", "group?=\"\""}},
+			"Backup": {
+				ParameterNames: []string{"source", "backup_suffix"},
+				Claims:         op.ClaimSandboxed,
+			},
+			"Copy": {
+				ParameterNames: []string{"source", "destination_path", "mode?={{ umask 0o755 }}", "user?=\"\"", "group?=\"\""},
+				Claims:         op.ClaimSandboxed,
+			},
+			"Discover": {
+				ParameterNames: []string{"path", "kind?=any", "after?"},
+				Claims:         op.ClaimSandboxed,
+			},
+			"Exists": {
+				ParameterNames: []string{"path"},
+				Claims:         op.ClaimSandboxed,
+			},
+			"Find": {
+				ParameterNames: []string{"pattern", "include_gitignored?=false"},
+				Claims:         op.ClaimSandboxed,
+			},
+			"Glob": {
+				ParameterNames: []string{"pattern", "include_gitignored?=false"},
+				Claims:         op.ClaimSandboxed,
+			},
+			"IsDir": {
+				ParameterNames: []string{"path"},
+				Claims:         op.ClaimSandboxed,
+			},
+			"IsFile": {
+				ParameterNames: []string{"path"},
+				Claims:         op.ClaimSandboxed,
+			},
+			"Join": {
+				ParameterNames: []string{"*parts"},
+				Claims:         op.ClaimDeterministic,
+			},
+			"Link": {
+				ParameterNames: []string{"source_path", "target_path", "verbatim?=false"},
+				Claims:         op.ClaimSandboxed,
+			},
+			"Mkdir": {
+				ParameterNames: []string{"path", "mode?={{ umask 0o777 }}", "user?=\"\"", "group?=\"\""},
+				Claims:         op.ClaimSandboxed,
+			},
+			"Move": {
+				ParameterNames: []string{"source", "destination_path"},
+				Claims:         op.ClaimSandboxed,
+			},
+			"Name": {
+				ParameterNames: []string{"path"},
+				Claims:         op.ClaimDeterministic,
+			},
+			"Observe": {
+				ParameterNames: []string{"resource"},
+				Claims:         op.ClaimSandboxed,
+			},
+			"Parent": {
+				ParameterNames: []string{"path"},
+				Claims:         op.ClaimDeterministic,
+			},
+			"ReadBytes": {
+				ParameterNames: []string{"resource"},
+				Claims:         op.ClaimSandboxed,
+			},
+			"ReadText": {
+				ParameterNames: []string{"resource"},
+				Claims:         op.ClaimSandboxed,
+			},
+			"Remove": {
+				ParameterNames: []string{"target", "prune?=false", "boundary?=\"\"", "on_missing?=stop"},
+				Claims:         op.ClaimSandboxed,
+			},
+			"RemoveAll": {
+				ParameterNames: []string{"target", "prune?=false", "boundary?=\"\"", "on_missing?=stop"},
+				Claims:         op.ClaimSandboxed,
+			},
+			"Resolve": {
+				ParameterNames: []string{"path", "kind?=any", "after?"},
+				Claims:         op.ClaimSandboxed,
+			},
+			"Root": {
+				ParameterNames: []string{},
+				Claims:         op.ClaimDeterministic,
+			},
+			"WalkTree": {
+				ParameterNames: []string{"root", "fn", "include_gitignored?=false"},
+				Claims:         op.ClaimSandboxed,
+			},
+			"WriteBytes": {
+				ParameterNames: []string{"destination_path", "content", "mode?={{ umask 0o666 }}", "user?=\"\"", "group?=\"\""},
+				Claims:         op.ClaimSandboxed,
+			},
+			"WriteFile": {
+				ParameterNames: []string{"target_path", "src", "mode"},
+				Claims:         op.ClaimSandboxed,
+			},
+			"WriteText": {
+				ParameterNames: []string{"destination_path", "content", "mode?={{ umask 0o666 }}", "user?=\"\"", "group?=\"\""},
+				Claims:         op.ClaimSandboxed,
+			},
 		})
 }

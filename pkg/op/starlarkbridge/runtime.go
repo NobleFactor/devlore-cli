@@ -10,6 +10,7 @@ package starlarkbridge
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
@@ -29,6 +30,7 @@ type Runtime struct {
 	denied      map[string]map[string]bool
 	hermetic    bool
 	modules     []op.ProviderReceiverType
+	selection   []moduleSelection
 	predeclared starlark.StringDict
 }
 
@@ -81,6 +83,8 @@ func NewRuntime(env *op.RuntimeEnvironment, options ...RuntimeOption) *Runtime {
 	for _, module := range modules {
 		runtime.placeModule(module, predeclared)
 	}
+
+	runtime.reportSelection()
 
 	runtime.applyDenials(predeclared)
 	runtime.predeclared = predeclared
@@ -335,6 +339,7 @@ func (rt *Runtime) placeModule(module op.ProviderReceiverType, predeclared starl
 	if dispatch&op.RoleModule == 0 {
 		// Not eligible for a module surface; the provider is reached through plan.* dispatch instead. flow is
 		// the case: its methods ARE the graph combinators and mean nothing outside a graph.
+		rt.selection = append(rt.selection, moduleSelection{name: module.Name()})
 		return
 	}
 
@@ -343,17 +348,15 @@ func (rt *Runtime) placeModule(module op.ProviderReceiverType, predeclared starl
 	// everything refused is a mistake the author should hear about here rather than as a NameError later.
 	admitted, refused := rt.partitionMethods(module)
 
+	rt.selection = append(rt.selection, moduleSelection{
+		name:     module.Name(),
+		eligible: true,
+		admitted: admitted,
+		refused:  len(refused),
+	})
+
 	if admitted == 0 && len(refused) == 0 {
 		return
-	}
-
-	if admitted == 0 {
-		assert.Failf(
-			"provider %q has no method this runtime admits: all %d are refused because they do not claim "+
-				"deterministic, and this runtime is hermetic. Select it for a scripting runtime, or drop it "+
-				"from this one.",
-			module.Name(),
-			len(refused))
 	}
 
 	if !isRoot {
@@ -369,7 +372,12 @@ func (rt *Runtime) placeModule(module op.ProviderReceiverType, predeclared starl
 				module.Name(),
 				sv)
 
-			sv = &filteredReceiver{HasAttrs: hasAttrs, global: module.Name(), denied: refused}
+			sv = &filteredReceiver{
+				HasAttrs: hasAttrs,
+				global:   module.Name(),
+				denied:   refused,
+				reason:   "this runtime is hermetic and the method makes no deterministic claim",
+			}
 		}
 
 		predeclared[module.Name()] = sv
@@ -419,6 +427,86 @@ func (rt *Runtime) placeModule(module op.ProviderReceiverType, predeclared starl
 
 		predeclared[snake] = attr
 	}
+}
+
+// moduleSelection records what one selected provider contributed to the surface.
+//
+// `eligible` is false for a provider the module surface never considered — one declaring `+devlore:surface=graph`,
+// whose methods are the graph's and mean nothing outside it. For an eligible provider, `admitted` and `refused`
+// sum to its announced method count, and both being zero means it had nothing to offer.
+type moduleSelection struct {
+	name     string
+	eligible bool
+	admitted int
+	refused  int
+}
+
+// reportSelection narrates what this runtime's module surface admitted, refused, and never considered.
+//
+// The report answers one question — "where did my method go?" — and answers it in the direction an author asks
+// it: a refused method is not gone, it moved to `plan.<module>.<method>`, and the summary says so.
+//
+// TODO(#507): this belongs on the diagnostics stream, not on the narrator. Per
+// [2.8-eventing-infrastructure.md] §"Narration vs. diagnostics", narration is the user-facing progress API at
+// INFO+ while diagnostics are span-correlated DEBUG / TRACE, hidden until asked for — which is exactly what a
+// selection report is. That API does not exist yet ("new API to add", same section), so this narrates for now.
+// Move it when #507 lands the diagnostics API.
+func (rt *Runtime) reportSelection() {
+
+	if rt.environment == nil || rt.environment.Status == nil || len(rt.selection) == 0 {
+		return
+	}
+
+	var full, partial, none, ineligible []string
+	admittedTotal, announcedTotal := 0, 0
+
+	for _, entry := range rt.selection {
+		switch {
+		case !entry.eligible:
+			ineligible = append(ineligible, entry.name)
+			continue
+		case entry.admitted == 0 && entry.refused == 0:
+			ineligible = append(ineligible, entry.name+" (no methods)")
+			continue
+		case entry.refused == 0:
+			full = append(full, fmt.Sprintf("%s(%d)", entry.name, entry.admitted))
+		case entry.admitted == 0:
+			none = append(none, entry.name)
+		default:
+			partial = append(partial, fmt.Sprintf("%s(%d/%d)", entry.name, entry.admitted, entry.admitted+entry.refused))
+		}
+
+		admittedTotal += entry.admitted
+		announcedTotal += entry.admitted + entry.refused
+	}
+
+	kind := "scripting runtime (non-hermetic)"
+	if rt.hermetic {
+		kind = "planning runtime (hermetic)"
+	}
+
+	contributing := len(full) + len(partial)
+
+	rt.environment.Status.Note(fmt.Sprintf("%s: %d of %d modules contribute %d of %d methods",
+		kind,
+		contributing,
+		contributing+len(none),
+		admittedTotal,
+		announcedTotal))
+
+	report := func(label string, entries []string, suffix string) {
+		if len(entries) == 0 {
+			return
+		}
+
+		sort.Strings(entries)
+		rt.environment.Status.Note(fmt.Sprintf("  %-9s %s%s", label, strings.Join(entries, " "), suffix))
+	}
+
+	report("full", full, "")
+	report("partial", partial, "")
+	report("none", none, " — no deterministic claim; reachable as plan.<module>.<method>")
+	report("n/a", ineligible, "")
 }
 
 // buildOne constructs a [starlark.Value] from a provider receiver type via the Environment provider cache.
@@ -472,6 +560,10 @@ func (rt *Runtime) resolveProvider(name string) (starlark.StringDict, error) {
 func (r *filteredReceiver) Attr(name string) (starlark.Value, error) {
 
 	if r.denied[name] {
+		if r.reason != "" {
+			return nil, fmt.Errorf("%s.%s is not available in this runtime: %s", r.global, name, r.reason)
+		}
+
 		return nil, fmt.Errorf("%s.%s is not available in this runtime", r.global, name)
 	}
 
@@ -519,6 +611,10 @@ type filteredReceiver struct {
 	starlark.HasAttrs
 	global string
 	denied map[string]bool
+
+	// reason explains the refusal when the deny set came from a policy rather than from a caller naming
+	// attributes. Empty for [DenyAttributes], whose caller already knows why it denied what it denied.
+	reason string
 }
 
 // loaderEntry caches the result of resolving a provider module.
