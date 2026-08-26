@@ -90,7 +90,7 @@ today.
 Each `ProviderBinding` declares its lifecycle semantics via a `Lifetime` field.
 This field is populated by the code generator from a `// +devlore:lifetime=`
 directive on the Provider struct, following the same pattern as the existing
-`// +devlore:access=` directive.
+the access directive directive.
 
 ```go
 // ProviderLifetime declares a provider's lifecycle semantics.
@@ -126,7 +126,7 @@ Both `Access` and `Lifetime` follow the same declaration model:
 
 | Field      | Directive               | Values                          | Generator reads             | Generator emits                              |
 |------------|-------------------------|---------------------------------|-----------------------------|----------------------------------------------|
-| `Access`   | `// +devlore:access=`   | `immediate`, `planned`, `both`  | Provider struct doc comment | `Access: op.AccessImmediate` in `init()`     |
+| `Access`   | the access directive   | `immediate`, `planned`, `both`  | Provider struct doc comment | `Access: op.AccessImmediate` in `init()`     |
 | `Lifetime` | `// +devlore:lifetime=` | `stateless`, `phase`, `session` | Provider struct doc comment | `Lifetime: op.LifetimeStateless` in `init()` |
 
 #### Directive Declaration
@@ -135,7 +135,6 @@ The Provider struct is the single source of truth for both access and lifetime:
 
 ```go
 // Provider performs Starlark source analysis.
-// +devlore:access=immediate
 // +devlore:lifetime=stateless
 type Provider struct {
 Root string

@@ -586,7 +586,7 @@ No cycles. Leaf packages (starindex, starstats, starcomplexity) have zero intra-
 
 | File | Content |
 |---|---|
-| `pkg/op/provider/starcode/provider.go` | `Provider{Root}` + `Capture()` + private helpers. Returns `*starsources.Sources`. Directives: `+devlore:access=immediate`, `+devlore:bind Root=WorkDir` |
+| `pkg/op/provider/starcode/provider.go` | `Provider{Root}` + `Capture()` + private helpers. Returns `*starsources.Sources`. Directives: access zone `immediate`, `+devlore:bind Root=WorkDir` |
 | `pkg/op/provider/starsources/provider.go` | `Sources{Root, Files}` + `Paths()`, `Count()` + delegation: `Index()` → `starindex.IndexFiles()`, `Stats()` → `starstats.ComputeStats()`, `Analyze()` → `staranalysis.Analyze()`. Same `+devlore:defaults` and `+devlore:struct_param` directives as current |
 | `pkg/op/provider/starindex/provider.go` | Types: Index, IndexedFile, IndexTotals, IndexedFunction, IndexedLoad, IndexedGlobal. Function: `IndexFiles(root, files, withDocstrings, withGlobals)`. Private helpers: indexFile, indexStmts, extractDocstring, extractAssignName. No external imports |
 | `pkg/op/provider/starstats/provider.go` | Types: Stats, FileStats, StatsTotals. Function: `ComputeStats(root, files, withBytes, withLOC)`. Private helpers: countLines. No external imports |

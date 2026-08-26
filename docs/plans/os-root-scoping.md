@@ -43,8 +43,8 @@ All I/O is constrained to the authority boundary defined by `Context.Root`. This
 | Path validation       | Deleted (`isSubpath` removed)         | `os.Root` enforces boundary; `pruneEmptyParents` uses `boundary` param    |
 | `Resource.SourcePath` | `op.Path`                             | JSON serializes `{root, rel}`, abs derived                                 |
 | WalkTree              | `fs.WalkDir(root.FS(), ...)`          | Root-scoped walk                                                           |
-| I/O provider access   | `+devlore:access=planned`             | 8 I/O providers; no immediate mode generation                              |
-| Transformer access    | `+devlore:access=both`                | 4 stateless providers (`json`, `yaml`, `regexp`, `template`)               |
+| I/O provider access   | access zone `planned`             | 8 I/O providers; no immediate mode generation                              |
+| Transformer access    | access zone `both`                | 4 stateless providers (`json`, `yaml`, `regexp`, `template`)               |
 | Platform recovery     | Deleted                               | `recovery_unix.go`, `recovery_windows.go` removed                          |
 
 ## Requirements
@@ -322,7 +322,7 @@ Replace the bare `*os.Root` on Context with an `op.Root` interface backed by thr
 - [x] Update RecoverySite API: `ArchiveFile(p Path)`, `RestoreFile(original Path, recoveryID string)`
 - [x] Migrate helpers: `checksumFile` → Provider method, `checksumBytes` → provider.go, delete helpers.go, delete `rootRel`
 - [x] Delete nil-safe fallback on file provider private helpers — Root is always set
-- [x] Restrict provider access levels: I/O providers (`file`, `shell`, `git`, `pkg`, `service`, `archive`, `appnet`, `encryption`) become `+devlore:access=planned`; stateless transformers (`json`, `yaml`, `regexp`, `template`) remain `+devlore:access=both`
+- [x] Restrict provider access levels: I/O providers (`file`, `shell`, `git`, `pkg`, `service`, `archive`, `appnet`, `encryption`) become access zone `planned`; stateless transformers (`json`, `yaml`, `regexp`, `template`) remain access zone `both`
 - [x] Update `TestImmFile` and other immediate tests affected by access level changes
 - [x] Verify star\*, ui, and plan remain functional as immediate providers with nil Root
 
@@ -395,7 +395,7 @@ Replace the bare `*os.Root` on Context with an `op.Root` interface backed by thr
 
 1. **Restored nil-safe fallbacks on file provider private helpers** — All 9 helpers (`stat`, `lstat`, `rename`, `remove`, `mkdirAll`, `readFile`, `writeFile`, `symlink`, `readlink`) plus package-level `checksumFile` use `if root != nil { root.X() } else { os.X() }`. Removal caused ~120+ test failures because execution tests create rootless contexts. Deferred until those tests are updated.
 
-2. **Restricted 8 I/O providers to `+devlore:access=planned`** — `file`, `shell`, `git`, `pkg`, `service`, `archive`, `appnet`, `encryption`. Stateless transformers (`json`, `yaml`, `regexp`, `template`) remain `both`.
+2. **Restricted 8 I/O providers to access zone `planned`** — `file`, `shell`, `git`, `pkg`, `service`, `archive`, `appnet`, `encryption`. Stateless transformers (`json`, `yaml`, `regexp`, `template`) remain `both`.
 
 3. **Fixed star code generation for `planned` access** — `generate.star` and `provider_descriptor.go.template` now conditionally skip `immediate_receiver`, `immediate_test`, and `NewImmediate` when access is `planned`. Added `has_immediate` flag to descriptor context.
 

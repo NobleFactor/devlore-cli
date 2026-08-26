@@ -202,11 +202,9 @@ This appendix covers conventions specific to devlore operation providers. These 
 ### A.1 Provider Struct
 
 - Embeds `op.ProviderBase`
-- Annotated with `+devlore:access=both` (or appropriate access level)
 - No exported fields — behavior via methods only
 
 ```go
-// +devlore:access=both
 type Provider struct {
 	op.ProviderBase
 }

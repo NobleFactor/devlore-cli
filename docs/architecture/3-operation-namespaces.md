@@ -37,8 +37,6 @@ and ordering):
 package docker
 
 // Provider provides container actions.
-//
-// +devlore:access=planned
 type Provider struct {
 	op.ProviderBase
 }
@@ -59,8 +57,8 @@ The rules the framework enforces:
    `p.RuntimeEnvironment()` — root, catalog, platform, recovery site, narrator).
 2. **Activation-first**: every provider method's first parameter is the `*op.ActivationRecord` (the step-27 floor;
    compensating actions included).
-3. **The access directive**: `+devlore:access=planned` (methods plan graph nodes), `immediate` (methods execute at
-   script evaluation), or `both`.
+3. **Namespace placement** derives from each method's classification ([3.6](3.6-method-classification.md)) —
+   planned methods contribute graph nodes; immediate methods execute at script evaluation.
 4. **Compensable methods return their receipt** and pair with `Compensate<Name>` — signatures validated at
    registration; the receipt names its own compensating action ([2.2](2.2-phase-execution.md)). Predicates,
    queries, and pure transforms are fallible or pure — no pair.
