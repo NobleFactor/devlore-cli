@@ -11,12 +11,13 @@ import (
 
 // TestEveryClaimHolds is the gate: a `+devlore:claim=` directive that its own code contradicts fails the build.
 //
-// It runs over the announced providers rather than the whole module because that is where claims live, and a
-// single load covers all of them — loading runs the compiler front end, so one pass is the point of doing this
-// here instead of inside codegen.
+// It loads the whole module, not just the providers: claims live on provider methods, but a claiming method may
+// call an in-module helper, and the helper's body has to be readable for propagation to follow it. One load
+// covers everything — loading runs the compiler front end, which is the point of doing this once here rather
+// than once per provider inside codegen.
 func TestEveryClaimHolds(t *testing.T) {
 
-	violations, err := claimcheck.Check("github.com/NobleFactor/devlore-cli/pkg/op/provider/...")
+	violations, err := claimcheck.Check("github.com/NobleFactor/devlore-cli/...")
 	if err != nil {
 		t.Fatalf("claimcheck.Check: %v", err)
 	}

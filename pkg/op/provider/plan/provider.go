@@ -148,8 +148,6 @@ func (p *Provider) InvocationRegistry() *op.InvocationRegistry { return p.invoca
 //     of one entry per orphan.
 //
 // +devlore:defaults retryPolicy=nil, onError=nil, onRetry=nil, transitionPolicy=nil, slots=nil, origin=
-//
-// +devlore:claim=deterministic
 func (p *Provider) AssembleDefinition(
 	invocations []*op.Invocation,
 	slots map[string]any,

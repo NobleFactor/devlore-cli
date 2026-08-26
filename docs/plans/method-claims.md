@@ -298,14 +298,14 @@ to `filepath.WalkDir` whenever no root existed. Both now route through the root'
 
 | # | Step | ✓ |
 | --- | --- | --- |
-| 17 | **The capability denylist** — eleven packages, alphabetical: `crypto/rand`, `math/rand`, `net`, `net/http`, `os`, `os/exec`, `os/signal`, `os/user`, `runtime`, `syscall`, `time`. **Not a maintained list**: it enumerates the ways a Go program reaches outside its own process, which the OS interface fixes | ☐ |
-| 18 | **Flag calls and function values only** — types and constants pass. `os.FileMode` in a signature and `os.O_CREATE` in an argument are fine; `os.Getenv` and `time.Now()` are not. This removes any need for a per-symbol list | ☐ |
-| 19 | **Add `goast.references`** beside `goast.calls`. `calls` inspects `*ast.CallExpr` only, so it walks straight past `"Env": os.Getenv` in a `FuncMap` — the one confirmed violation in the catalog (#683). **Hard requirement**, not a refinement | ☐ |
-| 20 | **Claim propagation** — a claiming method requires every provider method and local helper it calls to pass the same check. Induction, not enumeration; **no allowlist anywhere** | ☐ |
-| 21 | **`deterministic`** — flag any denylisted reference in the method's own body, then propagate. **Name the reach, never render a verdict**: "claims deterministic but calls `os.Getenv` at `provider.go:110`", the shape step 6 already uses when it quotes the offending signature back. The author reads evidence and knows what to change; "not deterministic" sends them hunting | ☐ |
+| 17 | **The capability denylist** — eleven packages, alphabetical: `crypto/rand`, `math/rand`, `net`, `net/http`, `os`, `os/exec`, `os/signal`, `os/user`, `runtime`, `syscall`, `time`. **Not a maintained list**: it enumerates the ways a Go program reaches outside its own process, which the OS interface fixes | ✅ |
+| 18 | **Flag calls and function values only** — types and constants pass. `os.FileMode` in a signature and `os.O_CREATE` in an argument are fine; `os.Getenv` and `time.Now()` are not. This removes any need for a per-symbol list | ✅ |
+| 19 | ~~Add `goast.references`~~ — **unnecessary.** It existed to work around having no type information; `go/types` resolves `"Env": os.Getenv` as a `*types.Func` regardless of call position, so the distinction it was built for is free | ⊘ |
+| 20 | **Claim propagation** — a claiming method requires every provider method and local helper it calls to pass the same check. Induction, not enumeration; **no allowlist anywhere** | ✅ |
+| 21 | **`deterministic`** — flag any denylisted reference in the method's own body, then propagate. **Name the reach, never render a verdict**: "claims deterministic but calls `os.Getenv` at `provider.go:110`", the shape step 6 already uses when it quotes the offending signature back. The author reads evidence and knows what to change; "not deterministic" sends them hunting | ✅ |
 | 22 | **`idempotent`** — no static check exists. Carries a **test obligation** instead: a method claiming it must have a test that applies it twice and asserts convergence. Rides #635 | ☐ |
-| 23 | **`sandboxed`** — flag any `os` reference not routed through an `fsroot.Dir`. `fsroot.Dir` is the **one declared exception**, asserted by hand in `pkg/fsroot` and never analyzed through | ☐ |
-| 24 | **Gate the build** — ruled 2026-08-25. A false claim fails codegen at the site of the claim, beside the existing directive validation at `generate.star:384` | ☐ |
+| 23 | **`sandboxed`** — flag any `os` reference not routed through an `fsroot.Dir`. `fsroot.Dir` is the **one declared exception**, asserted by hand in `pkg/fsroot` and never analyzed through | ✅ |
+| 24 | **Gate the build** — ruled 2026-08-25. A false claim fails codegen at the site of the claim, beside the existing directive validation at `generate.star:384` | ✅ |
 
 **Why gating is defensible here.** The rejected design was an SSA call graph (`x/tools/go/ssa` + RTA/VTA).
 `fsroot.Dir` and `platform.Platform` are interfaces, so RTA over-approximates every call through them to every
@@ -313,6 +313,28 @@ implementation in the program — false positives arising from *analysis impreci
 by editing their own code. Under claim propagation plus a capability denylist, every false positive has a source
 edit that resolves it: claim the helper, route the I/O through `fsroot.Dir`, or drop the claim. That is the
 difference that makes a build error the right response rather than a warning.
+
+**Phase D landed 2026-08-26** as `pkg/op/claimcheck`, a separate verification pass rather than a codegen step —
+one type-checked load of the module (~6s) instead of one per provider, gated as a conformance test so `make check`
+carries it with no new command and no Makefile change.
+
+`go/types` is what makes the check true rather than approximately true. `os.Getenv` and `os.FileMode` are one
+shape to a parser, and `os.FileMode(mode)` is a *call expression* despite being a conversion. Ten claiming
+methods reference `os.FileMode`, `os.O_CREATE`, `os.O_TRUNC`, `os.ErrNotExist`, or `os.ModeSymlink`; a syntactic
+scan flags every one, and the type checker sees a type, three constants, and a sentinel. `file.Copy` carries four
+and passes clean. Step 19 was obviated by the same fact.
+
+**Propagation has two deliberate boundaries and one honest limit.** `pkg/fsroot` is a declared trust boundary,
+never walked through — it *is* the sandbox, so its own body calls `os.OpenRoot`. Methods on values are not
+acquisitions: `f.Stat()` on an `*os.File` obtained through the root is already confined. And **interface dispatch
+is not followed and cannot be** — `action.Do(...)` dispatches by reflection, so no static walk reaches what it
+runs. A claim therefore stays an assertion the author is accountable for, not a proof.
+
+**It found a determinism break on its first real run** (#690): every graph's checksum embeds `time.Now()` from
+`NewGraph`, so two runs of an identical plan disagree. `plan.AssembleDefinition`'s claim is withdrawn until that
+is fixed.
+
+Step 22 remains open: no method claims `idempotent` yet, so the test obligation has nothing to attach to.
 
 ### E — Regenerate and prove
 
