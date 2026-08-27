@@ -159,6 +159,22 @@ Same shape as #702's `rm -f` cycle — an output that is also an input. Recorded
 [3.5.16-ui-provider.md](../architecture/3.5.16-ui-provider.md), since it applies to any provider-surface change
 the generator's own extensions use.
 
+### Two traps for the next root placement
+
+Both cost a broken build here, and both are the same mistake: an operation that was safe earlier is not
+safe after the call sites move.
+
+**The negative probe deadlocks after the sweep.** Removing `+devlore:root=true` to prove a test fails is fine
+before the sweep and fatal after it — the swept scripts call bare `note()`, so a `star` rebuilt without
+`RoleRoot` cannot load `generate.star`, and codegen is the only thing that could put `RoleRoot` back. Recovery
+needs `git checkout <pre-sweep-commit> -- '*.star'`, because HEAD already carries the swept versions. Do the
+negative probe **before** the sweep, or on a tree where the call sites have not moved.
+
+**The sweep rewrites prose about the old name, not just call sites.** Re-running it mangled a comment that
+deliberately named `ui.print` while explaining #710 — "the message names ui.print" became "the message names
+print", destroying the sentence. A regex literal in the same file survived only because its backslash broke
+the pattern. Any comment that discusses the old spelling is a target.
+
 ### Two counts moved
 
 The sweep touched **232** sites, not the 231 surveyed. Four were in
