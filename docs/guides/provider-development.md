@@ -57,6 +57,29 @@ type Provider struct {
 |---|---|---|
 | `+devlore:lifetime` | `stateless`, `phase`, `session` | `stateless` |
 | `+devlore:bind` | `Field=CfgField` | none |
+| `+devlore:surface` | `graph`, `module` | both |
+| `+devlore:root` | `true` | `false` |
+
+### How `surface` and `root` become roles
+
+`+devlore:surface=` decides which **dispatch** zones a provider holds; `+devlore:root=true` sets the
+**placement** bit. The two are orthogonal, and the generator composes them:
+
+| `+devlore:surface=` | Roles | with `+devlore:root=true` |
+|---|---|---|
+| *absent* — the default | `RoleModule\|RoleAction` | `RoleModule\|RoleAction\|RoleRoot` |
+| `graph` | `RoleAction` | `RoleAction\|RoleRoot` |
+| `module` | `RoleModule` | `RoleModule\|RoleRoot` |
+
+Absent is the default because a graph accepts anything with an action signature, and module membership is
+decided per **method** per runtime from its claims — never per provider. Only two providers declare a surface,
+and they are opposites: `flow` is `graph` (its methods *are* the graph combinators and mean nothing outside
+one) and `plan` is `module` (there being no scenario for planning the planner).
+
+**`root` applies to every surface the provider reaches.** One bit, both namespaces. A provider with the
+default surface and `root=true` surfaces flat in both: `ui` gives a script `note(...)` and a graph
+`plan.note(...)` from a single directive. That is intended — a name is promoted because it reads better
+without its qualifier, and that is as true of a graph as of a script.
 
 ## Method directives
 
