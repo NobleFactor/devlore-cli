@@ -78,6 +78,47 @@ integer→integer, in range, and stays allowed — which is why the rule cannot 
 | 7 | `test_imm_ui_one_string.star` gains `print(42)`, which #708 had to leave out | ☐ |
 | 8 | `make check`, `test-race`, `test-scenario` | ☐ |
 
+## Test Plan
+
+| # | What it proves | Level | Fails when |
+| --- | --- | --- | --- |
+| 1 | `int64(65) -> string` is refused | unit | the kind check is dropped; it yields `"A"` |
+| 2 | `int64(0) -> string` is refused | unit | the check becomes value-based; `0` round-trips |
+| 3 | `float64(3.9) -> int` is refused | unit | float-to-int is allowed; it yields `3` |
+| 4 | `float64(3.0) -> int` is refused | unit | the rule becomes round-trip instead of category |
+| 5 | `int64(300) -> int8` is refused | unit | the range check is dropped; it wraps to `44` |
+| 6 | `int64(-1) -> uint8` is refused | unit | as above; it yields `255` |
+| 7 | `0o644 -> uint32`, `int64 -> float64`, `string <-> []byte` still convert | unit | the rule overreaches |
+| 8 | `print(42)` is refused at the starlark surface | e2e | the guard does not reach dispatch |
+
+**Rows 1-6 were written before the fix, and each failed for its documented reason.** That output is the bug
+report: `Convert(65 -> string) = "A"`, `Convert(0 -> string) = "\x00"`, `Convert(300 -> int8) = 44`,
+`Convert(-1 -> uint8) = 0xff`.
+
+**Row 4 is the ruling made executable.** A round-trip rule accepts `3.0` and refuses `3.9`; the category rule
+refuses both. Nothing else in the suite distinguishes them, so without this row someone could "simplify" the
+guard back into the unpredictable version and every other test would still pass.
+
+**Row 2 is why the string check is by kind.** `0` round-trips through `"\x00"` and back, so a value-based
+check lets it through and emits a NUL byte.
+
+**Row 7 is the counterweight.** A rule that rejects everything is not a rule. `file.mkdir(mode=0o644)` depends
+on integer-to-integer in range, so this row passed before the fix and must keep passing after.
+
+**Row 8 is blocked on [#711](https://github.com/NobleFactor/devlore-cli/issues/711).**
+`test_imm_ui_one_string.star` currently pins the bool rejection and names the integer gap in a comment;
+`print(42)` joins it once reload stops producing floats.
+
+### Not covered
+
+- **`bool` where an integer is wanted.** Rejected today because Go says not convertible; python would allow it
+  (`True == 1`). Left rejected deliberately, so no test asserts the python behavior — we are not adopting it.
+- **`string <-> []byte` made explicit.** Python requires `.encode()` / `.decode()`. Out of scope, and a test
+  here would encode a decision not yet made.
+- **Conversions reached through slice elements, map values, and struct fields.** The guard sits in
+  `convertDirect`, which those paths funnel through, so they are covered by construction rather than by a
+  test naming each one. `convert_struct_test.go` exercises the struct path incidentally.
+
 ## Verification
 
 - **Step 1 comes first deliberately.** On the previous two branches every test written after its fix had to be
