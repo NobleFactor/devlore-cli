@@ -223,3 +223,86 @@ func TestTypesAreInterconvertible(t *testing.T) {
 		})
 	}
 }
+
+// region Python-shaped conversion rules (#709)
+
+// TestConvert_CrossCategoryIsAnError pins the rule starlark authors actually experience.
+//
+// [Convert] used to ask Go whether the source was ConvertibleTo the target and convert if so. Go answers a
+// question about REPRESENTABILITY, not about meaning, and it says yes to conversions that silently produce a
+// value nobody wrote: an integer becomes the rune at its code point, a wide integer wraps into a narrow one,
+// a negative reinterprets as unsigned, and a float loses its fraction.
+//
+// Starlark is python-shaped, so the rule is python's: a cross-category conversion is an error whatever the
+// value, and within the integer category the value must be in range. str(), int(), and float() exist for
+// authors who mean the conversion, and their rendering is correct by construction.
+func TestConvert_CrossCategoryIsAnError(t *testing.T) {
+
+	for _, testCase := range []struct {
+		name   string
+		value  any
+		target reflect.Type
+		why    string
+	}{
+		{"integer to string", int64(65), reflect.TypeFor[string](),
+			`yielded "A", the rune at code point 65; an author who means "65" writes str(65)`},
+
+		{"integer to string, rejected by kind not by range", int64(0), reflect.TypeFor[string](),
+			"0 round-trips through a string and back, so only a kind check can reject it"},
+
+		{"float to integer, fractional", 3.9, reflect.TypeFor[int](),
+			"yielded 3, discarding the fraction"},
+
+		{"float to integer, integral", 3.0, reflect.TypeFor[int](),
+			"python rejects [1,2,3][1.0] though 1.0 is integral: the rule is category, not value"},
+
+		{"integer too wide for the target", int64(300), reflect.TypeFor[int8](),
+			"yielded 44, wrapping around int8"},
+
+		{"negative integer to an unsigned target", int64(-1), reflect.TypeFor[uint8](),
+			"yielded 255, reinterpreting the sign bit"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+
+			got, err := Convert(nil, testCase.value, testCase.target)
+			if err == nil {
+				t.Errorf("Convert(%#v -> %s) = %#v, want an error: %s",
+					testCase.value, testCase.target, got, testCase.why)
+			}
+		})
+	}
+}
+
+// TestConvert_WideningAndCategoryPreservingStillWork guards the other half.
+//
+// A rule that rejects everything is not a rule. Each of these is a conversion python performs, or one the
+// tree depends on, and each must survive: file.mkdir(mode=0o644) reaches an os.FileMode, which is a uint32,
+// so integer-to-integer in range cannot be rejected by kind.
+func TestConvert_WideningAndCategoryPreservingStillWork(t *testing.T) {
+
+	for _, testCase := range []struct {
+		name   string
+		value  any
+		target reflect.Type
+		want   any
+	}{
+		{"integer widens to float, as python does implicitly", int64(7), reflect.TypeFor[float64](), 7.0},
+		{"integer to a wider integer", int64(300), reflect.TypeFor[int64](), int64(300)},
+		{"file mode: integer to uint32, in range", int64(0o644), reflect.TypeFor[uint32](), uint32(0o644)},
+		{"string to bytes", "hi", reflect.TypeFor[[]byte](), []byte("hi")},
+		{"bytes to string", []byte("hi"), reflect.TypeFor[string](), "hi"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+
+			got, err := Convert(nil, testCase.value, testCase.target)
+			if err != nil {
+				t.Fatalf("Convert(%#v -> %s): %v", testCase.value, testCase.target, err)
+			}
+			if !reflect.DeepEqual(got, testCase.want) {
+				t.Errorf("Convert(%#v -> %s) = %#v, want %#v", testCase.value, testCase.target, got, testCase.want)
+			}
+		})
+	}
+}
+
+// endregion
