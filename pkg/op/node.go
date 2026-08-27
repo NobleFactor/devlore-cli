@@ -294,20 +294,29 @@ func (n *Node) marshalData() nodeData {
 //
 // Parameters:
 //   - `data`: the document-form slot map (may be nil or empty).
+//   - `action`: the node's resolved action, whose parameter types say how to read a serialized number; nil
+//     when the caller has none, in which case values pass through as decoded.
 //
 // Returns:
 //   - `map[string]Binding`: the live slot map, or nil when `data` is empty.
-func assembleBindings(data map[string]bindingData) map[string]Binding {
+func assembleBindings(data map[string]bindingData, action Action) map[string]Binding {
 
 	if len(data) == 0 {
 		return nil
+	}
+
+	// A nil action carries no declared types, so serialized values pass through as decoded. Only an
+	// immediate binding consults them at all; promise and variable bindings name a unit or a variable.
+	var method *Method
+	if action != nil {
+		method = action.Method()
 	}
 
 	bindings := make(map[string]Binding, len(data))
 	for name, d := range data {
 		switch {
 		case d.Immediate != nil:
-			bindings[name] = NewImmediateBinding(d.Immediate.Value)
+			bindings[name] = NewImmediateBinding(readAgainstField(d.Immediate.Value, method, name))
 		case d.Promise != nil:
 			bindings[name] = NewPromiseBinding(d.Promise.UnitID)
 		case d.Variable != nil:
@@ -346,8 +355,78 @@ func assembleNode(p *nodeData) (*Node, error) {
 		return nil, err
 	}
 
-	node.slots = assembleBindings(p.Slots)
+	node.slots = assembleBindings(p.Slots, action)
 	return node, nil
+}
+
+// readAgainstField reads a decoded slot value against the type of the parameter it fills.
+//
+// Every codec loses something about a number. Json has ONE number type, so an authored integer decodes as a
+// float64 unless the literal is preserved -- [LoadGraph] decodes with UseNumber for exactly that reason. Yaml
+// keeps integers as int but has no notion of the fs.FileMode, time.Duration, or uint32 the parameter actually
+// declares. Neither document can answer what the value IS; only the parameter can.
+//
+// So the declared type decides, whichever codec wrote the document. That is what makes a graph reload to the
+// same in-memory values from json and from yaml, and it is why the canonical form -- computed from those
+// values -- does not vary by codec either.
+//
+// NUMBERS ONLY, and deliberately. Handing every value to [Convert] reaches its resource-construction step,
+// which would build a Resource from the URI string a resource-typed slot carries -- and the §5.6 ruling in
+// docs/plans/resource-construction.md says that string stays a KEY until dispatch resolves it through the
+// run catalog. Converting it here constructs at LOAD time, which the ruling forbids, and it moves the graph's
+// checksum because the canonical form is computed from these values.
+//
+// A slot with no declared type passes through as decoded. An `any` parameter has nothing to read against, and
+// the document does not yet carry the type it would need (#712).
+//
+// A value the field cannot hold also passes through unchanged, so the failure surfaces at dispatch naming the
+// parameter and its type rather than here naming a slot the author never wrote.
+//
+// Parameters:
+//   - `value`: the decoded slot value.
+//   - `method`: the resolved method whose parameter this slot fills; nil when the caller has no action.
+//   - `name`: the slot name, which is the parameter name.
+//
+// Returns:
+//   - `any`: the value read against the field, or the value unchanged.
+func readAgainstField(value any, method *Method, name string) any {
+
+	if method == nil || !isDecodedNumber(value) {
+		return value
+	}
+
+	parameter, declared := method.ParameterByName(name)
+	if !declared || parameter.Type == nil {
+		return value
+	}
+
+	converted, err := Convert(nil, value, parameter.Type)
+	if err != nil {
+		return value
+	}
+
+	return converted
+}
+
+// isDecodedNumber reports whether a decoded slot value is a number a codec may have mistyped.
+//
+// json.Number is what [LoadGraph] preserves rather than letting a number collapse to float64. int and float64
+// are what yaml.v3 produces, and both need reading against the parameter too -- yaml keeps an integer an
+// integer, but has no notion of the fs.FileMode or uint32 the field declares.
+//
+// Parameters:
+//   - `value`: the decoded slot value.
+//
+// Returns:
+//   - `bool`: true when the value is a number this path should read against its field.
+func isDecodedNumber(value any) bool {
+
+	switch value.(type) {
+	case json.Number, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
+		return true
+	}
+
+	return false
 }
 
 // marshalBindings projects a node's live slot map to its kind-discriminated serialized document form.

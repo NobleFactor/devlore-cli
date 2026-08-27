@@ -5,8 +5,10 @@ package op
 
 import (
 	"encoding"
+	"encoding/json"
 	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 )
 
@@ -67,6 +69,12 @@ func Convert(runtimeEnvironment *RuntimeEnvironment, value any, target reflect.T
 
 	if value == nil {
 		return reflect.Zero(target).Interface(), nil
+	}
+
+	// Step 0.5: a serialized number, read against the type of the field it fills.
+
+	if v, ok, err := tryParseSerializedNumber(value, target); ok {
+		return v, err
 	}
 
 	// Steps 1-2: identity, the `any` target, and (pointer-dereferenced) assignability/convertibility —
@@ -180,6 +188,64 @@ func convertDirect(value any, target reflect.Type) (any, bool) {
 	}
 
 	return nil, false
+}
+
+// tryParseSerializedNumber handles [Convert]'s step 0.5: a [json.Number] reaching a numeric target.
+//
+// A json document has ONE number type, so unmarshalling into an `any` slot cannot say whether 420 was written
+// as an integer or a float. [LoadGraph] decodes with UseNumber so the literal text survives, and the type of
+// the field being filled is what decides how to read it -- an fs.FileMode wants an integer, a timeout wants a
+// float, and the text answers either without a lossy float64 in between.
+//
+// This is a PARSE, not a numeric conversion, which is why it sits ahead of the direct paths: json.Number is a
+// string kind, and Go will not convert a string to a numeric type at all.
+//
+// Range is enforced by parsing against the target's bit size, so a value the field cannot hold is an error
+// rather than a truncation.
+//
+// Parameters:
+//   - `value`: the value under conversion.
+//   - `target`: the destination type.
+//
+// Returns:
+//   - `parsed`: the number read against the field, when this step applied.
+//   - `applied`: true when this step applied.
+//   - `err`: non-nil when the text does not fit the field.
+func tryParseSerializedNumber(value any, target reflect.Type) (parsed any, applied bool, err error) {
+
+	number, isNumber := value.(json.Number)
+	if !isNumber {
+		return nil, false, nil
+	}
+
+	switch target.Kind() {
+
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		signed, parseErr := strconv.ParseInt(number.String(), 10, target.Bits())
+		if parseErr != nil {
+			return nil, true, fmt.Errorf("serialized number %s does not fit %s: %w", number, target, parseErr)
+		}
+
+		return reflect.ValueOf(signed).Convert(target).Interface(), true, nil
+
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		unsigned, parseErr := strconv.ParseUint(number.String(), 10, target.Bits())
+		if parseErr != nil {
+			return nil, true, fmt.Errorf("serialized number %s does not fit %s: %w", number, target, parseErr)
+		}
+
+		return reflect.ValueOf(unsigned).Convert(target).Interface(), true, nil
+
+	case reflect.Float32, reflect.Float64:
+		floating, parseErr := strconv.ParseFloat(number.String(), target.Bits())
+		if parseErr != nil {
+			return nil, true, fmt.Errorf("serialized number %s does not fit %s: %w", number, target, parseErr)
+		}
+
+		return reflect.ValueOf(floating).Convert(target).Interface(), true, nil
+	}
+
+	return nil, false, nil
 }
 
 // tryConvertSlice handles [Convert]'s step 3: slice → slice element-wise recursion.
