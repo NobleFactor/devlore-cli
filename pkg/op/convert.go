@@ -7,6 +7,7 @@ import (
 	"encoding"
 	"encoding/json"
 	"fmt"
+	"math"
 	"reflect"
 	"strconv"
 	"strings"
@@ -133,7 +134,47 @@ func Convert(runtimeEnvironment *RuntimeEnvironment, value any, target reflect.T
 
 	// Step 10: not convertible.
 
-	return nil, fmt.Errorf("%T value is neither assignable nor convertible to %s", value, target)
+	return nil, explainRefusal(value, target)
+}
+
+// explainRefusal renders [Convert]'s step-10 failure, naming the remedy when there is one.
+//
+// A conversion Go permits but [losesMeaning] refuses lands here with nothing left to say for itself, and
+// "int64 value is neither assignable nor convertible to string" is Go's vocabulary for a starlark author's
+// mistake. Python answers the same three cases with a sentence that names the fix, and starlark has str(),
+// int(), and float() to offer -- so the message points at them.
+//
+// Anything else keeps the general form: the value's type could not reach the target's, which is all that is
+// known about it.
+//
+// Parameters:
+//   - `value`: the value that could not be converted.
+//   - `target`: the destination type.
+//
+// Returns:
+//   - `error`: the refusal, with guidance when the case admits any.
+func explainRefusal(value any, target reflect.Type) error {
+
+	source := reflect.TypeOf(value)
+	if source == nil {
+		return fmt.Errorf("%T value is neither assignable nor convertible to %s", value, target)
+	}
+
+	sourceKind, targetKind := source.Kind(), target.Kind()
+
+	switch {
+	case targetKind == reflect.String && isInteger(sourceKind):
+		return fmt.Errorf("cannot use %s where %s is wanted: write str(x) to render it", source, target)
+
+	case isInteger(targetKind) && isFloat(sourceKind):
+		return fmt.Errorf("a %s cannot be interpreted as %s: write int(x) to truncate it deliberately",
+			source, target)
+
+	case isInteger(sourceKind) && isInteger(targetKind):
+		return fmt.Errorf("%v is out of range for %s", value, target)
+	}
+
+	return fmt.Errorf("%T value is neither assignable nor convertible to %s", value, target)
 }
 
 // convertDirect handles [Convert]'s direct paths — steps 1 through 2.
@@ -178,7 +219,7 @@ func convertDirect(value any, target reflect.Type) (any, bool) {
 		if elem.Type().AssignableTo(target) {
 			return elem.Interface(), true
 		}
-		if elem.Type().ConvertibleTo(target) {
+		if elem.Type().ConvertibleTo(target) && !losesMeaning(elem, target) {
 			return elem.Convert(target).Interface(), true
 		}
 	}
@@ -188,6 +229,132 @@ func convertDirect(value any, target reflect.Type) (any, bool) {
 	}
 
 	return nil, false
+}
+
+// losesMeaning reports whether a conversion Go permits would produce a value the author did not write.
+//
+// [reflect.Type.ConvertibleTo] answers a question about REPRESENTABILITY, and Go's answer is yes to several
+// conversions that silently change meaning: an integer becomes the rune at its code point, a wide integer
+// wraps into a narrow one, a negative reinterprets as unsigned, and a float loses its fraction.
+//
+// Starlark is python-shaped, so the rule here is python's rather than Go's: a cross-category conversion is an
+// error whatever the value, and within the integer category the value must be in range. str(), int(), and
+// float() exist for an author who means the conversion, and their rendering is correct by construction.
+//
+//	int -> string     rejected by kind. 65 would become "A". A value check cannot catch this: 65 round-trips
+//	                  back to 65, and 0 round-trips through "\x00". Only the kinds tell the truth.
+//	float -> int      rejected by kind, INCLUDING an integral float. python rejects [1,2,3][1.0] though 1.0 is
+//	                  integral, and a rule that took 3.0 but refused 3.9 is one no author could predict.
+//	int -> int        allowed in range, rejected outside it. file.mkdir(mode=0o644) reaches an os.FileMode --
+//	                  a uint32 -- so this pair cannot be rejected by kind.
+//	int -> float      allowed. python widens implicitly, as in 1 + 2.0.
+//
+// Parameters:
+//   - `elem`: the dereferenced source value.
+//   - `target`: the destination type.
+//
+// Returns:
+//   - `bool`: true when the conversion must be refused.
+func losesMeaning(elem reflect.Value, target reflect.Type) bool {
+
+	source, destination := elem.Kind(), target.Kind()
+
+	switch {
+
+	// A string target reached from a number. Only integers are ConvertibleTo string in Go -- float and bool
+	// fail earlier -- and an integer arriving here means a rune conversion nobody asked for.
+	case destination == reflect.String && isInteger(source):
+		return true
+
+	// An integer target reached from a float, fractional or not.
+	case isInteger(destination) && isFloat(source):
+		return true
+
+	// Integer to integer: the one pair whose value decides.
+	case isInteger(source) && isInteger(destination):
+		return integerLosesValue(elem, target)
+
+	// Float to float: narrowing that overflows silently yields ±Inf. Precision loss does not count -- python
+	// packs 0.1 into a single-precision float without complaint and raises only when the value will not fit.
+	case isFloat(source) && isFloat(destination):
+		return !math.IsInf(elem.Float(), 0) && math.IsInf(elem.Convert(target).Float(), 0)
+	}
+
+	return false
+}
+
+// isInteger reports whether kind is any of Go's integer kinds, signed or unsigned.
+//
+// Parameters:
+//   - `kind`: the reflect kind under test.
+//
+// Returns:
+//   - `bool`: true for int through int64 and uint through uint64.
+func isInteger(kind reflect.Kind) bool { return isSignedInteger(kind) || isUnsignedInteger(kind) }
+
+// isFloat reports whether kind is one of Go's floating-point kinds.
+//
+// Parameters:
+//   - `kind`: the reflect kind under test.
+//
+// Returns:
+//   - `bool`: true for float32 and float64.
+func isFloat(kind reflect.Kind) bool { return kind == reflect.Float32 || kind == reflect.Float64 }
+
+// integerLosesValue reports whether an integer-to-integer conversion changes the value.
+//
+// The obvious test is a round trip: convert, convert back, compare. It catches narrowing and it catches a
+// negative reinterpreted as unsigned at a DIFFERENT width -- but it is blind to the same-width case, because
+// signed and unsigned of equal width share a bit pattern. uint64(MaxUint64) converts to int64(-1) and back to
+// uint64(MaxUint64), comparing equal while the value it denotes has changed entirely.
+//
+// So sign is asked about directly, and only then the round trip.
+//
+// Parameters:
+//   - `elem`: the dereferenced source value, of an integer kind.
+//   - `target`: the destination integer type.
+//
+// Returns:
+//   - `bool`: true when the conversion changes the value.
+func integerLosesValue(elem reflect.Value, target reflect.Type) bool {
+
+	source := elem.Kind()
+
+	// A negative can never be an unsigned value, whatever the widths.
+	if isSignedInteger(source) && isUnsignedInteger(target.Kind()) && elem.Int() < 0 {
+		return true
+	}
+
+	// An unsigned value above the signed range wraps to a negative, and at equal width does so invisibly.
+	if isUnsignedInteger(source) && isSignedInteger(target.Kind()) && elem.Uint() > math.MaxInt64 {
+		return true
+	}
+
+	return !elem.Convert(target).Convert(elem.Type()).Equal(elem)
+}
+
+// isSignedInteger reports whether kind is one of Go's signed integer kinds.
+//
+// Parameters:
+//   - `kind`: the reflect kind under test.
+//
+// Returns:
+//   - `bool`: true for int through int64.
+func isSignedInteger(kind reflect.Kind) bool {
+	return kind >= reflect.Int && kind <= reflect.Int64
+}
+
+// isUnsignedInteger reports whether kind is one of Go's unsigned integer kinds.
+//
+// Uintptr is deliberately excluded: it is an address, not a number an author writes.
+//
+// Parameters:
+//   - `kind`: the reflect kind under test.
+//
+// Returns:
+//   - `bool`: true for uint through uint64.
+func isUnsignedInteger(kind reflect.Kind) bool {
+	return kind >= reflect.Uint && kind <= reflect.Uint64
 }
 
 // tryParseSerializedNumber handles [Convert]'s step 0.5: a [json.Number] reaching a numeric target.

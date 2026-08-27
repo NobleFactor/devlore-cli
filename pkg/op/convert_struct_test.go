@@ -4,6 +4,7 @@
 package op
 
 import (
+	"encoding/json"
 	"reflect"
 	"testing"
 	"time"
@@ -24,13 +25,18 @@ type convertOuter struct {
 	Refs  []convertInner `json:"refs"`
 }
 
-// TestConvert_HydratesStructFromMap reconstructs a nested struct from a map[string]any, with an int from a JSON
-// float64 and slices of both scalars and structs.
+// TestConvert_HydratesStructFromMap reconstructs a nested struct from a map[string]any, with an int read from
+// a serialized number and slices of both scalars and structs.
+//
+// The count was float64(3) until 2026-08-27, which encoded a compensation rather than a contract: json has one
+// number type, so decoding yielded a float for every number and Convert truncated it back to an int. #711
+// removed the truncation and #713 removed the float -- a json document now decodes with UseNumber, so an
+// authored 3 arrives as json.Number("3") and is read against the field it fills. This fixture says that.
 func TestConvert_HydratesStructFromMap(t *testing.T) {
 
 	source := map[string]any{
 		"name":  "x",
-		"count": float64(3),
+		"count": json.Number("3"),
 		"inner": map[string]any{"tag": "t"},
 		"tags":  []any{"a", "b"},
 		"refs":  []any{map[string]any{"tag": "r1"}, map[string]any{"tag": "r2"}},

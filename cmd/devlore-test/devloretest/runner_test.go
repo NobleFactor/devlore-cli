@@ -366,6 +366,10 @@ func TestImmUI_OneString(t *testing.T) {
 	runScriptImm(t, "test_imm_ui_one_string.star")
 }
 
+func TestImmUI_NoBool(t *testing.T) {
+	runScriptImm(t, "test_imm_ui_no_bool.star")
+}
+
 func TestImmUI_Fail(t *testing.T) {
 	runScriptImm(t, "test_imm_ui_fail.star")
 }
