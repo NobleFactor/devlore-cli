@@ -225,7 +225,7 @@ HOST_COPIES := lore writ
 
 ## TARGETS
 
-.PHONY: all help help-short help-full build install clean test test-race cover vet vet-all lint lint-all build-all shell-lint complexity verify-ldflags check dev docs dist dist-all star star-lkg generate inventory help
+.PHONY: all help help-short help-full build install clean test test-race cover vet vet-all lint lint-all build-all shell-lint complexity verify-ldflags check dev docs dist dist-all star star-lkg generate regenerate inventory help
 
 ##@ Help
 
@@ -712,3 +712,21 @@ inventory: ## Generate inventory files from op.Announce* call sites
 	$(HOST_GO) run ./cmd/devlore-inventory cmd/star/inventory/inventory.gen.go github.com/NobleFactor/devlore-cli cmd/star
 
 generate: $(NEW_OP_INVENTORY) inventory ## Run all code generation
+
+# Codegen is mtime-gated, and on a fresh clone every file is stamped at checkout -- so whether a
+# provider looks stale is decided by write order rather than by its source. Measured on CI run
+# 33024633546, one commit across six jobs: 30 providers regenerated on one, 1 on two, and 0 on three.
+# Every generator validation rides along with that, so which defects get caught is luck (#702).
+#
+# Touching the SOURCES rather than deleting the outputs, because the outputs are also inputs: the
+# generated files hold the op.Announce*() call sites that devlore-inventory scans, inventory is a
+# prerequisite of the star binary, and `build/star: FORCE` rebuilds star on every run. Deleting the
+# generated files therefore breaks the bootstrap that would regenerate them -- verified 2026-08-27 by
+# doing exactly that and watching inventory find 8 packages instead of 19, then fail with
+# `no op.Announce*() call sites found`.
+#
+# `make -B generate` would also force the rules, and forces far more than the question needs: it
+# propagates into the `build/star: FORCE` sub-make and rebuilds targets unrelated to codegen.
+regenerate: ## Regenerate every generated file from scratch, ignoring mtimes
+	find $(P) $(SP) -maxdepth 2 \( -name provider.go -o -name resource.go \) -exec touch {} +
+	$(MAKE) generate
