@@ -229,6 +229,21 @@ type bridgeRootModuleFixtureB struct{ op.ProviderBase }
 
 func (*bridgeRootModuleFixtureB) Greet() string { return "hi" }
 
+// bridgeRootMixedClaimFixture is root-placed with mixed claims: a hermetic runtime refuses one of its methods
+// and must still install the rest.
+//
+// The method names are chosen for their sort order. [ReceiverType.Methods] yields sorted by name, so Alpha --
+// the one claiming nothing -- is reached first, and Bravo and Charlie come after it. Under the pre-2026-08-27
+// `return`, refusing Alpha abandoned the loop and both survivors vanished. Naming them this way makes that a
+// deterministic failure rather than one that depends on which method the iterator happens to reach first.
+type bridgeRootMixedClaimFixture struct{ op.ProviderBase }
+
+func (*bridgeRootMixedClaimFixture) Alpha() string { return "alpha" }
+
+func (*bridgeRootMixedClaimFixture) Bravo() string { return "bravo" }
+
+func (*bridgeRootMixedClaimFixture) Charlie() string { return "charlie" }
+
 // bridgePlannedFixture is planned-only, non-root: never registered as a global.
 type bridgePlannedFixture struct{ op.ProviderBase }
 
@@ -260,6 +275,16 @@ func init() {
 		map[string]op.MethodMetadata{
 			"Pure":   {ParameterNames: []string{}, Claims: op.ClaimDeterministic},
 			"Impure": {ParameterNames: []string{}},
+		})
+
+	op.AnnounceProvider(reflect.TypeFor[bridgeRootMixedClaimFixture](), op.RoleModule|op.RoleRoot,
+		func(re *op.RuntimeEnvironment) (any, error) {
+			return &bridgeRootMixedClaimFixture{ProviderBase: op.NewProviderBase(re)}, nil
+		},
+		map[string]op.MethodMetadata{
+			"Alpha":   {ParameterNames: []string{}},
+			"Bravo":   {ParameterNames: []string{}, Claims: op.ClaimDeterministic},
+			"Charlie": {ParameterNames: []string{}, Claims: op.ClaimDeterministic},
 		})
 
 	op.AnnounceProvider(reflect.TypeFor[bridgeNoClaimFixture](), op.RoleModule,
@@ -370,6 +395,31 @@ func TestNewRuntime_ModuleRoot_InstallsEachMethodAndPanicsOnCollision(t *testing
 		Modules: bridgeFixtureModules(t, "bridgeRootModuleFixtureA", "bridgeRootModuleFixtureB"),
 	}
 	NewRuntime(collision)
+}
+
+// TestNewRuntime_ModuleRoot_RefusedMethodDoesNotDropTheRest pins the survivors when a root provider is filtered.
+//
+// placeModule's root path skips a refused method and keeps going. It did not always: until 2026-08-27 the skip
+// was a `return`, which abandoned every method the loop had not yet reached. The branch carried no traffic --
+// no provider was RoleModule|RoleRoot, and ui claims deterministic on all six of its methods -- so nothing
+// refused anything and the defect never surfaced. Putting ui at root is what arms it.
+func TestNewRuntime_ModuleRoot_RefusedMethodDoesNotDropTheRest(t *testing.T) {
+
+	env := &op.RuntimeEnvironment{Modules: bridgeFixtureModules(t, "bridgeRootMixedClaimFixture")}
+
+	predeclared := NewRuntime(env, Hermetic()).Predeclared()
+
+	// Alpha claims nothing, so a hermetic runtime refuses it. It sorts first, which is the point: under the old
+	// `return` its refusal took bravo and charlie with it.
+	if _, present := predeclared["alpha"]; present {
+		t.Error(`predeclared contains "alpha"; a method claiming nothing must not reach a hermetic surface`)
+	}
+
+	for _, name := range []string{"bravo", "charlie"} {
+		if _, present := predeclared[name]; !present {
+			t.Errorf("predeclared lacks %q; refusing an earlier-sorting method must not drop the ones after it", name)
+		}
+	}
 }
 
 // endregion
