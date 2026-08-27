@@ -77,8 +77,9 @@ func Check(patterns ...string) ([]Violation, error) {
 // CheckGOOS is [Check] against a chosen target platform.
 //
 // A claim can hold on one platform and fail on another: build tags select different bodies, so the call graph a
-// method reaches is not the same everywhere. Verifying only the developer's platform would leave the others to
-// CI, and CI runs one of them.
+// method reaches is not the same everywhere. CI covers the spread across its matrix — each leg checks its own
+// host, and the legs span darwin, linux, and windows between them. Passing an explicit goos is for sweeping the
+// others from one machine; see platformsUnderTest in the test.
 //
 // Parameters:
 //   - `goos`: the target platform, e.g. "linux"; empty loads for the host.
