@@ -8,13 +8,11 @@
 # variadic one would receive Go natives after conversion and render True as true, None as <nil>.
 # Requiring str() keeps rendering in starlark, where it is correct by construction.
 #
-# A bool is rejected, which is what this pins.
-#
-# An INT is not, and that is a defect rather than a decision: op.Convert reaches
+# An integer is refused here, which it was not until 2026-08-27. op.Convert reached
 # reflect.Value.Convert, where int64 counts as "convertible" to string and yields the RUNE at that
-# code point -- print(65) emits "A". Tracked separately; it affects every provider method taking a
-# string parameter, not just these. When it is fixed, print(42) belongs in this fixture too.
+# code point -- print(65) emitted "A". #709 made a cross-category conversion an error whatever the
+# value, which is python's rule: str(65) says what an author means, and 65 does not.
 
-t.expect_error("param msg: bool value is neither assignable nor convertible to string")
+t.expect_error(r"write str\(x\) to render it")
 
-print(True)
+print(42)

@@ -1,7 +1,7 @@
 ---
 title: "Conversions Follow Python's Rule: Cross-Category Is an Error"
 issue: 709
-status: draft
+status: complete
 created: 2026-08-27
 updated: 2026-08-27
 ---
@@ -9,7 +9,7 @@ updated: 2026-08-27
 # Plan: Conversions Follow Python's Rule — Cross-Category Is an Error
 
 **Issue:** [#709](https://github.com/NobleFactor/devlore-cli/issues/709) ·
-**Blocked by:** [#711](https://github.com/NobleFactor/devlore-cli/issues/711) — JSON reload yields float64 ·
+**Unblocked by:** [#711](https://github.com/NobleFactor/devlore-cli/issues/711), merged as #713 ·
 **Epic:** [#444 — The resource model](https://github.com/NobleFactor/devlore-cli/issues/444)
 
 ## Summary
@@ -69,14 +69,55 @@ integer→integer, in range, and stays allowed — which is why the rule cannot 
 
 | # | Step | ✓ |
 | --- | --- | --- |
-| 1 | Failing tests first — all four rows, plus `3.0 → int`, asserting each is rejected | ☐ |
-| 2 | Reject integer→string and float→integer by kind, ahead of the `ConvertibleTo` branch | ☐ |
-| 3 | Range check for integer→integer; out of range is an error | ☐ |
-| 4 | Confirm `0o644 → os.FileMode`, `int64 → float64`, and `string ↔ []byte` still convert | ☐ |
-| 5 | Error messages in Python's voice, naming the fix: `str(x)`, `int(x)` | ☐ |
-| 6 | Sweep for callers that depended on the looseness | ☐ |
-| 7 | `test_imm_ui_one_string.star` gains `print(42)`, which #708 had to leave out | ☐ |
-| 8 | `make check`, `test-race`, `test-scenario` | ☐ |
+| 1 | Failing tests first — all four rows, plus `3.0 → int`, asserting each is rejected | ✅ |
+| 2 | Reject integer→string and float→integer by kind, ahead of the `ConvertibleTo` branch | ✅ |
+| 3 | Range check for integer→integer; out of range is an error | ✅ |
+| 4 | Confirm `0o644 → os.FileMode`, `int64 → float64`, and `string ↔ []byte` still convert | ✅ |
+| 5 | Error messages in Python's voice, naming the fix: `str(x)`, `int(x)` | ✅ |
+| 6 | Sweep for callers that depended on the looseness | ✅ |
+| 7 | `test_imm_ui_one_string.star` gains `print(42)`, which #708 had to leave out | ✅ |
+| 8 | `make check`, `test-race`, `test-scenario` | ✅ |
+
+## Outcome
+
+Complete. `make check`, `make test-race`, and `make test-scenario` all pass.
+
+### #711 was the blocker, and it was the whole blocker
+
+Merging #713 in produced a conflict in `convert.go` — both branches added a step to the same conversion
+ladder. Resolved by keeping **both**, because they are complementary rather than competing:
+
+| Step | |
+| --- | --- |
+| `tryParseSerializedNumber` (#713) | reads a serialized number *against* its field |
+| `losesMeaning` (#709) | refuses conversions that change meaning |
+
+After the merge exactly one test failed — `convert_struct_test.go`, precisely as step 8's measurement
+predicted. Its own doc comment said "an int from a JSON float64", so it was encoding the compensation rather
+than a contract. Now `json.Number("3")`, which is what a json decode actually produces.
+
+### The error messages became real work
+
+"Python's voice" could have been satisfied by rewording a sentence. Done properly it is `explainRefusal`,
+which recognizes the three refusal shapes and names the remedy:
+
+| Refusal | Message |
+| --- | --- |
+| integer → string | `cannot use int64 where string is wanted: write str(x) to render it` |
+| float → integer | `a float64 cannot be interpreted as int: write int(x) to truncate it deliberately` |
+| out of range | `300 is out of range for int8` |
+
+What a script author sees, end to end: `param msg: cannot use int64 where string is wanted: write str(x) to
+render it`. The parameter name comes free from the dispatch layer.
+
+**The test asserts the guidance, not the refusal** — it matches `write str(x)`, not `string`. A test matching
+only `string` passes whether the message helps or not.
+
+### `print(42)` is finally assertable
+
+Row 8 was blocked on #711 and now runs. The bool case moved to its own fixture rather than sharing one: an
+integer is refused **by rule**, a bool **by the language**, and only one of them has a guard protecting it.
+Collapsing them would hide which is which — and which one a regression could silently remove.
 
 ## Test Plan
 
