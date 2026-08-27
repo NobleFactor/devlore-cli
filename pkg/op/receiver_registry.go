@@ -396,8 +396,16 @@ func (r *receiverRegistry) Planners() []ProviderReceiverType { return r.planners
 // RootProviders returns every provider with the [RoleRoot] placement-zone bit set.
 //
 // Root providers surface their methods flat at their access-defined namespace root rather than nested under the
-// provider's own name. Callers that need a specific dispatch mode filter the returned slice further via
-// [ProviderRole.Dispatch] — e.g., plan.Provider filters to RoleAction to discover its planner-primitive peers.
+// provider's own name.
+//
+// The list is NOT filtered by dispatch zone, and callers are not expected to filter it. Root placement applies to
+// every surface a provider reaches: a RoleModule|RoleAction|RoleRoot provider surfaces flat in BOTH namespaces, as
+// top-level globals for a module surface and directly under plan.* for the graph. ui is the case — note() in a
+// script and plan.note() in a graph, from one directive.
+//
+// This comment previously said callers filter to a dispatch mode and named plan.Provider as the example.
+// plan.Provider does not filter, and the behavior that describes was never implemented; corrected 2026-08-27
+// after ui became the first RoleModule|RoleAction|RoleRoot provider and made the difference observable.
 //
 // Returns:
 //   - `[]ProviderReceiverType`: sorted by receiver name.

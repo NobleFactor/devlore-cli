@@ -64,6 +64,15 @@ const (
 	// plan.* (e.g., plan.choose) rather than plan.<provider>.* (e.g., plan.flow.choose). For a RoleModule provider,
 	// this means the methods appear as top-level starlark globals (e.g., note()) rather than under the provider name
 	// (e.g., ui.note()).
+	//
+	// ONE BIT, EVERY SURFACE, and deliberately. Placement is orthogonal to dispatch, so a provider holding both
+	// dispatch bits surfaces flat in both namespaces from a single +devlore:root=true. ui is that case: note() in a
+	// script AND plan.note() in a graph. There is no way to be root in one zone and nested in the other, because
+	// there is nothing a provider could mean by asking for it — a name is promoted because it reads better without
+	// its qualifier, and that is as true of a graph as of a script.
+	//
+	// flow never exposed this: it is +devlore:surface=graph, so it holds one dispatch bit and one placement bit is
+	// obviously sufficient. ui, arriving 2026-08-27, was the first provider with both.
 	RoleRoot ProviderRole = 1 << (iota + 8)
 
 	// Bits 9–15 reserved for future placement modifiers.
