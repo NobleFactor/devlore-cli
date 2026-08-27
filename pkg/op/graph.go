@@ -18,6 +18,7 @@
 package op
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -262,7 +263,15 @@ func LoadGraph(env *RuntimeEnvironment, data []byte, format string) (*Graph, err
 	var p graphData
 	switch strings.ToLower(format) {
 	case "json":
-		if err := json.Unmarshal(data, &p); err != nil {
+		// UseNumber, not plain Unmarshal. Json has ONE number type, so unmarshalling into an `any` slot
+		// yields float64 for every number and an authored integer arrives as a float -- 0o644 reaching an
+		// fs.FileMode by way of float64 is a truncation that happened to be harmless. json.Number keeps the
+		// literal text instead, and [assembleBindings] reads it against the type of the parameter it fills.
+		// Yaml needs none of this: yaml.v3 decodes an integer as an int.
+		decoder := json.NewDecoder(bytes.NewReader(data))
+		decoder.UseNumber()
+
+		if err := decoder.Decode(&p); err != nil {
 			return nil, fmt.Errorf("op.LoadGraph: json decode: %w", err)
 		}
 	case "yaml", "yml":

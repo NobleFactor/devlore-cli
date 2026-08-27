@@ -5,8 +5,11 @@ package op
 
 import (
 	"encoding"
+	"encoding/json"
 	"fmt"
+	"math"
 	"reflect"
+	"strconv"
 	"strings"
 )
 
@@ -69,6 +72,12 @@ func Convert(runtimeEnvironment *RuntimeEnvironment, value any, target reflect.T
 		return reflect.Zero(target).Interface(), nil
 	}
 
+	// Step 0.5: a serialized number, read against the type of the field it fills.
+
+	if v, ok, err := tryParseSerializedNumber(value, target); ok {
+		return v, err
+	}
+
 	// Steps 1-2: identity, the `any` target, and (pointer-dereferenced) assignability/convertibility —
 	// see [convertDirect].
 
@@ -125,7 +134,49 @@ func Convert(runtimeEnvironment *RuntimeEnvironment, value any, target reflect.T
 
 	// Step 10: not convertible.
 
-	return nil, fmt.Errorf("%T value is neither assignable nor convertible to %s", value, target)
+	return nil, explainRefusal(value, target)
+}
+
+// explainRefusal renders [Convert]'s step-10 failure, naming the remedy when there is one.
+//
+// A conversion Go permits but [losesMeaning] refuses lands here with nothing left to say for itself, and
+// "int64 value is neither assignable nor convertible to string" is Go's vocabulary for a starlark author's
+// mistake. Python answers the same three cases with a sentence that names the fix, and starlark has str(),
+// int(), and float() to offer -- so the message points at them.
+//
+// Anything else keeps the general form: the value's type could not reach the target's, which is all that is
+// known about it.
+//
+// Parameters:
+//   - `value`: the value that could not be converted.
+//   - `target`: the destination type.
+//
+// Returns:
+//   - `error`: the refusal, with guidance when the case admits any.
+func explainRefusal(value any, target reflect.Type) error {
+
+	source := reflect.TypeOf(value)
+	if source == nil {
+		return fmt.Errorf("%T value is neither assignable nor convertible to %s", value, target)
+	}
+
+	sourceKind, targetKind := source.Kind(), target.Kind()
+
+	switch {
+	case targetKind == reflect.String && (isSignedInteger(sourceKind) || isUnsignedInteger(sourceKind)):
+		return fmt.Errorf("cannot use %s where %s is wanted: write str(x) to render it", source, target)
+
+	case (isSignedInteger(targetKind) || isUnsignedInteger(targetKind)) &&
+		(sourceKind == reflect.Float32 || sourceKind == reflect.Float64):
+		return fmt.Errorf("a %s cannot be interpreted as %s: write int(x) to truncate it deliberately",
+			source, target)
+
+	case (isSignedInteger(sourceKind) || isUnsignedInteger(sourceKind)) &&
+		(isSignedInteger(targetKind) || isUnsignedInteger(targetKind)):
+		return fmt.Errorf("%v is out of range for %s", value, target)
+	}
+
+	return fmt.Errorf("%T value is neither assignable nor convertible to %s", value, target)
 }
 
 // convertDirect handles [Convert]'s direct paths — steps 1 through 2.
@@ -222,15 +273,54 @@ func losesMeaning(elem reflect.Value, target reflect.Type) bool {
 		return true
 	}
 
-	// Integer to integer: the one pair whose value decides. Convert and convert back; a value that does not
-	// return unchanged was truncated, wrapped, or had its sign reinterpreted.
+	// Integer to integer: the one pair whose value decides.
 	if (isSignedInteger(source) || isUnsignedInteger(source)) &&
 		(isSignedInteger(target.Kind()) || isUnsignedInteger(target.Kind())) {
 
-		return !elem.Convert(target).Convert(elem.Type()).Equal(elem)
+		return integerLosesValue(elem, target)
+	}
+
+	// Float to float: narrowing that overflows silently yields ±Inf. Precision loss does not count -- python
+	// packs 0.1 into a single-precision float without complaint and only raises when the value will not fit.
+	if (source == reflect.Float32 || source == reflect.Float64) &&
+		(target.Kind() == reflect.Float32 || target.Kind() == reflect.Float64) {
+
+		return !math.IsInf(elem.Float(), 0) && math.IsInf(elem.Convert(target).Float(), 0)
 	}
 
 	return false
+}
+
+// integerLosesValue reports whether an integer-to-integer conversion changes the value.
+//
+// The obvious test is a round trip: convert, convert back, compare. It catches narrowing and it catches a
+// negative reinterpreted as unsigned at a DIFFERENT width -- but it is blind to the same-width case, because
+// signed and unsigned of equal width share a bit pattern. uint64(MaxUint64) converts to int64(-1) and back to
+// uint64(MaxUint64), comparing equal while the value it denotes has changed entirely.
+//
+// So sign is asked about directly, and only then the round trip.
+//
+// Parameters:
+//   - `elem`: the dereferenced source value, of an integer kind.
+//   - `target`: the destination integer type.
+//
+// Returns:
+//   - `bool`: true when the conversion changes the value.
+func integerLosesValue(elem reflect.Value, target reflect.Type) bool {
+
+	source := elem.Kind()
+
+	// A negative can never be an unsigned value, whatever the widths.
+	if isSignedInteger(source) && isUnsignedInteger(target.Kind()) && elem.Int() < 0 {
+		return true
+	}
+
+	// An unsigned value above the signed range wraps to a negative, and at equal width does so invisibly.
+	if isUnsignedInteger(source) && isSignedInteger(target.Kind()) && elem.Uint() > math.MaxInt64 {
+		return true
+	}
+
+	return !elem.Convert(target).Convert(elem.Type()).Equal(elem)
 }
 
 // isSignedInteger reports whether kind is one of Go's signed integer kinds.
@@ -255,6 +345,64 @@ func isSignedInteger(kind reflect.Kind) bool {
 //   - `bool`: true for uint through uint64.
 func isUnsignedInteger(kind reflect.Kind) bool {
 	return kind >= reflect.Uint && kind <= reflect.Uint64
+}
+
+// tryParseSerializedNumber handles [Convert]'s step 0.5: a [json.Number] reaching a numeric target.
+//
+// A json document has ONE number type, so unmarshalling into an `any` slot cannot say whether 420 was written
+// as an integer or a float. [LoadGraph] decodes with UseNumber so the literal text survives, and the type of
+// the field being filled is what decides how to read it -- an fs.FileMode wants an integer, a timeout wants a
+// float, and the text answers either without a lossy float64 in between.
+//
+// This is a PARSE, not a numeric conversion, which is why it sits ahead of the direct paths: json.Number is a
+// string kind, and Go will not convert a string to a numeric type at all.
+//
+// Range is enforced by parsing against the target's bit size, so a value the field cannot hold is an error
+// rather than a truncation.
+//
+// Parameters:
+//   - `value`: the value under conversion.
+//   - `target`: the destination type.
+//
+// Returns:
+//   - `parsed`: the number read against the field, when this step applied.
+//   - `applied`: true when this step applied.
+//   - `err`: non-nil when the text does not fit the field.
+func tryParseSerializedNumber(value any, target reflect.Type) (parsed any, applied bool, err error) {
+
+	number, isNumber := value.(json.Number)
+	if !isNumber {
+		return nil, false, nil
+	}
+
+	switch target.Kind() {
+
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		signed, parseErr := strconv.ParseInt(number.String(), 10, target.Bits())
+		if parseErr != nil {
+			return nil, true, fmt.Errorf("serialized number %s does not fit %s: %w", number, target, parseErr)
+		}
+
+		return reflect.ValueOf(signed).Convert(target).Interface(), true, nil
+
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		unsigned, parseErr := strconv.ParseUint(number.String(), 10, target.Bits())
+		if parseErr != nil {
+			return nil, true, fmt.Errorf("serialized number %s does not fit %s: %w", number, target, parseErr)
+		}
+
+		return reflect.ValueOf(unsigned).Convert(target).Interface(), true, nil
+
+	case reflect.Float32, reflect.Float64:
+		floating, parseErr := strconv.ParseFloat(number.String(), target.Bits())
+		if parseErr != nil {
+			return nil, true, fmt.Errorf("serialized number %s does not fit %s: %w", number, target, parseErr)
+		}
+
+		return reflect.ValueOf(floating).Convert(target).Interface(), true, nil
+	}
+
+	return nil, false, nil
 }
 
 // tryConvertSlice handles [Convert]'s step 3: slice → slice element-wise recursion.

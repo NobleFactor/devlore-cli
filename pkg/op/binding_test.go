@@ -54,7 +54,9 @@ func TestBindings_DocumentRoundTrip_PreservesField(t *testing.T) {
 		"whole":     NewVariableBinding("target"),
 	}
 
-	reloaded := assembleBindings(marshalBindings(bindings))
+	// nil action: these are variable bindings, which name a variable rather than carrying a value, so
+	// no declared parameter type is consulted.
+	reloaded := assembleBindings(marshalBindings(bindings), nil)
 
 	projected, ok := reloaded["projected"].(VariableBinding)
 	if !ok {

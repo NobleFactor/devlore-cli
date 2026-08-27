@@ -84,6 +84,23 @@ Detailed description.
 - [ ] Task 1
 - [ ] Task 2
 
+## Test Plan
+
+What proves this works, at which level, and how each test is shown to be capable of failing.
+
+| # | What it proves | Level | Fails when |
+| --- | --- | --- | --- |
+| 1 | [the behavior under test] | unit / e2e / scenario | [the defect it catches, restated] |
+
+**Write the failing test first.** A test authored after its fix has to be re-proved by breaking the fix, which
+is slower and sometimes impossible once dependent work has landed.
+
+**Every row names how it fails.** A test that has only ever passed has not been shown to be a test. State the
+change that turns it red, and make that change once before trusting it.
+
+**Say what is NOT covered.** An untested property is a decision, not an oversight, and belongs in writing
+where a reviewer can weigh it.
+
 ## Migration Path
 
 How existing repos/users migrate to this new approach.
