@@ -123,16 +123,15 @@ jobs:
   test:
     # The check context is the platform descriptor, not the runner label: `test (windows-arm64)`,
     # matching ALL_PLATFORMS and the build/<goos>-<goarch> directories. Without an explicit name
-    # GitHub composes the context from every matrix value — `test (windows-11-arm, false)` — which
-    # leaks the image and the race flag into a string the ruleset has to match exactly, and renames
-    # all five contexts the moment another matrix key is added.
+    # GitHub composes the context from every matrix value — `test (windows-11-arm)` — which leaks the
+    # runner image into a string the ruleset has to match exactly, and renames all five contexts the
+    # moment another matrix key is added.
     name: test (${{ matrix.platform }})
     strategy:
       # Every platform reports independently — a failing leg must not cancel the others' evidence.
       fail-fast: false
-      # `include` rather than a bare `os` list because the legs are not uniform: Go's race detector
-      # does not support windows/arm64, so that one leg runs `make test` instead. Naming the
-      # difference in data keeps it from looking like an inconsistency somebody should tidy away.
+      # `include` rather than a bare `os` list so each leg carries its platform descriptor alongside
+      # its runner image. Every leg is otherwise identical -- same step, same command.
       #
       # ubuntu-24.04-arm rather than ubuntu-26.04-arm: `ubuntu-latest` is still Ubuntu 24.04, and
       # 26.04 is a preview image. Matching versions across the pair means the arm64 leg varies
@@ -143,11 +142,11 @@ jobs:
       # is the platform's, not a choice made here — and the descriptor hides it, as it should.
       matrix:
         include:
-          - { platform: darwin-arm64, os: macos-latest, race: true }
-          - { platform: linux-amd64, os: ubuntu-latest, race: true }
-          - { platform: linux-arm64, os: ubuntu-24.04-arm, race: true }
-          - { platform: windows-amd64, os: windows-latest, race: true }
-          - { platform: windows-arm64, os: windows-11-arm, race: false } # race unsupported by Go
+          - { platform: darwin-arm64, os: macos-latest }
+          - { platform: linux-amd64, os: ubuntu-latest }
+          - { platform: linux-arm64, os: ubuntu-24.04-arm }
+          - { platform: windows-amd64, os: windows-latest }
+          - { platform: windows-arm64, os: windows-11-arm }
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -169,23 +168,14 @@ jobs:
           brew install make
           echo "$(brew --prefix)/opt/make/libexec/gnubin" >> "$GITHUB_PATH"
 
-      # -race requires cgo and a C toolchain. Set explicitly rather than relying on the default,
-      # which varies by platform and by whether a compiler is discoverable; the windows runner
-      # ships mingw-w64. `make test-race` depends on `generate`, a chain the scenario job below
-      # already exercises on every platform.
-      - name: Test with race detector
-        if: matrix.race
-        env:
-          CGO_ENABLED: "1"
+      # Identical on every leg. Whether -race is actually applied is the Makefile's decision, taken
+      # by probing the toolchain: Go ships no ThreadSanitizer runtime for windows/arm64, and that is
+      # the sort of fact that rots when a workflow encodes it. When the probe comes back negative the
+      # suite still runs, and `make test-race` emits a ::warning:: annotation so an uninstrumented leg
+      # is visible on the run summary rather than buried in a log. If upstream ever ships that
+      # runtime, the leg starts race-testing with no change here.
+      - name: Test
         run: make test-race
-
-      # Go's race detector supports linux/amd64, linux/ppc64le, linux/arm64, linux/s390x,
-      # linux/loong64, freebsd/amd64, netbsd/amd64, darwin/amd64, darwin/arm64, and windows/amd64 —
-      # windows/arm64 is absent, and no CI configuration changes that. This leg runs the suite
-      # without -race so the platform is still tested, and needs no C toolchain as a result.
-      - name: Test without race detector
-        if: ${{ !matrix.race }}
-        run: make test
 
   # The writ-deploy scenario (docs/plans/writ-deploy-scenario.md, #346): the real binaries driven
   # end-to-end in a pristine sandbox, on every platform (#91 phase-4 audit slice).
