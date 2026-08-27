@@ -307,8 +307,8 @@ def run(command, ctx):
     copyright_cfg = cfg.lint.copyright
 
     if not copyright_cfg.enabled:
-        warn("Copyright checking is disabled in star.yaml")
-        warn("Add 'lint.copyright.enabled: true' to enable")
+        ui.warn("Copyright checking is disabled in star.yaml")
+        ui.warn("Add 'lint.copyright.enabled: true' to enable")
         return
 
     # Detect license if set to "auto"
@@ -317,13 +317,13 @@ def run(command, ctx):
         result = detect_license("LICENSE")
         if result["detected"]:
             license = result["license"]
-            note("Detected license: " + license)
+            ui.note("Detected license: " + license)
         else:
-            fail("Could not detect license from LICENSE file. Set lint.copyright.license in star.yaml")
+            ui.fail("Could not detect license from LICENSE file. Set lint.copyright.license in star.yaml")
 
     holder = copyright_cfg.holder
     if not holder:
-        fail("Copyright holder not configured. Set lint.copyright.holder in star.yaml")
+        ui.fail("Copyright holder not configured. Set lint.copyright.holder in star.yaml")
 
     # Get explicit exclude patterns from config (in addition to .gitignore)
     exclude_patterns = list(copyright_cfg.exclude)
@@ -332,10 +332,10 @@ def run(command, ctx):
     files = collect_source_files(paths, exclude_patterns)
 
     if len(files) == 0:
-        note("No source files found")
+        ui.note("No source files found")
         return
 
-    note("Checking " + str(len(files)) + " source files...")
+    ui.note("Checking " + str(len(files)) + " source files...")
 
     if fix_mode:
         fixed = []
@@ -353,16 +353,16 @@ def run(command, ctx):
                 errors.append({"file": f, "message": fix_result["error"]})
 
         if len(fixed) > 0:
-            succeed("Fixed " + str(len(fixed)) + " files:")
+            ui.succeed("Fixed " + str(len(fixed)) + " files:")
             for f in fixed:
-                note("  " + f)
+                ui.note("  " + f)
 
         if len(errors) > 0:
             for e in errors:
-                error(e["file"] + ": " + e["message"])
-            fail("Could not fix " + str(len(errors)) + " files")
+                ui.error(e["file"] + ": " + e["message"])
+            ui.fail("Could not fix " + str(len(errors)) + " files")
         elif len(fixed) == 0:
-            succeed("All files have correct copyright headers")
+            ui.succeed("All files have correct copyright headers")
     else:
         issues = []
 
@@ -372,8 +372,8 @@ def run(command, ctx):
                 issues.append({"file": f, "message": result["message"]})
 
         if len(issues) == 0:
-            succeed("All " + str(len(files)) + " files have correct copyright headers")
+            ui.succeed("All " + str(len(files)) + " files have correct copyright headers")
         else:
             for issue in issues:
-                error(issue["file"] + ": " + issue["message"])
-            fail("Found " + str(len(issues)) + " files with copyright issues (run with --fix to repair)")
+                ui.error(issue["file"] + ": " + issue["message"])
+            ui.fail("Found " + str(len(issues)) + " files with copyright issues (run with --fix to repair)")

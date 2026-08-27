@@ -14,7 +14,7 @@ def run(command, ctx):
     siblings = commands.siblings()
 
     if len(siblings) == 0:
-        warn("No lint commands found")
+        ui.warn("No lint commands found")
         return
 
     # Track results
@@ -25,13 +25,13 @@ def run(command, ctx):
     for cmd in siblings:
         # Extract short name (e.g., "go" from "lint.go")
         short_name = cmd.name.split(".")[-1]
-        note("=== " + short_name.upper() + " ===")
+        ui.note("=== " + short_name.upper() + " ===")
 
         # Check if command should be skipped based on config
         if short_name == "copyright":
             cfg = config.get
             if not cfg.lint.copyright.enabled:
-                note("Skipped (disabled in star.yaml)")
+                ui.note("Skipped (disabled in star.yaml)")
                 continue
 
         # lint.tools doesn't take paths
@@ -46,16 +46,16 @@ def run(command, ctx):
             failures.append(cmd.name)
 
     # Summary
-    note("")
-    note("=== SUMMARY ===")
+    ui.note("")
+    ui.note("=== SUMMARY ===")
 
     if len(passed) > 0:
         for name in passed:
-            succeed(name.split(".")[-1] + ": passed")
+            ui.succeed(name.split(".")[-1] + ": passed")
 
     if len(failures) > 0:
         for name in failures:
-            error(name.split(".")[-1] + ": failed")
-        fail("Linters failed: " + ", ".join([n.split(".")[-1] for n in failures]))
+            ui.error(name.split(".")[-1] + ": failed")
+        ui.fail("Linters failed: " + ", ".join([n.split(".")[-1] for n in failures]))
     else:
-        succeed("All " + str(len(passed)) + " linters passed")
+        ui.succeed("All " + str(len(passed)) + " linters passed")

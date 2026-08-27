@@ -17,7 +17,7 @@ def collect_files(paths):
         elif file.is_dir(path=p):
             files.extend(sorted([entry.source_path.rel() for entry in file.find(p + "/**/*.go")]))
         else:
-            fail(p + " is not a file or directory")
+            ui.fail(p + " is not a file or directory")
     return files
 
 def run(command, ctx):
@@ -27,27 +27,27 @@ def run(command, ctx):
 
     files = collect_files(paths)
     if not files:
-        succeed("No Go files found")
+        ui.succeed("No Go files found")
         return
 
-    note("Found " + str(len(files)) + " Go file(s)")
+    ui.note("Found " + str(len(files)) + " Go file(s)")
 
     if fix_mode:
         for f in files:
-            note("Fixing " + f)
+            ui.note("Fixing " + f)
             ast = goast.load_source_file(f)
             ast.cleanup()
             ast.save()
-        succeed("Fixed " + str(len(files)) + " file(s)")
+        ui.succeed("Fixed " + str(len(files)) + " file(s)")
     else:
         total_violations = 0
         for f in files:
-            note("Checking " + f)
+            ui.note("Checking " + f)
             ast = goast.load_source_file(f)
             for v in ast.check_compliance():
-                warn(f + " [" + v.kind + "] " + v.message)
+                ui.warn(f + " [" + v.kind + "] " + v.message)
                 total_violations += 1
         if total_violations > 0:
-            fail("Found " + str(total_violations) + " violation(s) in " + str(len(files)) + " file(s)")
+            ui.fail("Found " + str(total_violations) + " violation(s) in " + str(len(files)) + " file(s)")
         else:
-            succeed("All " + str(len(files)) + " file(s) compliant")
+            ui.succeed("All " + str(len(files)) + " file(s) compliant")

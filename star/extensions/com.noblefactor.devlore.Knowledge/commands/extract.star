@@ -50,7 +50,7 @@ def run(command, ctx):
     if not source:
         source = _find_sibling("devlore-cli")
         if source:
-            note("Using sibling source: " + source)
+            ui.note("Using sibling source: " + source)
         else:
             fail("--source required (no ../devlore-cli found)")
 
@@ -75,7 +75,7 @@ def _resolve_target(ctx):
     if not target:
         target = _find_sibling("devlore-registry")
         if target:
-            note("Using sibling registry: " + target)
+            ui.note("Using sibling registry: " + target)
         else:
             fail("--target required (no ../devlore-registry found)")
     if not file.is_dir(target):
@@ -626,7 +626,7 @@ def _extract_platforms(prompt_text):
 
 def build_onboarding_knowledge(source, target, fmt = "all"):
     """Build Starlark API reference from devlore-cli source."""
-    note("Building onboarding knowledge (Starlark API)...")
+    ui.note("Building onboarding knowledge (Starlark API)...")
 
     starlark_path = file.join(source, "cmd", "lore", "lore")
     if not file.is_dir(starlark_path):
@@ -634,23 +634,23 @@ def build_onboarding_knowledge(source, target, fmt = "all"):
 
     # Parse the API using Go AST primitives
     provider_base = file.join(source, "pkg", "op", "provider")
-    note("  Scanning " + starlark_path + "...")
+    ui.note("  Scanning " + starlark_path + "...")
     api = _parse_devlore_api(starlark_path, provider_base)
 
     # Count bindings
     binding_count = _count_bindings(api)
     violation_count = len(api["violations"])
 
-    note("  Found " + str(binding_count) + " bindings")
+    ui.note("  Found " + str(binding_count) + " bindings")
 
     # Check for contract violations
     if violation_count > 0:
-        error("Contract violations detected:")
+        ui.error("Contract violations detected:")
         for v in api["violations"]:
-            error("  " + v["name"] + " (" + v["file"] + ":" + str(v["line"]) + "): " + v["error"])
+            ui.error("  " + v["name"] + " (" + v["file"] + ":" + str(v["line"]) + "): " + v["error"])
         fail("Fix contract violations before building knowledge")
 
-    succeed("  No contract violations")
+    ui.succeed("  No contract violations")
 
     # Write YAML reference
     if fmt in ("yaml", "all"):
@@ -662,16 +662,16 @@ def build_onboarding_knowledge(source, target, fmt = "all"):
             current_content = file.read_text(reference_path)
             if current_content != new_content:
                 changes_detected = True
-                note("  Changes detected in reference.yaml")
+                ui.note("  Changes detected in reference.yaml")
         else:
             changes_detected = True
-            note("  Creating new reference.yaml")
+            ui.note("  Creating new reference.yaml")
 
         if changes_detected:
             file.write_text(reference_path, new_content)
-            succeed("  Wrote " + reference_path)
+            ui.succeed("  Wrote " + reference_path)
         else:
-            succeed("  No changes to reference.yaml")
+            ui.succeed("  No changes to reference.yaml")
 
     # Write markdown reference
     if fmt in ("md", "all"):
@@ -683,16 +683,16 @@ def build_onboarding_knowledge(source, target, fmt = "all"):
             current_md = file.read_text(md_path)
             if current_md != md_content:
                 md_changed = True
-                note("  Changes detected in reference.md")
+                ui.note("  Changes detected in reference.md")
         else:
             md_changed = True
-            note("  Creating new reference.md")
+            ui.note("  Creating new reference.md")
 
         if md_changed:
             file.write_text(md_path, md_content)
-            succeed("  Wrote " + md_path)
+            ui.succeed("  Wrote " + md_path)
         else:
-            succeed("  No changes to reference.md")
+            ui.succeed("  No changes to reference.md")
 
 
 def _count_bindings(api):
@@ -897,7 +897,7 @@ def _render_entries(lines, entries):
 
 def build_migration_knowledge(source, target):
     """Build migration knowledge from writ migrate source."""
-    note("Building migration knowledge...")
+    ui.note("Building migration knowledge...")
 
     migrate_path = file.join(source, "cmd", "writ", "writ", "migrate")
     if not file.is_dir(migrate_path):
@@ -908,7 +908,7 @@ def build_migration_knowledge(source, target):
         fail("Migration knowledge path not found: " + knowledge_path)
 
     # Step 1: Parse Go source files
-    note("  Scanning " + migrate_path + "...")
+    ui.note("  Scanning " + migrate_path + "...")
     result = _parse_migrate_knowledge(migrate_path)
 
     source_systems = result["source_systems"]
@@ -916,9 +916,9 @@ def build_migration_knowledge(source, target):
     repo_layers = result["repo_layers"]
     platforms = result["platforms"]
 
-    note("  Found " + str(len(source_systems)) + " source systems")
-    note("  Found " + str(len(encryption_systems)) + " encryption systems")
-    note("  Found " + str(len(platforms)) + " platforms")
+    ui.note("  Found " + str(len(source_systems)) + " source systems")
+    ui.note("  Found " + str(len(encryption_systems)) + " encryption systems")
+    ui.note("  Found " + str(len(platforms)) + " platforms")
 
     # Step 2: Load registry signature files
     signatures_path = file.join(knowledge_path, "signatures")
@@ -958,12 +958,12 @@ def build_migration_knowledge(source, target):
     )
 
     if violations:
-        error("Contract violations detected:")
+        ui.error("Contract violations detected:")
         for v in violations:
-            error("  " + v["type"] + ": " + v["message"])
+            ui.error("  " + v["type"] + ": " + v["message"])
         fail("Fix contract violations before building knowledge")
 
-    succeed("  No contract violations")
+    ui.succeed("  No contract violations")
 
     # Step 5: Generate/update systems reference file
     systems_ref = generate_systems_reference(source_systems, encryption_systems, repo_layers, platforms)
@@ -975,16 +975,16 @@ def build_migration_knowledge(source, target):
         new_content = yaml.encode(systems_ref)
         if current_content != new_content:
             changes_detected = True
-            note("  Changes detected in systems-reference.yaml")
+            ui.note("  Changes detected in systems-reference.yaml")
     else:
         changes_detected = True
-        note("  Creating new systems-reference.yaml")
+        ui.note("  Creating new systems-reference.yaml")
 
     if changes_detected:
         file.write_text(systems_ref_path, yaml.encode(systems_ref))
-        succeed("  Wrote " + systems_ref_path)
+        ui.succeed("  Wrote " + systems_ref_path)
     else:
-        succeed("  No changes to systems-reference.yaml")
+        ui.succeed("  No changes to systems-reference.yaml")
 
     # Step 6: Validate all signature files exist for source systems
     validate_signature_coverage(source_systems, signatures_path)
@@ -1076,14 +1076,14 @@ def validate_signature_coverage(source_systems, signatures_path):
 
         sig_file = file.join(signatures_path, val + ".yaml")
         if not file.exists(sig_file):
-            warn("  Missing signature file: " + sig_file)
+            ui.warn("  Missing signature file: " + sig_file)
         else:
             content = file.read_text(sig_file)
             sig = yaml.decode(content)
             if not sig.get("name"):
-                warn("  Signature missing 'name': " + sig_file)
+                ui.warn("  Signature missing 'name': " + sig_file)
             if not sig.get("markers"):
-                warn("  Signature missing 'markers': " + sig_file)
+                ui.warn("  Signature missing 'markers': " + sig_file)
 
 
 # =============================================================================
@@ -1092,5 +1092,5 @@ def validate_signature_coverage(source_systems, signatures_path):
 
 def build_ops_knowledge(source, target):
     """Build ops knowledge — operation surface mappings from *Service structs."""
-    note("Building ops knowledge (operation surface)...")
-    note("  No *Service structs found (not yet implemented)")
+    ui.note("Building ops knowledge (operation surface)...")
+    ui.note("  No *Service structs found (not yet implemented)")

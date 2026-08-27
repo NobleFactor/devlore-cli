@@ -41,7 +41,7 @@ def _resolve_target(ctx):
         sibling = file.join("..", "devlore-registry")
         if file.is_dir(sibling):
             target = sibling
-            note("Using sibling registry: " + target)
+            ui.note("Using sibling registry: " + target)
         else:
             fail("--target required (no ../devlore-registry found)")
     if not file.is_dir(target):
@@ -69,7 +69,7 @@ def run(command, ctx):
             continue
 
         validated_types.append(schema_type)
-        note("Validating " + schema_type + " (" + str(len(files)) + " files)")
+        ui.note("Validating " + schema_type + " (" + str(len(files)) + " files)")
 
         for file_path in files:
             total_files = total_files + 1
@@ -79,18 +79,18 @@ def run(command, ctx):
 
             valid, errors = validate_file(file_path, schema_json)
             if valid:
-                note("  " + rel_path)
+                ui.note("  " + rel_path)
             else:
                 total_errors = total_errors + 1
-                error("  " + rel_path)
+                ui.error("  " + rel_path)
                 for err in errors:
-                    error("    " + err)
+                    ui.error("    " + err)
 
     if len(validated_types) == 0:
-        warn("No knowledge schemas found")
+        ui.warn("No knowledge schemas found")
         return
 
     if total_errors > 0:
         fail(str(total_errors) + " of " + str(total_files) + " files failed validation")
     else:
-        succeed("Validated " + str(total_files) + " files across " + str(len(validated_types)) + " types")
+        ui.succeed("Validated " + str(total_files) + " files across " + str(len(validated_types)) + " types")

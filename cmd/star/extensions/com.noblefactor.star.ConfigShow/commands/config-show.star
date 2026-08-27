@@ -28,13 +28,13 @@ def run(command, ctx):
     """Show the merged configuration and its sources."""
     result = config.show()
 
-    note("Configuration sources:")
+    ui.note("Configuration sources:")
     for source in result.sources:
         if source.exists:
-            succeed("  " + source.path)
+            ui.succeed("  " + source.path)
         else:
-            note("  " + source.path + " (not found)")
+            ui.note("  " + source.path + " (not found)")
 
     print("")
-    note("Merged configuration:")
+    ui.note("Merged configuration:")
     _print_config(result.config, 0)

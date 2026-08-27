@@ -1038,7 +1038,7 @@ def emit_provider_receiver(command, path, provider, struct_short, struct_name, s
 
     pkg = provider
     provider_import = compute_provider_import(path)
-    note("Provider import: " + provider_import)
+    ui.note("Provider import: " + provider_import)
 
     # -------------------------------------------------------------------------
     # Require ProviderBase embedding
@@ -1078,8 +1078,8 @@ def emit_provider_receiver(command, path, provider, struct_short, struct_name, s
     # Walk type graph to find dependent types and data structs
     # -------------------------------------------------------------------------
     dependent_types, data_structs = collect_type_graph(path, provider_descriptors, structs_by_name, struct_name)
-    note("Dependent types: " + str(dependent_types))
-    note("Data structs: " + str(list(data_structs.keys())))
+    ui.note("Dependent types: " + str(dependent_types))
+    ui.note("Data structs: " + str(list(data_structs.keys())))
 
     # -------------------------------------------------------------------------
     # Build dependent type method descriptors
@@ -1103,7 +1103,7 @@ def emit_provider_receiver(command, path, provider, struct_short, struct_name, s
     # Collect all data structs (transitively)
     # -------------------------------------------------------------------------
     all_data_structs = collect_all_data_structs(dependent_descriptors, data_structs, structs_by_name)
-    note("All data structs for converters: " + str(list(all_data_structs.keys())))
+    ui.note("All data structs for converters: " + str(list(all_data_structs.keys())))
 
     # Data struct returns are handled by WrapReceiver's auto-bridging via
     # classifyReturn → marshalReflect → marshalStruct. No converter annotation needed.
@@ -1220,7 +1220,7 @@ def emit_provider_receiver(command, path, provider, struct_short, struct_name, s
                  struct_name, 1, output_dir, write_files)
         generated_count += 1
 
-    succeed("Done. Generated %d file(s) in gen/ mode for %s" % (generated_count, struct_short))
+    ui.succeed("Done. Generated %d file(s) in gen/ mode for %s" % (generated_count, struct_short))
 
 def collect_cross_pkg_imports(provider_import, converters, method_desc_lists):
     """Collect cross-package imports from converter fields and method result_exprs.
@@ -1451,7 +1451,7 @@ def prepare_render_data(descriptor, template_name):
 
 def emit_file(command, template_name, descriptor, filename, label, method_count, output_dir, write_files):
     """Generate a single file from a template and descriptor."""
-    note("Generating %s for %s (%d items)..." % (template_name, label, method_count))
+    ui.note("Generating %s for %s (%d items)..." % (template_name, label, method_count))
     template_content = load_template(template_name, command.extension.dir)
 
     # Pre-compute template values and render via goast.render()
@@ -1466,10 +1466,10 @@ def emit_file(command, template_name, descriptor, filename, label, method_count,
         if not file.exists(out_dir):
             file.mkdir(out_dir, mode = 0o755)
         file.write_text(out_path, code, mode = 0o644)
-        succeed("Wrote " + out_path)
+        ui.succeed("Wrote " + out_path)
     else:
-        note("--- " + filename + " ---")
-        note(code)
+        ui.note("--- " + filename + " ---")
+        ui.note(code)
 
 # =============================================================================
 # Entry Point
@@ -1532,10 +1532,10 @@ def run(command, ctx):
             }
             emit_file(command, "resource", resource_desc, "gen/" + snake + ".gen.go",
                      struct_name, 1, output_dir, write_files)
-        succeed("Done. Generated %d resource descriptor(s) for %s" % (len(resources), provider))
+        ui.succeed("Done. Generated %d resource descriptor(s) for %s" % (len(resources), provider))
         return
 
-    note("Found " + str(len(filtered)) + " methods for " + struct_name)
+    ui.note("Found " + str(len(filtered)) + " methods for " + struct_name)
 
     # -------------------------------------------------------------------------
     # Derive names and surface/root from struct directives
@@ -1545,9 +1545,9 @@ def run(command, ctx):
     surface = struct_surface(path)
     root = struct_root(path)
 
-    note("Provider surface: " + (surface if surface else "graph and module"))
+    ui.note("Provider surface: " + (surface if surface else "graph and module"))
     if root:
-        note("Provider root: true")
+        ui.note("Provider root: true")
 
     # -------------------------------------------------------------------------
     # Build basic method descriptors (without defaults applied)
