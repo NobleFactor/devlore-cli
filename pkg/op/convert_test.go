@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -300,6 +301,41 @@ func TestConvert_WideningAndCategoryPreservingStillWork(t *testing.T) {
 			}
 			if !reflect.DeepEqual(got, testCase.want) {
 				t.Errorf("Convert(%#v -> %s) = %#v, want %#v", testCase.value, testCase.target, got, testCase.want)
+			}
+		})
+	}
+}
+
+// TestConvert_RefusalNamesTheRemedy pins the message, not merely the refusal.
+//
+// The error is the only feedback a starlark author gets, and "int64 value is neither assignable nor
+// convertible to string" is Go's vocabulary for their mistake -- it says what failed and not what to write
+// instead. Python answers these three with a sentence that names the fix, and starlark has str(), int(), and
+// float() to offer.
+//
+// Asserting the guidance rather than just the failure is what keeps it: a test matching only "string" passes
+// whether the message helps or not.
+func TestConvert_RefusalNamesTheRemedy(t *testing.T) {
+
+	for _, testCase := range []struct {
+		name   string
+		value  any
+		target reflect.Type
+		want   string
+	}{
+		{"integer to string offers str", int64(65), reflect.TypeFor[string](), "write str(x)"},
+		{"float to integer offers int", 3.9, reflect.TypeFor[int](), "write int(x)"},
+		{"out of range says so", int64(300), reflect.TypeFor[int8](), "out of range"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+
+			_, err := Convert(nil, testCase.value, testCase.target)
+			if err == nil {
+				t.Fatalf("Convert(%#v -> %s) succeeded; want a refusal", testCase.value, testCase.target)
+			}
+			if !strings.Contains(err.Error(), testCase.want) {
+				t.Errorf("Convert(%#v -> %s) said %q, want it to contain %q",
+					testCase.value, testCase.target, err, testCase.want)
 			}
 		})
 	}
