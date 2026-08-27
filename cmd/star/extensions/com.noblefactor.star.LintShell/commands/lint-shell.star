@@ -18,7 +18,7 @@ def ensure_tool_installed(name):
     """Ensure a tool is installed, fail with install instructions if not."""
     tool = check_tool(name)
     if tool and not tool.installed:
-        ui.fail(name + " is not installed\n  Install: " + tool.install_cmd)
+        fail(name + " is not installed\n  Install: " + tool.install_cmd)
     return tool
 
 def collect_files(paths):
@@ -46,10 +46,10 @@ def run(command, ctx):
     # Discover files (respects .gitignore)
     shell_files = collect_files(paths)
     if not shell_files:
-        ui.succeed("No shell files found")
+        succeed("No shell files found")
         return
 
-    ui.note("Found " + str(len(shell_files)) + " shell file(s)")
+    note("Found " + str(len(shell_files)) + " shell file(s)")
 
     # Run shell lint on discovered files
     result = lint.shell(files=shell_files, severity=severity, indent=indent)
@@ -59,29 +59,29 @@ def run(command, ctx):
         msg = issue.file + ":" + str(issue.line) + ":" + str(issue.column)
         msg = msg + " SC" + str(issue.code) + ": " + issue.message
         if issue.level == "error":
-            ui.error(msg)
+            error(msg)
         elif issue.level == "warning":
-            ui.warn(msg)
+            warn(msg)
         else:
-            ui.note(msg)
+            note(msg)
 
     # Report formatting issues
     for file_info in result.format_issues:
-        ui.warn(file_info.file + " needs formatting")
+        warn(file_info.file + " needs formatting")
         if file_info.diff:
             lines = file_info.diff.split("\n")
             for line in lines[:10]:
-                ui.note("  " + line)
+                note("  " + line)
             if len(lines) > 10:
-                ui.note("  ... (" + str(len(lines) - 10) + " more lines)")
+                note("  ... (" + str(len(lines) - 10) + " more lines)")
 
     # Summary
     if result.passed:
-        ui.succeed("Shell lint passed (" + str(result.files_checked) + " files)")
+        succeed("Shell lint passed (" + str(result.files_checked) + " files)")
     else:
         msg = "Shell lint failed:"
         if result.error_count > 0 or result.warning_count > 0:
             msg = msg + " " + str(result.error_count) + " errors, " + str(result.warning_count) + " warnings"
         if len(result.format_issues) > 0:
             msg = msg + " " + str(len(result.format_issues)) + " files need formatting"
-        ui.fail(msg)
+        fail(msg)
