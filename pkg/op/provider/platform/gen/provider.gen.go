@@ -17,10 +17,25 @@ func init() {
 		op.RoleModule|op.RoleAction,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
 		map[string]op.MethodMetadata{
-			"Arch":     {ParameterNames: []string{}},
-			"Distro":   {ParameterNames: []string{}},
-			"Hostname": {ParameterNames: []string{}},
-			"OS":       {ParameterNames: []string{}},
-			"Version":  {ParameterNames: []string{}},
+			"Arch": {
+				ParameterNames: []string{},
+				Claims:         op.ClaimDeterministic,
+			},
+			"Distro": {
+				ParameterNames: []string{},
+				Claims:         op.ClaimDeterministic,
+			},
+			"Hostname": {
+				ParameterNames: []string{},
+				Claims:         op.ClaimDeterministic,
+			},
+			"OS": {
+				ParameterNames: []string{},
+				Claims:         op.ClaimDeterministic,
+			},
+			"Version": {
+				ParameterNames: []string{},
+				Claims:         op.ClaimDeterministic,
+			},
 		})
 }

@@ -313,7 +313,7 @@ func writeIndex(domainPath string, index *KnowledgeIndex) error {
 		"# Metadata (purpose, source_system, description) is preserved and should be edited manually.\n"
 
 	// The domain tree exists — buildIndex just read it — so opening is a query (#558).
-	root, err := fsroot.OpenConfined(domainPath)
+	root, err := fsroot.OpenExisting(domainPath)
 	if err != nil {
 		return err
 	}

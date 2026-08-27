@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 )
@@ -47,7 +48,7 @@ func init() {
 // catalog still serializes `"resources": []`, loads back, and repacks byte-identically.
 func TestGraphDocument_CatalogSectionIsPresentEvenEmpty(t *testing.T) {
 
-	graph := formatIdentityGraph(t)
+	graph := formatIdentityGraph(t, time.Unix(1_700_000_000, 0).UTC())
 
 	document := serializeGraph(t, graph, "json")
 	if !bytes.Contains(document, []byte(`"resources": []`)) &&
@@ -71,7 +72,7 @@ func TestGraphDocument_CatalogSectionIsPresentEvenEmpty(t *testing.T) {
 // section — every pre-ruling document — does not load.
 func TestLoadGraph_RefusesDocumentWithoutCatalogSection(t *testing.T) {
 
-	document := serializeGraph(t, formatIdentityGraph(t), "json")
+	document := serializeGraph(t, formatIdentityGraph(t, time.Unix(1_700_000_000, 0).UTC()), "json")
 
 	var decoded map[string]any
 	if err := json.Unmarshal(document, &decoded); err != nil {
@@ -160,7 +161,7 @@ func TestGraphDocument_IntentRowsRoundTrip(t *testing.T) {
 // unreachable through NewGraph or LoadGraph, so induced directly — refuses to dispatch.
 func TestRun_CatalogLessGraph_PreflightFailed(t *testing.T) {
 
-	graph := formatIdentityGraph(t)
+	graph := formatIdentityGraph(t, time.Unix(1_700_000_000, 0).UTC())
 	graph.resourceCatalog = nil
 
 	executor := NewGraphExecutor(graph, NewRuntimeEnvironmentSpec("test").

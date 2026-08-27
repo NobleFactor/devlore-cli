@@ -23,8 +23,6 @@ import (
 var _ op.Provider = (*Provider)(nil)
 
 // Provider provides repository setup operations.
-//
-// +devlore:access=immediate
 type Provider struct {
 	op.ProviderBase
 }

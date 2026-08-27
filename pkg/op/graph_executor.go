@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
@@ -312,6 +314,8 @@ func (e *GraphExecutor) ResumeUnwind(ctx context.Context) error {
 		return fmt.Errorf("ResumeUnwind: build runtime environment: %w", buildErr)
 	}
 	e.environment = environment
+	e.reportGraphReach()
+
 	defer func() {
 		e.captureLedgerSnapshot()
 		//nolint:errcheck // diagnose-ignored-error: cleanup close; see docs/architecture/2.8-eventing-infrastructure.md
@@ -349,6 +353,57 @@ func (e *GraphExecutor) ResumeUnwind(ctx context.Context) error {
 	})
 
 	return nil
+}
+
+// reportGraphReach narrates which providers this graph actually dispatches to, and how many nodes each owns.
+//
+// The counterpart to [starlarkbridge.Runtime]'s module-surface report, and the same question asked at the other
+// end: planning reports what an author could reach, execution reports what the plan reached. A provider present
+// here but absent from the planning report was reached through `plan.<provider>.<method>` rather than the module
+// surface, which is the normal path for anything effectful.
+//
+// The execution runtime is non-hermetic by design: `flow.subgraph` bodies and `function.call` evaluate Starlark
+// while the graph runs, where effects are the point.
+//
+// TODO(#507): this belongs on the diagnostics stream, not on the narrator. Per
+// [2.8-eventing-infrastructure.md] §"Narration vs. diagnostics", narration is the user-facing progress API at
+// INFO+ while diagnostics are span-correlated DEBUG / TRACE, hidden until asked for. Move it when #507 lands the
+// diagnostics API.
+func (e *GraphExecutor) reportGraphReach() {
+
+	if e.environment == nil || e.environment.Status == nil {
+		return
+	}
+
+	nodes := e.graph.Nodes()
+	byProvider := map[string]int{}
+
+	for _, node := range nodes {
+		name := string(node.ActionName())
+
+		provider, _, found := strings.Cut(name, ".")
+		if !found || provider == "" {
+			provider = "(unnamed)"
+		}
+
+		byProvider[provider]++
+	}
+
+	if len(byProvider) == 0 {
+		return
+	}
+
+	reach := make([]string, 0, len(byProvider))
+	for provider, count := range byProvider {
+		reach = append(reach, fmt.Sprintf("%s(%d)", provider, count))
+	}
+
+	sort.Strings(reach)
+
+	e.environment.Status.Note(fmt.Sprintf("executing graph (non-hermetic): %d nodes over %d providers",
+		len(nodes),
+		len(byProvider)))
+	e.environment.Status.Note("  reaches   " + strings.Join(reach, " "))
 }
 
 // RunStatus returns the executor's current [RunStatus] triplet.

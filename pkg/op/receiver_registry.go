@@ -220,6 +220,7 @@ func AnnounceProvider(providerType reflect.Type, roles ProviderRole, construct P
 	// Stamp per-method surface modifiers from the codegen-emitted metadata. Unset entries default to ModifierNone.
 	for name, metadata := range methods {
 		if method, ok := rt.MethodByName(name); ok {
+			method.setClaims(metadata.Claims)
 			method.setModifiers(metadata.Modifiers)
 		}
 	}

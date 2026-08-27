@@ -59,7 +59,7 @@ gives *intent*. They are orthogonal axes — a property is a *modifier on* a Fun
 ## The design
 
 **Signal:** `+devlore:property` — a presence-flag directive in the method's doc comment (same family as
-`+devlore:access=`, `+devlore:defaults`). Default unset → callable; opt-in eager. The hazardous behavior (code firing
+the access directive, `+devlore:defaults`). Default unset → callable; opt-in eager. The hazardous behavior (code firing
 on attribute access) is the thing you ask for, never the default.
 
 **Representation:** a per-method bit-flag, parallel to the provider-level `ProviderRole`:

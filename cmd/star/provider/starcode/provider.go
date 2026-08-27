@@ -19,8 +19,6 @@ import (
 )
 
 // Provider performs Starlark source capture.
-//
-// +devlore:access=immediate
 type Provider struct {
 	op.ProviderBase
 	Root string

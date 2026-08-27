@@ -16,8 +16,6 @@ var _ op.Provider = (*Provider)(nil)
 
 // Provider provides configuration operations: get (merged config), show (config with sources),
 // and sync (write tool-specific config files).
-//
-// +devlore:access=immediate
 type Provider struct {
 	op.ProviderBase
 }

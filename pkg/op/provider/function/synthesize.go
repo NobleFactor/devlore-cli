@@ -171,7 +171,7 @@ func extractNodeAt[T syntax.Node](pos syntax.Position) (source []byte, node T, e
 
 	var result T
 
-	// Confinement: reads the Starlark source at the interpreter position — scripts live outside the target root.
+	// Unsandboxed: reads the Starlark source at the interpreter position — scripts live outside the target root.
 	data, err := os.ReadFile(pos.Filename())
 	if err != nil {
 		return nil, result, fmt.Errorf("read source %s: %w", pos.Filename(), err)

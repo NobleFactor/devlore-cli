@@ -83,9 +83,9 @@ func TestNormalizePlanSpacePath_TheLittleLanguage(t *testing.T) {
 func TestNormalizeRuntimePath_TheRuntimeDialect(t *testing.T) {
 
 	rootDir := t.TempDir()
-	root, err := fsroot.OpenConfined(rootDir)
+	root, err := fsroot.OpenExisting(rootDir)
 	if err != nil {
-		t.Fatalf("fsroot.OpenConfined: %v", err)
+		t.Fatalf("fsroot.OpenExisting: %v", err)
 	}
 	t.Cleanup(func() { _ = root.Close() })
 

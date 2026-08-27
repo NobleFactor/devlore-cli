@@ -24,9 +24,18 @@ var ErrNotCompensable = errors.New("action is not compensable")
 // receipt-stamp form — is a different concept (reflect's package-path identity) and deliberately stays `string`.
 type ActionName string
 
-// Action is a pure, infallible value transformer.
+// Action is an infallible unit of work: Do returns (result, nil, nil).
 //
-// Do returns (result, nil, nil). An [Action] has no side effects and cannot fail.
+// **Infallible, not effect-free.** The distinction matters because this doc comment used to claim the latter, and
+// ten of the twenty-two methods reaching this tier contradict it — `platform`'s five report the host, and `ui`'s
+// six write to a terminal. They arrive here because reading a supplied value cannot fail and neither can
+// narrating, not because they compute in a vacuum.
+//
+// What a method promises about its effects is a separate axis it states for itself: see [MethodClaims] and
+// [3.6-method-classification.md]. This interface classifies a RETURN SIGNATURE, and a signature cannot see
+// effects.
+//
+// [3.6-method-classification.md]: ../../docs/architecture/3.6-method-classification.md
 type Action interface {
 	FullName() string
 	Name() ActionName
@@ -35,16 +44,20 @@ type Action interface {
 	Do(activationRecord *ActivationRecord) (Result, Compensator, error)
 }
 
-// FallibleAction has side effects and can fail.
+// FallibleAction is a unit of work that can fail: Do returns (result, nil, error).
 //
-// Do returns (result, nil, error).
+// **Fallible, not necessarily effectful** — the mirror of [Action]'s correction. `regex`'s eight methods and
+// `json` and `yaml`'s seven reach this tier and touch nothing outside their arguments; they can fail because a
+// pattern or a document can be malformed, which is a statement about inputs rather than about effects.
 type FallibleAction interface {
 	Action
 }
 
-// CompensableAction has side effects, can fail, and can be undone.
+// CompensableAction is a unit of work that can fail and can be undone: Do returns (result, compensator, error).
 //
-// Do returns (result, compensator, error).
+// This is the one tier whose name does describe effects, and legitimately: a compensator exists to reverse
+// something, so producing one is evidence that something was changed. [Method.Mutates] reads exactly that, which
+// is why mutation is the single property derived from a signature rather than claimed.
 type CompensableAction interface {
 	Action
 	Undo(activationRecord *ActivationRecord, compensator Compensator) error

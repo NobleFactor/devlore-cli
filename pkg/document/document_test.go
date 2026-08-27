@@ -18,9 +18,9 @@ import (
 // testRoot opens a confined root at a fresh temp directory — the shape every WriteFile caller now has (#558).
 func testRoot(t *testing.T) fsroot.Dir {
 	t.Helper()
-	root, err := fsroot.OpenConfined(t.TempDir())
+	root, err := fsroot.OpenExisting(t.TempDir())
 	if err != nil {
-		t.Fatalf("fsroot.OpenConfined: %v", err)
+		t.Fatalf("fsroot.OpenExisting: %v", err)
 	}
 	t.Cleanup(func() { _ = root.Close() })
 	return root

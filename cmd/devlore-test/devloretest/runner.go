@@ -248,7 +248,7 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 	// from it. The fixture paths that genuinely sit outside — "/some/dir/file.txt" for file.name and
 	// file.parent, and the "/tmp/fake.*" arguments to archive and encryption — are pure string operations or
 	// plan-shape fixtures that never execute against a real file.
-	root, err := fsroot.OpenConfined(tmpDir)
+	root, err := fsroot.OpenExisting(tmpDir)
 	if err != nil {
 		return nil, fmt.Errorf("confine the workspace tree: %w", err)
 	}

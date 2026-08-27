@@ -7,7 +7,7 @@ All phases are complete on the `feature/binding-unification` branch:
 1. Type ownership extraction to `pkg/op/` (formerly `pkg/projection/`)
 2. Action/Context/Registry types moved to `pkg/op/`
 3. All 10 providers moved to `pkg/op/provider/`
-4. Method-level `//+devlore:access=` directives on all provider methods
+4. Method-level the access directive directives on all provider methods
 5. Code generator updated to parse per-method directives
 6. Templates updated for `pkg/op` imports and per-method filtering
 
@@ -25,7 +25,7 @@ the execution layer, and prevents `pkg/projection/` from being a self-contained
 projection library.
 
 The struct-level `//devlore:plannable` directive is binary — the entire provider
-is either plannable or not. Method-level `//+devlore:access=` gives per-method
+is either plannable or not. Method-level the access directive gives per-method
 control over which projection surface each method appears on.
 
 ## What Changes
@@ -74,12 +74,12 @@ The `ui` provider remains at `internal/execution/provider/ui/` — it has no
 actions_gen.go, no Action wrappers, and is consumed only by the immediate
 receiver and CLI output wrappers.
 
-### 3. Replace `//devlore:plannable` with `//+devlore:access=`
+### 3. Replace `//devlore:plannable` with the access directive
 
 **Current**: `//devlore:plannable` on the Provider struct type. Binary: the
 entire provider is either plannable or not.
 
-**New**: `//+devlore:access=[immediate|planned|both]` on each method.
+**New**: the access directive on each method.
 Per-method control over which projection surface the method appears on.
 
 Default (no directive) = `immediate`.
@@ -110,7 +110,7 @@ Access level assignments:
 
 Changes:
 - Remove struct-level `//devlore:plannable` detection
-- Add method-level `//+devlore:access=` parsing per method
+- Add method-level the access directive parsing per method
 - Group methods by access level: immediate-only, planned-only, both
 - Generate per access level:
   - `access=immediate` → include in immediate receiver only
@@ -170,7 +170,7 @@ Update this document's status line upon completion.
 2. Replace old `internal/execution/` definition files with type alias re-exports
 3. Update `pkg/projection/graph.go` — `Node.Action` becomes `Action`, add `HydrateGraph`
 4. Copy 9 provider packages to `pkg/projection/provider/` with updated imports
-5. Add `//+devlore:access=` directives to every provider method
+5. Add the access directive directives to every provider method
 6. Update `register.go` for new provider paths
 7. Update all consumer imports (lore, writ, starlark, cli, flow, tests)
 8. Update generated `plan_*_gen.go` and `actions_gen.go` files
@@ -220,6 +220,6 @@ Update this document's status line upon completion.
 2. Generated code imports `pkg/projection` — no references to `internal/execution` for Action/Registry/Context
 3. Grep for `//devlore:plannable` — zero matches in provider source
 4. Grep for `internal/execution/provider` — only ui and dead code awaiting deletion
-5. Each provider method has `//+devlore:access=` or falls to default (immediate)
+5. Each provider method has the access directive or falls to default (immediate)
 6. `pkg/projection/` has zero imports from `internal/`
 7. Type alias re-exports in `internal/execution/` compile and are unused by production code

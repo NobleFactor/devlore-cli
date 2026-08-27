@@ -1575,6 +1575,30 @@ func TestGlob_MatchesFiles(t *testing.T) {
 	}
 }
 
+func TestGlob_RefusesPatternsOutsideTheRoot(t *testing.T) {
+
+	// filepath.Glob honored an absolute pattern verbatim and let `..` survive Join's clean, so a pattern could
+	// match outside the root it was given (#687). Matching now runs over the root's own fs.FS, and a pattern that
+	// resolves outside is refused rather than quietly answered.
+	outside := t.TempDir()
+	writeTestFile(t, outside, "secret.txt", "not yours")
+
+	tmp := t.TempDir()
+	writeTestFile(t, tmp, "mine.txt", "ok")
+	p := testProvider(t, tmp)
+
+	for _, pattern := range []string{
+		filepath.Join(outside, "*.txt"),
+		filepath.Join("..", filepath.Base(outside), "*.txt"),
+		"../*",
+	} {
+		matches, err := p.Glob(pattern, true)
+		if err == nil {
+			t.Errorf("Glob(%q) = %v, want an error; the pattern resolves outside the root", pattern, matches)
+		}
+	}
+}
+
 func TestGlob_NoMatches(t *testing.T) {
 
 	tmp := t.TempDir()
@@ -2114,7 +2138,7 @@ func TestChecksumFile_ComputesDigest(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	root, err := fsroot.OpenConfined(tmp)
+	root, err := fsroot.OpenExisting(tmp)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2136,7 +2160,7 @@ func TestChecksumFile_NonExistent(t *testing.T) {
 
 	tmp := t.TempDir()
 
-	root, err := fsroot.OpenConfined(tmp)
+	root, err := fsroot.OpenExisting(tmp)
 	if err != nil {
 		t.Fatal(err)
 	}

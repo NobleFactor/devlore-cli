@@ -17,13 +17,37 @@ func init() {
 		op.RoleModule|op.RoleAction,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
 		map[string]op.MethodMetadata{
-			"Find":            {ParameterNames: []string{"pattern", "text"}},
-			"FindAll":         {ParameterNames: []string{"pattern", "text", "count"}},
-			"FindAllSubmatch": {ParameterNames: []string{"pattern", "text", "count"}},
-			"FindSubmatch":    {ParameterNames: []string{"pattern", "text"}},
-			"Match":           {ParameterNames: []string{"pattern", "text"}},
-			"Replace":         {ParameterNames: []string{"pattern", "text", "replacement"}},
-			"ReplaceLiteral":  {ParameterNames: []string{"pattern", "text", "replacement"}},
-			"Split":           {ParameterNames: []string{"pattern", "text", "count"}},
+			"Find": {
+				ParameterNames: []string{"pattern", "text"},
+				Claims:         op.ClaimDeterministic,
+			},
+			"FindAll": {
+				ParameterNames: []string{"pattern", "text", "count"},
+				Claims:         op.ClaimDeterministic,
+			},
+			"FindAllSubmatch": {
+				ParameterNames: []string{"pattern", "text", "count"},
+				Claims:         op.ClaimDeterministic,
+			},
+			"FindSubmatch": {
+				ParameterNames: []string{"pattern", "text"},
+				Claims:         op.ClaimDeterministic,
+			},
+			"Match": {
+				ParameterNames: []string{"pattern", "text"},
+				Claims:         op.ClaimDeterministic,
+			},
+			"Replace": {
+				ParameterNames: []string{"pattern", "text", "replacement"},
+				Claims:         op.ClaimDeterministic,
+			},
+			"ReplaceLiteral": {
+				ParameterNames: []string{"pattern", "text", "replacement"},
+				Claims:         op.ClaimDeterministic,
+			},
+			"Split": {
+				ParameterNames: []string{"pattern", "text", "count"},
+				Claims:         op.ClaimDeterministic,
+			},
 		})
 }

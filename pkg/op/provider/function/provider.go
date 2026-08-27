@@ -22,8 +22,6 @@ var _ op.Provider = (*Provider)(nil) // Interface Guard
 //
 // The package was resource-only until phase-8 step 10 added [Provider.Call] — the leaf action that evaluates a
 // callable — so a starlark function or lambda passes through planning as a [*Resource] and is invoked at dispatch.
-//
-// +devlore:access=planned
 type Provider struct {
 	op.ProviderBase
 }
@@ -59,6 +57,8 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 //   - `any`: the function's result, converted to a native Go value.
 //   - `error`: non-nil when the resource fails to initialize, an argument or the result cannot be converted, or the
 //     call itself fails.
+//
+// +devlore:claim=deterministic
 func (p *Provider) Call(callable Resource, args []any, kwargs map[string]any) (any, error) {
 
 	if callable == nil {

@@ -860,11 +860,11 @@ that complicate every downstream consumer.
 The split: the two categories live on two separate provider structs.
 
 - `pkg/op/provider/plan/` — `plan.Provider`, tagged
-  `+devlore:access=immediate` (no `root` directive; defaults false).
+  access zone `immediate` (no `root` directive; defaults false).
   Methods: `Options`, `Case`, `Run`, `Load`, `Save`. Registered as
   the top-level starlark global keyed `"plan"`.
 - `pkg/op/provider/flow/` — `flow.Provider`, tagged
-  `+devlore:access=planned` and `+devlore:root=true`. Methods:
+  access zone `planned` and `+devlore:root=true`. Methods:
   `Choose`, `Gather`, `Subgraph`, `WaitUntil`, `Complete`, `Degraded`,
   `Fatal`, `Elevate`. Not registered as a top-level starlark global;
   its methods surface flat under `plan` via the peer dispatch
@@ -872,7 +872,7 @@ The split: the two categories live on two separate provider structs.
 
 **`+devlore:root=true` directive.** A new struct-level directive
 parsed by `generate.star` and threaded through codegen. Orthogonal to
-`+devlore:access=`; composes with either value. The access × root
+the access directive; composes with either value. The access × root
 semantic table:
 
 | `access` | `root` | Starlark surface | Dispatch | Action name | Auto-label |
@@ -997,7 +997,7 @@ flow.Provider's `Choose` method; the plan.Provider constructor would
 refuse to start. The error includes both offenders.
 
 **Why a new directive rather than per-method access?** An earlier
-sketch proposed per-method `+devlore:access=` to let plan.Provider
+sketch proposed per-method the access directive to let plan.Provider
 host both immediate and planned methods on one struct. The split
 here trades one new struct-level directive for a clean separation of
 concerns: each provider holds a single axis. Codegen stays uniform
@@ -1656,7 +1656,7 @@ top of this document. Each step is a commit unit.
   dispatch, collision detection at construction.
 - `pkg/op/provider/flow/` — **resurrected** (not removed) as the
   root-planned peer provider for `plan.*` primitives. Tagged
-  `+devlore:access=planned, +devlore:root=true`. Methods: `Choose`,
+  access zone `planned` with `+devlore:root=true`. Methods: `Choose`,
   `Gather`, `Subgraph`, `WaitUntil`, `Complete`, `Degraded`, `Fatal`,
   `Elevate`.
 - `star/extensions/com.noblefactor.devlore.Actions/commands/generate.star`

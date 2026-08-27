@@ -321,7 +321,7 @@ Items 1–3 of the original docket (string → pending, promise → recorded, st
 - `+devlore:struct_param` **removed**: consumed by nothing (two declaration sites, zero readers), and
   `Convert`'s struct hydration already performs the conversion.
 - `+devlore:lifetime` **removed**, with the dormant `Lifetime` machinery (`pkg/op/provider/lifetime.go`).
-- `+devlore:access` retires separately per `3.6-method-classification.md` (its own design; no shim,
+- the access directive retires separately per `3.6-method-classification.md` (its own design; no shim,
   removed in one pass, per the governing principle).
 - Tolerance carries **no directive** — the `MissingResourcePolicy` parameter type is the declaration.
 - The "wire" comment vocabulary ("wire parameter token" etc.) renames to parameter-token/announce
@@ -338,7 +338,7 @@ gen file is byte-identical under inference, proving the convention reproduces th
 and its one surviving effect was `cfg`'s optionality), so `cfg` is now required per the required-by-default
 posture and the one omitting fixture passes `cfg={}`; `+devlore:lifetime` removed with the dormant
 `Lifetime` machinery and the generator's parsing (3.1-provider-loading.md records the ruling and marks its
-lifetime sections rejected). `+devlore:access` retires separately per 3.6, as ruled. Gate: make check
+lifetime sections rejected). the access directive retires separately per 3.6, as ruled. Gate: make check
 103 ok / 0 fail, vet clean under linux/darwin/windows.
 
 **PR B record (2026-08-22) — scoped verification lands; the fail-fast scenario flips green; a stranded

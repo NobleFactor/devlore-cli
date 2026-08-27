@@ -11,6 +11,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
@@ -83,6 +84,16 @@ type RuntimeEnvironment struct {
 	// Same instance that flows to `cli.UI()` and through every status emission point. Populated by
 	// [RuntimeEnvironmentSpec.Build] (defaults to a [status.Narrator] writing through [sink.Stderr] when the spec field
 	// is nil; pass a Narrator wrapping [sink.Discard] to suppress).
+	// ConceivedAt is when this session began — the one clock read a planning run makes.
+	//
+	// Every graph the session assembles carries it, so graphs from one planning run share a timestamp and are
+	// comparable, where a per-graph construction instant made each one unique for no reason. Time of conception,
+	// not time of birth.
+	//
+	// It also puts the clock read somewhere visible. Graph construction is now a pure function of its spec, which
+	// is what lets a method assembling one claim `+devlore:claim=deterministic` with a straight face (#690).
+	ConceivedAt time.Time
+
 	Status *status.Narrator
 
 	// RecoverySite is the shared recovery service for archiving and restoring resources during compensation.
@@ -172,7 +183,7 @@ type RuntimeEnvironment struct {
 //
 // It defaults the absent optionals (Status → [status.Narrator] over [sink.Stderr], Result → [result.Pipeline] writing
 // JSON to [sink.Stdout], a fresh [ResourceCatalog], the detected [platform.Platform], the registry's module set),
-// mints the environment's [fsroot.Dir] via [fsroot.OpenConfined] when [RuntimeEnvironmentSpec.RootPath] is non-empty, and
+// mints the environment's [fsroot.Dir] via [fsroot.OpenExisting] when [RuntimeEnvironmentSpec.RootPath] is non-empty, and
 // wires the [RecoverySite] when a Root was minted. The environment owns the minted Root — a spec never carries a
 // live handle (issue #393) — and [RuntimeEnvironment.Close] releases it.
 //
@@ -182,7 +193,7 @@ type RuntimeEnvironment struct {
 //
 // Returns:
 //   - `*RuntimeEnvironment`: the constructed runtime environment; nil when the mint fails.
-//   - `error`: non-nil when [fsroot.OpenConfined] fails at the spec's anchor path.
+//   - `error`: non-nil when [fsroot.OpenExisting] fails at the spec's anchor path.
 func NewRuntimeEnvironment(ctx context.Context, spec *RuntimeEnvironmentSpec) (*RuntimeEnvironment, error) {
 
 	assert.NonZero("spec", spec)
@@ -239,6 +250,7 @@ func NewRuntimeEnvironment(ctx context.Context, spec *RuntimeEnvironmentSpec) (*
 		Platform:         platformCapability,
 		ResourceCatalog:  resourceCatalog,
 		rootPath:         spec.RootPath,
+		ConceivedAt:      spec.ConceivedAt,
 		Status:           statusNarrator,
 		Result:           resultPipeline,
 		variableResolver: NewVariableResolver(spec.Application),
@@ -332,7 +344,7 @@ func (re *RuntimeEnvironment) Root() fsroot.Dir {
 	}
 
 	re.rootOnce.Do(func() {
-		minted, err := fsroot.OpenConfined(re.rootPath)
+		minted, err := fsroot.OpenExisting(re.rootPath)
 		assert.NoError("op.RuntimeEnvironment.Root: mint root after successful preflight", err)
 		re.root = minted
 	})
@@ -842,6 +854,12 @@ func NewRuntimeEnvironmentConfig() *RuntimeEnvironmentConfig {
 type RuntimeEnvironmentSpec struct {
 
 	// ProgramName identifies the running tool (e.g., "lore", "writ").
+	// ConceivedAt is when this session began, stamped once by [NewRuntimeEnvironmentSpec].
+	//
+	// Carried to [RuntimeEnvironment.ConceivedAt] and from there onto every graph the session assembles. Time of
+	// conception, not time of birth.
+	ConceivedAt time.Time
+
 	ProgramName string
 
 	// Modules lists the selected modules to expose as Starlark globals.
@@ -903,6 +921,7 @@ func NewRuntimeEnvironmentSpec(programName string) *RuntimeEnvironmentSpec {
 
 	return &RuntimeEnvironmentSpec{
 		ProgramName: programName,
+		ConceivedAt: time.Now(),
 	}
 }
 
@@ -1026,7 +1045,7 @@ func (c *RuntimeEnvironmentSpec) WithStatus(narrator *status.Narrator) *RuntimeE
 //   - `error`: a wrapped error when the anchor cannot be opened.
 func probeRootAnchor(path string) error {
 
-	probe, err := fsroot.OpenConfined(path)
+	probe, err := fsroot.OpenExisting(path)
 	if err != nil {
 		return fmt.Errorf("open root %s: %w", path, err)
 	}
@@ -1048,7 +1067,7 @@ func probeRootAnchor(path string) error {
 //   - `error`: a wrapped error when the temporary directory cannot be created or removed.
 func probeScratchAnchor() error {
 
-	// Confinement: this is the probe that proves fsroot's own scratch anchor usable, so it cannot itself run
+	// Unsandboxed: this is the probe that proves fsroot's own scratch anchor usable, so it cannot itself run
 	// through a root — there is no root to run it through until it succeeds.
 	dir, err := os.MkdirTemp("", "devlore-scratch-probe-*")
 	if err != nil {

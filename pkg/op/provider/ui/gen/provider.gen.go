@@ -14,14 +14,32 @@ import (
 
 func init() {
 	op.AnnounceProvider(reflect.TypeFor[provider.Provider](),
-		op.RoleModule,
+		op.RoleModule|op.RoleAction,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
 		map[string]op.MethodMetadata{
-			"Error":   {ParameterNames: []string{"msg"}},
-			"Fail":    {ParameterNames: []string{"msg"}},
-			"Note":    {ParameterNames: []string{"msg"}},
-			"Print":   {ParameterNames: []string{"msg"}},
-			"Succeed": {ParameterNames: []string{"msg"}},
-			"Warn":    {ParameterNames: []string{"msg"}},
+			"Error": {
+				ParameterNames: []string{"msg"},
+				Claims:         op.ClaimDeterministic,
+			},
+			"Fail": {
+				ParameterNames: []string{"msg"},
+				Claims:         op.ClaimDeterministic,
+			},
+			"Note": {
+				ParameterNames: []string{"msg"},
+				Claims:         op.ClaimDeterministic,
+			},
+			"Print": {
+				ParameterNames: []string{"msg"},
+				Claims:         op.ClaimDeterministic,
+			},
+			"Succeed": {
+				ParameterNames: []string{"msg"},
+				Claims:         op.ClaimDeterministic,
+			},
+			"Warn": {
+				ParameterNames: []string{"msg"},
+				Claims:         op.ClaimDeterministic,
+			},
 		})
 }

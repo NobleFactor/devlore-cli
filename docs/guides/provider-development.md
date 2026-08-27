@@ -8,15 +8,9 @@ order: 10
 
 # How to create and modify providers
 
-Providers live in `pkg/op/provider/<name>/`. Each provider has a `Provider` struct
-annotated with `+devlore:access` to declare its binding level.
-
-## Access levels
-
-| Annotation | Gen files | Description |
-|---|---|---|
-| `+devlore:access=immediate` | immediate + params | Starlark builtins only |
-| `+devlore:access=both` | actions + immediate + params + planned | Builtins + graph nodes |
+Providers live in `pkg/op/provider/<name>/`. Each provider has a `Provider` struct.
+Binding level derives from method classification — see
+[3.6-method-classification.md](../architecture/3.6-method-classification.md).
 
 Dependent types (non-primitive return types) produce additional
 `gen/<type_snake>.gen.go` files automatically.
@@ -52,7 +46,6 @@ Every provider must appear in the `generate` target's dependency list.
 ## Provider struct directives
 
 ```go
-// +devlore:access=both
 // +devlore:lifetime=stateless
 // +devlore:starlarkbridge Root=WorkDir
 type Provider struct {
@@ -62,7 +55,6 @@ type Provider struct {
 
 | Directive | Values | Default |
 |---|---|---|
-| `+devlore:access` | `immediate`, `planned`, `both` | `immediate` |
 | `+devlore:lifetime` | `stateless`, `phase`, `session` | `stateless` |
 | `+devlore:bind` | `Field=CfgField` | none |
 
@@ -82,8 +74,7 @@ func (p *Provider) Capture(pattern string, gitignore bool) (*Sources, error) {
 ## Adding a new provider
 
 1. Create `pkg/op/provider/<name>/provider.go` with a `Provider` struct
-2. Annotate the struct with `+devlore:access=<level>`
-3. Add methods — the generator discovers them automatically
-4. Add a grouped target to the Makefile matching the access level
-5. Add the provider to the `generate` target's dependency list
-6. Run `make test`
+2. Add methods — the generator discovers them automatically
+3. Add a grouped target to the Makefile
+4. Add the provider to the `generate` target's dependency list
+5. Run `make test`

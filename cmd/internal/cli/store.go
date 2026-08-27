@@ -86,10 +86,9 @@ func WriteGraph(graph *op.Graph) (path string, err error) {
 	}
 
 	entry := IndexEntry{At: time.Now().UTC(), Event: IndexEventGraph, GraphChecksum: graph.Checksum()}
-	if origin := graph.Origin(); origin != nil {
-		entry.Tool = origin.Tool()
-		entry.Scope = origin.Scope()
-	}
+	origin := graph.Origin()
+	entry.Tool = origin.Tool()
+	entry.Scope = origin.Scope()
 	if err := appendIndexEntry(stateRoot, entry); err != nil {
 		return "", err
 	}

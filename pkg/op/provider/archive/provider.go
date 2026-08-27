@@ -31,8 +31,6 @@ import (
 var _ op.Provider = (*Provider)(nil) // Interface Guard
 
 // Provider provides archive extraction actions.
-//
-// +devlore:access=planned
 type Provider struct {
 	op.ProviderBase
 }
@@ -83,6 +81,8 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 //   - `*op.RecoveryStack`: a recovery stack carrying one self-describing [file.Receipt] per created file or directory,
 //     in extraction order, so a failed run unwinds it in reverse.
 //   - `error`: any error from format detection, extraction, archive-on-displace, or catalog/receipt construction.
+//
+// +devlore:claim=sandboxed
 func (p *Provider) Extract(
 	activationRecord *op.ActivationRecord,
 	source *file.Regular,
@@ -117,6 +117,8 @@ func (p *Provider) Extract(
 //   - `[]file.Resource`: one entry per file, symlink, or hardlink copy the extraction created or replaced.
 //   - `*op.RecoveryStack`: one self-describing [file.Receipt] per created entry, in extraction order.
 //   - `error`: any error from sniffing, spooling, extraction, or receipt construction.
+//
+// +devlore:claim=sandboxed
 func (p *Provider) ExtractStream(
 	activationRecord *op.ActivationRecord,
 	src io.Reader,

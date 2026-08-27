@@ -20,7 +20,7 @@ func testConfigRoot(t *testing.T) fsroot.Dir {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	root, err := fsroot.OpenConfined(dir)
+	root, err := fsroot.OpenExisting(dir)
 	if err != nil {
 		t.Fatal(err)
 	}

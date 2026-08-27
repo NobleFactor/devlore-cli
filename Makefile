@@ -354,7 +354,7 @@ vet-all: ## Run go vet under every supported GOOS
 		GOOS=$$os go vet ./... || exit 1; \
 	done
 
-lint-all: ## Run golangci-lint under every supported GOOS
+lint-all: golangci-lint-pinned ## Run golangci-lint under every supported GOOS
 	for os in linux darwin windows; do \
 		echo "== golangci-lint GOOS=$$os =="; \
 		GOOS=$$os golangci-lint run || exit 1; \
@@ -366,8 +366,31 @@ build-all: generate ## Compile every package under every supported GOOS (no bina
 		GOOS=$$os go build ./... || exit 1; \
 	done
 
-lint: ## Run golangci-lint
-	golangci-lint run
+# golangci-lint is pinned because its embedded go/types decides what staticcheck can infer, so an
+# unpinned local binary and a pinned CI binary disagree about the same source. #669 was exactly that:
+# v2.13.1 found four real SA4023 defects that CI's v2.12.2 did not. Both sides now name this version.
+GOLANGCI_LINT_VERSION ?= v2.13.1
+
+golangci-lint-pinned: ## Verify the pinned golangci-lint is the one on PATH
+	installed="$$(golangci-lint version --short 2>/dev/null || echo none)"
+	# `version --short` prints 2.13.1 while the pin is written v2.13.1 — the form the install URL
+	# and the install command both need. Strip a leading v from each side rather than from the
+	# variable, so the comparison survives golangci-lint changing which form it reports.
+	expected="$(GOLANGCI_LINT_VERSION)"
+	if [ "$${installed#v}" != "$${expected#v}" ]; then
+		echo "ERROR: golangci-lint $$installed on PATH, expected $(GOLANGCI_LINT_VERSION)."
+		echo "  Install: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/$(GOLANGCI_LINT_VERSION)/install.sh | \\"
+		echo "             sh -s -- -b \"\$$(go env GOPATH)/bin\" $(GOLANGCI_LINT_VERSION)"
+		exit 1
+	fi
+
+# Routed through star, not a bare `golangci-lint run`, because that is the gate CI carries
+# (.github/workflows/ci.yaml "Lint Go"). star execs the same pinned binary against the same
+# .golangci.yaml; what it adds is a JSON report written to its own file rather than parsed off a
+# shared stdout -- the 2026-08-04 silent-pass incident, where a polluted stream made every lint run
+# appear to succeed. Running anything else locally means the local gate and CI can disagree.
+lint: golangci-lint-pinned | $(STAR) ## Run golangci-lint through star, as CI does
+	$(STAR) lint go ./...
 
 shell-lint: ## Lint shell scripts
 	.github/scripts/shell-lint.sh

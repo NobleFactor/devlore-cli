@@ -8,6 +8,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -17,7 +18,7 @@ import (
 // formatIdentityGraph builds a graph whose origin annotations exercise the any-typed regions where JSON and
 // YAML decode differently (ints, bools, strings, lists, nested maps) — the risk surface for cross-format
 // checksum identity.
-func formatIdentityGraph(t *testing.T) *Graph {
+func formatIdentityGraph(t *testing.T, conceivedAt time.Time) *Graph {
 
 	t.Helper()
 
@@ -43,7 +44,7 @@ func formatIdentityGraph(t *testing.T) *Graph {
 		},
 	}))
 
-	graph, err := NewGraph(NewGraphSpec().WithOrigin(origin).WithUnits(leaf))
+	graph, err := NewGraph(NewGraphSpec().WithOrigin(origin).WithUnits(leaf).WithTimestamp(conceivedAt))
 	if err != nil {
 		t.Fatalf("NewGraph: %v", err)
 	}
@@ -92,7 +93,7 @@ func formatIdentityEnvironment(t *testing.T) *RuntimeEnvironment {
 
 func TestGraphChecksum_IdenticalAcrossJSONAndYAMLDocuments(t *testing.T) {
 
-	graph := formatIdentityGraph(t)
+	graph := formatIdentityGraph(t, time.Unix(1_700_000_000, 0).UTC())
 
 	yamlDoc := serializeGraph(t, graph, "yaml")
 	jsonDoc := serializeGraph(t, graph, "json")
@@ -123,7 +124,7 @@ func TestGraphChecksum_IdenticalAcrossJSONAndYAMLDocuments(t *testing.T) {
 
 func TestLoadGraph_YAMLDocumentVerifies(t *testing.T) {
 
-	graph := formatIdentityGraph(t)
+	graph := formatIdentityGraph(t, time.Unix(1_700_000_000, 0).UTC())
 
 	loaded, err := LoadGraph(formatIdentityEnvironment(t), serializeGraph(t, graph, "yaml"), "yaml")
 	if err != nil {
@@ -137,7 +138,7 @@ func TestLoadGraph_YAMLDocumentVerifies(t *testing.T) {
 
 func TestLoadGraph_JSONDocumentVerifies(t *testing.T) {
 
-	graph := formatIdentityGraph(t)
+	graph := formatIdentityGraph(t, time.Unix(1_700_000_000, 0).UTC())
 
 	loaded, err := LoadGraph(formatIdentityEnvironment(t), serializeGraph(t, graph, "json"), "json")
 	if err != nil {
@@ -151,7 +152,7 @@ func TestLoadGraph_JSONDocumentVerifies(t *testing.T) {
 
 func TestLoadGraph_CrossFormatIdentity(t *testing.T) {
 
-	graph := formatIdentityGraph(t)
+	graph := formatIdentityGraph(t, time.Unix(1_700_000_000, 0).UTC())
 	environment := formatIdentityEnvironment(t)
 
 	fromYAML, err := LoadGraph(environment, serializeGraph(t, graph, "yaml"), "yaml")
@@ -170,5 +171,31 @@ func TestLoadGraph_CrossFormatIdentity(t *testing.T) {
 	}
 	if fromYAML.Checksum() != graph.Checksum() {
 		t.Errorf("yaml-loaded checksum %q != original %q", fromYAML.Checksum(), graph.Checksum())
+	}
+}
+
+// TestGraphChecksum_IdenticalAcrossConstructionTimes pins the temporal half of graph identity.
+//
+// Its sibling above pins the format half: the same graph saved as JSON or YAML checksums the same. This pins the
+// other axis — when a graph was built does not change what it is. Both serve the guarantee 2.4 states, that
+// identical inputs produce an identical graph on any machine every time, and the timestamp broke it:
+// canonicalGraph carried the build time, so no two runs of an identical plan ever agreed (#690).
+//
+// The two timestamps are supplied and deliberately far apart, so the test varies exactly the thing it is about
+// rather than hoping two constructions land in different seconds.
+func TestGraphChecksum_IdenticalAcrossConstructionTimes(t *testing.T) {
+
+	first := formatIdentityGraph(t, time.Unix(1_700_000_000, 0).UTC())
+	second := formatIdentityGraph(t, time.Unix(1_900_000_000, 0).UTC())
+
+	if first.Timestamp().Equal(second.Timestamp()) {
+		t.Fatalf("both graphs report %s; the test cannot distinguish identity from coincidence", first.Timestamp())
+	}
+
+	if first.Checksum() != second.Checksum() {
+		t.Errorf("checksums differ across construction times:\n  first  %s at %s\n  second %s at %s\n"+
+			"a graph's identity is its content, and when it was built is not content",
+			first.Checksum(), first.Timestamp().Format(time.RFC3339),
+			second.Checksum(), second.Timestamp().Format(time.RFC3339))
 	}
 }

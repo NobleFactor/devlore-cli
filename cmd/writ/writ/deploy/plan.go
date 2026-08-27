@@ -353,7 +353,8 @@ func buildScopeGraph(
 		// into the environment's catalog — a fresh one here would strand them (the empty-section defect
 		// scoped verification exposed, 2026-08-22).
 		graph, err := op.NewGraph(op.NewGraphSpec().WithOrigin(origin).WithUnits(units...).
-			WithResourceCatalog(environment.ResourceCatalog))
+			WithResourceCatalog(environment.ResourceCatalog).
+			WithTimestamp(environment.ConceivedAt))
 		if err != nil {
 			return nil, fmt.Errorf("assemble scope %q: %w", scope, err)
 		}

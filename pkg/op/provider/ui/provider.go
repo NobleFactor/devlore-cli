@@ -15,8 +15,6 @@ import (
 )
 
 // Provider exposes the [status.Narrator] capability to starlark.
-//
-// +devlore:access=immediate
 type Provider struct {
 	op.ProviderBase
 }
@@ -44,6 +42,8 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 //
 // Returns:
 //   - `error`: a non-nil error wrapping msg.
+//
+// +devlore:claim=deterministic
 func (p *Provider) Fail(msg string) error {
 	return p.RuntimeEnvironment().Status.Fail(msg)
 }
@@ -54,6 +54,8 @@ func (p *Provider) Fail(msg string) error {
 //
 // Parameters:
 //   - `msg`: the error message to display.
+//
+// +devlore:claim=deterministic
 func (p *Provider) Error(msg string) {
 	p.RuntimeEnvironment().Status.Error(msg)
 }
@@ -62,6 +64,8 @@ func (p *Provider) Error(msg string) {
 //
 // Parameters:
 //   - `msg`: the informational message to display.
+//
+// +devlore:claim=deterministic
 func (p *Provider) Note(msg string) {
 	p.RuntimeEnvironment().Status.Note(msg)
 }
@@ -72,6 +76,8 @@ func (p *Provider) Note(msg string) {
 //
 // Parameters:
 //   - `msg`: the raw text to emit.
+//
+// +devlore:claim=deterministic
 func (p *Provider) Print(msg string) {
 	p.RuntimeEnvironment().Status.Print(msg)
 }
@@ -80,6 +86,8 @@ func (p *Provider) Print(msg string) {
 //
 // Parameters:
 //   - `msg`: the success message to display.
+//
+// +devlore:claim=deterministic
 func (p *Provider) Succeed(msg string) {
 	p.RuntimeEnvironment().Status.Succeed(msg)
 }
@@ -88,6 +96,8 @@ func (p *Provider) Succeed(msg string) {
 //
 // Parameters:
 //   - `msg`: the warning message to display.
+//
+// +devlore:claim=deterministic
 func (p *Provider) Warn(msg string) {
 	p.RuntimeEnvironment().Status.Warn(msg)
 }

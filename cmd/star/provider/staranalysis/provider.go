@@ -40,8 +40,6 @@ type AnalysisReport struct {
 
 // Provider provides combined analysis of Starlark source files,
 // combining stats, complexity scoring, indexing, and hotspot detection.
-//
-// +devlore:access=immediate
 type Provider struct {
 	op.ProviderBase
 	Root string

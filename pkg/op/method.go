@@ -48,6 +48,7 @@ var (
 //     forward method and reverses its effect.
 type Method struct {
 	actionName string          // canonical <pkg-path>.<receiverName>.<methodName>; computed at NewMethod
+	claims     MethodClaims    // guarantees the author asserts and the generator verified; stamped at announcement
 	do         *reflect.Method // forward method
 	kind       MethodKind      // classified from return signature
 	modifiers  MethodModifiers // surface modifiers (e.g. ModifierProperty), stamped at announcement
@@ -216,6 +217,25 @@ func NewMethod(
 //   - `string`: the canonical `<pkg-path>.<receiver>.<method>` action name computed at construction.
 func (m *Method) ActionName() string { return m.actionName }
 
+// Claims returns the guarantees this method asserts.
+//
+// A claim is an author's assertion checked by codegen, never a fact derived from the signature — that is what
+// separates it from [Method.Kind] and from [Method.Mutates]. The zero value asserts nothing, which admits the
+// method nowhere that requires a guarantee.
+//
+// Returns:
+//   - `MethodClaims`: the claim set, empty when the method declared none.
+func (m *Method) Claims() MethodClaims { return m.claims }
+
+// setClaims stamps the verified claim set on this method.
+//
+// Called by the announcement path; the set originates in the codegen-emitted [MethodMetadata.Claims], which is
+// written only after each claim has been checked against the method's call graph.
+//
+// Parameters:
+//   - `claims`: the claim set to stamp.
+func (m *Method) setClaims(claims MethodClaims) { m.claims = claims }
+
 // Kind returns the classification of this method's signature.
 //
 // Returns:
@@ -236,6 +256,16 @@ func (m *Method) Modifiers() MethodModifiers { return m.modifiers }
 // Parameters:
 //   - `modifiers`: the modifier set to stamp.
 func (m *Method) setModifiers(modifiers MethodModifiers) { m.modifiers = modifiers }
+
+// Mutates reports whether this method changes state outside the process.
+//
+// Derived, never claimed: a method returning a receipt or a recovery stack is a mutator by construction, and the
+// signature cannot drift without the classification following it. The converse does not hold — `shell.exec` and
+// `git.pull` mutate without returning either — so a false result means "no receipt", not "no mutation".
+//
+// Returns:
+//   - `bool`: true when the method returns a [*Receipt] or a [*RecoveryStack].
+func (m *Method) Mutates() bool { return m.kind == MethodCompensableFunction }
 
 // Name returns the short name of the method.
 //
@@ -578,6 +608,45 @@ func (m *Method) String() string {
 
 // region SUPPORTING TYPES
 
+// MethodClaims is a bit set of the guarantees a method asserts about itself.
+//
+// It is orthogonal to [MethodKind] and to [MethodModifiers]: MethodKind classifies a return signature, a modifier
+// records how a method is projected onto a starlark surface, and a claim states what the method promises. The set
+// is codegen-emitted onto [MethodMetadata] and threaded onto the constructed [Method].
+//
+// Claims are asserted, not derived. The generator checks each one and fails the build on a false claim, so the
+// check enforces a contract rather than discovering a value — a derived property would flip silently when a
+// helper three calls down grew a new dependency. Mutation is the deliberate exception ([Method.Mutates]): a
+// receipt return is a signature-level fact that cannot drift without changing the signature.
+//
+// The zero value claims nothing, which is the fail-closed default: over-restrictive, never unsafe.
+type MethodClaims uint
+
+const (
+
+	// ClaimDeterministic asserts that the method's output is a function of its declared inputs alone.
+	//
+	// Declared inputs are its arguments, values supplied to the [RuntimeEnvironment] at construction, and the
+	// contents of the [fsroot.Dir] it was handed. Verified against the call graph: any reach into the capability
+	// packages -- crypto/rand, math/rand, net, net/http, os, os/exec, os/signal, os/user, runtime, syscall, time --
+	// fails the claim unless it routes through a sandboxed root. Subsequent flags double from here (2, 4, 8, …).
+	ClaimDeterministic MethodClaims = 0x0001
+
+	// ClaimIdempotent asserts that re-applying the method converges to the same state.
+	//
+	// Nothing static can check this, so it carries a test obligation instead: a method claiming it must have a
+	// test that applies it twice and asserts convergence. Unlike the other two it applies to mutators, which is
+	// why these are a claim namespace rather than a single classification.
+	ClaimIdempotent MethodClaims = 0x0002
+
+	// ClaimSandboxed asserts that every filesystem operation routes through an [fsroot.Dir].
+	//
+	// The confinement is the kernel's, via os.OpenRoot, so the claim is about which API the method calls rather
+	// than about what it computes. Verified statically: a direct os.* filesystem call fails it unless the call
+	// carries an `// Unsandboxed:` comment stating why the root cannot serve it.
+	ClaimSandboxed MethodClaims = 0x0004
+)
+
 // MethodKind identifies the signature and capabilities of a method.
 type MethodKind int
 
@@ -605,6 +674,7 @@ const (
 // method's calls into an [ExecutableUnit]. Absent Planner means the method uses [ActionPlanner] — the default vanilla
 // leaf-node dispatcher.
 type MethodMetadata struct {
+	Claims         MethodClaims    // verified guarantees (e.g. ClaimDeterministic); the empty set is the default
 	ParameterNames []string        // starlark parameter name tokens, ordered to match the Go method's parameter slots
 	Modifiers      MethodModifiers // surface modifiers (e.g. ModifierProperty); ModifierNone is the default
 	Planner        reflect.Type    // optional; nil means default ActionPlanner

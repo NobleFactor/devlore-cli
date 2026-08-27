@@ -259,7 +259,6 @@ The `Impl *Provider` pattern is replaced by per-call Provider construction. No s
 `platform.Provider` is a read-only consumer of `op.Platform`. It reads the info fields and exposes them to Starlark scripts. It contributes nothing to `op.Platform` — it is purely a presentation layer.
 
 ```go
-// +devlore:access=both
 type Provider struct {
     Platform *op.Platform
 }

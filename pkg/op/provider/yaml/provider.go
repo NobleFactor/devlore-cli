@@ -12,8 +12,6 @@ import (
 )
 
 // Provider provides YAML encoding and decoding operations.
-//
-// +devlore:access=both
 type Provider struct {
 	op.ProviderBase
 }
@@ -35,6 +33,8 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 // Returns:
 //   - `any`: the decoded Go value (maps, slices, and scalars per gopkg.in/yaml.v3).
 //   - `error`: non-nil when `data` is not valid YAML.
+//
+// +devlore:claim=deterministic
 func (p *Provider) Decode(data string) (any, error) {
 	var result any
 	if err := yaml.Unmarshal([]byte(data), &result); err != nil {
@@ -51,6 +51,8 @@ func (p *Provider) Decode(data string) (any, error) {
 // Returns:
 //   - `string`: the YAML encoding of `value`.
 //   - `error`: non-nil when `value` cannot be marshaled to YAML (including a recovered marshal panic).
+//
+// +devlore:claim=deterministic
 func (p *Provider) Encode(value any) (result string, err error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -81,6 +83,8 @@ func (p *Provider) Encode(value any) (result string, err error) {
 // Returns:
 //   - `Resource`: the canonical catalog entry holding the parsed value.
 //   - `error`: non-nil when `data` is not valid YAML or catalog interning fails.
+//
+// +devlore:claim=deterministic
 func (p *Provider) Parse(activationRecord *op.ActivationRecord, data string) (Resource, error) {
 	return NewResource(p.RuntimeEnvironment(), activationRecord.CallerID, []byte(data))
 }

@@ -48,8 +48,7 @@ var (
 // Any collision across the three tiers fails Provider construction with a message naming both providers and the
 // offending method. promotedBuiltins is write-once at construction; the adapters are lazily populated under
 // `adaptersMutex`.
-//
-// +devlore:access=immediate
+// +devlore:surface=module
 type Provider struct {
 	op.ProviderBase
 	invocations      *op.InvocationRegistry    // session-scoped ledger of plan-mode invocations
@@ -100,6 +99,8 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 //
 // Returns:
 //   - *op.InvocationRegistry: the session ledger; never nil during planning.
+//
+// +devlore:claim=deterministic
 func (p *Provider) InvocationRegistry() *op.InvocationRegistry { return p.invocations }
 
 // endregion
@@ -147,6 +148,8 @@ func (p *Provider) InvocationRegistry() *op.InvocationRegistry { return p.invoca
 //     of one entry per orphan.
 //
 // +devlore:defaults retryPolicy=nil, onError=nil, onRetry=nil, transitionPolicy=nil, slots=nil, origin=
+//
+// +devlore:claim=deterministic
 func (p *Provider) AssembleDefinition(
 	invocations []*op.Invocation,
 	slots map[string]any,
@@ -207,7 +210,8 @@ func (p *Provider) AssembleDefinition(
 		WithOnError(onErrorSg).
 		WithOnRetry(onRetrySg).
 		WithRetryPolicy(retryPolicy).
-		WithTransitionPolicy(transitionPolicy)
+		WithTransitionPolicy(transitionPolicy).
+		WithTimestamp(p.RuntimeEnvironment().ConceivedAt)
 	for name, value := range bindings {
 		spec.WithSlot(name, value)
 	}
@@ -252,6 +256,8 @@ func (p *Provider) AssembleDefinition(
 // Returns:
 //   - `*flow.Case`: the constructed case, ready to pass to plan.choose.
 //   - `error`: non-nil when either body is malformed.
+//
+// +devlore:claim=deterministic
 func (p *Provider) Case(when, then any) (*flow.Case, error) {
 
 	when, err := p.desugarLambdaBody(when)
@@ -283,6 +289,8 @@ func (p *Provider) Case(when, then any) (*flow.Case, error) {
 // Returns:
 //   - `*op.Invocation`: the registered invocation; its `Target` is the planned unit.
 //   - `error`: non-nil when `name` resolves to no known action, or the planner / registry rejects the call.
+//
+// +devlore:claim=deterministic
 func (p *Provider) Plan(name op.ActionName, args []any, kwargs map[string]any) (*op.Invocation, error) {
 
 	dot := strings.LastIndex(string(name), ".")
@@ -322,6 +330,8 @@ func (p *Provider) Plan(name op.ActionName, args []any, kwargs map[string]any) (
 // Returns:
 //   - `error`: always nil today; the signature carries an error return so future implementations (e.g., canceling
 //     a session-scoped resource) can surface failures without breaking the bridge-side builtin signature.
+//
+// +devlore:claim=deterministic
 func (p *Provider) Clear() error {
 
 	p.invocations.Reset()
@@ -343,7 +353,7 @@ func (p *Provider) Clear() error {
 //   - `error`: non-nil when the file cannot be read, the format is unsupported, or decoding fails.
 func (p *Provider) LoadDefinition(path string) (*op.Graph, error) {
 
-	// Confinement: plan documents are store/CLI documents at caller-named paths, not confined-tree
+	// Unsandboxed: plan documents are store/CLI documents at caller-named paths, not sandboxed-tree
 	// resources. A relative caller-named path resolves against the session root (#584 phase 2) — never the
 	// process cwd.
 	if !filepath.IsAbs(path) && p.RuntimeEnvironment().HasRoot() {
@@ -392,7 +402,7 @@ func (p *Provider) SaveDefinition(graph *op.Graph, path string) (err error) {
 
 	var file *os.File
 
-	// Confinement: plan documents are store/CLI documents at caller-named paths, not confined-tree
+	// Unsandboxed: plan documents are store/CLI documents at caller-named paths, not sandboxed-tree
 	// resources. A relative caller-named path resolves against the session root (#584 phase 2) — never the
 	// process cwd.
 	if !filepath.IsAbs(path) && p.RuntimeEnvironment().HasRoot() {
@@ -448,7 +458,7 @@ func (p *Provider) SaveDefinition(graph *op.Graph, path string) (err error) {
 //
 // The spec carries no live [fsroot.Dir] — only the resolved `rootPath` anchor; each
 // [Provider.Run]'s executor mints (and closes) its own Root from it (issue #393). The resolved anchor is probed
-// here via [fsroot.OpenConfined] and released immediately, so a bad root path still fails at the `plan.spec` call
+// here via [fsroot.OpenExisting] and released immediately, so a bad root path still fails at the `plan.spec` call
 // site rather than at run time. The returned spec's [op.ReceiverRegistry] is a freshly-built one from the announced
 // providers — independent of the planning runtime environment's registry.
 //
@@ -464,13 +474,13 @@ func (p *Provider) SaveDefinition(graph *op.Graph, path string) (err error) {
 // Parameters:
 //   - `programName`: the tool name; flows into [application.Application.Name] and drives the variable resolver's
 //     env-prefix derivation. Empty string → defaults to the planning env's `Application.Name`.
-//   - `rootPath`: the absolute path the confined [fsroot.Dir] is anchored at. Empty string → defaults to the planning
+//   - `rootPath`: the absolute path the sandboxed [fsroot.Dir] is anchored at. Empty string → defaults to the planning
 //     env's `Root.Name()`.
 //   - `flags`: the [application.Application.Flags] map. Nil → defaults to the planning env's `Application.Flags`.
 //
 // Returns:
 //   - `*op.RuntimeEnvironmentSpec`: the constructed spec.
-//   - `error`: non-nil when the [fsroot.OpenConfined] probe fails (the target root does not exist or is not
+//   - `error`: non-nil when the [fsroot.OpenExisting] probe fails (the target root does not exist or is not
 //     accessible).
 func (p *Provider) Spec(programName, rootPath string, flags map[string]any) (*op.RuntimeEnvironmentSpec, error) {
 
@@ -486,9 +496,9 @@ func (p *Provider) Spec(programName, rootPath string, flags map[string]any) (*op
 		flags = runtimeEnvironment.Application.Flags
 	}
 
-	// The fail-fast probe (issue #393): the mint itself is the validity check — open confined, release
+	// The fail-fast probe (issue #393): the mint itself is the validity check — open sandboxed, release
 	// immediately — so the spec-time error contract survives without the spec retaining a live handle.
-	probe, err := fsroot.OpenConfined(rootPath)
+	probe, err := fsroot.OpenExisting(rootPath)
 	if err != nil {
 		return nil, fmt.Errorf("plan.Provider.Spec: open root %s: %w", rootPath, err)
 	}
@@ -555,6 +565,8 @@ func (p *Provider) Run(graph *op.Graph, spec *op.RuntimeEnvironmentSpec) (any, e
 //
 // Returns:
 //   - op.Origin: an Origin with Scope set; Tool is stamped by [Provider.AssembleDefinition].
+//
+// +devlore:claim=deterministic
 func (p *Provider) Origin(scope string) op.Origin {
 	return op.NewOriginBase("", scope, op.AnnotationMap{})
 }
@@ -613,6 +625,8 @@ func (p *Provider) ResolveAttr(name string) any {
 //
 // Returns:
 //   - *op.Variable: the projected variable reference.
+//
+// +devlore:claim=deterministic
 func (p *Provider) Item(field string) *op.Variable {
 
 	return p.Variable("item", nil, field)
@@ -636,6 +650,8 @@ func (p *Provider) Item(field string) *op.Variable {
 //
 // Returns:
 //   - *op.Variable: the variable reference value (Value and Source are zero until the resolver fills them).
+//
+// +devlore:claim=deterministic
 func (p *Provider) Variable(name string, defaultValue any, field string) *op.Variable {
 
 	_ = defaultValue // Phase 3 wires default propagation into the parameter surface.

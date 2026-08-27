@@ -34,7 +34,7 @@ func isolate(t *testing.T) (signer Signer, allowedSigners string) {
 		t.Fatal(err)
 	}
 
-	configRoot, err := fsroot.OpenConfined(configDir)
+	configRoot, err := fsroot.OpenExisting(configDir)
 	if err != nil {
 		t.Fatal(err)
 	}

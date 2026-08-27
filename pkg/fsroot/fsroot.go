@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Noble Factor. All rights reserved.
 
-// Package fsroot provides confined filesystem roots.
+// Package fsroot provides sandboxed filesystem roots.
 //
-// All provider I/O flows through the [Dir] interface, confining reads and writes to a directory
-// tree. The confinement is the kernel's, via [*os.Root]: one behavior, two lifetimes —
-// [OpenConfined] anchors at an existing directory for the caller's lifetime, and [OpenScratch]
+// All provider I/O flows through the [Dir] interface, sandboxing reads and writes to a directory
+// tree. The sandbox is the kernel's, via [*os.Root]: one behavior, two lifetimes —
+// [OpenExisting] anchors at an existing directory for the caller's lifetime, and [OpenScratch]
 // anchors at a new temporary directory whose tree is removed with the handle on Close.
 package fsroot
 
@@ -31,8 +31,8 @@ import (
 
 // Interface guards.
 var (
-	_ Dir = (*confinedDir)(nil)
-	_ Dir = (*confinedScratchDir)(nil)
+	_ Dir = (*sandboxedDir)(nil)
+	_ Dir = (*sandboxedScratchDir)(nil)
 )
 
 // errTempPatternSeparator is returned when a temporary-name pattern contains a path separator, which would let a
@@ -67,19 +67,19 @@ const (
 	PermOther os.FileMode = 0o007
 )
 
-// Dir provides scoped filesystem operations. All path arguments are [Path] values created through [Dir.NewPath].
+// Dir provides sandboxed filesystem operations. All path arguments are [Path] values created through [Dir.NewPath].
 //
-// Two constructors produce the two lifetimes, both confined by [*os.Root]:
+// Two constructors produce the two lifetimes, both sandboxed by [*os.Root]:
 //
-//   - [OpenConfined] anchors at an existing directory; the root lives until the caller closes it
+//   - [OpenExisting] anchors at an existing directory; the root lives until the caller closes it
 //   - [OpenScratch] anchors at a new temporary directory; Close removes the tree with the handle
 //
 // The method set mirrors [*os.Dir] in full, so code that knows the standard library's root knows
 // this one. Every filesystem mutation in the repository is expected to flow through this interface;
-// a direct os.* call must carry a `// Confinement:` comment stating why the root cannot serve it.
+// a direct os.* call must carry a `// Unsandboxed:` comment stating why the root cannot serve it.
 //
 // [Dir.CreateTemp] and [Dir.MkdirTemp] go beyond the mirror: [*os.Dir] has no equivalent, and
-// [os.CreateTemp] cannot be confined to a root. Choosing between a scratch root and this one is the
+// [os.CreateTemp] cannot be sandboxed to a root. Choosing between a scratch root and this one is the
 // whole of the decision — use the session's scratch unless the bytes must end up in this tree
 // atomically, since a rename out of scratch can cross a device boundary and degrade to a copy.
 type Dir interface {
@@ -111,9 +111,9 @@ type Dir interface {
 	WriteFile(p Path, data []byte, perm os.FileMode) error
 }
 
-// OpenScratch opens a confined [Dir] at a newly created temporary directory that removes itself.
+// OpenScratch opens a sandboxed [Dir] at a newly created temporary directory that removes itself.
 //
-// Scratch is not an escape from confinement — it is its own confined tree with a self-destroying
+// Scratch is not an escape from sandbox — it is its own sandboxed tree with a self-destroying
 // lifetime. Process scratch (spool files, staging trees) belongs here rather than in a direct
 // [os.CreateTemp] call, so that scratch I/O flows through the same seam as every other mutation and
 // inherits its platform behavior.
@@ -127,8 +127,8 @@ type Dir interface {
 //     string, otherwise the random string is appended.
 //
 // Returns:
-//   - `Root`: a confined root anchored at the new temporary directory.
-//   - `error`: any error from [os.MkdirTemp] or [OpenConfined]. On an [OpenConfined] failure the
+//   - `Root`: a sandboxed root anchored at the new temporary directory.
+//   - `error`: any error from [os.MkdirTemp] or [OpenExisting]. On an [OpenExisting] failure the
 //     temporary directory is removed before returning, so no tree is orphaned.
 func OpenScratch(pattern string) (Dir, error) {
 
@@ -137,19 +137,19 @@ func OpenScratch(pattern string) (Dir, error) {
 		return nil, fmt.Errorf("fsroot.OpenScratch: create temporary directory: %w", err)
 	}
 
-	confined, err := OpenConfined(dir)
+	sandboxed, err := OpenExisting(dir)
 	if err != nil {
 		return nil, errors.Join(
-			fmt.Errorf("fsroot.OpenScratch: confine %s: %w", dir, err), os.RemoveAll(dir))
+			fmt.Errorf("fsroot.OpenScratch: sandbox %s: %w", dir, err), os.RemoveAll(dir))
 	}
 
-	return &confinedScratchDir{Dir: confined, dir: dir}, nil
+	return &sandboxedScratchDir{Dir: sandboxed, dir: dir}, nil
 }
 
-// confinedScratchDir is a confined [Dir] over a temporary directory it owns and removes on Close.
+// sandboxedScratchDir is a sandboxed [Dir] over a temporary directory it owns and removes on Close.
 //
-// Every method other than Close is the embedded confined root's; only the lifetime differs.
-type confinedScratchDir struct {
+// Every method other than Close is the embedded sandboxed root's; only the lifetime differs.
+type sandboxedScratchDir struct {
 	Dir
 
 	// dir is the temporary directory this root owns, removed by Close.
@@ -160,7 +160,7 @@ type confinedScratchDir struct {
 
 // region Behaviors
 
-// Close releases the confined root's handle and removes the temporary directory tree.
+// Close releases the sandboxed root's handle and removes the temporary directory tree.
 //
 // Both run even when the first fails, and their errors are joined — a failed handle close must not
 // leave the tree behind, and a failed removal must still be reported. On Windows the removal cannot
@@ -169,58 +169,58 @@ type confinedScratchDir struct {
 //
 // Returns:
 //   - `error`: the joined close and removal errors, or nil.
-func (r *confinedScratchDir) Close() error { return errors.Join(r.Dir.Close(), os.RemoveAll(r.dir)) }
+func (r *sandboxedScratchDir) Close() error { return errors.Join(r.Dir.Close(), os.RemoveAll(r.dir)) }
 
 // endregion
 
 // endregion
 
-// confinedDir wraps [*os.Root] for OS-enforced confinement.
+// sandboxedDir wraps [*os.Root] for OS-enforced sandbox.
 //
-// All I/O is confined to the root directory by the kernel. Symlinks cannot escape, path traversal is blocked.
-type confinedDir struct {
+// All I/O is sandboxed to the root directory by the kernel. Symlinks cannot escape, path traversal is blocked.
+type sandboxedDir struct {
 	inner *os.Root
 }
 
-// OpenConfined opens an OS-enforced confined [Dir] at dir.
+// OpenExisting opens an OS-enforced sandboxed [Dir] at dir.
 //
 // Parameters:
-//   - `dir`: the directory to confine all I/O within.
+//   - `dir`: the directory to sandbox all I/O within.
 //
 // Returns:
-//   - `Root`: a confined root backed by [*os.Root].
+//   - `Root`: a sandboxed root backed by [*os.Root].
 //   - `error`: any error from [os.OpenRoot].
-func OpenConfined(dir string) (Dir, error) {
+func OpenExisting(dir string) (Dir, error) {
 
 	r, err := os.OpenRoot(dir)
 	if err != nil {
 		return nil, err
 	}
 
-	return &confinedDir{inner: r}, nil
+	return &sandboxedDir{inner: r}, nil
 }
 
 // region EXPORTED METHODS
 
 // region State management
 
-// FS returns a [fs.FS] rooted at the confined directory.
+// FS returns a [fs.FS] rooted at the sandboxed directory.
 //
 // Returns:
-//   - `fs.FS`: a filesystem view rooted at the confined directory.
-func (r *confinedDir) FS() fs.FS { return r.inner.FS() }
+//   - `fs.FS`: a filesystem view rooted at the sandboxed directory.
+func (r *sandboxedDir) FS() fs.FS { return r.inner.FS() }
 
-// Name returns the confined root directory path. Matches [os.Root.Name].
+// Name returns the sandboxed root directory path. Matches [os.Root.Name].
 //
 // Returns:
-//   - `string`: the confined root directory path.
-func (r *confinedDir) Name() string { return r.inner.Name() }
+//   - `string`: the sandboxed root directory path.
+func (r *sandboxedDir) Name() string { return r.inner.Name() }
 
 // endregion
 
 // region Behaviors
 
-// Chmod changes the mode of the path, confined to the root.
+// Chmod changes the mode of the path, sandboxed to the root.
 //
 // Parameters:
 //   - `p`: the target path.
@@ -231,7 +231,7 @@ func (r *confinedDir) Name() string { return r.inner.Name() }
 //
 // Returns:
 //   - `error`: any error from [os.Root.Chmod], or from the Windows enforcement pass.
-func (r *confinedDir) Chmod(p Path, mode os.FileMode) error {
+func (r *sandboxedDir) Chmod(p Path, mode os.FileMode) error {
 
 	if err := r.inner.Chmod(p.rel, mode); err != nil {
 		return err
@@ -245,7 +245,7 @@ func (r *confinedDir) Chmod(p Path, mode os.FileMode) error {
 	return applyMode(p.abs, mode, info.IsDir())
 }
 
-// Chown changes the numeric owner and group of the path, confined to the root.
+// Chown changes the numeric owner and group of the path, sandboxed to the root.
 //
 // Unsupported on Windows, where the underlying syscall always fails; that is [os]'s behavior and is
 // surfaced rather than masked.
@@ -257,9 +257,9 @@ func (r *confinedDir) Chmod(p Path, mode os.FileMode) error {
 //
 // Returns:
 //   - `error`: any error from [os.Root.Chown].
-func (r *confinedDir) Chown(p Path, uid, gid int) error { return r.inner.Chown(p.rel, uid, gid) }
+func (r *sandboxedDir) Chown(p Path, uid, gid int) error { return r.inner.Chown(p.rel, uid, gid) }
 
-// Chtimes changes the access and modification times of the path, confined to the root.
+// Chtimes changes the access and modification times of the path, sandboxed to the root.
 //
 // Parameters:
 //   - `p`: the target path.
@@ -268,7 +268,7 @@ func (r *confinedDir) Chown(p Path, uid, gid int) error { return r.inner.Chown(p
 //
 // Returns:
 //   - `error`: any error from [os.Root.Chtimes].
-func (r *confinedDir) Chtimes(p Path, atime, mtime time.Time) error {
+func (r *sandboxedDir) Chtimes(p Path, atime, mtime time.Time) error {
 	return r.inner.Chtimes(p.rel, atime, mtime)
 }
 
@@ -276,12 +276,12 @@ func (r *confinedDir) Chtimes(p Path, atime, mtime time.Time) error {
 //
 // Returns:
 //   - `error`: any error from [os.Root.Close].
-func (r *confinedDir) Close() error { return r.inner.Close() }
+func (r *sandboxedDir) Close() error { return r.inner.Close() }
 
-// Create creates or truncates the path for reading and writing, confined to the root.
+// Create creates or truncates the path for reading and writing, sandboxed to the root.
 //
 // The created file carries mode 0o666 before umask — an unrestricted file by definition. Never use
-// Create for sensitive content; use [confinedDir.OpenFile] with an explicit restrictive mode.
+// Create for sensitive content; use [sandboxedDir.OpenFile] with an explicit restrictive mode.
 //
 // Parameters:
 //   - `p`: the target path.
@@ -289,9 +289,9 @@ func (r *confinedDir) Close() error { return r.inner.Close() }
 // Returns:
 //   - `*os.File`: the created file, opened read-write.
 //   - `error`: any error from [os.Root.Create].
-func (r *confinedDir) Create(p Path) (*os.File, error) { return r.inner.Create(p.rel) }
+func (r *sandboxedDir) Create(p Path) (*os.File, error) { return r.inner.Create(p.rel) }
 
-// Lchown changes owner and group without following a terminal symlink, confined to the root.
+// Lchown changes owner and group without following a terminal symlink, sandboxed to the root.
 //
 // Unsupported on Windows, where the underlying syscall always fails.
 //
@@ -302,9 +302,9 @@ func (r *confinedDir) Create(p Path) (*os.File, error) { return r.inner.Create(p
 //
 // Returns:
 //   - `error`: any error from [os.Root.Lchown].
-func (r *confinedDir) Lchown(p Path, uid, gid int) error { return r.inner.Lchown(p.rel, uid, gid) }
+func (r *sandboxedDir) Lchown(p Path, uid, gid int) error { return r.inner.Lchown(p.rel, uid, gid) }
 
-// Link creates a hard link at newPath pointing to oldPath, confined to the root.
+// Link creates a hard link at newPath pointing to oldPath, sandboxed to the root.
 //
 // Both endpoints are [Path] values because a hard link, unlike a symlink, must resolve inside the
 // root at creation time.
@@ -315,11 +315,11 @@ func (r *confinedDir) Lchown(p Path, uid, gid int) error { return r.inner.Lchown
 //
 // Returns:
 //   - `error`: any error from [os.Root.Link].
-func (r *confinedDir) Link(oldPath, newPath Path) error {
+func (r *sandboxedDir) Link(oldPath, newPath Path) error {
 	return r.inner.Link(oldPath.rel, newPath.rel)
 }
 
-// Lstat returns file info for the path without following a terminal symlink, confined to the root.
+// Lstat returns file info for the path without following a terminal symlink, sandboxed to the root.
 //
 // Parameters:
 //   - `p`: the target path.
@@ -327,11 +327,11 @@ func (r *confinedDir) Link(oldPath, newPath Path) error {
 // Returns:
 //   - `fs.FileInfo`: the file info.
 //   - `error`: any error from [os.Root.Lstat].
-func (r *confinedDir) Lstat(p Path) (fs.FileInfo, error) { return r.inner.Lstat(p.rel) }
+func (r *sandboxedDir) Lstat(p Path) (fs.FileInfo, error) { return r.inner.Lstat(p.rel) }
 
-// Mkdir creates the directory at the path, confined to the root.
+// Mkdir creates the directory at the path, sandboxed to the root.
 //
-// Parents must already exist; use [confinedDir.MkdirAll] otherwise.
+// Parents must already exist; use [sandboxedDir.MkdirAll] otherwise.
 //
 // Parameters:
 //   - `p`: the directory path.
@@ -339,7 +339,7 @@ func (r *confinedDir) Lstat(p Path) (fs.FileInfo, error) { return r.inner.Lstat(
 //
 // Returns:
 //   - `error`: any error from [os.Root.Mkdir], or from the Windows enforcement pass.
-func (r *confinedDir) Mkdir(p Path, perm os.FileMode) error {
+func (r *sandboxedDir) Mkdir(p Path, perm os.FileMode) error {
 
 	if err := r.inner.Mkdir(p.rel, perm); err != nil {
 		return err
@@ -348,7 +348,7 @@ func (r *confinedDir) Mkdir(p Path, perm os.FileMode) error {
 	return applyMode(p.abs, perm, true)
 }
 
-// CreateTemp creates a uniquely named file under `dir`, confined to the root.
+// CreateTemp creates a uniquely named file under `dir`, sandboxed to the root.
 //
 // Parameters:
 //   - `dir`: the directory within the root to create the file under; use `NewPath(".")` for the root itself.
@@ -358,11 +358,11 @@ func (r *confinedDir) Mkdir(p Path, perm os.FileMode) error {
 //   - `*os.File`: the open file, owned by the caller.
 //   - `Path`: the created file's path.
 //   - `error`: any error from [createTempIn].
-func (r *confinedDir) CreateTemp(dir Path, pattern string) (*os.File, Path, error) {
+func (r *sandboxedDir) CreateTemp(dir Path, pattern string) (*os.File, Path, error) {
 	return createTempIn(r, dir, pattern)
 }
 
-// MkdirTemp creates a uniquely named directory under `dir`, confined to the root.
+// MkdirTemp creates a uniquely named directory under `dir`, sandboxed to the root.
 //
 // Parameters:
 //   - `dir`: the directory within the root to create the directory under; use `NewPath(".")` for the root itself.
@@ -371,11 +371,11 @@ func (r *confinedDir) CreateTemp(dir Path, pattern string) (*os.File, Path, erro
 // Returns:
 //   - `Path`: the created directory's path.
 //   - `error`: any error from [mkdirTempIn].
-func (r *confinedDir) MkdirTemp(dir Path, pattern string) (Path, error) {
+func (r *sandboxedDir) MkdirTemp(dir Path, pattern string) (Path, error) {
 	return mkdirTempIn(r, dir, pattern)
 }
 
-// MkdirAll creates the directory at the path along with any necessary parents, confined to the root.
+// MkdirAll creates the directory at the path along with any necessary parents, sandboxed to the root.
 //
 // Parameters:
 //   - `p`: the directory path.
@@ -383,7 +383,7 @@ func (r *confinedDir) MkdirTemp(dir Path, pattern string) (Path, error) {
 //
 // Returns:
 //   - `error`: any error from [os.Root.MkdirAll], or from the Windows enforcement pass.
-func (r *confinedDir) MkdirAll(p Path, perm os.FileMode) error {
+func (r *sandboxedDir) MkdirAll(p Path, perm os.FileMode) error {
 
 	if err := r.inner.MkdirAll(p.rel, perm); err != nil {
 		return err
@@ -392,16 +392,16 @@ func (r *confinedDir) MkdirAll(p Path, perm os.FileMode) error {
 	return applyMode(p.abs, perm, true)
 }
 
-// NewPath builds a [Path] from an input path, resolved against the confined root directory.
+// NewPath builds a [Path] from an input path, resolved against the sandboxed root directory.
 //
 // Parameters:
 //   - `path`: the input path, absolute or relative to the root directory.
 //
 // Returns:
 //   - `Path`: the constructed path with both rel and abs populated.
-func (r *confinedDir) NewPath(name ...string) Path { return makePath(r.inner.Name(), name) }
+func (r *sandboxedDir) NewPath(name ...string) Path { return makePath(r.inner.Name(), name) }
 
-// Open opens the path for reading, confined to the root.
+// Open opens the path for reading, sandboxed to the root.
 //
 // Parameters:
 //   - `p`: the target path.
@@ -409,9 +409,9 @@ func (r *confinedDir) NewPath(name ...string) Path { return makePath(r.inner.Nam
 // Returns:
 //   - `*os.File`: the opened file.
 //   - `error`: any error from [os.Root.Open].
-func (r *confinedDir) Open(p Path) (*os.File, error) { return r.inner.Open(p.rel) }
+func (r *sandboxedDir) Open(p Path) (*os.File, error) { return r.inner.Open(p.rel) }
 
-// OpenFile opens the path with the given flags and permissions, confined to the root.
+// OpenFile opens the path with the given flags and permissions, sandboxed to the root.
 //
 // Parameters:
 //   - `p`: the target path.
@@ -421,7 +421,7 @@ func (r *confinedDir) Open(p Path) (*os.File, error) { return r.inner.Open(p.rel
 // Returns:
 //   - `*os.File`: the opened file.
 //   - `error`: any error from [os.Root.OpenFile].
-func (r *confinedDir) OpenFile(p Path, flag int, perm os.FileMode) (*os.File, error) {
+func (r *sandboxedDir) OpenFile(p Path, flag int, perm os.FileMode) (*os.File, error) {
 
 	file, err := r.inner.OpenFile(p.rel, flag, perm)
 	if err != nil {
@@ -437,28 +437,28 @@ func (r *confinedDir) OpenFile(p Path, flag int, perm os.FileMode) (*os.File, er
 	return file, nil
 }
 
-// OpenRoot opens the directory at the path as its own [Dir], confined to this root.
+// OpenRoot opens the directory at the path as its own [Dir], sandboxed to this root.
 //
-// The sub-root inherits this root's access mode: a confined root yields a confined sub-root. The
+// The sub-root inherits this root's access mode: a sandboxed root yields a sandboxed sub-root. The
 // caller owns the returned root and must Close it.
 //
 // Parameters:
 //   - `p`: the directory to open as a root.
 //
 // Returns:
-//   - `Root`: the sub-root, confined to `p`.
+//   - `Root`: the sub-root, sandboxed to `p`.
 //   - `error`: any error from [os.Root.OpenRoot].
-func (r *confinedDir) OpenRoot(p Path) (Dir, error) {
+func (r *sandboxedDir) OpenRoot(p Path) (Dir, error) {
 
 	inner, err := r.inner.OpenRoot(p.rel)
 	if err != nil {
 		return nil, err
 	}
 
-	return &confinedDir{inner: inner}, nil
+	return &sandboxedDir{inner: inner}, nil
 }
 
-// ReadFile reads the entire contents of the path, confined to the root.
+// ReadFile reads the entire contents of the path, sandboxed to the root.
 //
 // Parameters:
 //   - `p`: the target path.
@@ -466,9 +466,9 @@ func (r *confinedDir) OpenRoot(p Path) (Dir, error) {
 // Returns:
 //   - `[]byte`: the file contents.
 //   - `error`: any error from [os.Root.ReadFile].
-func (r *confinedDir) ReadFile(p Path) ([]byte, error) { return r.inner.ReadFile(p.rel) }
+func (r *sandboxedDir) ReadFile(p Path) ([]byte, error) { return r.inner.ReadFile(p.rel) }
 
-// Readlink returns the destination of the symbolic link at the path, confined to the root.
+// Readlink returns the destination of the symbolic link at the path, sandboxed to the root.
 //
 // Parameters:
 //   - `p`: the symlink path.
@@ -476,20 +476,20 @@ func (r *confinedDir) ReadFile(p Path) ([]byte, error) { return r.inner.ReadFile
 // Returns:
 //   - `string`: the link destination.
 //   - `error`: any error from [os.Root.Readlink].
-func (r *confinedDir) Readlink(p Path) (string, error) { return r.inner.Readlink(p.rel) }
+func (r *sandboxedDir) Readlink(p Path) (string, error) { return r.inner.Readlink(p.rel) }
 
-// Remove deletes the file or empty directory at the path, confined to the root.
+// Remove deletes the file or empty directory at the path, sandboxed to the root.
 //
 // Parameters:
 //   - `p`: the target path.
 //
 // Returns:
 //   - `error`: any error from [os.Root.Remove].
-func (r *confinedDir) Remove(p Path) error { return r.inner.Remove(p.rel) }
+func (r *sandboxedDir) Remove(p Path) error { return r.inner.Remove(p.rel) }
 
-// RemoveAll removes the path and any children it contains, confined to the root.
+// RemoveAll removes the path and any children it contains, sandboxed to the root.
 //
-// Traversal is performed by [os.Root.RemoveAll], so confinement holds for every descendant without
+// Traversal is performed by [os.Root.RemoveAll], so sandbox holds for every descendant without
 // this package walking the tree itself.
 //
 // Parameters:
@@ -497,9 +497,9 @@ func (r *confinedDir) Remove(p Path) error { return r.inner.Remove(p.rel) }
 //
 // Returns:
 //   - `error`: any error from [os.Root.RemoveAll].
-func (r *confinedDir) RemoveAll(p Path) error { return r.inner.RemoveAll(p.rel) }
+func (r *sandboxedDir) RemoveAll(p Path) error { return r.inner.RemoveAll(p.rel) }
 
-// Rename moves oldPath to newPath, confined to the root.
+// Rename moves oldPath to newPath, sandboxed to the root.
 //
 // Parameters:
 //   - `oldPath`: the source path.
@@ -507,11 +507,11 @@ func (r *confinedDir) RemoveAll(p Path) error { return r.inner.RemoveAll(p.rel) 
 //
 // Returns:
 //   - `error`: any error from [os.Root.Rename].
-func (r *confinedDir) Rename(oldPath, newPath Path) error {
+func (r *sandboxedDir) Rename(oldPath, newPath Path) error {
 	return r.inner.Rename(oldPath.rel, newPath.rel)
 }
 
-// Stat returns file info for the path, following symlinks, confined to the root.
+// Stat returns file info for the path, following symlinks, sandboxed to the root.
 //
 // Parameters:
 //   - `p`: the target path.
@@ -519,9 +519,9 @@ func (r *confinedDir) Rename(oldPath, newPath Path) error {
 // Returns:
 //   - `fs.FileInfo`: the file info.
 //   - `error`: any error from [os.Root.Stat].
-func (r *confinedDir) Stat(p Path) (fs.FileInfo, error) { return r.inner.Stat(p.rel) }
+func (r *sandboxedDir) Stat(p Path) (fs.FileInfo, error) { return r.inner.Stat(p.rel) }
 
-// Symlink creates a symbolic link at link pointing to target, confined to the root.
+// Symlink creates a symbolic link at link pointing to target, sandboxed to the root.
 //
 // Parameters:
 //   - `target`: the link destination.
@@ -529,11 +529,11 @@ func (r *confinedDir) Stat(p Path) (fs.FileInfo, error) { return r.inner.Stat(p.
 //
 // Returns:
 //   - `error`: any error from [os.Root.Symlink].
-func (r *confinedDir) Symlink(target string, link Path) error {
+func (r *sandboxedDir) Symlink(target string, link Path) error {
 	return r.inner.Symlink(target, link.rel)
 }
 
-// WriteFile writes data to the path, creating or truncating it, confined to the root.
+// WriteFile writes data to the path, creating or truncating it, sandboxed to the root.
 //
 // Parameters:
 //   - `p`: the target path.
@@ -542,7 +542,7 @@ func (r *confinedDir) Symlink(target string, link Path) error {
 //
 // Returns:
 //   - `error`: any error from [os.Root.WriteFile], or from the Windows enforcement pass.
-func (r *confinedDir) WriteFile(p Path, data []byte, perm os.FileMode) error {
+func (r *sandboxedDir) WriteFile(p Path, data []byte, perm os.FileMode) error {
 
 	if err := r.inner.WriteFile(p.rel, data, perm); err != nil {
 		return err
@@ -624,7 +624,7 @@ func RelWithin(rootName, path string) (string, bool) {
 //   - `string`: the absolute path.
 func (p Path) Abs() string { return p.abs }
 
-// Rel returns the root-relative path used for confined I/O.
+// Rel returns the root-relative path used for sandboxed I/O.
 //
 // Always canonical slash form, on every platform: rel is the half that serializes, so equal logical paths produce
 // equal document bytes and checksums everywhere, and it feeds [io/fs] APIs whose contract requires slash paths.
@@ -835,7 +835,7 @@ func canonicalRel(rel string) string {
 
 // createTempIn creates a uniquely named file under `dir`, mirroring [os.CreateTemp] inside a root.
 //
-// The file is created through `r`'s own [Dir.OpenFile] with `O_CREATE|O_EXCL`, so confinement and the Windows
+// The file is created through `r`'s own [Dir.OpenFile] with `O_CREATE|O_EXCL`, so sandbox and the Windows
 // enforcement pass both apply exactly as they do to any other create. Mode 0600 matches [os.CreateTemp] and is
 // private, which means a temporary file receives a protected DACL on Windows without the caller asking.
 //
@@ -874,7 +874,7 @@ func createTempIn(r Dir, dir Path, pattern string) (*os.File, Path, error) {
 
 // mkdirTempIn creates a uniquely named directory under `dir`, mirroring [os.MkdirTemp] inside a root.
 //
-// The directory is created through `r`'s own [Dir.Mkdir], so confinement and the Windows enforcement pass apply.
+// The directory is created through `r`'s own [Dir.Mkdir], so sandbox and the Windows enforcement pass apply.
 // Mode 0700 matches [os.MkdirTemp] and is private, so the directory is DACL-protected on Windows.
 //
 // Parameters:

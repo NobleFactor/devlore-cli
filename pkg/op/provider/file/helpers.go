@@ -47,13 +47,14 @@ var errKindMismatch = errors.New("file kind mismatch")
 // colon-delimited string makes the caller build a value the callee immediately takes apart.
 //
 // Parameters:
+//   - `root`: the sandboxed root the path resolves within.
 //   - `path`: the filesystem path whose ownership changes.
 //   - `user`: the owner to set, by name or decimal uid; empty leaves the owner unchanged.
 //   - `group`: the group to set, by name or decimal gid; empty leaves the group unchanged.
 //
 // Returns:
-//   - `error`: non-nil if a name does not resolve, or os.Chown fails.
-func applyOwnership(path, user, group string) error {
+//   - `error`: non-nil if a name does not resolve, or the chown fails.
+func applyOwnership(root fsroot.Dir, path, user, group string) error {
 
 	if user == "" && group == "" {
 		return nil
@@ -64,7 +65,9 @@ func applyOwnership(path, user, group string) error {
 		return fmt.Errorf("ownership %q: %w", path, err)
 	}
 
-	if err := os.Chown(path, uid, gid); err != nil {
+	// Through the root, not os.Chown: a bare chown resolves its path against the process working directory, so
+	// ownership was the one file mutation that left the sandbox while every other one stayed inside it (#687).
+	if err := root.Chown(root.NewPath(path), uid, gid); err != nil {
 		return fmt.Errorf("ownership %q: %w", path, err)
 	}
 

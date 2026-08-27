@@ -14,9 +14,12 @@ import (
 
 func init() {
 	op.AnnounceProvider(reflect.TypeFor[provider.Provider](),
-		op.RoleAction,
+		op.RoleModule|op.RoleAction,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
 		map[string]op.MethodMetadata{
-			"Call": {ParameterNames: []string{"callable", "*args", "**kwargs"}},
+			"Call": {
+				ParameterNames: []string{"callable", "*args", "**kwargs"},
+				Claims:         op.ClaimDeterministic,
+			},
 		})
 }

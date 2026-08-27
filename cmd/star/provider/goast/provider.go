@@ -2,8 +2,6 @@
 // Copyright Noble Factor. All rights reserved.
 
 // Package goast provides Go AST operations as a Starlark receiver.
-//
-// +devlore:access=immediate
 package goast
 
 import (
@@ -29,8 +27,6 @@ import (
 )
 
 // Provider provides Go AST operations as a Starlark receiver.
-//
-// +devlore:access=immediate
 type Provider struct {
 	op.ProviderBase
 	fileCache sync.Map // path → *parsedFile (AST cache)
@@ -454,7 +450,7 @@ func (p *Provider) LoadSourceFile(path string) (*SourceFile, error) {
 	if err != nil {
 		return nil, fmt.Errorf("goast.load_source_file: %w", err)
 	}
-	sf, err := LoadSourceFile(string(content))
+	sf, err := parseSourceFile(string(content))
 	if err != nil {
 		return nil, fmt.Errorf("goast.load_source_file: %w", err)
 	}

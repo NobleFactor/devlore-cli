@@ -20,16 +20,13 @@ func init() {
 		func(ctx *op.RuntimeEnvironment) (any, error) { return {{.provider_type_prefix}}NewProvider(ctx), nil },
 		map[string]op.MethodMetadata{
 {{- range .methods}}
-{{- if .planner}}
+{{- if .metadata_extras}}
 			"{{.name}}": {
 				ParameterNames: []string{ {{.param_names_list}} },
-{{- if .property}}
-				Modifiers:      op.ModifierProperty,
+{{- range .metadata_extras}}
+				{{.}}
 {{- end}}
-				Planner:        reflect.TypeFor[provider.{{.planner}}](),
 			},
-{{- else if .property}}
-			"{{.name}}": {ParameterNames: []string{ {{.param_names_list}} }, Modifiers: op.ModifierProperty},
 {{- else}}
 			"{{.name}}": {ParameterNames: []string{ {{.param_names_list}} }},
 {{- end}}

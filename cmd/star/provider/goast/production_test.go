@@ -162,7 +162,7 @@ func TestItemProduction_PrefixNoMatch(t *testing.T) {
 func TestItemProduction_DirectivePrefix(t *testing.T) {
 	blocks := []comment.Block{
 		makeParagraph("+devlore:defaults overwrite=true"),
-		makeParagraph("+devlore:access=both"),
+		makeParagraph("+devlore:root=true"),
 		makeParagraph("Not a directive."),
 	}
 

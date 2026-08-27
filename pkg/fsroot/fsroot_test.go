@@ -189,12 +189,12 @@ func TestRoot_Close(t *testing.T) {
 	dir := t.TempDir()
 
 	// Close releases the file descriptor.
-	cr, err := fsroot.OpenConfined(dir)
+	cr, err := fsroot.OpenExisting(dir)
 	if err != nil {
-		t.Fatalf("fsroot.OpenConfined: %v", err)
+		t.Fatalf("fsroot.OpenExisting: %v", err)
 	}
 	if err := cr.Close(); err != nil {
-		t.Errorf("fsroot.confinedDir.Close() = %v", err)
+		t.Errorf("fsroot.sandboxedDir.Close() = %v", err)
 	}
 }
 
@@ -332,7 +332,7 @@ func TestRoot_Readlink(t *testing.T) {
 	dir := t.TempDir()
 	writeFixture(t, dir, "target.txt", "data")
 
-	// Create symlink with relative target (required for confined mode).
+	// Create symlink with relative target (required for sandboxed mode).
 	if err := os.Symlink("target.txt", filepath.Join(dir, "link.txt")); err != nil {
 		t.Fatalf("Symlink: %v", err)
 	}
@@ -502,13 +502,13 @@ func TestRoot_WriteFile(t *testing.T) {
 	}
 }
 
-func TestConfinedDir_RejectsTraversal(t *testing.T) {
+func TestSandboxedDir_RejectsTraversal(t *testing.T) {
 
 	dir := t.TempDir()
 
-	r, err := fsroot.OpenConfined(dir)
+	r, err := fsroot.OpenExisting(dir)
 	if err != nil {
-		t.Fatalf("fsroot.OpenConfined: %v", err)
+		t.Fatalf("fsroot.OpenExisting: %v", err)
 	}
 	defer func() { _ = r.Close() }()
 
@@ -522,9 +522,9 @@ func TestConfinedDir_RejectsTraversal(t *testing.T) {
 	}
 }
 
-func TestConfinedDir_InvalidDir(t *testing.T) {
+func TestSandboxedDir_InvalidDir(t *testing.T) {
 
-	_, err := fsroot.OpenConfined("/nonexistent/path/that/does/not/exist")
+	_, err := fsroot.OpenExisting("/nonexistent/path/that/does/not/exist")
 	if err == nil {
 		t.Fatal("expected error for nonexistent directory")
 	}
@@ -535,17 +535,17 @@ type rootCase struct {
 	root fsroot.Dir
 }
 
-func TestOpenConfined_CloseReleasesTheHandle(t *testing.T) {
+func TestOpenExisting_CloseReleasesTheHandle(t *testing.T) {
 
 	dir := t.TempDir()
 
-	root, err := fsroot.OpenConfined(dir)
+	root, err := fsroot.OpenExisting(dir)
 	if err != nil {
-		t.Fatalf("fsroot.OpenConfined: %v", err)
+		t.Fatalf("fsroot.OpenExisting: %v", err)
 	}
 
 	p := root.NewPath("probe.txt")
-	if err := root.WriteFile(p, []byte("confined"), 0o644); err != nil {
+	if err := root.WriteFile(p, []byte("sandboxed"), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
@@ -553,9 +553,9 @@ func TestOpenConfined_CloseReleasesTheHandle(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 
-	// A confined root holds a live OS handle, so an operation after Close must fail.
+	// A sandboxed root holds a live OS handle, so an operation after Close must fail.
 	if _, err := root.ReadFile(p); err == nil {
-		t.Fatal("ReadFile after Close = nil error, want failure (confined root holds a live handle)")
+		t.Fatal("ReadFile after Close = nil error, want failure (sandboxed root holds a live handle)")
 	}
 }
 
@@ -722,9 +722,9 @@ func TestCreateTemp_UniqueNamesHonorThePatternAndStayInTheDirectory(t *testing.T
 // directory argument — the one way a name could otherwise act as a path.
 func TestCreateTemp_PatternWithSeparatorIsRefused(t *testing.T) {
 
-	root, err := fsroot.OpenConfined(t.TempDir())
+	root, err := fsroot.OpenExisting(t.TempDir())
 	if err != nil {
-		t.Fatalf("fsroot.OpenConfined: %v", err)
+		t.Fatalf("fsroot.OpenExisting: %v", err)
 	}
 	t.Cleanup(func() { _ = root.Close() })
 
@@ -794,7 +794,7 @@ func TestOpenScratch_ClosesAndRemovesTheTree(t *testing.T) {
 	}
 }
 
-func TestOpenScratch_IsConfined(t *testing.T) {
+func TestOpenScratch_IsSandboxed(t *testing.T) {
 
 	scratch, err := fsroot.OpenScratch("fsroot-scratch-*")
 	if err != nil {
@@ -802,27 +802,27 @@ func TestOpenScratch_IsConfined(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = scratch.Close() })
 
-	// Scratch is a confined root, so an escaping path is refused rather than followed.
+	// Scratch is a sandboxed root, so an escaping path is refused rather than followed.
 	if err := scratch.WriteFile(scratch.NewPath("../escaped.txt"), []byte("x"), 0o600); err == nil {
-		t.Error("WriteFile(../escaped.txt) = nil error; want the confinement refusal")
+		t.Error("WriteFile(../escaped.txt) = nil error; want the sandbox refusal")
 	}
 }
 
 // allRoots returns each Root implementation rooted at dir — one, since the design collapsed to a single
-// confinement behavior. The table shape survives it, so every consumer still names its case.
+// sandbox behavior. The table shape survives it, so every consumer still names its case.
 func allRoots(t *testing.T, dir string) []rootCase {
 
 	t.Helper()
 
-	cr, err := fsroot.OpenConfined(dir)
+	cr, err := fsroot.OpenExisting(dir)
 	if err != nil {
-		t.Fatalf("fsroot.OpenConfined: %v", err)
+		t.Fatalf("fsroot.OpenExisting: %v", err)
 	}
 
 	t.Cleanup(func() { _ = cr.Close() })
 
 	return []rootCase{
-		{"confinedDir", cr},
+		{"sandboxedDir", cr},
 	}
 }
 

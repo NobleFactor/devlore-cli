@@ -22,7 +22,7 @@ capabilities already pulled out of `op` in 13.0(i) (`pkg/status`, `pkg/result`, 
 
 ## Shape
 
-- **`fsroot.OpenConfined(dir string) (fsroot.Dir, error)`** — the confined constructor; wraps a stdlib **`os.Root`**
+- **`fsroot.OpenExisting(dir string) (fsroot.Dir, error)`** — the confined constructor; wraps a stdlib **`os.Root`**
   (Go 1.24 confined-FS) for path-escape-safe I/O, via the unexported `confinedRoot`.
 - **`fsroot.OpenUnconfined(dir string) fsroot.Dir`** / **`fsroot.OpenWritableUnconfined(dir string) fsroot.Dir`** —
   the unconfined read-only / read-write constructors (`unconfinedRootReader` / `unconfinedRootReaderWriter`), operating

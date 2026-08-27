@@ -41,8 +41,6 @@ var (
 )
 
 // Provider provides file system actions.
-//
-// +devlore:access=both
 type Provider struct {
 	op.ProviderBase
 }
@@ -61,6 +59,8 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 //
 // Returns:
 //   - `string`: the scoped root path, or "" when the session has no root.
+//
+// +devlore:claim=deterministic
 func (p *Provider) Root() string {
 
 	if !p.RuntimeEnvironment().HasRoot() {
@@ -91,6 +91,8 @@ func (p *Provider) Root() string {
 //   - `Resource`: the backup destination resource, minted as the moved entry's observed kind.
 //   - `*Receipt`: the compensation receipt for undo.
 //   - `error`: non-nil on move failure.
+//
+// +devlore:claim=sandboxed
 func (p *Provider) Backup(
 	activationRecord *op.ActivationRecord,
 	source Resource,
@@ -127,6 +129,8 @@ func (p *Provider) Backup(
 //   - `error`: non-nil on resource construction, write preparation, copy, ownership, or resolve failure.
 //
 // +devlore:defaults mode={{ umask 0o755 }}, user="", group=""
+//
+// +devlore:claim=sandboxed
 func (p *Provider) Copy(
 	activationRecord *op.ActivationRecord,
 	source *Regular,
@@ -166,7 +170,7 @@ func (p *Provider) Copy(
 		return product, receipt, err
 	}
 
-	if err := applyOwnership(product.SourcePath.Abs(), user, group); err != nil {
+	if err := applyOwnership(p.RuntimeEnvironment().Root(), product.SourcePath.Abs(), user, group); err != nil {
 		return product, receipt, err
 	}
 
@@ -201,6 +205,8 @@ func (p *Provider) Copy(
 //   - `error`: non-nil on resource construction, archive, parent creation, symlink, or resolve failure.
 //
 // +devlore:defaults verbatim=false
+//
+// +devlore:claim=sandboxed
 func (p *Provider) Link(
 	activationRecord *op.ActivationRecord,
 	sourcePath string,
@@ -339,6 +345,8 @@ func (p *Provider) archiveOccupant(product *SymbolicLink) (*Receipt, error) {
 //   - `error`: non-nil when `path` exists as a non-directory, or on construction, mkdir, ownership, or resolve failure.
 //
 // +devlore:defaults mode={{ umask 0o777 }}, user="", group=""
+//
+// +devlore:claim=sandboxed
 func (p *Provider) Mkdir(
 	activationRecord *op.ActivationRecord,
 	path string,
@@ -378,7 +386,7 @@ func (p *Provider) Mkdir(
 		return nil, receipt, err
 	}
 
-	if err := applyOwnership(leaf, user, group); err != nil {
+	if err := applyOwnership(p.RuntimeEnvironment().Root(), leaf, user, group); err != nil {
 		return nil, receipt, err
 	}
 
@@ -481,6 +489,8 @@ func (p *Provider) compensateMakeDir(receipt *Receipt) (err error) {
 //   - `*Receipt`: the compensation receipt recording the source and any archived destination for undo.
 //   - `error`: non-nil when the source is missing, or on construction, write preparation, rename, or
 //     resolve failure.
+//
+// +devlore:claim=sandboxed
 func (p *Provider) Move(
 	activationRecord *op.ActivationRecord,
 	source Resource,
@@ -697,6 +707,8 @@ func (p *Provider) compensateRemoveDir(receipt *Receipt) error {
 //   - `error`: a missing target under stop, a non-empty directory, or an archive failure.
 //
 // +devlore:defaults prune=false, boundary="", onMissing=stop
+//
+// +devlore:claim=sandboxed
 func (p *Provider) Remove(
 	activationRecord *op.ActivationRecord,
 	target Resource,
@@ -733,6 +745,8 @@ func (p *Provider) Remove(
 //   - `error`: a missing target under stop, or an archive failure.
 //
 // +devlore:defaults prune=false, boundary="", onMissing=stop
+//
+// +devlore:claim=sandboxed
 func (p *Provider) RemoveAll(
 	activationRecord *op.ActivationRecord,
 	target Resource,
@@ -931,6 +945,8 @@ func (p *Provider) CompensateWalkTree(activation *op.ActivationRecord, stack *op
 //   - `error`: non-nil on construction or write failure.
 //
 // +devlore:defaults mode={{ umask 0o666 }}, user="", group=""
+//
+// +devlore:claim=sandboxed
 func (p *Provider) WriteBytes(
 	activationRecord *op.ActivationRecord,
 	destinationPath string,
@@ -973,6 +989,8 @@ func (p *Provider) WriteBytes(
 //   - `*Regular`: the written resource.
 //   - `*Receipt`: the self-describing compensation receipt naming [Provider.CompensateFileMutation] as its undo.
 //   - `error`: non-nil on construction, archive, or write failure.
+//
+// +devlore:claim=sandboxed
 func (p *Provider) WriteFile(
 	activationRecord *op.ActivationRecord,
 	targetPath string,
@@ -1008,6 +1026,8 @@ func (p *Provider) WriteFile(
 //   - `error`: non-nil on construction or write failure.
 //
 // +devlore:defaults mode={{ umask 0o666 }}, user="", group=""
+//
+// +devlore:claim=sandboxed
 func (p *Provider) WriteText(
 	activationRecord *op.ActivationRecord,
 	destinationPath string,
@@ -1063,6 +1083,8 @@ func (p *Provider) WriteText(
 //     catalog's verdict (a known-Gone entry does not re-discover).
 //
 // +devlore:defaults kind=any, after=nil
+//
+// +devlore:claim=sandboxed
 func (p *Provider) Discover(path string, kind ResourceKind, after op.OrderingEdge) (product Resource, err error) {
 
 	_ = after // the ordering edge: consumed for sequencing only, never for its value
@@ -1126,6 +1148,8 @@ func (p *Provider) Discover(path string, kind ResourceKind, after op.OrderingEdg
 //   - `error`: a grammar refusal, a dangling or escaping chain, a kind mismatch, or the catalog's verdict.
 //
 // +devlore:defaults kind=any, after=nil
+//
+// +devlore:claim=sandboxed
 func (p *Provider) Resolve(path string, kind ResourceKind, after op.OrderingEdge) (product Resource, err error) {
 
 	_ = after // the ordering edge: consumed for sequencing only, never for its value
@@ -1194,6 +1218,8 @@ func (p *Provider) Resolve(path string, kind ResourceKind, after op.OrderingEdge
 // Returns:
 //   - `bool`: true when an entry exists at the path.
 //   - `error`: non-nil on any stat failure other than not-exist.
+//
+// +devlore:claim=sandboxed
 func (p *Provider) Exists(path string) (bool, error) {
 
 	_, err := p.lstat(p.RuntimeEnvironment().Root().NewPath(path).Abs())
@@ -1353,14 +1379,34 @@ func (p *Provider) findWalkFunc(
 // +devlore:defaults includeGitignored=false
 func (p *Provider) Glob(pattern string, includeGitignored bool) ([]Resource, error) {
 
-	// A relative pattern is root-relative (#584 phase 2), never process-cwd-relative.
-	if !filepath.IsAbs(pattern) && p.RuntimeEnvironment().HasRoot() {
-		pattern = filepath.Join(p.Root(), filepath.FromSlash(pattern))
+	root := p.RuntimeEnvironment().Root()
+	if root == nil {
+		return nil, fmt.Errorf("file.Glob: no session root; a glob has no boundary to resolve against")
 	}
 
-	matches, err := filepath.Glob(pattern)
+	// Matching runs over the root's own fs.FS, which the kernel confines, rather than over filepath.Glob's view
+	// of the whole filesystem. filepath.Glob would honor an absolute pattern verbatim, let `..` survive Join's
+	// clean, and follow a symlink out of the tree -- three ways a pattern reaches outside the root it was given
+	// (#687). fs.Glob cannot: its patterns are slash-form and root-relative by construction.
+	absolutePattern := filepath.FromSlash(pattern)
+	if !filepath.IsAbs(absolutePattern) {
+		// A relative pattern is root-relative (#584 phase 2), never process-cwd-relative.
+		absolutePattern = filepath.Join(root.Name(), absolutePattern)
+	}
+
+	relPattern, within := fsroot.RelWithin(root.Name(), absolutePattern)
+	if !within {
+		return nil, fmt.Errorf("file.Glob: pattern %q resolves outside the session root", pattern)
+	}
+
+	matched, err := fs.Glob(root.FS(), relPattern)
 	if err != nil {
 		return nil, err
+	}
+
+	matches := make([]string, len(matched))
+	for i, rel := range matched {
+		matches[i] = root.NewPath(rel).Abs()
 	}
 
 	if includeGitignored {
@@ -1393,6 +1439,8 @@ func (p *Provider) Glob(pattern string, includeGitignored bool) ([]Resource, err
 // Returns:
 //   - `bool`: true when the path exists and is a directory.
 //   - `error`: non-nil on any stat failure other than not-exist.
+//
+// +devlore:claim=sandboxed
 func (p *Provider) IsDir(path string) (bool, error) {
 
 	info, err := p.stat(p.RuntimeEnvironment().Root().NewPath(path).Abs())
@@ -1417,6 +1465,8 @@ func (p *Provider) IsDir(path string) (bool, error) {
 // Returns:
 //   - `bool`: true when the path exists and is a regular file.
 //   - `error`: non-nil on any stat failure other than not-exist.
+//
+// +devlore:claim=sandboxed
 func (p *Provider) IsFile(path string) (bool, error) {
 
 	info, err := p.stat(p.RuntimeEnvironment().Root().NewPath(path).Abs())
@@ -1445,6 +1495,8 @@ func (p *Provider) IsFile(path string) (bool, error) {
 // Returns:
 //   - `*Observation`: the constructed observation; never nil on a nil-error return.
 //   - `error`: any stat failure other than not-exist.
+//
+// +devlore:claim=sandboxed
 func (p *Provider) Observe(resource Resource) (*Observation, error) {
 
 	root := p.RuntimeEnvironment().Root()
@@ -1479,6 +1531,8 @@ func (p *Provider) Observe(resource Resource) (*Observation, error) {
 // Returns:
 //   - `[]byte`: the file contents.
 //   - `error`: non-nil on read failure.
+//
+// +devlore:claim=sandboxed
 func (p *Provider) ReadBytes(resource *Regular) (product []byte, err error) {
 
 	buffer, err := p.read(resource)
@@ -1497,6 +1551,8 @@ func (p *Provider) ReadBytes(resource *Regular) (product []byte, err error) {
 // Returns:
 //   - `string`: the file contents.
 //   - `error`: non-nil on read failure.
+//
+// +devlore:claim=sandboxed
 func (p *Provider) ReadText(resource *Regular) (product string, err error) {
 
 	buffer, err := p.read(resource)
@@ -1519,6 +1575,8 @@ func (p *Provider) ReadText(resource *Regular) (product string, err error) {
 //
 // Native, unlike [Provider.Name] and [Provider.Parent]: those answer questions ABOUT a path as a value,
 // while Join builds one FOR USE — its result is handed to the filesystem.
+//
+// +devlore:claim=deterministic
 func (p *Provider) Join(parts ...string) string {
 	return filepath.Join(parts...)
 }
@@ -1534,6 +1592,8 @@ func (p *Provider) Join(parts ...string) string {
 //
 // Returns:
 //   - `string`: the last path element, in slash form.
+//
+// +devlore:claim=deterministic
 func (p *Provider) Name(path string) string {
 	return slashpath.Base(path)
 }
@@ -1547,6 +1607,8 @@ func (p *Provider) Name(path string) string {
 //
 // Returns:
 //   - `string`: the parent directory path, in slash form.
+//
+// +devlore:claim=deterministic
 func (p *Provider) Parent(path string) string {
 	return slashpath.Dir(path)
 }
@@ -2226,13 +2288,18 @@ func (p *Provider) walkDir(
 	walkFn func(string, fs.DirEntry, error) error,
 ) error {
 
-	if osRoot != nil {
-		relRoot := osRoot.NewPath(absoluteRoot).Rel()
-		return fs.WalkDir(osRoot.FS(), relRoot, func(relPath string, d fs.DirEntry, walkDirErr error) error {
-			return walkFn(filepath.Join(osRoot.Name(), relPath), d, walkDirErr)
-		})
+	// No fallback to filepath.WalkDir: that branch walked the real filesystem from an absolute path with nothing
+	// bounding it, so file.Find and file.WalkTree were confined only when a root happened to exist (#687). A
+	// guarantee that holds sometimes is not one, so a missing root is refused instead of silently unconfined.
+	if osRoot == nil {
+		return fmt.Errorf("file: no session root; a directory walk has no boundary to observe")
 	}
-	return filepath.WalkDir(absoluteRoot, walkFn)
+
+	relRoot := osRoot.NewPath(absoluteRoot).Rel()
+
+	return fs.WalkDir(osRoot.FS(), relRoot, func(relPath string, d fs.DirEntry, walkDirErr error) error {
+		return walkFn(filepath.Join(osRoot.Name(), relPath), d, walkDirErr)
+	})
 }
 
 // write streams `src` to the staged target with the given mode and ownership.
@@ -2287,7 +2354,7 @@ func (p *Provider) write(
 		return product, receipt, err
 	}
 
-	if err := applyOwnership(product.SourcePath.Abs(), user, group); err != nil {
+	if err := applyOwnership(p.RuntimeEnvironment().Root(), product.SourcePath.Abs(), user, group); err != nil {
 		return product, receipt, err
 	}
 

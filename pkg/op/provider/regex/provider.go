@@ -14,8 +14,6 @@ import (
 )
 
 // Provider provides regular expression operations with compiled pattern caching.
-//
-// +devlore:access=both
 type Provider struct {
 	op.ProviderBase
 	cache sync.Map // pattern string → *regexp.Regexp
@@ -43,6 +41,8 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 // Returns:
 //   - `string`: the first match, or empty string if none.
 //   - `error`: non-nil if the pattern is invalid.
+//
+// +devlore:claim=deterministic
 func (p *Provider) Find(pattern, text string) (string, error) {
 
 	re, err := p.compile(pattern)
@@ -64,6 +64,8 @@ func (p *Provider) Find(pattern, text string) (string, error) {
 // Returns:
 //   - `[]string`: all matches found.
 //   - `error`: non-nil if the pattern is invalid.
+//
+// +devlore:claim=deterministic
 func (p *Provider) FindAll(pattern, text string, count int) ([]string, error) {
 
 	re, err := p.compile(pattern)
@@ -85,6 +87,8 @@ func (p *Provider) FindAll(pattern, text string, count int) ([]string, error) {
 // Returns:
 //   - `[][]string`: all matches with submatches.
 //   - `error`: non-nil if the pattern is invalid.
+//
+// +devlore:claim=deterministic
 func (p *Provider) FindAllSubmatch(pattern, text string, count int) ([][]string, error) {
 
 	re, err := p.compile(pattern)
@@ -105,6 +109,8 @@ func (p *Provider) FindAllSubmatch(pattern, text string, count int) ([][]string,
 // Returns:
 //   - `[]string`: the match and submatches, or nil if none.
 //   - `error`: non-nil if the pattern is invalid.
+//
+// +devlore:claim=deterministic
 func (p *Provider) FindSubmatch(pattern, text string) ([]string, error) {
 
 	re, err := p.compile(pattern)
@@ -123,6 +129,8 @@ func (p *Provider) FindSubmatch(pattern, text string) ([]string, error) {
 // Returns:
 //   - `bool`: true if the pattern matches.
 //   - `error`: non-nil if the pattern is invalid.
+//
+// +devlore:claim=deterministic
 func (p *Provider) Match(pattern, text string) (bool, error) {
 
 	re, err := p.compile(pattern)
@@ -144,6 +152,8 @@ func (p *Provider) Match(pattern, text string) (bool, error) {
 // Returns:
 //   - `string`: the text with all matches replaced.
 //   - `error`: non-nil if the pattern is invalid.
+//
+// +devlore:claim=deterministic
 func (p *Provider) Replace(pattern, text, replacement string) (string, error) {
 
 	re, err := p.compile(pattern)
@@ -163,6 +173,8 @@ func (p *Provider) Replace(pattern, text, replacement string) (string, error) {
 // Returns:
 //   - `string`: the text with all matches replaced literally.
 //   - `error`: non-nil if the pattern is invalid.
+//
+// +devlore:claim=deterministic
 func (p *Provider) ReplaceLiteral(pattern, text, replacement string) (string, error) {
 
 	re, err := p.compile(pattern)
@@ -184,6 +196,8 @@ func (p *Provider) ReplaceLiteral(pattern, text, replacement string) (string, er
 // Returns:
 //   - `[]string`: the substrings between matches.
 //   - `error`: non-nil if the pattern is invalid.
+//
+// +devlore:claim=deterministic
 func (p *Provider) Split(pattern, text string, count int) ([]string, error) {
 
 	re, err := p.compile(pattern)

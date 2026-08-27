@@ -10,6 +10,7 @@ package starlarkbridge
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
@@ -27,7 +28,9 @@ type Runtime struct {
 	converter   converter
 	cache       map[string]*loaderEntry
 	denied      map[string]map[string]bool
+	hermetic    bool
 	modules     []op.ProviderReceiverType
+	selection   []moduleSelection
 	predeclared starlark.StringDict
 }
 
@@ -78,63 +81,10 @@ func NewRuntime(env *op.RuntimeEnvironment, options ...RuntimeOption) *Runtime {
 	predeclared := starlark.StringDict{}
 
 	for _, module := range modules {
-
-		dispatch := module.Roles().Dispatch()
-		isRoot := module.Roles().Placement()&op.RoleRoot != 0
-
-		if dispatch&op.RoleModule == 0 {
-			// No module-mode dispatch; provider is not addressable as a top-level global. Its planned side, if any,
-			// is reached via plan.* dispatch at runtime.
-			continue
-		}
-
-		if !isRoot {
-			if sv := runtime.buildOne(module); sv != nil {
-				predeclared[module.Name()] = sv
-			}
-			continue
-		}
-
-		// Immediate + root: install each method as its own top-level predeclared entry.
-
-		sv := runtime.buildOne(module)
-		if sv == nil {
-			continue
-		}
-
-		hasAttrs, ok := sv.(starlark.HasAttrs)
-
-		assert.Truef(ok, "provider %s wrapper (%T) does not implement starlark.HasAttrs",
-			module.Name(),
-			sv)
-
-		for m := range module.Methods() {
-
-			snake := op.CamelToSnake(m.Name())
-
-			if existing, collides := predeclared[snake]; collides {
-				assert.Failf("top-level global %q declared on both %s (root immediate) and existing predeclared (%T)",
-					snake,
-					module.Name(),
-					existing)
-			}
-
-			attr, err := hasAttrs.Attr(snake)
-
-			// Inverted before 2026-07-03: the assertion required err != nil — a SUCCESSFUL Attr would have panicked.
-			// The branch is reserved (no phase-8 provider is RoleModule|RoleRoot), so the inversion sat latent until
-			// step 6's registration tests exercised it.
-			assert.Truef(err == nil && attr != nil,
-				"provider %q: method %q (snake_case %q) registered in receiver type but Attr(%q) failed — registry/Attr mismatch: %v",
-				module.Name(),
-				m.Name(),
-				snake,
-				snake,
-				err)
-
-			predeclared[snake] = attr
-		}
+		runtime.placeModule(module, predeclared)
 	}
+
+	runtime.reportSelection()
 
 	runtime.applyDenials(predeclared)
 	runtime.predeclared = predeclared
@@ -324,6 +274,241 @@ func (rt *Runtime) applyDenials(predeclared starlark.StringDict) {
 	}
 }
 
+// admits reports whether `method` belongs on this runtime's module surface.
+//
+// A non-hermetic runtime admits everything: `star` is a scripting tool, where effects are the point. A hermetic
+// runtime -- the one graph planning uses -- admits only methods claiming [op.ClaimDeterministic], because a
+// method whose result is not a function of its declared inputs makes the planned graph depend on the machine
+// that planned it ([2.4-hermeticity-guarantees.md]).
+//
+// The verdict is per METHOD, never per provider. `file` is why: a hermetic runtime wants `file.join` and not
+// `file.write_text`, and no bit on the provider can say that.
+//
+// Parameters:
+//   - `method`: the candidate method.
+//
+// Returns:
+//   - `bool`: true when the method may be installed on this runtime's surface.
+func (rt *Runtime) admits(method *op.Method) bool {
+	return !rt.hermetic || method.Claims()&op.ClaimDeterministic != 0
+}
+
+// partitionMethods splits a provider's methods into those this runtime admits and those it refuses.
+//
+// Both counts matter to the caller, and they mean different things: a provider with NO methods has nothing to
+// offer and is skipped in silence -- `elevation` while it stays dormant, `mem` which registers a resource scheme
+// and has no `Provider` at all. A provider whose every method is refused is a different thing entirely, and the
+// caller fails loudly on it.
+//
+// Parameters:
+//   - `module`: the provider receiver type whose methods are being placed.
+//
+// Returns:
+//   - `admitted`: the count this runtime will install.
+//   - `refused`: the snake_case names it will not, ready to hand to [filteredReceiver].
+func (rt *Runtime) partitionMethods(module op.ProviderReceiverType) (admitted int, refused map[string]bool) {
+
+	refused = map[string]bool{}
+
+	for method := range module.Methods() {
+		if rt.admits(method) {
+			admitted++
+			continue
+		}
+		refused[op.CamelToSnake(method.Name())] = true
+	}
+
+	return admitted, refused
+}
+
+// placeModule installs one selected provider's admitted methods onto the predeclared surface.
+//
+// Two zero cases are distinguished deliberately. A provider with no methods at all has nothing to offer and is
+// skipped in silence — `elevation` while dormant, `mem` which registers a resource scheme and has no `Provider`.
+// A provider whose every method is refused is a different thing: the author selected something this runtime
+// cannot serve, and hears about it here rather than as a NameError several lines into their script.
+//
+// Parameters:
+//   - `module`: the provider receiver type to place.
+//   - `predeclared`: the surface under construction, mutated in place.
+func (rt *Runtime) placeModule(module op.ProviderReceiverType, predeclared starlark.StringDict) {
+
+	dispatch := module.Roles().Dispatch()
+	isRoot := module.Roles().Placement()&op.RoleRoot != 0
+
+	if dispatch&op.RoleModule == 0 {
+		// Not eligible for a module surface; the provider is reached through plan.* dispatch instead. flow is
+		// the case: its methods ARE the graph combinators and mean nothing outside a graph.
+		rt.selection = append(rt.selection, moduleSelection{name: module.Name()})
+		return
+	}
+
+	// A provider contributes the part of itself this runtime admits. Two outcomes are not the same failure:
+	// having nothing to offer is silence (elevation while dormant, mem which has no Provider), while having
+	// everything refused is a mistake the author should hear about here rather than as a NameError later.
+	admitted, refused := rt.partitionMethods(module)
+
+	rt.selection = append(rt.selection, moduleSelection{
+		name:     module.Name(),
+		eligible: true,
+		admitted: admitted,
+		refused:  len(refused),
+	})
+
+	if admitted == 0 && len(refused) == 0 {
+		return
+	}
+
+	if !isRoot {
+		sv := rt.buildOne(module)
+		if sv == nil {
+			return
+		}
+
+		if len(refused) > 0 {
+			hasAttrs, ok := sv.(starlark.HasAttrs)
+
+			assert.Truef(ok, "provider %s wrapper (%T) does not implement starlark.HasAttrs",
+				module.Name(),
+				sv)
+
+			sv = &filteredReceiver{
+				HasAttrs: hasAttrs,
+				global:   module.Name(),
+				denied:   refused,
+				reason:   "this runtime is hermetic and the method makes no deterministic claim",
+			}
+		}
+
+		predeclared[module.Name()] = sv
+		return
+	}
+
+	// Immediate + root: install each method as its own top-level predeclared entry.
+
+	sv := rt.buildOne(module)
+	if sv == nil {
+		return
+	}
+
+	hasAttrs, ok := sv.(starlark.HasAttrs)
+
+	assert.Truef(ok, "provider %s wrapper (%T) does not implement starlark.HasAttrs",
+		module.Name(),
+		sv)
+
+	for m := range module.Methods() {
+
+		snake := op.CamelToSnake(m.Name())
+
+		if refused[snake] {
+			return
+		}
+
+		if existing, collides := predeclared[snake]; collides {
+			assert.Failf("top-level global %q declared on both %s (root immediate) and existing predeclared (%T)",
+				snake,
+				module.Name(),
+				existing)
+		}
+
+		attr, err := hasAttrs.Attr(snake)
+
+		// Inverted before 2026-07-03: the assertion required err != nil — a SUCCESSFUL Attr would have panicked.
+		// The branch is reserved (no phase-8 provider is RoleModule|RoleRoot), so the inversion sat latent until
+		// step 6's registration tests exercised it.
+		assert.Truef(err == nil && attr != nil,
+			"provider %q: method %q (snake_case %q) registered in receiver type but Attr(%q) failed — registry/Attr mismatch: %v",
+			module.Name(),
+			m.Name(),
+			snake,
+			snake,
+			err)
+
+		predeclared[snake] = attr
+	}
+}
+
+// moduleSelection records what one selected provider contributed to the surface.
+//
+// `eligible` is false for a provider the module surface never considered — one declaring `+devlore:surface=graph`,
+// whose methods are the graph's and mean nothing outside it. For an eligible provider, `admitted` and `refused`
+// sum to its announced method count, and both being zero means it had nothing to offer.
+type moduleSelection struct {
+	name     string
+	eligible bool
+	admitted int
+	refused  int
+}
+
+// reportSelection narrates what this runtime's module surface admitted, refused, and never considered.
+//
+// The report answers one question — "where did my method go?" — and answers it in the direction an author asks
+// it: a refused method is not gone, it moved to `plan.<module>.<method>`, and the summary says so.
+//
+// TODO(#507): this belongs on the diagnostics stream, not on the narrator. Per
+// [2.8-eventing-infrastructure.md] §"Narration vs. diagnostics", narration is the user-facing progress API at
+// INFO+ while diagnostics are span-correlated DEBUG / TRACE, hidden until asked for — which is exactly what a
+// selection report is. That API does not exist yet ("new API to add", same section), so this narrates for now.
+// Move it when #507 lands the diagnostics API.
+func (rt *Runtime) reportSelection() {
+
+	if rt.environment == nil || rt.environment.Status == nil || len(rt.selection) == 0 {
+		return
+	}
+
+	var full, partial, none, ineligible []string
+	admittedTotal, announcedTotal := 0, 0
+
+	for _, entry := range rt.selection {
+		switch {
+		case !entry.eligible:
+			ineligible = append(ineligible, entry.name)
+			continue
+		case entry.admitted == 0 && entry.refused == 0:
+			ineligible = append(ineligible, entry.name+" (no methods)")
+			continue
+		case entry.refused == 0:
+			full = append(full, fmt.Sprintf("%s(%d)", entry.name, entry.admitted))
+		case entry.admitted == 0:
+			none = append(none, entry.name)
+		default:
+			partial = append(partial, fmt.Sprintf("%s(%d/%d)", entry.name, entry.admitted, entry.admitted+entry.refused))
+		}
+
+		admittedTotal += entry.admitted
+		announcedTotal += entry.admitted + entry.refused
+	}
+
+	kind := "scripting runtime (non-hermetic)"
+	if rt.hermetic {
+		kind = "planning runtime (hermetic)"
+	}
+
+	contributing := len(full) + len(partial)
+
+	rt.environment.Status.Note(fmt.Sprintf("%s: %d of %d modules contribute %d of %d methods",
+		kind,
+		contributing,
+		contributing+len(none),
+		admittedTotal,
+		announcedTotal))
+
+	report := func(label string, entries []string, suffix string) {
+		if len(entries) == 0 {
+			return
+		}
+
+		sort.Strings(entries)
+		rt.environment.Status.Note(fmt.Sprintf("  %-9s %s%s", label, strings.Join(entries, " "), suffix))
+	}
+
+	report("full", full, "")
+	report("partial", partial, "")
+	report("none", none, " — no deterministic claim; reachable as plan.<module>.<method>")
+	report("n/a", ineligible, "")
+}
+
 // buildOne constructs a [starlark.Value] from a provider receiver type via the Environment provider cache.
 //
 // Parameters:
@@ -375,6 +560,10 @@ func (rt *Runtime) resolveProvider(name string) (starlark.StringDict, error) {
 func (r *filteredReceiver) Attr(name string) (starlark.Value, error) {
 
 	if r.denied[name] {
+		if r.reason != "" {
+			return nil, fmt.Errorf("%s.%s is not available in this runtime: %s", r.global, name, r.reason)
+		}
+
 		return nil, fmt.Errorf("%s.%s is not available in this runtime", r.global, name)
 	}
 
@@ -422,6 +611,10 @@ type filteredReceiver struct {
 	starlark.HasAttrs
 	global string
 	denied map[string]bool
+
+	// reason explains the refusal when the deny set came from a policy rather than from a caller naming
+	// attributes. Empty for [DenyAttributes], whose caller already knows why it denied what it denied.
+	reason string
 }
 
 // loaderEntry caches the result of resolving a provider module.
@@ -433,6 +626,23 @@ type loaderEntry struct {
 // endregion
 
 // region HELPER FUNCTIONS
+
+// Hermetic narrows this runtime's module surface to methods claiming [op.ClaimDeterministic].
+//
+// Graph planning must be hermetic: given the same inputs it produces the same graph, on any machine, every time
+// ([2.4-hermeticity-guarantees.md]). A method that reads the host, spawns a process, or reaches the network
+// makes that false, so a planning runtime refuses it -- while `star`, a scripting tool where effects are the
+// point, applies no such filter and passes this option not at all.
+//
+// The filter is applied per method as the surface is built, so a provider contributes the part of itself that
+// qualifies rather than being admitted or refused whole.
+//
+// Returns:
+//   - `RuntimeOption`: the option, applied by [NewRuntime] before the surface is built.
+func Hermetic() RuntimeOption {
+
+	return func(rt *Runtime) { rt.hermetic = true }
+}
 
 // DenyAttributes hides the named attributes on a predeclared top-level global, for this runtime only.
 //

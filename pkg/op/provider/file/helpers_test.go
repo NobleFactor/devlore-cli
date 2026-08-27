@@ -77,15 +77,17 @@ func TestApplyOwnership_BothSidesEmptyIsNoOp(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	// Both sides empty must short-circuit to nil error without invoking any syscall.
-	if err := applyOwnership(target, "", ""); err != nil {
+	// Both sides empty must short-circuit to nil error without invoking any syscall. A nil root proves it:
+	// reaching the filesystem at all would dereference it.
+	if err := applyOwnership(nil, target, "", ""); err != nil {
 		t.Errorf("applyOwnership(empty, empty): %v", err)
 	}
 }
 
 func TestApplyOwnership_RejectsUnresolvableUser(t *testing.T) {
 
-	if err := applyOwnership("/tmp/anything", "no-such-user-exists-here", ""); err == nil {
+	// A nil root again: name resolution fails before any chown, so the root is never touched.
+	if err := applyOwnership(nil, "/tmp/anything", "no-such-user-exists-here", ""); err == nil {
 		t.Error("unresolvable user: want error")
 	}
 }

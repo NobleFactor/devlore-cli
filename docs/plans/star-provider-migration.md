@@ -60,9 +60,9 @@ explicitly marked for deletion once migration completes.
 
 ### R1: file.Provider must support immediate mode
 
-devlore-cli's `file.Provider` is currently `+devlore:access=planned` (graph-mode only).
+devlore-cli's `file.Provider` is currently access zone `planned` (graph-mode only).
 noblefactor-ops star runs in immediate mode. The provider must be changed to
-`+devlore:access=both` and regenerated so `NewExecuting` is emitted.
+access zone `both` and regenerated so `NewExecuting` is emitted.
 
 No new methods are needed:
 
@@ -159,7 +159,7 @@ data = json.decode('{"key": "value"}')  # returns Starlark dict directly
 ### R3: Star analysis providers wired as immediate receivers
 
 devlore-cli already has starindex, starcomplexity, starstats, and staranalysis providers.
-These are already `+devlore:access=immediate`. Wire them into noblefactor-ops
+These are already access zone `immediate`. Wire them into noblefactor-ops
 `BindingConfig.WithReceivers(...)`. The `starlark_parse` hand-coded receiver is replaced
 by these four providers, exposing separate namespaces:
 
@@ -249,7 +249,7 @@ The hand-coded receivers use a global `starlark.DryRun` bool. Framework provider
 
 **file.Provider**:
 
-- [ ] Change `file.Provider` from `+devlore:access=planned` to `+devlore:access=both`
+- [ ] Change `file.Provider` from access zone `planned` to access zone `both`
 - [ ] Regenerate `gen/` files
 - [ ] `make check` passes
 
@@ -338,7 +338,7 @@ The hand-coded receivers use a global `starlark.DryRun` bool. Framework provider
 - [ ] Create `internal/provider/shellcheck/` following goast pattern
 - [ ] Move shellcheck logic from `receiver_shellcheck.go` into `provider.go`
 - [ ] Extract result types to `types.go` with `starlark` tags
-- [ ] Mark `+devlore:access=immediate`
+- [ ] Mark access zone `immediate`
 - [ ] Run code generation → `gen/receiver.gen.go`, `gen/params.gen.go`
 - [ ] Wire into `BindingConfig.WithReceivers(...)` in `NewRuntime()`
 - [ ] Remove `shellcheck` from `buildPredeclared()` hand-coded section
@@ -362,7 +362,7 @@ The hand-coded receivers use a global `starlark.DryRun` bool. Framework provider
 - [ ] Create `internal/provider/lint/` following goast pattern
 - [ ] Move lint logic from `receiver_lint.go` into `provider.go`
 - [ ] Extract result types to `types.go` with `starlark` tags
-- [ ] Mark `+devlore:access=immediate`
+- [ ] Mark access zone `immediate`
 - [ ] Run code generation
 - [ ] Wire into BindingConfig, remove hand-coded receiver
 - [ ] Delete `receiver_lint.go`
@@ -384,7 +384,7 @@ The hand-coded receivers use a global `starlark.DryRun` bool. Framework provider
 - [ ] Create `internal/provider/setup/` following goast pattern
 - [ ] Move setup logic from `receiver_setup.go` into `provider.go`
 - [ ] Extract result types to `types.go` with `starlark` tags
-- [ ] Mark `+devlore:access=immediate`
+- [ ] Mark access zone `immediate`
 - [ ] Run code generation
 - [ ] Wire into BindingConfig, remove hand-coded receiver
 - [ ] Delete `receiver_setup.go`
@@ -406,7 +406,7 @@ The hand-coded receivers use a global `starlark.DryRun` bool. Framework provider
 - [ ] Create `internal/provider/nfconfig/` following goast pattern
 - [ ] Move config logic from `receiver_config.go` into `provider.go`
 - [ ] Extract result types to `types.go` with `starlark` tags
-- [ ] Mark `+devlore:access=immediate`
+- [ ] Mark access zone `immediate`
 - [ ] Run code generation
 - [ ] Wire into BindingConfig, remove hand-coded receiver
 - [ ] Delete `receiver_config.go`, remove from `receivers.go`
@@ -432,7 +432,7 @@ The hand-coded receivers use a global `starlark.DryRun` bool. Framework provider
 - [ ] Create `internal/provider/commands/` following goast pattern
 - [ ] Move command-tree logic from `receiver_commands.go` into `provider.go`
 - [ ] Extract result types to `types.go` with `starlark` tags
-- [ ] Mark `+devlore:access=immediate`
+- [ ] Mark access zone `immediate`
 - [ ] Run code generation
 - [ ] Wire into BindingConfig, remove hand-coded receiver
 - [ ] Delete `receiver_commands.go`

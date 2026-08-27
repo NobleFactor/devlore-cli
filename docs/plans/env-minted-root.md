@@ -8,6 +8,17 @@ updated: 2026-08-13
 
 # Plan: Environment-Minted Root
 
+> **Superseded in part, 2026-08-25.** The three-variant design below — the `Mode` type over
+> `ModeSandboxed` / `ModeUnsandboxed` / `ModeWritableUnsandboxed`, and the dispatching
+> `Open(dir string, mode Mode)` — was replaced by
+> [`4.5-fsroot-variants.md`](../architecture/4.5-fsroot-variants.md) on 2026-08-19, whose status records
+> why: *"tracing their consumers found the middle one unimplemented and the outer one justified by
+> bootstrapping rather than access, so the design collapses to a single sandbox behaviour and two
+> types."* Measured 2026-08-25: none of those three `Mode` values, nor `OpenUnsandboxed` /
+> `OpenWritableUnsandboxed`, appears in any Go file. The surviving constructors are `OpenExisting`
+> and `OpenScratch`, both sandboxed. The rest of this plan stands as the record of what was done
+> under #393.
+
 Implements the amended #393 ruling (option 4, banked at
 [#393 issuecomment-5283660132](https://github.com/NobleFactor/devlore-cli/issues/393#issuecomment-5283660132)):
 `RuntimeEnvironmentSpec` carries no live `fsroot.Dir` — only the anchor path and access mode —
@@ -16,7 +27,7 @@ Tracking issue: #393 (pre-existing; no new issue). Campaign: #373 / [platform-te
 
 ## Summary
 
-The confined Root's directory handle (`os.OpenRoot`) leaks on every path that mints a Root into a
+The sandboxed Root's directory handle (`os.OpenRoot`) leaks on every path that mints a Root into a
 spec without a Run to close it, and Windows turns each leak into a `RemoveAll` test failure — 18
 of the standing 48. The verified fix: no handle ever lives in a spec. The spec carries two
 serializable values (anchor path + mode), `NewRuntimeEnvironment` mints from them, and
@@ -43,7 +54,7 @@ gaps clean; no `.star` script or doc touches `spec.root`).
 | Happy-path close | ✅ Working | `GraphExecutor.Run` defer → `RuntimeEnvironment.Close` → `iox.Close(re.Root)` |
 | Pre-Run error paths | ❌ Leak | `plan.Provider.Spec` (`provider.go:475`), devlore-test `buildSpec` (`test_context.go:829`) mint Roots no Run closes |
 | lore command loop | ❌ Defect | one spec's Root reused by N executors (`commands.go:259`); iteration 2+ runs against a closed Root |
-| devlore-test root aliasing | ⚠️ Latent | `runner.go:281` aliases the spec's root into `TestContext` for post-close reads; benign only because unconfined `Close` is a no-op |
+| devlore-test root aliasing | ⚠️ Latent | `runner.go:281` aliases the spec's root into `TestContext` for post-close reads; benign only because unsandboxed `Close` is a no-op |
 | `cmd/lore/lore/integration_test.go` | 💀 Dead | `//go:build ignore`, references removed APIs (`op.contextBase`) — rider: delete |
 
 ## Requirements
@@ -53,10 +64,10 @@ gaps clean; no `.star` script or doc touches `spec.root`).
 `pkg/fsroot` gains a `Mode` type naming its three implementations, and one constructor that
 dispatches on it:
 
-- `ModeConfined` (**zero value** — the production-correct default), `ModeUnconfined` (read-only),
-  `ModeWritableUnconfined`.
-- `Open(dir string, mode Mode) (Root, error)` — dispatches to `OpenConfined` /
-  `OpenUnconfined` / `OpenWritableUnconfined`. Only the confined branch can fail; the unconfined
+- `ModeSandboxed` (**zero value** — the production-correct default), `ModeUnsandboxed` (read-only),
+  `ModeWritableUnsandboxed`.
+- `Open(dir string, mode Mode) (Root, error)` — dispatches to `OpenExisting` /
+  `OpenUnsandboxed` / `OpenWritableUnsandboxed`. Only the sandboxed branch can fail; the unsandboxed
   constructors stay error-free and public (tests and `TestContext` use them directly).
 
 ### 2. Spec carries anchor + mode
@@ -87,36 +98,36 @@ In `pkg/op/runtime_environment.go`:
 
 ### 4. `plan.Provider.Spec` keeps fail-fast via open-and-release
 
-`provider.go:475`'s retained mint becomes a probe: `fsroot.OpenConfined(rootPath)` +
+`provider.go:475`'s retained mint becomes a probe: `fsroot.OpenExisting(rootPath)` +
 immediate `Close` in the same statement group. The error contract and message shape
 (`"plan.Provider.Spec: open root %s: %w"`) survive verbatim; the mint itself is the check, so
 no second definition of "valid" exists. The returned spec is built with
-`WithRoot(rootPath, fsroot.ModeConfined)`.
+`WithRoot(rootPath, fsroot.ModeSandboxed)`.
 
 ### 5. Host mint sites dissolve
 
-Every host `OpenConfined` + error handling collapses to a `WithRoot(path, mode)` argument. Spec
+Every host `OpenExisting` + error handling collapses to a `WithRoot(path, mode)` argument. Spec
 factories whose only error source was the mint become infallible (error return dropped —
 greenfield, no compatibility shims), and their callers simplify:
 
 | Site | Change |
 | --- | --- |
-| `cmd/writ/writ/deploy/plan.go:387,412` | `deploySpec` / `runSpec` infallible; confined |
-| `cmd/writ/writ/adopt/batch.go:274` | `buildSpec` infallible; confined |
-| `cmd/writ/writ/migrate/execute.go:74`, `helpers.go:90` | inline mint removed; `migrateSpec` infallible; confined |
-| `cmd/writ/writ/upgrade/upgrade.go:566` | `upgradeSpec` infallible; confined |
-| `cmd/writ/writ/decommission/decommission.go:295` | `removalSpec` infallible; confined |
-| `cmd/writ/writ/secret/encrypt.go:253` | `encryptSpec` infallible; confined |
-| `cmd/writ/writ/verify/verify.go:255` | mint removed; spec `WithRoot(separator, confined)`; handles the env-build error |
+| `cmd/writ/writ/deploy/plan.go:387,412` | `deploySpec` / `runSpec` infallible; sandboxed |
+| `cmd/writ/writ/adopt/batch.go:274` | `buildSpec` infallible; sandboxed |
+| `cmd/writ/writ/migrate/execute.go:74`, `helpers.go:90` | inline mint removed; `migrateSpec` infallible; sandboxed |
+| `cmd/writ/writ/upgrade/upgrade.go:566` | `upgradeSpec` infallible; sandboxed |
+| `cmd/writ/writ/decommission/decommission.go:295` | `removalSpec` infallible; sandboxed |
+| `cmd/writ/writ/secret/encrypt.go:253` | `encryptSpec` infallible; sandboxed |
+| `cmd/writ/writ/verify/verify.go:255` | mint removed; spec `WithRoot(separator, sandboxed)`; handles the env-build error |
 | `cmd/writ/writ/readback/readback.go:515` | same as verify |
 | `cmd/lore/lore/commands.go:245` | mint removed; the N-executor loop at `:259` heals — each Run mints fresh |
-| `cmd/star/star/application.go:81` | `WithRoot(wd, ModeWritableUnconfined)`; handles the env-build error |
-| `cmd/devlore-test/devloretest/test_context.go:829` | `buildSpec` mint removed; confined at `tc.tmpDir` |
-| `cmd/devlore-test/devloretest/runner.go:241` | spec gets `WithRoot(tmpDir, ModeWritableUnconfined)`; `TestContext` keeps constructing its **own** unconfined root — separate object, separate lifecycle; the aliasing and double-close dissolve |
+| `cmd/star/star/application.go:81` | `WithRoot(wd, ModeWritableUnsandboxed)`; handles the env-build error |
+| `cmd/devlore-test/devloretest/test_context.go:829` | `buildSpec` mint removed; sandboxed at `tc.tmpDir` |
+| `cmd/devlore-test/devloretest/runner.go:241` | spec gets `WithRoot(tmpDir, ModeWritableUnsandboxed)`; `TestContext` keeps constructing its **own** unsandboxed root — separate object, separate lifecycle; the aliasing and double-close dissolve |
 
 ### 6. Tests
 
-- `fsroot.Open` dispatch: one test per mode, plus the confined failure path.
+- `fsroot.Open` dispatch: one test per mode, plus the sandboxed failure path.
 - `NewRuntimeEnvironment` with a bad anchor returns an error; with an empty `RootPath` yields a
   nil-Root environment with no `RecoverySite`.
 - `GraphExecutor.Run` with a bad anchor lands `ReasonPreflightFailed` and dispatches nothing.
@@ -133,10 +144,10 @@ greenfield, no compatibility shims), and their callers simplify:
 ### Phase 1: fsroot Mode — status: complete (2026-08-13)
 
 - [x] `Mode` type, three values, `Open(dir, mode)` dispatch, doc comments per style guide.
-- [x] Unit tests for the dispatch and the confined failure path — behavioral discriminators
-      (post-Close failure = confined; `errors.ErrUnsupported` on write = read-only; post-Close
-      success = writable unconfined), plus the missing-directory failure and the zero-value
-      contract (`Mode(0) == ModeConfined`). `make vet` and full `make test` green.
+- [x] Unit tests for the dispatch and the sandboxed failure path — behavioral discriminators
+      (post-Close failure = sandboxed; `errors.ErrUnsupported` on write = read-only; post-Close
+      success = writable unsandboxed), plus the missing-directory failure and the zero-value
+      contract (`Mode(0) == ModeSandboxed`). `make vet` and full `make test` green.
 
 **Files**: `pkg/fsroot/root.go` — Modify; `pkg/fsroot/root_test.go` — Modify.
 
@@ -158,7 +169,7 @@ were therefore pulled forward and verified jointly with phase 2.
 
 ### Phase 3: plan provider probe — status: complete (2026-08-13)
 
-- [x] `plan.Provider.Spec` open-and-release probe; spec built from anchor + confined mode; error
+- [x] `plan.Provider.Spec` open-and-release probe; spec built from anchor + sandboxed mode; error
       message shape preserved (`"plan.Provider.Spec: open root %s"`).
 - [x] Plan-provider test migration (all nine test files); the defaults-contract test now asserts
       `RootPath`/`RootMode` instead of handle identity. Full `make test`: every `pkg/` package
@@ -174,7 +185,7 @@ were therefore pulled forward and verified jointly with phase 2.
       Root). lore's `commands.go` mint removed — the N-executor loop now heals structurally.
       verify/readback anchor at the separator path via the spec; both loading environments now
       CLOSE (a pre-existing handle leak in both, fixed en passant). devlore-test's spec carries
-      the anchor; `TestContext` keeps its own writable-unconfined root (aliasing dissolved).
+      the anchor; `TestContext` keeps its own writable-unsandboxed root (aliasing dissolved).
 - [x] Host-side test migration (`migrate/receipt_integration_test.go`, `lore/builder_test.go`).
       Ride-along: `env`/`sharedEnv` identifiers renamed in every touched file.
 - [ ] Rider: delete dead `cmd/lore/lore/integration_test.go` (`//go:build ignore`, removed
