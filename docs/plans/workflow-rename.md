@@ -8,6 +8,17 @@ updated: 2026-05-30
 
 # Plan: Rename op → workflow
 
+> **Read this first.** The prerequisite below is **satisfied** — `refactor/extract-starlark-from-op.phase-8`
+> merged long ago — but the plan has not been revisited since **2026-05-26**, and every quantity in its
+> Current State is now wrong. See §Staleness. Two issues carry the work to fix that:
+>
+> - [#716](https://github.com/NobleFactor/devlore-cli/issues/716) — re-audit, and write the name-mapping
+>   appendix this plan lacks
+> - [#715](https://github.com/NobleFactor/devlore-cli/issues/715) — rename the provider roles, which belongs
+>   in the same window; #716 blocks it
+>
+> Do not start a phase from the numbers below.
+
 ## Summary
 
 Rename the `op` package to `workflow` and adopt a coherent flow-control vocabulary across its core types. `ExecutableUnit` becomes `Node` — the abstract vertex — and its two variants become `Step` (the leaf, was `Node`) and `Block` (the composite, was `Subgraph`). The durable execution record `RecoveryStack` becomes `Ledger`. The container/driver pair `Graph` / `GraphExecutor` becomes `Definition` / `Executor`, making the intent-vs-reality dichotomy explicit at the type level.
@@ -25,9 +36,11 @@ This is a pure rename project. No behavior changes, no signature changes, no sco
 
 ## Prerequisites
 
-This work cannot start until the in-flight upstream PR (`refactor/extract-starlark-from-op.phase-8`) merges to `develop`. Starting earlier creates intractable merge conflicts in `pkg/op/`.
+~~This work cannot start until the in-flight upstream PR (`refactor/extract-starlark-from-op.phase-8`) merges to `develop`.~~ **Satisfied.** That branch is gone from the remote and phase 8 has landed.
 
-The plan stays in `draft` status until then. Branch creation, GitHub issue creation, and the first phase begin only after develop is current.
+The real prerequisite now is [#716](https://github.com/NobleFactor/devlore-cli/issues/716): the plan's own
+facts are three months stale, and a phase started from them would be scoped against a package 74% smaller than
+the one that exists.
 
 ## Current State (audited 2026-05-26)
 
@@ -49,6 +62,32 @@ The plan stays in `draft` status until then. Branch creation, GitHub issue creat
 | Qualified `op.X` references | ~2,499 | non-test + test combined | |
 | Generated files in scope | 29 `.gen.go` | `pkg/op/provider/*/gen/` + `pkg/op/inventory/` | regenerate via `make build` |
 | Name collisions for new names | `Step` (cross-package only) | repo-wide | `Block`, `Ledger`, `Workflow`, `Definition`, `Executor` are all unused elsewhere. `Step` has no language-level clash: the only existing type is `console.Step` in `internal/console` (a TUI session step, different package); the `pkg/op` "Step" hits are comment prose ("Step 3 fires…"), not identifiers. |
+
+### Staleness (measured 2026-08-27)
+
+Every quantity above is wrong. [#716](https://github.com/NobleFactor/devlore-cli/issues/716) re-audits it.
+
+| Element | Audited 2026-05-26 | Measured 2026-08-27 | |
+| --- | --- | --- | --- |
+| `pkg/op/` root `.go` files | 62 | **108** | +74% |
+| `provider/` files | 76 | **238** | +213% |
+| `starlarkbridge/` files | 5 | **8** | +60% |
+| Generated `.gen.go` | 29 | **48** | +66% |
+| Qualified `op.X` references | ~2,499 | **3,880** | +55% |
+| Files importing `pkg/op` | ~200 | 130 | methodology may differ |
+
+**The subpackage list is wrong in both directions.** Audited as `provider/`, `starlarkbridge/`, `inventory/`,
+`sops/`. Today: `claimcheck/`, `inventory/`, `provider/`, `server/`, `starlarkbridge/` — `sops/` has left, and
+`claimcheck/` and `server/` arrived afterwards. Every line reference in the table above has shifted.
+
+**What still holds.** All five renames remain well-formed, and the collision claim survives: `Step` is declared
+only in `internal/console`, while `Block`, `Ledger`, `Definition`, `Executor`, and `Workflow` are declared
+nowhere. Phase 1 before Phase 2 is still the only ordering constraint.
+
+**New evidence for the target.** `plan.Provider` now exposes `AssembleDefinition`, `LoadDefinition`, and
+`SaveDefinition` — all returning `*op.Graph` — and scripts read `plan.assemble_definition(...)`. The API
+already calls a graph a *definition* while the Go type is still `Graph`. The rename closes a gap that has
+widened on its own since the audit, rather than imposing a new word.
 
 ## Taxonomy Target
 
@@ -77,6 +116,51 @@ workflow
 | 5 | package `op` | package `workflow` | package + directory move | confirmed |
 
 Sequencing is collision-safe: Phase 1 must precede Phase 2 (frees the name `Node`). All other phases are independent.
+
+### Appendix: Name Mapping — TO BE WRITTEN
+
+The table above is five rows: the top-level types, one per phase. **Nothing maps the derived identifiers**, and
+goal 4 promises "each phase is a pure rename so reviewers can verify by inspection" — without the appendix a
+reviewer has no reference to inspect the diff against.
+
+It is derivable, since there are no structural changes. Scope, measured 2026-08-27:
+
+| Word | Exported identifiers containing it |
+| --- | --- |
+| `Graph` | **53** |
+| `Subgraph` | **37** |
+| `RecoveryStack` | **18** |
+| `ExecutableUnit` | 3 |
+
+Plus **14 files** whose names carry a renamed word: `graph.go`, `graph_executor.go`, `subgraph.go`,
+`nodeid.go`, `executable_unit.go`, `recovery_stack.go`, and their tests.
+
+**Three classes need judgment, not derivation.**
+
+`Node` is ambiguous by construction — it maps to `Step` *and* is the target of `ExecutableUnit`, so it appears
+on both sides of the mapping. Every identifier containing it needs a decision about which sense it carries.
+The proof is `GenerateNodeID`, whose doc says "unique node IDs across all plan bindings" and which
+`pkg/op/provider/flow/helpers.go` calls as:
+
+```go
+GenerateNodeID(string(Subgraph))
+```
+
+It mints ids for **subgraphs too**, so it names the abstract vertex — which under the new taxonomy is `Node`,
+meaning **it keeps its name**. A mechanical `Node → Step` sweep would rename it `GenerateStepID` and quietly
+make it wrong: an identifier claiming to mint leaf ids while minting them for `Block`s as well. Phase 1 before
+Phase 2 protects the *types* from this collision; nothing protects derived identifiers.
+
+File names are not all mechanical either. `graph.go` → `definition.go` and `graph_executor.go` → `executor.go`
+are clear; `nodeid.go` follows whatever `GenerateNodeID` decides.
+
+And prose inside identifiers — `SerializeGraphs`, `descendantNodes`, `SubgraphChild`, `NewGraphSpec` — reads
+differently after the swap, some of it carrying the same ambiguity.
+
+**Identifiers that KEEP their name must be listed explicitly.** A table of only the changes cannot distinguish
+"correctly unchanged" from "missed", and `GenerateNodeID` is exactly that case.
+
+Written under [#716](https://github.com/NobleFactor/devlore-cli/issues/716).
 
 ## Implementation Phases
 
@@ -190,6 +274,20 @@ Method: I grep each old name → enumerate locations → produce one batched edi
 - **`RecoverySite` rename.** The name is accurate as-is (a persistent stash from which content can be recovered). Family-coherence with `Ledger` is not a reason to rename.
 - **Materializing a concrete `Slot` type.** Currently only `SlotValue` interface exists. Promoting `Slot` to a real type is a design change, not a rename — separate effort.
 - **Other vocabulary cleanup.** Anything not in the rename mapping above.
+
+## Related Rename: the provider roles
+
+`+devlore:surface=graph` produces `RoleAction` and `+devlore:surface=module` produces `RoleModule` — two
+vocabularies for one idea, connected only by a switch in `generate.star`. An author writes `graph`, the
+generated code says `Action`.
+
+This rename forces the issue: `Graph` becomes `Definition`, so `surface=graph` will name a type that no longer
+exists, and `module` is starlark's word for a namespace rather than a term in the new taxonomy. **Neither
+current word survives.**
+
+Belongs in this window rather than before or after it — doing it separately means renaming twice, and doing it
+after means shipping a constant named for the type it replaced. Tracked as
+[#715](https://github.com/NobleFactor/devlore-cli/issues/715), blocked on #716.
 
 ## Open Questions
 
