@@ -326,8 +326,38 @@ endif
 test: generate ## Run tests (TAGS=all|integration|e2e|"", default: all)
 	go test $(if $(_TAGS),-tags '$(_TAGS)') $$(go list ./... | grep -v '/pkg/op/provider$$') -timeout 60s
 
+# Whether this toolchain can instrument for the race detector. Asked of the toolchain rather than
+# transcribed from Go's own table (internal/platform.RaceDetectorSupported), which gains ports over
+# time and would drift here. Two distinct failures hide behind a rejected -race, and only one is ours
+# to fix:
+#
+#   "-race requires cgo"                      CGO_ENABLED=0, which this probe sets
+#   "-race is not supported on <goos>/<arch>"  no ThreadSanitizer runtime exists for that target
+#
+# The probe therefore runs with cgo ON, so the second cannot masquerade as the first and silently
+# cost race coverage on a platform that has it. `go list` compiles nothing -- the flag is rejected
+# during validation -- so this costs ~15ms.
+RACE_SUPPORTED := $(shell CGO_ENABLED=1 go list -race errors >/dev/null 2>&1 && echo 1)
+
 test-race: generate ## Run tests with race detector (TAGS=all|integration|e2e|"", default: all)
-	go test $(if $(_TAGS),-tags '$(_TAGS)') $$(go list ./... | grep -v '/pkg/op/provider$$') -count=1 -race -timeout 120s
+	if [ -z "$(RACE_SUPPORTED)" ]; then
+		message="race detector unavailable on $$(go env GOOS)/$$(go env GOARCH) -- tests run UNINSTRUMENTED"
+		# GitHub renders ::warning:: as an annotation on the run summary, so an uninstrumented leg is
+		# visible without opening the log. GITHUB_ACTIONS is unset locally and .SHELLFLAGS carries
+		# nounset, hence the :- default.
+		if [ -n "$${GITHUB_ACTIONS:-}" ]; then
+			echo "::warning title=Race detector unavailable::$$message"
+		fi
+		echo
+		echo "WARNING: $$message"
+		echo
+		race_flags=""
+		export CGO_ENABLED=0
+	else
+		race_flags="-race"
+		export CGO_ENABLED=1
+	fi
+	go test $(if $(_TAGS),-tags '$(_TAGS)') $$(go list ./... | grep -v '/pkg/op/provider$$') -count=1 $$race_flags -timeout 120s
 
 test-scenario: build ## Run every scenario: the real binaries driven end to end in a sandbox
 	# The writ-deploy scenario (docs/plans/writ-deploy-scenario.md) — writ's alone.
