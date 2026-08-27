@@ -358,6 +358,18 @@ func TestImmUI(t *testing.T) {
 	runScriptImm(t, "test_imm_ui.star")
 }
 
+func TestImmUI_PrintReplacesBuiltin(t *testing.T) {
+	runScriptImm(t, "test_imm_ui_print_replaces_builtin.star")
+}
+
+func TestImmUI_OneString(t *testing.T) {
+	runScriptImm(t, "test_imm_ui_one_string.star")
+}
+
+func TestImmUI_Fail(t *testing.T) {
+	runScriptImm(t, "test_imm_ui_fail.star")
+}
+
 func TestImmStaranalysis(t *testing.T) {
 	runScriptImm(t, "test_imm_staranalysis.star")
 }

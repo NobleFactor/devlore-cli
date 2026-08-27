@@ -401,8 +401,14 @@ func (rt *Runtime) placeModule(module op.ProviderReceiverType, predeclared starl
 
 		snake := op.CamelToSnake(m.Name())
 
+		// continue, not return: a refused method is skipped, not a reason to abandon the ones after it.
+		// This read `return` until 2026-08-27, so one refused method dropped every method the loop had
+		// not yet reached. [ReceiverType.Methods] yields sorted by name, so the loss was deterministic
+		// rather than random -- every method sorting AFTER the refused one vanished, which is worse: a
+		// stable wrong answer reads as intended behavior. It never fired, because no provider was
+		// RoleModule|RoleRoot until ui, and ui claims deterministic on all six, so nothing refuses them.
 		if refused[snake] {
-			return
+			continue
 		}
 
 		if existing, collides := predeclared[snake]; collides {

@@ -48,16 +48,16 @@ def run(command, ctx):
     tool_path = resolve_tool_path(ctx)
 
     if not file.exists(blob=tool_path):
-        ui.fail("devlore-test binary not found: " + tool_path)
-        ui.note("Run 'make build' to compile the binary")
+        fail("devlore-test binary not found: " + tool_path)
+        note("Run 'make build' to compile the binary")
         return
 
     args = build_args(ctx, tool_path)
-    ui.note("Running: " + " ".join(args))
+    note("Running: " + " ".join(args))
 
     # Execute the binary and parse JSON output.
     # Requires host.exec() receiver — planned for noblefactor-ops.
     # For now, run devlore-test directly from the command line:
     #   build/devlore-test --script <path>
-    ui.warn("Direct execution from star not yet wired — run the binary manually:")
-    ui.note("  " + " ".join(args))
+    warn("Direct execution from star not yet wired — run the binary manually:")
+    note("  " + " ".join(args))

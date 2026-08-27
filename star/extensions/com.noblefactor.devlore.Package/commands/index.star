@@ -56,13 +56,13 @@ def scan_packages(packages_dir):
     for pkg_name, pkg_path in pkg_dirs:
         lifecycle_path = file.join(pkg_path, "lifecycle.yaml")
         if not file.exists(lifecycle_path):
-            ui.warn("Skipping " + pkg_name + " (no lifecycle.yaml)")
+            warn("Skipping " + pkg_name + " (no lifecycle.yaml)")
             continue
 
         content = file.read_text(lifecycle_path)
         pkg = parse_lifecycle(content)
         if pkg == None:
-            ui.warn("Skipping " + pkg_name + " (invalid lifecycle.yaml)")
+            warn("Skipping " + pkg_name + " (invalid lifecycle.yaml)")
             continue
 
         pkg["dir"] = pkg_name
@@ -70,7 +70,7 @@ def scan_packages(packages_dir):
         pkg["variants"] = variant_map.get(pkg_name, [])
 
         packages.append(pkg)
-        ui.note("Found: " + pkg["name"] + " v" + pkg["version"])
+        note("Found: " + pkg["name"] + " v" + pkg["version"])
 
     return packages
 
@@ -104,7 +104,7 @@ def build_package_resolution(packages):
 
         for manager, names in signatures.items():
             if type(names) != "list":
-                ui.warn(lore_package + " signatures." + manager + " is not a list")
+                warn(lore_package + " signatures." + manager + " is not a list")
                 continue
 
             if manager not in resolution:
@@ -114,7 +114,7 @@ def build_package_resolution(packages):
                 if name in resolution[manager]:
                     existing = resolution[manager][name]
                     if existing != lore_package:
-                        ui.warn(manager + ":" + name + " maps to both " + existing + " and " + lore_package)
+                        warn(manager + ":" + name + " maps to both " + existing + " and " + lore_package)
                 resolution[manager][name] = lore_package
 
     # Sort managers for consistent output
@@ -132,7 +132,7 @@ def _resolve_target(ctx):
         sibling = file.join("..", "devlore-registry")
         if file.is_dir(sibling):
             target = sibling
-            ui.note("Using sibling registry: " + target)
+            note("Using sibling registry: " + target)
         else:
             fail("--target required (no ../devlore-registry found)")
     if not file.is_dir(target):
@@ -150,18 +150,18 @@ def run(command, ctx):
         fail("packages/ directory not found at " + packages_dir)
         return
 
-    ui.note("Scanning packages in " + packages_dir)
+    note("Scanning packages in " + packages_dir)
     packages = scan_packages(packages_dir)
 
     if len(packages) == 0:
-        ui.warn("No packages found")
+        warn("No packages found")
         return
 
     # Build and write package index
     index = build_index(packages)
     index_path = file.join(packages_dir, "index.yaml")
     file.write_text(index_path, yaml.encode(index))
-    ui.succeed("Wrote: " + index_path)
+    succeed("Wrote: " + index_path)
 
     # Build and write cross-reference
     xref = build_package_resolution(packages)
@@ -174,9 +174,9 @@ def run(command, ctx):
 
     if total_mappings > 0:
         file.write_text(xref_path, yaml.encode(xref))
-        ui.succeed("Wrote: " + xref_path)
-        ui.note(str(len(xref)) + " managers, " + str(total_mappings) + " mappings")
+        succeed("Wrote: " + xref_path)
+        note(str(len(xref)) + " managers, " + str(total_mappings) + " mappings")
     else:
-        ui.note("No cross-reference mappings found")
+        note("No cross-reference mappings found")
 
-    ui.note("Indexed " + str(len(packages)) + " package(s)")
+    note("Indexed " + str(len(packages)) + " package(s)")

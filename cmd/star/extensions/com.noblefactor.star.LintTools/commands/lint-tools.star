@@ -9,19 +9,19 @@ def run(command, ctx):
     """Check status of all required lint tools."""
     result = lint.ensure_tools()
 
-    ui.note("Checking lint tools...")
+    note("Checking lint tools...")
     for tool in result.tools:
         if tool.installed:
-            ui.succeed(tool.name + ": " + tool.path)
+            succeed(tool.name + ": " + tool.path)
         else:
-            ui.error(tool.name + ": not installed")
-            ui.note("  Install: " + tool.install_cmd)
+            error(tool.name + ": not installed")
+            note("  Install: " + tool.install_cmd)
 
     if result.all_installed:
-        ui.succeed("All lint tools installed")
+        succeed("All lint tools installed")
     else:
         print("")
-        ui.note("Install missing tools with:")
+        note("Install missing tools with:")
         for cmd in result.install_cmds:
             print("  " + cmd)
-        ui.fail("Missing required lint tools")
+        fail("Missing required lint tools")

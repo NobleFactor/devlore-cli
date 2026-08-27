@@ -8,34 +8,34 @@
 
 def run(command, ctx):
     """Run all setup tasks."""
-    ui.note("Setting up repository...")
+    note("Setting up repository...")
 
     # Check tools first
     tools_result = setup.tools()
     if tools_result.missing_count > 0:
-        ui.warn(str(tools_result.missing_count) + " tools missing (run 'star setup tools' for details)")
+        warn(str(tools_result.missing_count) + " tools missing (run 'star setup tools' for details)")
     else:
-        ui.succeed("All " + str(len(tools_result.tools)) + " tools installed")
+        succeed("All " + str(len(tools_result.tools)) + " tools installed")
 
     # Initialize config
     config_result = setup.init_config()
     if config_result.star_yaml_created:
-        ui.succeed("Created star.yaml")
+        succeed("Created star.yaml")
     for cfg in config_result.configs_synced:
-        ui.succeed("Synced " + cfg)
+        succeed("Synced " + cfg)
 
     # Install native git hooks
     hooks_result = setup.install_hook(name="pre-commit")
     if hooks_result.success:
         if hooks_result.already_installed:
-            ui.note("Git hooks already installed")
+            note("Git hooks already installed")
         else:
-            ui.succeed("Installed pre-commit hook")
+            succeed("Installed pre-commit hook")
     else:
-        ui.warn(hooks_result.message)
+        warn(hooks_result.message)
 
     # Final status
     if tools_result.missing_count > 0:
-        ui.warn("Setup complete with warnings - install missing tools")
+        warn("Setup complete with warnings - install missing tools")
     else:
-        ui.succeed("Repository setup complete")
+        succeed("Repository setup complete")

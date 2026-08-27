@@ -3,12 +3,15 @@
 
 # test_imm_ui.star — Immediate UI output functions.
 #
-# Validates: ui.note, ui.warn, ui.succeed, ui.error
-# ui.fail is excluded — it terminates script execution by design.
+# Validates: error, note, print, succeed, warn
+#
+# print is here because root placement made it ours: it resolves to ui.Print rather than starlark's
+# builtin. fail is excluded — it terminates script execution by design, so it has its own fixture.
 
-ui.note("test note")
-ui.warn("test warning")
-ui.succeed("test success")
-ui.error("test error")
+note("test note")
+print("test print")
+warn("test warning")
+succeed("test success")
+error("test error")
 
 t.expect_unit_count(0)

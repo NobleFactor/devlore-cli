@@ -18,7 +18,7 @@ def ensure_tool_installed(name):
     """Ensure a tool is installed, fail with install instructions if not."""
     tool = check_tool(name)
     if tool and not tool.installed:
-        ui.fail(name + " is not installed\n  Install: " + tool.install_cmd)
+        fail(name + " is not installed\n  Install: " + tool.install_cmd)
     return tool
 
 def collect_files(paths):
@@ -45,10 +45,10 @@ def run(command, ctx):
     # Discover files (respects .gitignore)
     md_files = collect_files(paths)
     if not md_files:
-        ui.succeed("No markdown files found")
+        succeed("No markdown files found")
         return
 
-    ui.note("Found " + str(len(md_files)) + " markdown file(s)")
+    note("Found " + str(len(md_files)) + " markdown file(s)")
 
     # Run markdownlint on discovered files
     result = lint.markdown(files=md_files, fix=fix)
@@ -57,20 +57,20 @@ def run(command, ctx):
     for issue in result.issues:
         msg = issue.file + ":" + str(issue.line) + " " + issue.rule + ": " + issue.message
         if issue.severity == "error":
-            ui.error(msg)
+            error(msg)
         else:
-            ui.warn(msg)
+            warn(msg)
 
     for issue in result.frontmatter_issues:
-        ui.error(issue.file + ": " + issue.message)
+        error(issue.file + ": " + issue.message)
 
     # Summary
     if result.lint_passed and result.frontmatter_passed:
-        ui.succeed("Markdown lint passed (" + str(result.files_checked) + " files)")
+        succeed("Markdown lint passed (" + str(result.files_checked) + " files)")
     else:
         msg = "Markdown lint failed:"
         if result.issue_count > 0:
             msg = msg + " " + str(result.issue_count) + " lint issues"
         if len(result.frontmatter_issues) > 0:
             msg = msg + " " + str(len(result.frontmatter_issues)) + " frontmatter issues"
-        ui.fail(msg)
+        fail(msg)
