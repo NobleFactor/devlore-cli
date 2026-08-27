@@ -15,6 +15,21 @@ import (
 )
 
 // Provider exposes the [status.Narrator] capability to starlark.
+//
+// Root-placed: the six methods surface as top-level globals -- note(), warn(), print() -- rather than under
+// ui.*. Two of those names, print and fail, belong to starlark's universe, and the resolver checks predeclared
+// before universal, so this REPLACES the builtins rather than shadowing them. That is the point: the builtin
+// print writes straight to stderr through starlark-go, escaping --silent, color, and program-name prefixing,
+// and would escape the diagnostics stream of docs/architecture/2.8-eventing-infrastructure.md. Routing it here
+// is what makes the uniformity this package claims actually hold for a bare print(...).
+//
+// The methods take one string rather than the builtin's variadic-with-separator. That is deliberate and
+// documented in docs/architecture/3.5.16-ui-provider.md: starlark's % is an operator that runs BEFORE the call,
+// so a format-string signature would re-scan an already-rendered string and corrupt any data containing a %,
+// while a variadic one would receive Go natives after conversion and render True as true and None as <nil>.
+// The script renders with str() and %, which is starlark's own rendering, and hands over a finished string.
+//
+// +devlore:root=true
 type Provider struct {
 	op.ProviderBase
 }
