@@ -9,26 +9,26 @@ def run(command, ctx):
     """Show required tools and their installation status."""
     result = setup.tools()
 
-    ui.note("Development tools for " + result.platform + ":")
+    note("Development tools for " + result.platform + ":")
     print("")
 
     for tool in result.tools:
         if tool.installed:
-            ui.succeed(tool.name + ": " + tool.path)
+            succeed(tool.name + ": " + tool.path)
         else:
-            ui.error(tool.name + ": not installed")
-            ui.note("  " + tool.description)
-            ui.note("  Install: " + tool.install_cmd)
-            ui.note("  Docs: " + tool.docs_url)
+            error(tool.name + ": not installed")
+            note("  " + tool.description)
+            note("  Install: " + tool.install_cmd)
+            note("  Docs: " + tool.docs_url)
         print("")
 
     # Summary
     if result.all_installed:
-        ui.succeed("All tools installed")
+        succeed("All tools installed")
     else:
         print("")
-        ui.note("Install missing tools:")
+        note("Install missing tools:")
         for tool in result.tools:
             if not tool.installed:
                 print("  " + tool.install_cmd)
-        ui.fail(str(result.missing_count) + " tools missing")
+        fail(str(result.missing_count) + " tools missing")

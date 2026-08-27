@@ -27,9 +27,9 @@ def run(command, ctx):
 
     # Summary
     if len(failures) == 0:
-        ui.succeed("All pre-commit checks passed")
+        succeed("All pre-commit checks passed")
     else:
-        ui.fail("Pre-commit checks failed: " + ", ".join(failures))
+        fail("Pre-commit checks failed: " + ", ".join(failures))
 
 def run_linter(name):
     """Run a single linter, return True if passed."""
@@ -46,20 +46,20 @@ def run_go_check():
     tool = lint.ensure_tools()
     for t in tool.tools:
         if t.name == "golangci-lint" and not t.installed:
-            ui.error("golangci-lint not installed")
+            error("golangci-lint not installed")
             return False
 
     result = lint.go(path="./...", config="", skip_mod_tidy=False)
 
     if not result.mod_tidy_passed:
-        ui.error("go.mod is not tidy - run 'go mod tidy'")
+        error("go.mod is not tidy - run 'go mod tidy'")
 
     for issue in result.issues:
         msg = issue.file + ":" + str(issue.line) + " " + issue.linter + ": " + issue.message
         if issue.severity == "error":
-            ui.error(msg)
+            error(msg)
         else:
-            ui.warn(msg)
+            warn(msg)
 
     return result.passed
 
@@ -83,12 +83,12 @@ def run_shell_check():
     for issue in result.issues:
         msg = issue.file + ":" + str(issue.line) + " SC" + str(issue.code) + ": " + issue.message
         if issue.level == "error":
-            ui.error(msg)
+            error(msg)
         else:
-            ui.warn(msg)
+            warn(msg)
 
     for file_info in result.format_issues:
-        ui.warn(file_info.file + " needs formatting - run 'shfmt -w -i 4'")
+        warn(file_info.file + " needs formatting - run 'shfmt -w -i 4'")
 
     return result.passed
 
@@ -105,11 +105,11 @@ def run_markdown_check():
     for issue in result.issues:
         msg = issue.file + ":" + str(issue.line) + " " + issue.rule + ": " + issue.message
         if issue.severity == "error":
-            ui.error(msg)
+            error(msg)
         else:
-            ui.warn(msg)
+            warn(msg)
 
     for issue in result.frontmatter_issues:
-        ui.error(issue.file + ": " + issue.message)
+        error(issue.file + ": " + issue.message)
 
     return result.lint_passed and result.frontmatter_passed

@@ -17,7 +17,7 @@ def ensure_tool_installed(name):
     """Ensure a tool is installed, fail with install instructions if not."""
     tool = check_tool(name)
     if tool and not tool.installed:
-        ui.fail(name + " is not installed\n  Install: " + tool.install_cmd)
+        fail(name + " is not installed\n  Install: " + tool.install_cmd)
     return tool
 
 def run(command, ctx):
@@ -29,52 +29,52 @@ def run(command, ctx):
     # Check tool is installed
     ensure_tool_installed("golangci-lint")
 
-    ui.note("Running Go lint checks on " + " ".join(paths))
+    note("Running Go lint checks on " + " ".join(paths))
 
     # Run go mod tidy check first (unless skipped)
     if not skip_mod_tidy:
-        ui.note("Checking go.mod tidy...")
+        note("Checking go.mod tidy...")
 
     result = lint.go(paths=paths, config=config, skip_mod_tidy=skip_mod_tidy)
 
     # Report mod tidy status
     if not skip_mod_tidy:
         if result.mod_tidy_passed:
-            ui.succeed("go.mod is tidy")
+            succeed("go.mod is tidy")
         else:
-            ui.error("go.mod is not tidy")
+            error("go.mod is not tidy")
             if result.mod_tidy_details:
                 for line in result.mod_tidy_details.split("\n"):
                     if line:
-                        ui.note("  " + line)
+                        note("  " + line)
 
     # Note if config was created
     if result.config_created:
-        ui.succeed("Created .golangci.yaml with NobleFactor defaults")
+        succeed("Created .golangci.yaml with NobleFactor defaults")
 
     # Report golangci-lint issues
-    ui.note("Running golangci-lint...")
+    note("Running golangci-lint...")
     for issue in result.issues:
         msg = issue.file + ":" + str(issue.line) + ":" + str(issue.column)
         msg = msg + " " + issue.linter + ": " + issue.message
         if issue.severity == "error":
-            ui.error(msg)
+            error(msg)
         else:
-            ui.warn(msg)
+            warn(msg)
 
     # Summary
     if result.lint_passed:
-        ui.succeed("No golangci-lint issues found")
+        succeed("No golangci-lint issues found")
     else:
-        ui.warn("Found " + str(result.total_count) + " lint issues (" + str(result.error_count) + " errors, " + str(result.warning_count) + " warnings)")
+        warn("Found " + str(result.total_count) + " lint issues (" + str(result.error_count) + " errors, " + str(result.warning_count) + " warnings)")
 
     # Final pass/fail
     if result.passed:
-        ui.succeed("All Go lint checks passed")
+        succeed("All Go lint checks passed")
     else:
         msgs = []
         if not result.mod_tidy_passed:
             msgs.append("go.mod not tidy")
         if not result.lint_passed:
             msgs.append(str(result.total_count) + " lint issues")
-        ui.fail("Go lint failed: " + ", ".join(msgs))
+        fail("Go lint failed: " + ", ".join(msgs))
