@@ -1,23 +1,22 @@
 ---
 title: "Rename op → workflow with Definition/Node/Block/Step taxonomy"
-issue: TBD
-status: draft
+issue: 451
+status: ready
 created: 2026-05-26
-updated: 2026-05-30
+updated: 2026-08-27
 ---
 
 # Plan: Rename op → workflow
 
-> **Read this first.** The prerequisite below is **satisfied** — `refactor/extract-starlark-from-op.phase-8`
-> merged long ago — but the plan has not been revisited since **2026-05-26**, and every quantity in its
-> Current State is now wrong. See §Staleness. Two issues carry the work to fix that:
+> **Re-audited 2026-08-27** under [#716](https://github.com/NobleFactor/devlore-cli/issues/716). The original
+> prerequisite is satisfied, the Current State reflects the tree, and §Appendix: Name Mapping now gives a
+> reviewer something to inspect a diff against — which goal 4 promises and the plan previously lacked.
 >
-> - [#716](https://github.com/NobleFactor/devlore-cli/issues/716) — re-audit, and write the name-mapping
->   appendix this plan lacks
-> - [#715](https://github.com/NobleFactor/devlore-cli/issues/715) — rename the provider roles, which belongs
->   in the same window; #716 blocks it
+> Writing the appendix caught an error already in the plan: Phase 1 listed
+> `GenerateNodeID → GenerateStepID`, which is wrong. See §Appendix.
 >
-> Do not start a phase from the numbers below.
+> [#715](https://github.com/NobleFactor/devlore-cli/issues/715) renames the provider roles and belongs in the
+> same window; see §Related Rename.
 
 ## Summary
 
@@ -42,32 +41,58 @@ The real prerequisite now is [#716](https://github.com/NobleFactor/devlore-cli/i
 facts are three months stale, and a phase started from them would be scoped against a package 74% smaller than
 the one that exists.
 
-## Current State (audited 2026-05-26)
+## Current State (audited 2026-08-27)
 
 | Element | Current | Location | Notes |
 |---|---|---|---|
-| Package | `pkg/op/` | — | 62 .go files at root |
-| Subpackages | `provider/`, `starlarkbridge/`, `inventory/`, `sops/` | — | 76, 5, 2+1.gen.go, 13 files |
-| Abstract vertex | `ExecutableUnit` (interface) | `executable_unit.go:29` | → `Node` |
-| Leaf variant | `Node` (struct) | `graph.go:380` | has `Layer` + `Origin` fields → `Step` |
-| Composite variant | `Subgraph` (struct) | `subgraph.go:28` | contains `Children []SubgraphChild` → `Block` |
-| Durable record | `RecoveryStack` (struct) | `recovery_stack.go:16` | → `Ledger` |
-| Recovery anchor | `RecoverySite` (struct) | `recovery_site.go:32` | name stays — see Out of Scope |
-| Container | `Graph` (struct) | `graph.go:40` | → `Definition` |
-| Runtime driver | `GraphExecutor` (struct) | `graph_executor.go:32` | → `Executor` |
-| Connection | `Edge` (struct) | `graph.go:368` | planning-time |
-| Slot binding | `Binding` (interface) | `binding.go:15` | variants `ImmediateBinding` / `PromiseBinding` / `VariableBinding`; no concrete `Slot` type exists |
-| Durable entry | `Receipt` (interface) | `receipt.go:20` | |
-| Importing files outside `pkg/op/` | ~200 | spans `cmd/`, `internal/` | |
-| Qualified `op.X` references | ~2,499 | non-test + test combined | |
-| Generated files in scope | 29 `.gen.go` | `pkg/op/provider/*/gen/` + `pkg/op/inventory/` | regenerate via `make build` |
-| Name collisions for new names | `Step` (cross-package only) | repo-wide | `Block`, `Ledger`, `Workflow`, `Definition`, `Executor` are all unused elsewhere. `Step` has no language-level clash: the only existing type is `console.Step` in `internal/console` (a TUI session step, different package); the `pkg/op` "Step" hits are comment prose ("Step 3 fires…"), not identifiers. |
+| Package | `pkg/op/` | — | 108 .go files at root |
+| Subpackages | `claimcheck/`, `inventory/`, `provider/`, `server/`, `starlarkbridge/` | — | 3, 3, 238, 3, 8 files |
+| Abstract vertex | `ExecutableUnit` (interface) | `executable_unit.go:39` | → `Node` |
+| Leaf variant | `Node` (struct) | `node.go:19` | moved out of `graph.go` since the last audit → `Step` |
+| Composite variant | `Subgraph` (struct) | `subgraph.go:32` | → `Block` |
+| Durable record | `RecoveryStack` (struct) | `recovery_stack.go:37` | → `Ledger` |
+| Recovery anchor | `RecoverySite` (struct) | `recovery_site.go:33` | name stays — see Out of Scope |
+| Container | `Graph` (struct) | `graph.go:50` | → `Definition` |
+| Runtime driver | `GraphExecutor` (struct) | `graph_executor.go:44` | → `Executor` |
+| Connection | `Edge` (struct) | `graph.go:1079` | planning-time; name stays |
+| Slot binding | `Binding` (interface) | `binding.go:21` | 3 variants; name stays |
+| Durable entry | `Receipt` (interface) | `receipt.go:22` | name stays |
+| Serialized forms | `graphData`, `nodeData`, `subgraphData` | `graph.go`, `node.go` | follow their subjects |
+| Files importing `pkg/op` outside it | 130 | spans `cmd/`, `internal/`, `pkg/` | |
+| Qualified `op.X` references | 3,880 | non-test + test combined | |
+| Generated files in scope | 48 `.gen.go` | `provider/*/gen/`, `inventory/` | regenerate via `make build` |
+| Name collisions | `Step` only | repo-wide | targets declared nowhere; `Step` only as `console.Step` |
 
-### Staleness (measured 2026-08-27)
+### Subpackage disposition
 
-Every quantity above is wrong. [#716](https://github.com/NobleFactor/devlore-cli/issues/716) re-audits it.
+Neither `claimcheck/` nor `server/` existed when the phases were written.
 
-| Element | Audited 2026-05-26 | Measured 2026-08-27 | |
+**`claimcheck/`** — the build gate that holds `+devlore:claim=` directives to their call graphs. Nearly
+rename-inert: it hardcodes only `pkg/assert` and `pkg/fsroot` as trust boundaries, and its test loads the
+whole module by pattern (`github.com/NobleFactor/devlore-cli/...`), which the rename does not change. Moves
+with the directory in Phase 5. One doc-comment example names `"./pkg/op/provider/..."` and needs updating.
+
+**`server/`** — the HTTP/2 wire listener bridging a run's `ControlPlane` to a remote consumer. It uses
+`op.ControlPlane`, `op.RunStatus`, and the `op.Control*` family, **none of which this rename touches**, so it
+is affected by Phase 5 alone. Moves with the directory.
+
+Both are edit-eligible on the same terms as `provider/` and `inventory/` — see Q2.
+
+### Additions since the last audit, checked for rename impact
+
+Method claims (`MethodClaims`, `ClaimDeterministic`), the run-state machine (`RunStatus`, `Phase`,
+`Condition`), the control plane (`ControlPlane`, `ControlCommand`, `ControlEvent`), sealed provider resources,
+and the conversion rules (`losesMeaning`, `readAgainstField`, `explainRefusal`) name claims, control, and
+conversion — **no graph-structure vocabulary**, and none collides with a target name.
+
+The exception is `reportGraphReach`, added by #677, which the appendix covers with the rest.
+
+### What moved between audits
+
+Recorded so the scale of drift is visible: this plan sat untouched for three months while the package it
+renames grew substantially, and a phase scoped from the old numbers would have been badly wrong.
+
+| Element | Audited 2026-05-26 | Audited 2026-08-27 | |
 | --- | --- | --- | --- |
 | `pkg/op/` root `.go` files | 62 | **108** | +74% |
 | `provider/` files | 76 | **238** | +213% |
@@ -117,50 +142,142 @@ workflow
 
 Sequencing is collision-safe: Phase 1 must precede Phase 2 (frees the name `Node`). All other phases are independent.
 
-### Appendix: Name Mapping — TO BE WRITTEN
+### Appendix: Name Mapping (audited 2026-08-27)
 
-The table above is five rows: the top-level types, one per phase. **Nothing maps the derived identifiers**, and
-goal 4 promises "each phase is a pure rename so reviewers can verify by inspection" — without the appendix a
-reviewer has no reference to inspect the diff against.
+Goal 4 promises "each phase is a pure rename so reviewers can verify by inspection." This is the reference a
+reviewer inspects against. It covers the **exported, non-test surface of `pkg/op`**; unexported and test
+identifiers follow the same rules mechanically, and the hazards below apply to them equally.
 
-It is derivable, since there are no structural changes. Scope, measured 2026-08-27:
+#### The rules
 
-| Word | Exported identifiers containing it |
+1. `Graph` → `Definition`, `GraphExecutor` → `Executor`, `Subgraph` → `Block`, `RecoveryStack` → `Ledger`.
+2. **`Node` is ambiguous by construction.** It maps to `Step` *and* is the target of `ExecutableUnit`, so it
+   appears on both sides. For every identifier containing it, ask **which sense it carries**: the leaf becomes
+   `Step`; the abstract vertex keeps `Node`.
+3. An identifier naming no renamed concept keeps its name even when its receiver type changes.
+4. **Not every `Node` is ours** — see §Do not rename.
+
+#### Types
+
+| Current | New | |
+| --- | --- | --- |
+| `Graph` | `Definition` | |
+| `GraphExecutor` | `Executor` | |
+| `GraphSpec` | `DefinitionSpec` | |
+| `Subgraph` | `Block` | |
+| `SubgraphSpec` | `BlockSpec` | |
+| `RecoveryStack` | `Ledger` | |
+| `ExecutableUnit` | `Node` | abstract vertex; frees nothing until Phase 1 vacates `Node` |
+| `ExecutableUnitSpec` | `NodeSpec` | **collides with today's `NodeSpec`** until Phase 1 renames it |
+| `Node` | `Step` | leaf |
+| `NodeSpec` | `StepSpec` | must precede the `ExecutableUnitSpec` rename |
+
+#### Constructors and package functions
+
+| Current | New |
 | --- | --- |
-| `Graph` | **53** |
-| `Subgraph` | **37** |
-| `RecoveryStack` | **18** |
-| `ExecutableUnit` | 3 |
+| `NewGraph` | `NewDefinition` |
+| `NewGraphSpec` | `NewDefinitionSpec` |
+| `NewGraphExecutor` | `NewExecutor` |
+| `NewSubgraph` | `NewBlock` |
+| `NewSubgraphSpec` | `NewBlockSpec` |
+| `NewNode` | `NewStep` |
+| `NewNodeSpec` | `NewStepSpec` |
+| `NewRecoveryStack` | `NewLedger` |
+| `NewChildRecoveryStack` | `NewChildLedger` |
+| `LoadGraph` | `LoadDefinition` |
+| `SaveGraph` | `SaveDefinition` |
+| `SerializeGraphs` | `SerializeDefinitions` |
+| `ValidateGraph` | `ValidateDefinition` |
 
-Plus **14 files** whose names carry a renamed word: `graph.go`, `graph_executor.go`, `subgraph.go`,
-`nodeid.go`, `executable_unit.go`, `recovery_stack.go`, and their tests.
+**`LoadGraph` → `LoadDefinition` is worth noting**: `plan.Provider` already has a method of that name, in a
+different package, returning `*op.Graph`. After the rename the two agree — `plan.Provider.LoadDefinition`
+returns a `*workflow.Definition` by calling `workflow.LoadDefinition`. Not a collision; a convergence.
 
-**Three classes need judgment, not derivation.**
+#### Methods whose own name changes
 
-`Node` is ambiguous by construction — it maps to `Step` *and* is the target of `ExecutableUnit`, so it appears
-on both sides of the mapping. Every identifier containing it needs a decision about which sense it carries.
-The proof is `GenerateNodeID`, whose doc says "unique node IDs across all plan bindings" and which
-`pkg/op/provider/flow/helpers.go` calls as:
+| Current | New | Why |
+| --- | --- | --- |
+| `Graph.Subgraphs` | `Definition.Blocks` | names the composite |
+| `Graph.SubgraphByID` | `Definition.BlockByID` | |
+| `Graph.Nodes` | `Definition.Steps` | returns leaves |
+| `Subgraph.Subgraphs` | `Block.Blocks` | |
+
+#### Hooks
+
+| Current | New | Why |
+| --- | --- | --- |
+| `FireSubgraphStart` / `FireSubgraphComplete` | `FireBlockStart` / `FireBlockComplete` | composite |
+| `OnSubgraphStart` / `OnSubgraphComplete` | `OnBlockStart` / `OnBlockComplete` | |
+| `FireNodeStart` / `FireNodeComplete` | `FireStepStart` / `FireStepComplete` | fired per LEAF dispatch |
+| `OnNodeStart` / `OnNodeComplete` | `OnStepStart` / `OnStepComplete` | |
+
+#### Keeps its name — verify by ABSENCE from the diff
+
+A table of only the changes cannot distinguish "correctly unchanged" from "missed". These must not move:
+
+| Identifier | Why it stays |
+| --- | --- |
+| `GenerateNodeID` | Mints ids for the abstract vertex, not the leaf — see below the table |
+| `Edge` | planning-time connection; names no renamed concept |
+| `Receipt` | durable entry; unchanged per the taxonomy |
+| `RecoverySite` | name is accurate as-is — see Out of Scope |
+| `Binding` and its variants | slot binding; names no renamed concept |
+| `Graph.Checksum`, `.Edges`, `.Kind`, `.Origin`, `.Root`, … | receiver changes; the name itself is unaffected |
+
+**`GenerateNodeID` in detail**, because Phase 1 originally had it wrong. `pkg/op/provider/flow/helpers.go`
+calls it as:
 
 ```go
 GenerateNodeID(string(Subgraph))
 ```
 
-It mints ids for **subgraphs too**, so it names the abstract vertex — which under the new taxonomy is `Node`,
-meaning **it keeps its name**. A mechanical `Node → Step` sweep would rename it `GenerateStepID` and quietly
-make it wrong: an identifier claiming to mint leaf ids while minting them for `Block`s as well. Phase 1 before
-Phase 2 protects the *types* from this collision; nothing protects derived identifiers.
+It mints ids for composites as well as leaves, so it names the **abstract vertex** — which under the new
+taxonomy is `Node`, the name it already has. A mechanical `Node → Step` sweep renames it `GenerateStepID` and
+quietly makes it wrong: an identifier claiming to mint leaf ids while minting them for `Block`s too. Phase 1's
+target list said exactly that until this appendix was written.
 
-File names are not all mechanical either. `graph.go` → `definition.go` and `graph_executor.go` → `executor.go`
-are clear; `nodeid.go` follows whatever `GenerateNodeID` decides.
+#### Do not rename — NOT ours
 
-And prose inside identifiers — `SerializeGraphs`, `descendantNodes`, `SubgraphChild`, `NewGraphSpec` — reads
-differently after the swap, some of it carrying the same ambiguity.
+`pkg/op/default_eval.go` and `deferred_default.go` use `text/template/parse`, whose vocabulary collides with
+ours:
 
-**Identifiers that KEEP their name must be listed explicitly.** A table of only the changes cannot distinguish
-"correctly unchanged" from "missed", and `GenerateNodeID` is exactly that case.
+```go
+action, ok := tree.Root.Nodes[0].(*parse.ActionNode)
+```
 
-Written under [#716](https://github.com/NobleFactor/devlore-cli/issues/716).
+`parse.ActionNode`, `parse.PipeNode`, `parse.StringNode`, `parse.IdentifierNode`, `parse.NumberNode`,
+`parse.BoolNode`, `parse.FieldNode`, `parse.CommandNode` — **and `.Nodes`, a field on a stdlib type.** A
+mechanical sweep over the word `Node` rewrites `tree.Root.Nodes` and fails to compile. Phase 1 must exclude
+these by qualifier, not by name.
+
+#### Files
+
+| Current | New |
+| --- | --- |
+| `graph.go` | `definition.go` |
+| `graph_executor.go` | `executor.go` |
+| `subgraph.go` | `block.go` |
+| `node.go` | `step.go` |
+| `executable_unit.go` | `node.go` — **only after `node.go` vacates** |
+| `recovery_stack.go` | `ledger.go` |
+| `nodeid.go` | keeps its name, following `GenerateNodeID` |
+
+Test files follow their subject: `graph_executor_test.go` → `executor_test.go`, `subgraph_test.go` →
+`block_test.go`, and so on. `graph_number_fidelity_test.go` and `graph_format_identity_test.go` name the
+Definition, so both take `definition_`.
+
+#### Counts, for scoping
+
+| Word | Exported identifiers containing it |
+| --- | --- |
+| `Graph` | 53 |
+| `Subgraph` | 37 |
+| `RecoveryStack` | 18 |
+| `ExecutableUnit` | 3 |
+
+23 of those are exported and non-test — the surface tabled above. The remainder are unexported helpers and
+test fixtures, which follow the same rules.
 
 ## Implementation Phases
 
@@ -172,7 +289,8 @@ Single concept rename of the leaf struct. Frees the name `Node` for Phase 2.
 
 **Targets:**
 - `pkg/op/graph.go:380` — struct declaration carrying `Layer` + `Origin` fields
-- Internal symbols that ripple: `NewNode → NewStep`, `GenerateNodeID → GenerateStepID`, `NodeID → StepID`, `node`-named locals
+- Internal symbols that ripple: `NewNode → NewStep`, `NodeSpec → StepSpec`, `node`-named locals REFERRING TO LEAVES
+- **`GenerateNodeID` KEEPS its name** — corrected 2026-08-27. This list previously said `GenerateNodeID → GenerateStepID`, `NodeID → StepID`. That is wrong: `flow/helpers.go` calls it as `GenerateNodeID(string(Subgraph))`, so it mints ids for composites as well as leaves. It names the ABSTRACT VERTEX, which under the new taxonomy is `Node`. See the appendix.
 - All consumer references `op.Node` → `op.Step`
 
 **Files:**
@@ -291,9 +409,21 @@ after means shipping a constant named for the type it replaced. Tracked as
 
 ## Open Questions
 
-- [ ] **Q2: Subpackage edit bans beyond `starlarkbridge/`?** `provider/`, `inventory/`, `sops/` move with the directory in Phase 5. The starlarkbridge ban means I never edit its contents directly. Same treatment for the others, or are they edit-eligible?
-- [ ] **Q3: GitHub issue.** Per the standard workflow, an issue tracks this plan. Issue number goes in frontmatter once created (post-prerequisite-merge).
-- [ ] **Q4: Plan template adherence.** This plan deviates slightly from `docs/plans/TEMPLATE.md` (richer phase descriptions; no Migration Path section since rename has no user-facing migration). Confirm acceptable.
+- [x] **Q2: Subpackage edit bans.** ~~`provider/`, `inventory/`, `sops/` move with the directory in Phase 5.~~
+  Restated 2026-08-27: `sops/` has left the package, and `claimcheck/` and `server/` have arrived. The
+  starlarkbridge edit ban has since been lifted, so all five subpackages are edit-eligible on the same terms.
+  Dispositions are in §Subpackage disposition.
+- [x] **Q3: GitHub issue.** Epic [#451](https://github.com/NobleFactor/devlore-cli/issues/451), with
+  [#716](https://github.com/NobleFactor/devlore-cli/issues/716) (this re-audit) and
+  [#715](https://github.com/NobleFactor/devlore-cli/issues/715) (the role rename) beneath it.
+- [ ] **Q4: Plan template adherence.** `docs/plans/TEMPLATE.md` gained a **Test Plan** section on 2026-08-27,
+  which this plan does not have. For a pure rename the test plan is "every existing test passes unchanged" —
+  which §Verification (per phase) already states, and which is the whole assertion. Confirm that section
+  satisfies the requirement rather than adding a redundant one.
+- [ ] **Q5: Documentation churn.** Added 2026-08-27. §Documentation Audit predates
+  `3.2-projected-provider-api.md`, `3.6-method-classification.md`, `4.5-fsroot-variants.md`, and the provider
+  catalog, all of which now describe `pkg/op` in prose a pure rename churns. In scope for the audit phase, or
+  a follow-up? Stating it beats discovering it mid-phase.
 
 ## Files to Create/Modify
 
