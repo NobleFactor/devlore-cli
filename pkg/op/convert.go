@@ -163,16 +163,14 @@ func explainRefusal(value any, target reflect.Type) error {
 	sourceKind, targetKind := source.Kind(), target.Kind()
 
 	switch {
-	case targetKind == reflect.String && (isSignedInteger(sourceKind) || isUnsignedInteger(sourceKind)):
+	case targetKind == reflect.String && isInteger(sourceKind):
 		return fmt.Errorf("cannot use %s where %s is wanted: write str(x) to render it", source, target)
 
-	case (isSignedInteger(targetKind) || isUnsignedInteger(targetKind)) &&
-		(sourceKind == reflect.Float32 || sourceKind == reflect.Float64):
+	case isInteger(targetKind) && isFloat(sourceKind):
 		return fmt.Errorf("a %s cannot be interpreted as %s: write int(x) to truncate it deliberately",
 			source, target)
 
-	case (isSignedInteger(sourceKind) || isUnsignedInteger(sourceKind)) &&
-		(isSignedInteger(targetKind) || isUnsignedInteger(targetKind)):
+	case isInteger(sourceKind) && isInteger(targetKind):
 		return fmt.Errorf("%v is out of range for %s", value, target)
 	}
 
@@ -259,37 +257,49 @@ func convertDirect(value any, target reflect.Type) (any, bool) {
 //   - `bool`: true when the conversion must be refused.
 func losesMeaning(elem reflect.Value, target reflect.Type) bool {
 
-	source := elem.Kind()
+	source, destination := elem.Kind(), target.Kind()
+
+	switch {
 
 	// A string target reached from a number. Only integers are ConvertibleTo string in Go -- float and bool
-	// already fail earlier -- and an integer arriving here means a rune conversion nobody asked for.
-	if target.Kind() == reflect.String && (isSignedInteger(source) || isUnsignedInteger(source)) {
+	// fail earlier -- and an integer arriving here means a rune conversion nobody asked for.
+	case destination == reflect.String && isInteger(source):
 		return true
-	}
 
 	// An integer target reached from a float, fractional or not.
-	if (isSignedInteger(target.Kind()) || isUnsignedInteger(target.Kind())) &&
-		(source == reflect.Float32 || source == reflect.Float64) {
+	case isInteger(destination) && isFloat(source):
 		return true
-	}
 
 	// Integer to integer: the one pair whose value decides.
-	if (isSignedInteger(source) || isUnsignedInteger(source)) &&
-		(isSignedInteger(target.Kind()) || isUnsignedInteger(target.Kind())) {
-
+	case isInteger(source) && isInteger(destination):
 		return integerLosesValue(elem, target)
-	}
 
 	// Float to float: narrowing that overflows silently yields ±Inf. Precision loss does not count -- python
-	// packs 0.1 into a single-precision float without complaint and only raises when the value will not fit.
-	if (source == reflect.Float32 || source == reflect.Float64) &&
-		(target.Kind() == reflect.Float32 || target.Kind() == reflect.Float64) {
-
+	// packs 0.1 into a single-precision float without complaint and raises only when the value will not fit.
+	case isFloat(source) && isFloat(destination):
 		return !math.IsInf(elem.Float(), 0) && math.IsInf(elem.Convert(target).Float(), 0)
 	}
 
 	return false
 }
+
+// isInteger reports whether kind is any of Go's integer kinds, signed or unsigned.
+//
+// Parameters:
+//   - `kind`: the reflect kind under test.
+//
+// Returns:
+//   - `bool`: true for int through int64 and uint through uint64.
+func isInteger(kind reflect.Kind) bool { return isSignedInteger(kind) || isUnsignedInteger(kind) }
+
+// isFloat reports whether kind is one of Go's floating-point kinds.
+//
+// Parameters:
+//   - `kind`: the reflect kind under test.
+//
+// Returns:
+//   - `bool`: true for float32 and float64.
+func isFloat(kind reflect.Kind) bool { return kind == reflect.Float32 || kind == reflect.Float64 }
 
 // integerLosesValue reports whether an integer-to-integer conversion changes the value.
 //
