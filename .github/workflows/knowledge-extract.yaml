@@ -102,7 +102,7 @@ jobs:
             exit 0
           fi
 
-          BRANCH="knowledge/sync-${GITHUB_SHA::7}"
+          BRANCH="chore/knowledge-sync-${GITHUB_SHA::7}"
           git checkout -b "$BRANCH"
           git add knowledge/
           git commit -m "chore: sync knowledge from devlore-cli@${{ github.sha }}"
@@ -113,18 +113,24 @@ jobs:
             --body "Automated knowledge sync from [devlore-cli@\`${GITHUB_SHA::7}\`](https://github.com/NobleFactor/devlore-cli/commit/${GITHUB_SHA})." \
             --base "${{ github.ref_name }}")
           echo "Created PR: $PR_URL"
-          # devlore-registry develop sits under the same org ruleset as the site repo,
-          # and the plain merge already failed live: registry PR #69 was app-created,
-          # its run failed on this step, and the PR was merged by hand two minutes
-          # later. --admin disarms gh's client-side merge-state veto; the server-side
-          # entitlement is the NobleFactor Automation app's "always" bypass on the org
-          # ruleset, not repository admin rights. Retry bounded: a transient GitHub
-          # 5xx must not strand a green PR (a 502 stranded site PR #212), and a failed
-          # attempt may still have merged server-side, so the PR state is consulted
-          # before retrying.
+          # This merge is expected to FAIL when devlore-registry's CI is red, and that is
+          # the point: a registry failure must stop this workflow rather than be merged past.
+          # devlore-registry carries repository ruleset 21604093, which requires quality-gate
+          # and validate-yaml-schemas. The NobleFactor Automation app is a bypass actor on the
+          # ORG ruleset (12426847) but NOT on 21604093, so a red check refuses this merge
+          # server-side.
+          #
+          # --admin was removed deliberately. It only disarms gh's client-side merge-state veto
+          # and cannot grant entitlement the app does not have, so against 21604093 it bought
+          # nothing while implying a power that does not exist -- and it turned a clean refusal
+          # into five retries over ~100s before failing anyway.
+          #
+          # Retry bounded, and still worth keeping: a transient GitHub 5xx must not strand a
+          # green PR (a 502 stranded site PR #212), and a failed attempt may still have merged
+          # server-side, so the PR state is consulted before retrying.
           merged=false
           for attempt in 1 2 3 4 5; do
-            if gh pr merge "$PR_URL" --repo NobleFactor/devlore-registry --admin --squash --delete-branch; then
+            if gh pr merge "$PR_URL" --repo NobleFactor/devlore-registry --squash --delete-branch; then
               merged=true
               break
             fi
