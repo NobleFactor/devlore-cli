@@ -2,12 +2,31 @@
 step: 57
 issue: https://github.com/NobleFactor/devlore-cli/issues/517
 title: "Mine the workflow-rename-plan worktree before retiring it"
-status: charter — chartered 2026-08-14; do before the rename window (step 56)
-proof_run: TBD — each item below carries a keep/discard verdict, then the worktree is removed
+status: abandoned
+proof_run: none — the premise was falsified before any verdict was needed
 parent: ../../phase-8.md
 ---
 
 # Step 57 — Mine the `workflow-rename-plan` worktree before retiring it
+
+> **SUPERSEDED 2026-08-27 — the premise of this step is false, and [#517](https://github.com/NobleFactor/devlore-cli/issues/517)
+> is closed as invalid.** Nothing in the worktree exists only there. Every item in the table below was
+> either moved or deliberately removed on `develop` between 2026-08-10 and 2026-08-12 — two days
+> *before* this step was chartered:
+>
+> | Item | What actually happened |
+> | --- | --- |
+> | `tools/New-OpInventory/main.go` | **Renamed** to `cmd/devlore-inventory/main.go` — `b64a4fe0` (#360) |
+> | `prototype/bindgen/` | **Removed**, all 12 files — `10b4f8cd`, "chore: remove the bindgen prototype" (#386) |
+> | `CODE-CONSOLIDATION-ANALYSIS.md` | **Removed** — `030a8790`, "clean repo root" (#390) |
+> | `GITHUB-ISSUES.md` | **Removed** — `030a8790` (#390) |
+> | `ARCHITECTURE-STATUS.md` | **Removed** — `030a8790` (#390) |
+> | `draft-llm-cache-augmented-generation.md` | **Removed** — `33f7635e`, "relicense to Apache-2.0, retract SSPL-era tags" (#389) |
+> | `draft-llm-long-context-prompting.md` | **Removed** — `33f7635e` (#389) |
+>
+> The error was method, not diligence: this step compared two working trees and read "absent from
+> `develop`" as "exists nowhere else." It never consulted history. Anything wanted from the list is
+> recoverable from the commits above, and the worktree is safe to retire.
 
 **Status:** `charter` — chartered 2026-08-14. A stale worktree is holding content that exists nowhere else, and
 it will be deleted at some point by someone tidying up. Read it first.
