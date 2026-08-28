@@ -29,19 +29,19 @@ func resolutionProvider(t *testing.T) *Provider {
 	return NewProvider(&op.RuntimeEnvironment{})
 }
 
-// tierCollisionRootProvider is a synthetic root provider whose one method ("Variable" → snake "variable") is aimed
+// tierCollisionPromotedProvider is a synthetic promoted provider whose one method ("Variable" → snake "variable") is aimed
 // at whatever tier a test seeds into promoteMethods' name sets. Built as a real receiver type via
 // [op.NewProviderReceiverType]; never announced, so the process registry stays clean.
-type tierCollisionRootProvider struct{}
+type tierCollisionPromotedProvider struct{}
 
-func (tierCollisionRootProvider) Variable() string { return "" }
+func (tierCollisionPromotedProvider) Variable() string { return "" }
 
-// collisionRootReceiverType constructs the synthetic root provider's receiver type.
-func collisionRootReceiverType(t *testing.T) op.ProviderReceiverType {
+// collisionPromotedReceiverType constructs the synthetic promoted provider's receiver type.
+func collisionPromotedReceiverType(t *testing.T) op.ProviderReceiverType {
 	t.Helper()
 
 	receiverType, err := op.NewProviderReceiverType(
-		reflect.TypeFor[tierCollisionRootProvider](),
+		reflect.TypeFor[tierCollisionPromotedProvider](),
 		func(*op.RuntimeEnvironment) (any, error) { return nil, nil },
 		op.NewProviderFlags(op.SurfaceWorkflow, op.PlacementPromoted),
 		map[string][]op.Parameter{"Variable": {}},
@@ -214,7 +214,7 @@ func TestProvider_ResolveAttr_TierOrder(t *testing.T) {
 func TestProvider_BuildPromotedBuiltins_PanicsOnCollision_PromotedVsOwn(t *testing.T) {
 
 	p := resolutionProvider(t)
-	roots := []op.ProviderReceiverType{collisionRootReceiverType(t)}
+	roots := []op.ProviderReceiverType{collisionPromotedReceiverType(t)}
 
 	wantPanicContaining(t, "collides with plan.Provider's own method", func() {
 		p.promoteMethods(map[string]struct{}{"variable": {}}, map[string]struct{}{}, roots)
@@ -224,7 +224,7 @@ func TestProvider_BuildPromotedBuiltins_PanicsOnCollision_PromotedVsOwn(t *testi
 func TestProvider_BuildPromotedBuiltins_PanicsOnCollision_PromotedVsSubNamespace(t *testing.T) {
 
 	p := resolutionProvider(t)
-	roots := []op.ProviderReceiverType{collisionRootReceiverType(t)}
+	roots := []op.ProviderReceiverType{collisionPromotedReceiverType(t)}
 
 	wantPanicContaining(t, "collides with sub-namespace adapter name", func() {
 		p.promoteMethods(map[string]struct{}{}, map[string]struct{}{"variable": {}}, roots)
@@ -236,7 +236,7 @@ func TestProvider_PromoteMethods_PanicsOnDuplicateMethod(t *testing.T) {
 	// Extra-matrix companion to rows 7–8: the third collision case — the same method promoted from two root
 	// providers.
 	p := resolutionProvider(t)
-	duplicate := collisionRootReceiverType(t)
+	duplicate := collisionPromotedReceiverType(t)
 
 	wantPanicContaining(t, "collides with another root provider's method", func() {
 		p.promoteMethods(map[string]struct{}{}, map[string]struct{}{},
