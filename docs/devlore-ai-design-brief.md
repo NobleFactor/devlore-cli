@@ -69,6 +69,102 @@ A pack is disciplined text plus a manifest. The body enters model context; the m
 - **Provenance hook:** a workflow run records the pack versions in context, in the same trace that records its other inputs. "What did the model know when it authored this" is a queryable fact.
 - **MCP facade:** resources + `get_pack` tool as above; stdio and HTTP transports for in-perimeter clients.
 
+## 4a. Registry Structure — Unsettled
+
+The registry serves two purposes, and their directories are not yet named in a way that
+distinguishes them. This section records where that discussion has got to. Nothing here is
+decided; the layout is a strawman and the naming is deliberately deferred to the reorg, when the
+tree's shape will make the choice obvious.
+
+### What is there today
+
+```
+packages/     lore packages — docker, kubectl, terraform: deployable lifecycle definitions
+knowledge/    prompts, concepts, schemas, transforms, signatures, slots, bindings, providers
+```
+
+`packages/` is consumed by the devlore engine, executing a lifecycle. `knowledge/` is consumed by
+an LLM, as context. They have almost nothing in common but a parent.
+
+### Why `knowledge/` is the wrong name
+
+**The brief already uses a different word, precisely.** §1 says *"Knowledge is packaged as CAG
+assets"* — knowledge is the raw material, the pack is the artifact. The URI is
+`devlore://packs/conventions@12`; the tool is `get_pack()`; §3 is *"CAG Pack Anatomy"*. The
+directory names the input while the registry stores the output.
+
+**It collides with a process of the same name.** devlore-cli's `knowledge-extract` workflow
+generates *into* this tree, so `knowledge` is simultaneously a devlore-cli operation and a
+devlore-registry directory. `knowledge/packages/index.yaml` and `packages/index.yaml` are
+unrelated files whose names imply a relationship.
+
+**The contents are not knowledge in a useful sense.** `prompts/` holds model instructions
+(*"You are a migration assistant for writ…"*), `concepts/` a structured taxonomy, `schemas/`
+contracts, `transforms/` and `signatures/` detection rules, `bindings/` and `slots/` wiring.
+
+### Why `authoring/` is also wrong
+
+Two independent reasons, and each is sufficient.
+
+**The tree serves more than authoring.** Counting mentions per domain:
+
+| Domain | writ | lore |
+| --- | --- | --- |
+| `migration/` | 175 | 21 |
+| `package-authoring/` | 15 | 33 |
+| `onboarding/` | 10 | 7 |
+| `shared/` | 5 | 5 |
+
+Migrating a dotfile manager authors nothing. A name drawn from one operation cannot hold three.
+
+**The pack set says so too.** The required set in §5 is `devlore-conventions`,
+`lore-package-authoring`, and `platform-<target>`. Only one of the three is about authoring;
+`devlore-conventions` is vocabulary and invariants, `platform-<target>` is platform idiom.
+
+### Why `packs/` was the leading candidate, and why it fails
+
+A pack is defined by its **form** — disciplined text plus a manifest, stability-ordered,
+deterministically serialized, renditions versioned together — not by its purpose. That is exactly
+the property required when one tree feeds writ migration, lore authoring, and onboarding:
+`devlore-conventions` and `lore-package-authoring` are the same kind of thing serving different
+operations, and only a form-based name holds both. Every purpose-based candidate fails: pick
+`authoring/` and migration does not fit; pick `guidance/` and the schemas do not.
+
+It fails on a collision instead. **`packs/` beside `packages/`** is the worst available pairing —
+near-synonyms in ordinary English, separable only by a convention the reader must already hold.
+Nothing in `packages/docker/lifecycle.yaml` versus `packs/migration/prompts/…` says one deploys
+software and the other enters a context window.
+
+### On the word "pack" itself
+
+Neither invented nor standard. "Pack" is long-established in software distribution — content
+packs, language packs, resource packs — as a bundle of related assets shipped as a unit. Applied
+to LLM context it is an *emerging* term, still stabilizing: "context pack", "context bundle", and
+"memory pack" are used interchangeably with no settled definition.
+
+Two cautions follow. The term is overloaded in this exact neighbourhood — *MCP capability pack*
+already means a configured set of MCP servers, and this design puts an MCP facade in front of
+these assets, so "devlore packs served over MCP" is ambiguous. And this brief's definition is
+narrower and more disciplined than industry usage, which mostly means "some things we bundled".
+The definition in §3 is doing the work; the word is not carrying it.
+
+### Where it stands
+
+Two candidates survive, and the reorg decides between them:
+
+- **`context/`** — honest about the defining property (this material enters a model's context
+  window; `packages/` never does), no collision, and it reads naturally across all three
+  consumers. Weak in that "context" is generic, and inside this domain already means the window.
+- **`cag/`** — precise and unambiguous, matching §3. Opaque to a newcomer, though this is a
+  private registry consumed by our own tooling, which lowers that cost.
+
+Ruled out: anything sharing a root with `packages/`.
+
+**Renaming is deliberately deferred.** The directory name is the cheap part. A rename touches
+`star devlore knowledge index|validate|extract`, the schema paths, both registry workflows, the
+required-check contexts, and the `com.noblefactor.devlore.Knowledge` extension id. Settle what the
+tree becomes, then rename once, on the way.
+
 ## 5. The Docs-to-Lore Pipeline
 
 **Input:** vendor installation documentation (README, docs pages, PDF).
