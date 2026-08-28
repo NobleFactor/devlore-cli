@@ -125,6 +125,7 @@ func TestKnowledgeIndex_PreservesEntryMetadata(t *testing.T) {
 		"knowledge/packages/index.yaml": "domain: packages\n" +
 			"slots:\n" +
 			"  - name: homebrew.yaml\n" +
+			"    generated: false\n" +
 			"    package: homebrew\n" +
 			"    description: Package manager for macOS and Linux\n" +
 			"    platforms: [darwin, linux]\n",
@@ -150,6 +151,7 @@ func TestKnowledgeIndex_AddsNewFileAndKeepsNeighbourMetadata(t *testing.T) {
 		"knowledge/packages/index.yaml": "domain: packages\n" +
 			"slots:\n" +
 			"  - name: homebrew.yaml\n" +
+			"    generated: false\n" +
 			"    package: homebrew\n",
 	})
 
@@ -171,7 +173,7 @@ func TestKnowledgeIndex_IsIdempotent(t *testing.T) {
 	workdir, target := registry(t, map[string]string{
 		"knowledge/packages/slots/homebrew.yaml": "name: homebrew\n",
 		"knowledge/packages/index.yaml": "domain: packages\n" +
-			"slots:\n  - name: homebrew.yaml\n    package: homebrew\n",
+			"slots:\n  - name: homebrew.yaml\n    generated: false\n    package: homebrew\n",
 	})
 
 	app := knowledgeRuntime(t, workdir)
@@ -210,13 +212,28 @@ func TestKnowledgeIndex_RefusesUnrecognizedDirectory(t *testing.T) {
 
 func TestKnowledgeIndex_RefusesLooseFile(t *testing.T) {
 	workdir, target := registry(t, map[string]string{
-		"knowledge/migration/prompts/go.txt": "hello\n",
-		"knowledge/migration/README.md":      "loose\n",
-		"knowledge/migration/index.yaml":     "domain: migration\nprompts:\n  - name: go.txt\n",
+		"knowledge/migration/prompts/go.txt":         "hello\n",
+		"knowledge/migration/systems-reference.yaml": "loose\n",
+		"knowledge/migration/index.yaml":             "domain: migration\nprompts:\n  - name: go.txt\n    generated: false\n",
 	})
 
 	app := knowledgeRuntime(t, workdir)
-	refuses(t, app, target, "README.md")
+	refuses(t, app, target, "systems-reference.yaml")
+}
+
+func TestKnowledgeIndex_AllowsDomainReadme(t *testing.T) {
+	// README.md is orientation addressed to a reader, not an asset. Everything else loose in a
+	// domain root is still refused, so admitting it does not open the door generally.
+	workdir, target := registry(t, map[string]string{
+		"knowledge/migration/prompts/go.txt": "hello\n",
+		"knowledge/migration/README.md":      "# Migration\n",
+		"knowledge/migration/index.yaml":     "domain: migration\nprompts:\n  - name: go.txt\n    generated: false\n",
+	})
+
+	app := knowledgeRuntime(t, workdir)
+	if err := runIndex(t, app, target); err != nil {
+		t.Fatalf("a domain README should be allowed: %v", err)
+	}
 }
 
 func TestKnowledgeIndex_RefusesIndexedFileThatDoesNotExist(t *testing.T) {
@@ -225,7 +242,7 @@ func TestKnowledgeIndex_RefusesIndexedFileThatDoesNotExist(t *testing.T) {
 	workdir, target := registry(t, map[string]string{
 		"knowledge/migration/signatures/stow.yaml": "x: 1\n",
 		"knowledge/migration/index.yaml": "domain: migration\n" +
-			"signatures:\n  - name: stow.yaml\n  - name: moved-away.yaml\n",
+			"signatures:\n  - name: stow.yaml\n    generated: false\n  - name: moved-away.yaml\n    generated: false\n",
 	})
 
 	app := knowledgeRuntime(t, workdir)
@@ -246,12 +263,63 @@ func TestKnowledgeIndex_RefusesUnknownSection(t *testing.T) {
 	workdir, target := registry(t, map[string]string{
 		"knowledge/migration/prompts/go.txt": "hello\n",
 		"knowledge/migration/index.yaml": "domain: migration\n" +
-			"prompts:\n  - name: go.txt\n" +
-			"invented:\n  - name: nothing.yaml\n",
+			"prompts:\n  - name: go.txt\n    generated: false\n" +
+			"invented:\n  - name: nothing.yaml\n    generated: false\n",
 	})
 
 	app := knowledgeRuntime(t, workdir)
 	refuses(t, app, target, "invented")
+}
+
+func TestKnowledgeIndex_RefusesUndeclaredProvenance(t *testing.T) {
+	// Whether a file is authored or emitted by a pipeline is not derivable from its path:
+	// package-authoring/bindings/ holds pipeline output while its siblings hold hand-written
+	// material. Guessing it wrong is how a regeneration overwrites something a person wrote, which
+	// is what devlore-registry#80 did.
+	workdir, target := registry(t, map[string]string{
+		"knowledge/migration/prompts/go.txt": "hello\n",
+		"knowledge/migration/index.yaml":     "domain: migration\nprompts:\n  - name: go.txt\n",
+	})
+
+	app := knowledgeRuntime(t, workdir)
+	refuses(t, app, target, "does not declare generated")
+}
+
+func TestKnowledgeIndex_RefusesNonBooleanProvenance(t *testing.T) {
+	workdir, target := registry(t, map[string]string{
+		"knowledge/migration/prompts/go.txt": "hello\n",
+		"knowledge/migration/index.yaml": "domain: migration\nprompts:\n" +
+			"  - name: go.txt\n    generated: \"yes\"\n",
+	})
+
+	app := knowledgeRuntime(t, workdir)
+	refuses(t, app, target, "non-boolean generated")
+}
+
+func TestKnowledgeIndex_NewFileDefaultsToAuthored(t *testing.T) {
+	// The default is not a guess dressed up as knowledge; it is a choice about which way to be
+	// wrong. Calling a generated file authored costs one needless review. Calling an authored file
+	// generated invites a pipeline to overwrite it -- devlore-registry#80. The run says what it did.
+	workdir, target := registry(t, map[string]string{
+		"knowledge/migration/prompts/go.txt":  "hello\n",
+		"knowledge/migration/prompts/new.txt": "appeared\n",
+		"knowledge/migration/index.yaml": "domain: migration\nprompts:\n" +
+			"  - name: go.txt\n    generated: false\n",
+	})
+
+	app := knowledgeRuntime(t, workdir)
+	if err := runIndex(t, app, target); err != nil {
+		t.Fatalf("a new file should be recorded, not refused: %v", err)
+	}
+
+	got := readIndex(t, workdir, target, "migration")
+	if !strings.Contains(got, "new.txt") {
+		t.Errorf("the new file was not indexed:\n%s", got)
+	}
+	// Two entries, two declarations: the index it writes satisfies the rule it enforces.
+	if strings.Count(got, "generated:") != 2 {
+		t.Errorf("every entry must declare provenance:\n%s", got)
+	}
 }
 
 func TestKnowledgeIndex_AcceptsRecognizedNewTypes(t *testing.T) {
@@ -262,9 +330,9 @@ func TestKnowledgeIndex_AcceptsRecognizedNewTypes(t *testing.T) {
 		"knowledge/d/providers/b.yaml": "x: 1\n",
 		"knowledge/d/bindings/c.yaml":  "x: 1\n",
 		"knowledge/d/index.yaml": "domain: d\n" +
-			"concepts:\n  - name: a.yaml\n" +
-			"providers:\n  - name: b.yaml\n" +
-			"bindings:\n  - name: c.yaml\n",
+			"concepts:\n  - name: a.yaml\n    generated: false\n" +
+			"providers:\n  - name: b.yaml\n    generated: false\n" +
+			"bindings:\n  - name: c.yaml\n    generated: true\n",
 	})
 
 	app := knowledgeRuntime(t, workdir)
