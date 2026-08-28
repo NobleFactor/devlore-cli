@@ -1595,7 +1595,11 @@ func (p *Provider) Join(parts ...string) string {
 //
 // +devlore:claim=deterministic
 func (p *Provider) Name(path string) string {
-	return slashpath.Base(path)
+	// ToSlash first: Join returns OS-native paths, so on Windows this is routinely handed a
+	// backslash path. slashpath.Base finds no separator in one and answers the whole string --
+	// file.name(file.join(a, b)) returned the entire path rather than the last element, which is
+	// how the knowledge indexer came to treat every directory as unrecognized there.
+	return slashpath.Base(filepath.ToSlash(path))
 }
 
 // Parent returns the directory containing the file at `path` via [slashpath.Dir].
@@ -1610,7 +1614,8 @@ func (p *Provider) Name(path string) string {
 //
 // +devlore:claim=deterministic
 func (p *Provider) Parent(path string) string {
-	return slashpath.Dir(path)
+	// Native input, slash-form output -- see [Provider.Name].
+	return slashpath.Dir(filepath.ToSlash(path))
 }
 
 // endregion

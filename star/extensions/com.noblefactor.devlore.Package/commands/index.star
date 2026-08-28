@@ -88,7 +88,7 @@ def build_index(packages):
 
     return {
         "version": "1",
-        "generated": "star devlore knowledge index packages",
+        "generated": "star devlore package index",
         "count": len(index_pkgs),
         "packages": index_pkgs,
     }
