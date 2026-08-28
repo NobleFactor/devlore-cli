@@ -114,9 +114,12 @@ func (a *adapter) Attr(name string) (starlark.Value, error) {
 		if op.CamelToSnake(method.Name()) != name {
 			continue
 		}
-		actionName := a.receiverType.Name() + "." + name
-		body := dispatchBuiltinBody(a.provider, a.receiverType, method.Name(), actionName)
-		return starlark.NewBuiltin(actionName, body), nil
+		// The name an author would have typed. A qualified provider is reached through its own name under
+		// plan.*, so the call site is plan.file.copy -- not file.copy, which is the SCRIPT surface's spelling.
+		// Display only; the node's action name is unaffected (#710).
+		callSiteName := "plan." + a.receiverType.Name() + "." + name
+		body := dispatchBuiltinBody(a.provider, a.receiverType, method.Name(), callSiteName)
+		return starlark.NewBuiltin(callSiteName, body), nil
 	}
 
 	return nil, starlarkbridge.NoSuchAttrError(a.Type(), name)

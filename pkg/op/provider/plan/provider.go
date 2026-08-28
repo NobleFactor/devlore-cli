@@ -840,7 +840,12 @@ func (p *Provider) promoteMethods(selfNames, childNames map[string]struct{}, roo
 		for method := range rp.Methods() {
 
 			snakeName := op.CamelToSnake(method.Name())
-			actionName := rp.Name() + "." + snakeName
+
+			// The name an author would have typed. A promoted provider's methods answer directly under
+			// plan.*, so its own name is not a symbol any script can use -- plan.choose, never flow.choose.
+			// This is a display name only: the node's ACTION name comes from unit.Action().Name() at marshal
+			// and stays provider-qualified, because it is the node's identity in a serialized workflow (#710).
+			callSiteName := "plan." + snakeName
 
 			if _, ok := selfNames[snakeName]; ok {
 				panic(fmt.Sprintf(
@@ -862,8 +867,8 @@ func (p *Provider) promoteMethods(selfNames, childNames map[string]struct{}, roo
 			}
 
 			p.promotedBuiltins[snakeName] = starlark.NewBuiltin(
-				actionName,
-				dispatchBuiltinBody(p, rp, method.Name(), actionName),
+				callSiteName,
+				dispatchBuiltinBody(p, rp, method.Name(), callSiteName),
 			)
 		}
 	}

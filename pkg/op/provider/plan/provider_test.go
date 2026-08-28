@@ -425,3 +425,74 @@ func TestAssembleDefinition_OrphanInvocation_Errors(t *testing.T) {
 		t.Errorf("error %q does not name the orphan invocation %q", err, orphan.Label)
 	}
 }
+
+// region Call-site naming (#710)
+
+// TestResolveAttr_BuiltinNamesFollowTheCallSite pins what a workflow-surface dispatch error reports.
+//
+// The rule: where a call site exists, an error names what the author typed. Under plan.*, that means a
+// PROMOTED provider's method is plan.choose — never flow.choose, since flow is not a symbol reachable from a
+// script — and a QUALIFIED provider's method is plan.file.copy, the whole path the author wrote.
+//
+// Both are asserted together because a fix that promoted every name would satisfy the first alone.
+//
+// This governs the STARLARK-FACING name only. A graph node's action name stays provider-qualified: it is the
+// node's identity field, carried in the serialized document and the checksum.
+func TestResolveAttr_BuiltinNamesFollowTheCallSite(t *testing.T) {
+
+	p := resolutionProvider(t)
+
+	t.Run("promoted method is named for the plan root", func(t *testing.T) {
+
+		builtin, ok := p.ResolveAttr("choose").(*starlark.Builtin)
+		if !ok {
+			t.Fatalf("ResolveAttr(choose) = %T, want *starlark.Builtin", p.ResolveAttr("choose"))
+		}
+
+		if got := builtin.Name(); got != "plan.choose" {
+			t.Errorf("builtin name = %q, want %q; flow is not a symbol any script can reach", got, "plan.choose")
+		}
+	})
+
+	t.Run("qualified method keeps its provider in the path", func(t *testing.T) {
+
+		adapterValue, ok := p.ResolveAttr("file").(*adapter)
+		if !ok {
+			t.Fatalf("ResolveAttr(file) = %T, want *adapter", p.ResolveAttr("file"))
+		}
+
+		attr, err := adapterValue.Attr("copy")
+		if err != nil {
+			t.Fatalf("Attr(copy): %v", err)
+		}
+
+		builtin, ok := attr.(*starlark.Builtin)
+		if !ok {
+			t.Fatalf("Attr(copy) = %T, want *starlark.Builtin", attr)
+		}
+
+		if got := builtin.Name(); got != "plan.file.copy" {
+			t.Errorf("builtin name = %q, want %q; the author typed the whole path", got, "plan.file.copy")
+		}
+	})
+}
+
+// TestActionNamesStayProviderQualified pins the other side of the #710 boundary.
+//
+// The starlark-facing builtin name follows placement; the ACTION name does not. An action name is a node's
+// identity field, carried in the serialized document and therefore in the checksum — so tying it to placement
+// would rewrite every saved workflow the moment a provider's placement changed.
+//
+// flow is promoted, so its call site is plan.choose. Its action name is still flow.choose, and the registry
+// must still resolve it under that name — a saved workflow says flow.choose and has to load.
+func TestActionNamesStayProviderQualified(t *testing.T) {
+
+	for _, actionName := range []string{"flow.choose", "flow.gather", "flow.failed"} {
+		if _, err := op.ReceiverRegistry().BuildAction(op.ActionName(actionName)); err != nil {
+			t.Errorf("BuildAction(%q): %v; the action name is a node's serialized identity and must not "+
+				"follow placement", actionName, err)
+		}
+	}
+}
+
+// endregion
