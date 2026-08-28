@@ -5,6 +5,7 @@ package devloretest_test
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -24,6 +25,15 @@ import (
 //   - `string`: the absolute path to the testdata directory.
 func testdataDir(t *testing.T) string {
 	t.Helper()
+
+	// runtime.Caller bakes in the path this file had when it was COMPILED, so a test binary built
+	// with `go test -c` and carried to another machine looks for the build host's source tree. That
+	// is the normal case for exercising the Windows legs by hand: cross-compile here, copy the
+	// binary and data/ across, run it there. DEVLORE_TESTDATA names the directory instead.
+	if dir := os.Getenv("DEVLORE_TESTDATA"); dir != "" {
+		return dir
+	}
+
 	_, file, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("cannot determine test file path")
@@ -336,6 +346,14 @@ func TestRegexpActions(t *testing.T) {
 
 func TestImmediateFile(t *testing.T) {
 	runScriptImm(t, "test_imm_file.star")
+}
+
+// The seam between path producers (join, glob) and path consumers (name, parent). Every other
+// fixture writes its inputs in the dialect of the function under test, so the mismatch between the
+// two dialects is never exercised — which is how the same defect landed four times in seventeen
+// days (#395, #548, #600, #719).
+func TestImmediateFilePathSeam(t *testing.T) {
+	runScriptImm(t, "test_imm_file_path_seam.star")
 }
 
 func TestImmediateJSON(t *testing.T) {
