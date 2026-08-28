@@ -28,13 +28,12 @@ t.expect_equal(file.name(path=file.join("one", "two", "three", "four.txt")), "fo
 
 # --- file.parent(file.join(...)) ---
 #
-# The parent of a joined path is the join of its leading parts. Stated as a comparison between two
-# producer outputs, so the assertion holds in either dialect.
+# Slash-form on both platforms, because parent answers a question ABOUT a path rather than building
+# one for use. Without the conversion this returns "." on Windows: Dir finds no separator in a
+# backslash path and reports the current directory.
 
-t.expect_equal(
-    file.parent(path=file.join("knowledge", "packages", "slots")),
-    file.name(path=file.join("knowledge", "packages")) and "knowledge/packages",
-)
+t.expect_equal(file.parent(path=file.join("knowledge", "packages", "slots")), "knowledge/packages")
+t.expect_equal(file.parent(path=file.join("a", "b")), "a")
 
 # --- file.name(<glob match>) ---
 #

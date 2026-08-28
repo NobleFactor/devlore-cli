@@ -28,6 +28,7 @@ shift || true
 
 readonly PKG="./cmd/devlore-test/devloretest"
 readonly REMOTE='C:/Users/david-noble/devlore-test'
+readonly REMOTE_POSIX='/c/Users/david-noble/devlore-test'
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${repo_root}"
@@ -37,20 +38,20 @@ GOOS=windows GOARCH=arm64 CGO_ENABLED=0 \
     go test -c -o /tmp/devloretest.exe "${PKG}"
 
 echo "== staging on ${host}:${REMOTE} =="
-ssh "${host}" "New-Item -ItemType Directory -Force -Path '${REMOTE}' | Out-Null; Remove-Item -Recurse -Force '${REMOTE}/data' -ErrorAction SilentlyContinue"
+ssh "${host}" "bash -lc 'mkdir -p ${REMOTE_POSIX} && rm -rf ${REMOTE_POSIX}/data'"
 scp -q /tmp/devloretest.exe "${host}:${REMOTE}/devloretest.exe"
 scp -qr cmd/devlore-test/devloretest/data "${host}:${REMOTE}/data"
 
 echo "== running =="
-# -test.v etc. are the compiled-binary spellings of go test's flags.
+# go test's own flag spellings, since this is a compiled test binary rather than `go test`.
 args=""
 for a in "$@"; do
     case "$a" in
-    -run) args="${args} -test.run" ;;
-    -v) args="${args} -test.v" ;;
-    -count=*) args="${args} -test.count=${a#-count=}" ;;
-    *) args="${args} ${a}" ;;
+        -run) args="${args} -test.run" ;;
+        -v) args="${args} -test.v" ;;
+        -count=*) args="${args} -test.count=${a#-count=}" ;;
+        *) args="${args} ${a}" ;;
     esac
 done
 
-ssh "${host}" "\$env:DEVLORE_TESTDATA='${REMOTE}/data'; & '${REMOTE}/devloretest.exe' ${args}; exit \$LASTEXITCODE"
+ssh "${host}" "bash -lc 'DEVLORE_TESTDATA=${REMOTE_POSIX}/data ${REMOTE_POSIX}/devloretest.exe${args}'"
