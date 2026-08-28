@@ -226,8 +226,7 @@ func (g *goReceiver) Attr(name string) (starlark.Value, error) {
 	}
 
 	if method, ok := g.methods[name]; ok {
-		actionName := g.receiverType.Name() + "." + name
-		builtin := starlark.NewBuiltin(actionName, g.dispatch)
+		builtin := starlark.NewBuiltin(g.callSiteName(name), g.dispatch)
 
 		// A method tagged [op.ModifierProperty] projects as an eager property: attribute access invokes the zero-arg
 		// getter and yields its result rather than returning the callable builtin. dispatch ignores its thread
@@ -246,6 +245,35 @@ func (g *goReceiver) Attr(name string) (starlark.Value, error) {
 	}
 
 	return nil, NoSuchAttrError(g.receiverType.Name(), name)
+}
+
+// callSiteName returns the name an author would have typed to reach this method, which is what a dispatch
+// error must report.
+//
+// A PROMOTED provider's methods are the top-level globals themselves, so its provider name is not a symbol any
+// script can use. Reporting `ui.print` for a `print(...)` call sends an author toward `undefined: ui` -- a
+// second and unrelated error, which is worse than a vague message. A QUALIFIED provider is the opposite: its
+// name IS what the author typed, and must stay.
+//
+// This governs the STARLARK-FACING name only. A graph node's action name stays provider-qualified: it is the
+// node's identity field, carried in the serialized document and the checksum, so tying it to placement would
+// rewrite every saved workflow when a provider's placement changed (#710).
+//
+// A receiver that is not a provider -- a resource -- has no placement, and keeps the qualified form.
+//
+// Parameters:
+//   - `name`: the snake_case method name.
+//
+// Returns:
+//   - `string`: the call-site name.
+func (g *goReceiver) callSiteName(name string) string {
+
+	provider, isProvider := g.receiverType.(op.ProviderReceiverType)
+	if isProvider && provider.Flags().Placement() == op.PlacementPromoted {
+		return name
+	}
+
+	return g.receiverType.Name() + "." + name
 }
 
 // AttrNames implements [starlark.HasAttrs].
