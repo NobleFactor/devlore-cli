@@ -16,7 +16,7 @@ import (
 
 func init() {
 	op.AnnounceProvider(reflect.TypeFor[{{.provider_type_prefix}}Provider](),
-		{{.roles}},
+		{{.flags}},
 		func(ctx *op.RuntimeEnvironment) (any, error) { return {{.provider_type_prefix}}NewProvider(ctx), nil },
 		map[string]op.MethodMetadata{
 {{- range .methods}}

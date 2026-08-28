@@ -29,7 +29,7 @@ import (
 // while a variadic one would receive Go natives after conversion and render True as true and None as <nil>.
 // The script renders with str() and %, which is starlark's own rendering, and hands over a finished string.
 //
-// +devlore:root=true
+// +devlore:placement=promoted
 type Provider struct {
 	op.ProviderBase
 }

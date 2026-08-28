@@ -26,8 +26,8 @@ var _ op.Provider = (*Provider)(nil) // Interface Guard
 // plan.gather) rather than nested under plan.flow.*. Starlark authors call these as plain planner primitives; Go-side
 // the planner primitives carry bare action names on the created graph nodes (choose, gather, subgraph, …).
 //
-// +devlore:root=true
-// +devlore:surface=graph
+// +devlore:placement=promoted
+// +devlore:surface=workflow
 type Provider struct {
 	op.ProviderBase
 }

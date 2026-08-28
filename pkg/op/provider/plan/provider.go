@@ -40,7 +40,7 @@ var (
 //     [newAdapter], cached in `adapters`. Each adapter is a [starlark.HasAttrs] that routes `.<method>(args, kwargs)`
 //     through [Provider.invocation].
 //   - Tier 2 — promoted methods from root-placed providers (`plan.choose`, `plan.gather`, ...). Surfaced flat under
-//     plan.* via builtins discovered from [op.ReceiverRegistry.RootProviders] at construction (any RoleAction+RoleRoot
+//     plan.* via builtins discovered from [op.ReceiverRegistry.PromotedProviders] at construction (any promoted provider reaching SurfaceWorkflow
 //     provider contributes its methods).
 //   - Tier 3 — Provider's own methods (`plan.variable`, `plan.assemble_definition`, `plan.save_definition`, ...).
 //     Surfaced by the executing receiver path that wraps plan.Provider itself as a [goReceiver].
@@ -48,14 +48,14 @@ var (
 // Any collision across the three tiers fails Provider construction with a message naming both providers and the
 // offending method. promotedBuiltins is write-once at construction; the adapters are lazily populated under
 // `adaptersMutex`.
-// +devlore:surface=module
+// +devlore:surface=script
 type Provider struct {
 	op.ProviderBase
 	invocations      *op.InvocationRegistry    // session-scoped ledger of plan-mode invocations
-	rootNames        map[string]struct{}       // names of root providers (excluded from Tier 1 resolution)
+	promotedNames    map[string]struct{}       // names of promoted providers (excluded from Tier 1 resolution)
 	adapters         map[string]*adapter       // Tier 1: per-sub-namespace adapters, lazily populated
 	adaptersMutex    sync.Mutex                // guards adapters
-	promotedBuiltins map[string]starlark.Value // Tier 2: root-placed providers' promoted method builtins, write-once
+	promotedBuiltins map[string]starlark.Value // Tier 2: promoted providers' method builtins, write-once
 }
 
 // NewProvider creates a plan Provider bound to the given runtime environment.
@@ -64,7 +64,7 @@ type Provider struct {
 // [*op.Invocation] handles registered in [Provider.invocations]. The graph is materialized
 // by [Provider.AssembleDefinition] from the supplied invocation set.
 //
-// At construction, the Provider instantiates the invocation registry, then discovers every RoleAction+RoleRoot provider
+// At construction, the Provider instantiates the invocation registry, then discovers every promoted provider reaching SurfaceWorkflow
 // via the registry to build Tier 2 builtins for their promoted methods. Any name collision across Tier 1 (sub-namespace
 // adapter names), Tier 2 (promoted method names), or Tier 3 (this Provider's own method names) is a program-init panic.
 //
@@ -79,7 +79,7 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 	p := &Provider{
 		ProviderBase:     op.NewProviderBase(runtimeEnvironment),
 		invocations:      op.NewInvocationRegistry(),
-		rootNames:        make(map[string]struct{}),
+		promotedNames:    make(map[string]struct{}),
 		adapters:         make(map[string]*adapter),
 		promotedBuiltins: make(map[string]starlark.Value),
 	}
@@ -576,7 +576,7 @@ func (p *Provider) Origin(scope string) op.Origin {
 // Walks the attribute tiers in order:
 //
 //  1. Tier 2: promoted method builtins (including `plan.choose`, `plan.gather`, ...) discovered from
-//     [op.ReceiverRegistry.RootProviders] at construction. `promotedBuiltins` are write-once, so the read is lock-free.
+//     [op.ReceiverRegistry.PromotedProviders] at construction. `promotedBuiltins` are write-once, so the read is lock-free.
 //
 //  2. Tier 1: sub-namespace adapters (`plan.file`, `plan.shell`,...). Looked up via op.ReceiverRegistry.PlannerByName].
 //     Root-placed providers are excluded, so their methods surface flat via Tier 2 instead. On hit, the adapter is
@@ -602,7 +602,7 @@ func (p *Provider) ResolveAttr(name string) any {
 		return builtin
 	}
 
-	if _, isRoot := p.rootNames[name]; isRoot {
+	if _, isPromoted := p.promotedNames[name]; isPromoted {
 		return nil
 	}
 
@@ -791,7 +791,7 @@ func (p *Provider) adapterFor(receiverType op.ProviderReceiverType) *adapter {
 	return fresh
 }
 
-// buildPromotedBuiltins populates promotedBuiltins from every RoleRoot provider in the registry.
+// buildPromotedBuiltins populates promotedBuiltins from every promoted provider in the registry.
 //
 // Asserts there are no collisions across Tier 1 (sub-namespace adapter names), Tier 2 (promoted methods), or Tier 3
 // (this Provider's own methods). Called exactly once from NewProvider. Panics on collision — collisions are
@@ -808,22 +808,22 @@ func (p *Provider) buildPromotedBuiltins() {
 		}
 	}
 
-	for _, rp := range registry.RootProviders() {
-		p.rootNames[rp.Name()] = struct{}{}
+	for _, rp := range registry.PromotedProviders() {
+		p.promotedNames[rp.Name()] = struct{}{}
 	}
 
 	childNames := make(map[string]struct{})
 
 	for _, pp := range registry.Planners() {
-		if _, isRoot := p.rootNames[pp.Name()]; !isRoot {
+		if _, isPromoted := p.promotedNames[pp.Name()]; !isPromoted {
 			childNames[pp.Name()] = struct{}{}
 		}
 	}
 
-	p.promoteRootMethods(selfNames, childNames, registry.RootProviders())
+	p.promoteMethods(selfNames, childNames, registry.PromotedProviders())
 }
 
-// promoteRootMethods promotes every method of every root-placed provider into promotedBuiltins, panicking on any
+// promoteMethods promotes every method of every promoted provider into promotedBuiltins, panicking on any
 // name collision across the three tiers.
 //
 // Separated from [Provider.buildPromotedBuiltins]'s registry gathering so the collision contract is testable against
@@ -833,7 +833,7 @@ func (p *Provider) buildPromotedBuiltins() {
 //   - `selfNames`: this Provider's own snake-cased method names (Tier 3).
 //   - `childNames`: the non-root planner provider names (Tier 1's sub-namespace adapters).
 //   - `roots`: the root-placed providers whose methods promote (Tier 2).
-func (p *Provider) promoteRootMethods(selfNames, childNames map[string]struct{}, roots []op.ProviderReceiverType) {
+func (p *Provider) promoteMethods(selfNames, childNames map[string]struct{}, roots []op.ProviderReceiverType) {
 
 	for _, rp := range roots {
 

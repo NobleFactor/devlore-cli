@@ -76,7 +76,7 @@ func (p *compensationCleanFixture) Explode(input string) error {
 
 func init() {
 
-	AnnounceProvider(reflect.TypeFor[compensationFailingFixture](), RoleAction,
+	AnnounceProvider(reflect.TypeFor[compensationFailingFixture](), NewProviderFlags(SurfaceWorkflow, PlacementQualified),
 		func(runtimeEnvironment *RuntimeEnvironment) (any, error) {
 			return &compensationFailingFixture{ProviderBase: NewProviderBase(runtimeEnvironment)}, nil
 		},
@@ -85,7 +85,7 @@ func init() {
 			"Explode": {ParameterNames: []string{"input"}},
 		})
 
-	AnnounceProvider(reflect.TypeFor[compensationCleanFixture](), RoleAction,
+	AnnounceProvider(reflect.TypeFor[compensationCleanFixture](), NewProviderFlags(SurfaceWorkflow, PlacementQualified),
 		func(runtimeEnvironment *RuntimeEnvironment) (any, error) {
 			return &compensationCleanFixture{ProviderBase: NewProviderBase(runtimeEnvironment)}, nil
 		},
@@ -94,7 +94,7 @@ func init() {
 			"Explode": {ParameterNames: []string{"input"}},
 		})
 
-	AnnounceProvider(reflect.TypeFor[compensationFlakyFixture](), RoleAction,
+	AnnounceProvider(reflect.TypeFor[compensationFlakyFixture](), NewProviderFlags(SurfaceWorkflow, PlacementQualified),
 		func(runtimeEnvironment *RuntimeEnvironment) (any, error) {
 			return &compensationFlakyFixture{ProviderBase: NewProviderBase(runtimeEnvironment)}, nil
 		},
@@ -136,7 +136,7 @@ func (p *retryHandlingFixture) Halt(activationRecord *ActivationRecord) error {
 
 func init() {
 
-	AnnounceProvider(reflect.TypeFor[retryHandlingFixture](), RoleAction,
+	AnnounceProvider(reflect.TypeFor[retryHandlingFixture](), NewProviderFlags(SurfaceWorkflow, PlacementQualified),
 		func(runtimeEnvironment *RuntimeEnvironment) (any, error) {
 			return &retryHandlingFixture{ProviderBase: NewProviderBase(runtimeEnvironment)}, nil
 		},
@@ -170,7 +170,7 @@ func (p *callerStampFixture) Mint(activation *ActivationRecord) (string, error) 
 
 func init() {
 
-	AnnounceProvider(reflect.TypeFor[callerStampFixture](), RoleAction,
+	AnnounceProvider(reflect.TypeFor[callerStampFixture](), NewProviderFlags(SurfaceWorkflow, PlacementQualified),
 		func(runtimeEnvironment *RuntimeEnvironment) (any, error) {
 			return &callerStampFixture{ProviderBase: NewProviderBase(runtimeEnvironment)}, nil
 		},

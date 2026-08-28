@@ -43,7 +43,7 @@ func (g *gate) Wait() error {
 }
 
 func init() {
-	op.AnnounceProvider(reflect.TypeFor[gate](), op.RoleAction,
+	op.AnnounceProvider(reflect.TypeFor[gate](), op.NewProviderFlags(op.SurfaceWorkflow, op.PlacementQualified),
 		func(runtimeEnvironment *op.RuntimeEnvironment) (any, error) {
 			return &gate{ProviderBase: op.NewProviderBase(runtimeEnvironment)}, nil
 		},

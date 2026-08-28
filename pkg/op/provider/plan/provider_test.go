@@ -16,6 +16,10 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
+
+	// ui is promoted and reaches BOTH surfaces; announcing it here is what lets this package assert the
+	// workflow half of its promotion. plan imports flow directly, so flow announces itself already.
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/ui/gen"
 )
 
 // resolutionProvider builds a plan Provider against the test binary's registry (file + flow + plan announced by the
@@ -26,7 +30,7 @@ func resolutionProvider(t *testing.T) *Provider {
 }
 
 // tierCollisionRootProvider is a synthetic root provider whose one method ("Variable" → snake "variable") is aimed
-// at whatever tier a test seeds into promoteRootMethods' name sets. Built as a real receiver type via
+// at whatever tier a test seeds into promoteMethods' name sets. Built as a real receiver type via
 // [op.NewProviderReceiverType]; never announced, so the process registry stays clean.
 type tierCollisionRootProvider struct{}
 
@@ -39,7 +43,7 @@ func collisionRootReceiverType(t *testing.T) op.ProviderReceiverType {
 	receiverType, err := op.NewProviderReceiverType(
 		reflect.TypeFor[tierCollisionRootProvider](),
 		func(*op.RuntimeEnvironment) (any, error) { return nil, nil },
-		op.RoleAction|op.RoleRoot,
+		op.NewProviderFlags(op.SurfaceWorkflow, op.PlacementPromoted),
 		map[string][]op.Parameter{"Variable": {}},
 		nil,
 	)
@@ -112,6 +116,38 @@ func TestProvider_ResolveAttr_Tier2_PromotedBuiltin(t *testing.T) {
 	}
 }
 
+// TestProvider_ResolveAttr_Tier2_PromotedAcrossBothSurfaces pins the half of promotion nothing asserted.
+//
+// Placement applies to EVERY surface a provider reaches, from one declaration. flow reaches only the workflow
+// surface, so its promotion has always been visible here — plan.choose, plan.gather. ui reaches BOTH, so the
+// same declaration that makes note() a top-level global in a script also puts plan.note() in a workflow.
+//
+// That second half was documented in three doc comments and tested nowhere. It is also the half that surprised
+// its own author: #708 gave ui its placement after reasoning only about the script surface, and the workflow
+// consequence was found days later by reading buildPromotedBuiltins rather than by any failure.
+//
+// Guarding it here means a future change to placement semantics cannot quietly drop one surface.
+func TestProvider_ResolveAttr_Tier2_PromotedAcrossBothSurfaces(t *testing.T) {
+
+	p := resolutionProvider(t)
+
+	// ui reaches both surfaces and is promoted, so all six of its methods answer under plan.* as well.
+	for _, name := range []string{"error", "fail", "note", "print", "succeed", "warn"} {
+		resolved := p.ResolveAttr(name)
+		if _, ok := resolved.(*starlark.Builtin); !ok {
+			t.Errorf("ResolveAttr(%q) = %T, want *starlark.Builtin; ui is promoted, and placement applies to "+
+				"every surface it reaches — not only the script one", name, resolved)
+		}
+	}
+
+	// The contrast that makes the above meaningful: a QUALIFIED provider is reached through its own name, so
+	// its methods must NOT answer at the plan root. file.copy is not plan.copy.
+	if resolved := p.ResolveAttr("copy"); resolved != nil {
+		t.Errorf("ResolveAttr(\"copy\") = %T, want nil; file is qualified, so its methods stay under plan.file.*",
+			resolved)
+	}
+}
+
 func TestProvider_ResolveAttr_Tier1_SubNamespaceAdapter(t *testing.T) {
 
 	p := resolutionProvider(t)
@@ -143,7 +179,7 @@ func TestProvider_ResolveAttr_Tier3_OwnMethod(t *testing.T) {
 	}
 }
 
-func TestProvider_ResolveAttr_RootProviderExcludedFromTier1(t *testing.T) {
+func TestProvider_ResolveAttr_PromotedProviderExcludedFromTier1(t *testing.T) {
 
 	p := resolutionProvider(t)
 
@@ -181,7 +217,7 @@ func TestProvider_BuildPromotedBuiltins_PanicsOnCollision_PromotedVsOwn(t *testi
 	roots := []op.ProviderReceiverType{collisionRootReceiverType(t)}
 
 	wantPanicContaining(t, "collides with plan.Provider's own method", func() {
-		p.promoteRootMethods(map[string]struct{}{"variable": {}}, map[string]struct{}{}, roots)
+		p.promoteMethods(map[string]struct{}{"variable": {}}, map[string]struct{}{}, roots)
 	})
 }
 
@@ -191,11 +227,11 @@ func TestProvider_BuildPromotedBuiltins_PanicsOnCollision_PromotedVsSubNamespace
 	roots := []op.ProviderReceiverType{collisionRootReceiverType(t)}
 
 	wantPanicContaining(t, "collides with sub-namespace adapter name", func() {
-		p.promoteRootMethods(map[string]struct{}{}, map[string]struct{}{"variable": {}}, roots)
+		p.promoteMethods(map[string]struct{}{}, map[string]struct{}{"variable": {}}, roots)
 	})
 }
 
-func TestProvider_PromoteRootMethods_PanicsOnDuplicateRootMethod(t *testing.T) {
+func TestProvider_PromoteMethods_PanicsOnDuplicateMethod(t *testing.T) {
 
 	// Extra-matrix companion to rows 7–8: the third collision case — the same method promoted from two root
 	// providers.
@@ -203,7 +239,7 @@ func TestProvider_PromoteRootMethods_PanicsOnDuplicateRootMethod(t *testing.T) {
 	duplicate := collisionRootReceiverType(t)
 
 	wantPanicContaining(t, "collides with another root provider's method", func() {
-		p.promoteRootMethods(map[string]struct{}{}, map[string]struct{}{},
+		p.promoteMethods(map[string]struct{}{}, map[string]struct{}{},
 			[]op.ProviderReceiverType{duplicate, duplicate})
 	})
 }

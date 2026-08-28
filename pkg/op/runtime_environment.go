@@ -228,7 +228,7 @@ func NewRuntimeEnvironment(ctx context.Context, spec *RuntimeEnvironmentSpec) (*
 
 	modules := spec.Modules
 	if len(modules) == 0 {
-		modules = ReceiverRegistry().Modules()
+		modules = ReceiverRegistry().Scripts()
 	}
 
 	// Preflight, not allocation: both anchors are proved usable here and released again, so a bad anchor is

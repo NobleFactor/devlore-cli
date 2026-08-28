@@ -186,8 +186,8 @@ func (a *announcements) validatorStub() map[string]any {
 
 // AnnounceProvider registers a provider with its roles and per-method metadata.
 //
-// Called in init(). Roles are declared via [ProviderRole] flags: [RoleModule] for immediate-mode starlark globals,
-// [RoleAction] for plan-mode graph node creation.
+// Called in init(). Surfaces are declared via [ProviderFlags]: [SurfaceScript] for methods reachable from a script,
+// [SurfaceWorkflow] for methods reachable from a workflow.
 //
 // Companion methods on the provider type — [Method.Plan] via <Name>Planned, [Method.Undo] via Compensate<Name> —
 // are discovered automatically by reflection in [NewProviderReceiverType]. No registration is required.
@@ -197,11 +197,12 @@ func (a *announcements) validatorStub() map[string]any {
 //   - `roles`: the provider's declared roles.
 //   - `construct`: creates a provider instance from RuntimeEnvironment.
 //   - `methods`: codegen-emitted [MethodMetadata] per Go method, keyed by the method's Go name.
-func AnnounceProvider(providerType reflect.Type, roles ProviderRole, construct ProviderConstructor, methods map[string]MethodMetadata) {
+func AnnounceProvider(providerType reflect.Type, flags ProviderFlags, construct ProviderConstructor, methods map[string]MethodMetadata) {
 
 	label := fmt.Sprintf("AnnounceProvider(%s)", providerType)
 
-	assert.Truef(roles.Dispatch() != 0, "%s: roles must set at least one dispatch-zone bit (RoleModule or RoleAction); got %#x", label, uint(roles))
+	assert.Truef(flags.Surfaces() != 0,
+		"%s: must declare at least one surface (SurfaceScript or SurfaceWorkflow); got %#x", label, uint(flags))
 
 	methodParameters := make(map[string][]string, len(methods))
 	planners := make(map[string]Planner, len(methods))
@@ -214,7 +215,7 @@ func AnnounceProvider(providerType reflect.Type, roles ProviderRole, construct P
 	parsed, err := parseParameters(providerType, methodParameters)
 	assert.NoError(label, err)
 
-	rt, err := NewProviderReceiverType(providerType, construct, roles, parsed, planners)
+	rt, err := NewProviderReceiverType(providerType, construct, flags, parsed, planners)
 	assert.NoError(label, err)
 
 	// Stamp per-method surface modifiers from the codegen-emitted metadata. Unset entries default to ModifierNone.
@@ -231,7 +232,7 @@ func AnnounceProvider(providerType reflect.Type, roles ProviderRole, construct P
 
 // AnnounceResource registers a resource type.
 //
-// Called in init(). Resources are always RoleResource — they cannot be actions or modules. They are data types
+// Called in init(). Resources are always RoleResource — they reach no provider surface. They are data types
 // constructed by coercing a raw value (e.g., a string path becomes a file.Resource).
 //
 // Parameters:
@@ -304,17 +305,17 @@ func AnnounceType(goType reflect.Type, methods map[string]MethodMetadata) {
 
 // receiverRegistry stores receiver types in four sorted lists plus cross-cutting lookup maps.
 //
-// Actions are providers with RoleAction (graph scope). Modules are providers with RoleModule (script scope). Planners
-// mirror actions for the plan.* namespace. Resources are data types that flow through starlark code or an execution
-// graph. A provider may appear in both actions and modules.
+// Workflows are providers reaching SurfaceWorkflow. Scripts are providers reaching SurfaceScript. Planners mirror
+// workflows for the plan.* namespace. Resources are data types that flow through starlark code or an execution
+// graph. A provider may appear in both workflows and scripts.
 //
 // The byType map enables lookup by reflect.Type for marshalReflect (wrapping Go return values) and the executor
 // (dispatching graph nodes).
 type receiverRegistry struct {
-	actions   []ProviderReceiverType        // sorted by name; providers with RoleAction
-	modules   []ProviderReceiverType        // sorted by name; providers with RoleModule
-	planners  []ProviderReceiverType        // sorted by name; mirrors actions for plan.* routing
-	roots     []ProviderReceiverType        // sorted by name; providers with the RoleRoot placement-zone bit
+	workflows []ProviderReceiverType        // sorted by name; providers reaching SurfaceWorkflow
+	scripts   []ProviderReceiverType        // sorted by name; providers reaching SurfaceScript
+	planners  []ProviderReceiverType        // sorted by name; mirrors workflows for plan.* routing
+	promoted  []ProviderReceiverType        // sorted by name; providers whose placement is PlacementPromoted
 	resources []ResourceReceiverType        // sorted by name; data types
 	byName    map[string]ReceiverType       // all receiver types by name
 	byType    map[reflect.Type]ReceiverType // all receiver types by reflect.Type
@@ -379,13 +380,13 @@ func newReceiverRegistry() *receiverRegistry {
 //
 // Returns:
 //   - `[]ProviderReceiverType`: sorted by receiver name.
-func (r *receiverRegistry) Actions() []ProviderReceiverType { return r.actions }
+func (r *receiverRegistry) Workflows() []ProviderReceiverType { return r.workflows }
 
 // Modules returns all providers that can be called directly from a starlark runtime.
 //
 // Returns:
 //   - `[]ProviderReceiverType`: sorted by receiver name.
-func (r *receiverRegistry) Modules() []ProviderReceiverType { return r.modules }
+func (r *receiverRegistry) Scripts() []ProviderReceiverType { return r.scripts }
 
 // Planners returns all providers available in the plan.* namespace.
 //
@@ -393,23 +394,23 @@ func (r *receiverRegistry) Modules() []ProviderReceiverType { return r.modules }
 //   - `[]ProviderReceiverType`: sorted by receiver name.
 func (r *receiverRegistry) Planners() []ProviderReceiverType { return r.planners }
 
-// RootProviders returns every provider with the [RoleRoot] placement-zone bit set.
+// PromotedProviders returns every provider whose [Placement] is [PlacementPromoted].
 //
-// Root providers surface their methods flat at their access-defined namespace root rather than nested under the
-// provider's own name.
+// A promoted provider surfaces its methods at the namespace root of every surface it reaches, rather than
+// qualified by its own name.
 //
-// The list is NOT filtered by dispatch zone, and callers are not expected to filter it. Root placement applies to
-// every surface a provider reaches: a RoleModule|RoleAction|RoleRoot provider surfaces flat in BOTH namespaces, as
-// top-level globals for a module surface and directly under plan.* for the graph. ui is the case — note() in a
-// script and plan.note() in a graph, from one directive.
+// The list is NOT filtered by surface, and callers are not expected to filter it. Placement applies to every
+// surface a provider reaches: one reaching both surfaces is promoted on both — top-level globals for a script,
+// and directly under plan.* for a workflow. ui is the case: note() in a script and plan.note() in a workflow,
+// from one directive.
 //
-// This comment previously said callers filter to a dispatch mode and named plan.Provider as the example.
-// plan.Provider does not filter, and the behavior that describes was never implemented; corrected 2026-08-27
-// after ui became the first RoleModule|RoleAction|RoleRoot provider and made the difference observable.
+// This comment once said callers filter by surface and named plan.Provider as the example. plan.Provider does
+// not filter, and the behavior described was never implemented; corrected 2026-08-27, after ui became the first
+// provider both reaching every surface and promoted, which made the difference observable.
 //
 // Returns:
 //   - `[]ProviderReceiverType`: sorted by receiver name.
-func (r *receiverRegistry) RootProviders() []ProviderReceiverType { return r.roots }
+func (r *receiverRegistry) PromotedProviders() []ProviderReceiverType { return r.promoted }
 
 // Resources returns all resource data types.
 //
@@ -553,7 +554,7 @@ func (r *receiverRegistry) ProductTypeByID(id string) (reflect.Type, bool) {
 
 	r.productTypeOnce.Do(func() {
 		index := make(map[string]reflect.Type)
-		for _, providerType := range r.actions {
+		for _, providerType := range r.workflows {
 			for method := range providerType.Methods() {
 
 				productType := method.ResultType()
@@ -597,7 +598,7 @@ func (r *receiverRegistry) CompensatingActionByName(name string) (compensatingAc
 
 	r.compensatingActionOnce.Do(func() {
 		index := make(map[string]compensatingAction)
-		for _, providerType := range r.actions {
+		for _, providerType := range r.workflows {
 			reflectType := providerType.ProviderType()
 			if reflectType.Kind() != reflect.Pointer {
 				reflectType = reflect.PointerTo(reflectType)
@@ -737,7 +738,7 @@ func (r *receiverRegistry) ActionByPath(name string) (ProviderReceiverType, *Met
 	for _, rt := range r.byName {
 
 		prt, ok := rt.(ProviderReceiverType)
-		if !ok || prt.Roles()&RoleAction == 0 {
+		if !ok || prt.Flags().Surfaces()&SurfaceWorkflow == 0 {
 			continue
 		}
 
@@ -771,7 +772,7 @@ func (r *receiverRegistry) ActionByName(name string) (ProviderReceiverType, bool
 		return nil, false
 	}
 
-	if prt.Roles()&RoleAction == 0 {
+	if prt.Flags().Surfaces()&SurfaceWorkflow == 0 {
 		return nil, false
 	}
 
@@ -846,7 +847,7 @@ func (r *receiverRegistry) ModuleByName(name string) (ProviderReceiverType, bool
 		return nil, false
 	}
 
-	if prt.Roles()&RoleModule == 0 {
+	if prt.Flags().Surfaces()&SurfaceScript == 0 {
 		return nil, false
 	}
 
@@ -873,7 +874,7 @@ func (r *receiverRegistry) PlannerByName(name string) (ProviderReceiverType, boo
 		return nil, false
 	}
 
-	if prt.Roles()&RoleAction == 0 {
+	if prt.Flags().Surfaces()&SurfaceWorkflow == 0 {
 		return nil, false
 	}
 
@@ -991,16 +992,16 @@ func (r *receiverRegistry) registerLocked(rt ReceiverType) {
 
 	switch v := rt.(type) {
 	case ProviderReceiverType:
-		roles := v.Roles()
-		if roles&RoleModule != 0 {
-			r.modules = insertSortedProvider(r.modules, v)
+		flags := v.Flags()
+		if flags.Surfaces()&SurfaceScript != 0 {
+			r.scripts = insertSortedProvider(r.scripts, v)
 		}
-		if roles&RoleAction != 0 {
-			r.actions = insertSortedProvider(r.actions, v)
+		if flags.Surfaces()&SurfaceWorkflow != 0 {
+			r.workflows = insertSortedProvider(r.workflows, v)
 			r.planners = insertSortedProvider(r.planners, v)
 		}
-		if roles.Placement()&RoleRoot != 0 {
-			r.roots = insertSortedProvider(r.roots, v)
+		if flags.Placement() == PlacementPromoted {
+			r.promoted = insertSortedProvider(r.promoted, v)
 		}
 	case ResourceReceiverType:
 		r.resources = insertSortedResource(r.resources, v)

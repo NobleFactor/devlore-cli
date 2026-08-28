@@ -31,7 +31,7 @@ func TestActionPlanner_ExecutableUnitAssignableDispatch(t *testing.T) {
 	receiverType, err := NewProviderReceiverType(
 		reflect.TypeFor[slotDispatchProvider](),
 		func(*RuntimeEnvironment) (any, error) { return nil, nil },
-		RoleAction,
+		NewProviderFlags(SurfaceWorkflow, PlacementQualified),
 		map[string][]Parameter{"Wrap": {
 			{Name: "body", Type: reflect.TypeFor[ExecutableUnit]()},
 			{Name: "note", Type: reflect.TypeFor[string]()},
@@ -106,7 +106,7 @@ func planStringIntoResourceInterface(t *testing.T) error {
 	receiverType, err := NewProviderReceiverType(
 		reflect.TypeFor[mintProbeProvider](),
 		func(*RuntimeEnvironment) (any, error) { return nil, nil },
-		RoleAction,
+		NewProviderFlags(SurfaceWorkflow, PlacementQualified),
 		map[string][]Parameter{"Take": {{Name: "claim", Type: reflect.TypeFor[Resource]()}}},
 		nil,
 	)

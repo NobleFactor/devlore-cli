@@ -271,7 +271,7 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 
 	spec := op.NewRuntimeEnvironmentSpec("devlore-test").
 		WithStatus(cli.UI()).
-		WithModules(receiverRegistry.Modules()...).
+		WithModules(receiverRegistry.Scripts()...).
 		WithRoot(tmpDir).
 		WithPlatform(hostPlatform).
 		WithApplication(app)
