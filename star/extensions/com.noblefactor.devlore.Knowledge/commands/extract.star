@@ -561,63 +561,30 @@ def _parse_migrate_knowledge(path):
                 elif type_name == "RepoLayer":
                     repo_layers.append(entry)
 
-    # Extract system prompt and platforms from plan.go
+    # The platforms section is gone, not merely empty. It parsed a buildSystemPrompt function in
+    # plan.go for a line reading "Known platforms:", and neither the function nor that string exists
+    # in cmd/writ/writ/migrate any more. Two guards -- file.exists(plan_path) and the empty func_list
+    # -- turned that into an empty list reported as success, so every generated reference has carried
+    # `platforms: []` while the other three sections populated correctly.
+    #
+    # Dropped rather than repaired: nothing has consumed it, and a section that silently reports
+    # nothing is worse than one that is absent. If platform vocabulary is wanted, it should be
+    # extracted from a constant family the way the other three are, not scraped from prose.
     system_prompt = ""
-    platforms = []
     if file.exists(plan_path):
         prompt_funcs = goast.funcs(plan_path, name="buildSystemPrompt")
         func_list = list(prompt_funcs)
         if len(func_list) > 0:
             system_prompt = str(goast.raw_string(func_list[0].scope))
-            platforms = _extract_platforms(system_prompt)
 
     return {
         "source_systems": source_systems,
         "encryption_systems": encryption_systems,
         "repo_layers": repo_layers,
-        "platforms": platforms,
         "system_prompt": system_prompt,
     }
 
 
-def _extract_platforms(prompt_text):
-    """Extract platform names from system prompt text."""
-    platforms = []
-    lines = prompt_text.split("\n")
-    in_platform_section = False
-
-    for i, line in enumerate(lines):
-        if "Known platforms:" in line:
-            colon_idx = line.find(":")
-            if colon_idx >= 0:
-                platform_str = line[colon_idx + 1:].strip()
-                if platform_str:
-                    for p in platform_str.split(","):
-                        p = p.strip()
-                        if p:
-                            platforms.append(p)
-                    break
-            in_platform_section = True
-            continue
-
-        if in_platform_section:
-            trimmed = line.strip()
-            if trimmed.startswith("- "):
-                entry = trimmed[2:]
-                platform = entry
-                space_idx = entry.find(" ")
-                if space_idx > 0:
-                    platform = entry[:space_idx]
-                paren_idx = platform.find("(")
-                if paren_idx > 0:
-                    platform = platform[:paren_idx]
-                platform = platform.strip()
-                if platform:
-                    platforms.append(platform)
-            elif trimmed and not trimmed.startswith("-"):
-                in_platform_section = False
-
-    return platforms
 
 
 # =============================================================================
@@ -914,11 +881,9 @@ def build_migration_knowledge(source, target):
     source_systems = result["source_systems"]
     encryption_systems = result["encryption_systems"]
     repo_layers = result["repo_layers"]
-    platforms = result["platforms"]
 
     note("  Found " + str(len(source_systems)) + " source systems")
     note("  Found " + str(len(encryption_systems)) + " encryption systems")
-    note("  Found " + str(len(platforms)) + " platforms")
 
     # Step 2: Load registry signature files
     signatures_path = file.join(knowledge_path, "signatures")
@@ -932,29 +897,11 @@ def build_migration_knowledge(source, target):
                     registry_systems.append(system_name)
 
     # Step 3: Load writ-structure.yaml for platform validation
-    writ_structure_path = file.join(knowledge_path, "concepts", "writ-structure.yaml")
-    registry_platforms = []
-    registry_platform_aliases = []
-    if file.exists(writ_structure_path):
-        content = file.read_text(writ_structure_path)
-        structure = yaml.decode(content)
-        segments = structure.get("naming", {}).get("segments", {})
-        platform_list = segments.get("platforms", [])
-        for p in platform_list:
-            if "name" in p:
-                registry_platforms.append(p["name"])
-            aliases = p.get("aliases", [])
-            for alias in aliases:
-                registry_platform_aliases.append(alias)
-
     # Step 4: Check for contract violations
     violations = check_migration_contract_violations(
         source_systems,
         encryption_systems,
-        platforms,
         registry_systems,
-        registry_platforms,
-        registry_platform_aliases,
     )
 
     if violations:
@@ -966,8 +913,14 @@ def build_migration_knowledge(source, target):
     succeed("  No contract violations")
 
     # Step 5: Generate/update systems reference file
-    systems_ref = generate_systems_reference(source_systems, encryption_systems, repo_layers, platforms)
-    systems_ref_path = file.join(knowledge_path, "systems-reference.yaml")
+    systems_ref = generate_systems_reference(source_systems, encryption_systems, repo_layers)
+    # references/ rather than the domain root: this is generated material, and an asset type says so.
+    # The name states whose vocabulary it is -- writ's, migrate's -- where "systems-reference" named
+    # one of its four constant families and left the rest looking arbitrary.
+    references_dir = file.join(knowledge_path, "references")
+    if not file.exists(references_dir):
+        file.mkdir(references_dir, 0o755)
+    systems_ref_path = file.join(references_dir, "writ-migrate-vocabulary.yaml")
 
     changes_detected = False
     if file.exists(systems_ref_path):
@@ -975,23 +928,23 @@ def build_migration_knowledge(source, target):
         new_content = yaml.encode(systems_ref)
         if current_content != new_content:
             changes_detected = True
-            note("  Changes detected in systems-reference.yaml")
+            note("  Changes detected in writ-migrate-vocabulary.yaml")
     else:
         changes_detected = True
-        note("  Creating new systems-reference.yaml")
+        note("  Creating new writ-migrate-vocabulary.yaml")
 
     if changes_detected:
         file.write_text(systems_ref_path, yaml.encode(systems_ref))
         succeed("  Wrote " + systems_ref_path)
     else:
-        succeed("  No changes to systems-reference.yaml")
+        succeed("  No changes to writ-migrate-vocabulary.yaml")
 
     # Step 6: Validate all signature files exist for source systems
     validate_signature_coverage(source_systems, signatures_path)
 
 
 
-def check_migration_contract_violations(source_systems, encryption_systems, platforms, registry_systems, registry_platforms, registry_platform_aliases):
+def check_migration_contract_violations(source_systems, encryption_systems, registry_systems):
     """Check for contract violations between source code and registry."""
     violations = []
 
@@ -1022,25 +975,16 @@ def check_migration_contract_violations(source_systems, encryption_systems, plat
                 "message": "Registry signature '" + system + "' has no SourceSystem constant",
             })
 
-    if registry_platforms:
-        all_valid_platforms = set(registry_platforms)
-        for alias in registry_platform_aliases:
-            all_valid_platforms.add(alias)
-            all_valid_platforms.add(alias.lower())
-            all_valid_platforms.add(alias.title())
-
-        for platform in platforms:
-            if platform not in all_valid_platforms and platform.lower() not in all_valid_platforms:
-                violations.append({
-                    "type": "undocumented_platform",
-                    "message": "Platform '" + platform + "' in LLM prompt not in writ-structure.yaml",
-                })
+    # An undocumented_platform check lived here. It compared platforms scraped from the LLM prompt
+    # against writ-structure.yaml, and it never fired: the scrape had been broken since
+    # buildSystemPrompt was refactored away, so the list it iterated was always empty. Removed with
+    # the extraction that fed it, rather than left as a check that cannot fail.
 
     return violations
 
 
-def generate_systems_reference(source_systems, encryption_systems, repo_layers, platforms):
-    """Generate systems-reference.yaml from Go source constants."""
+def generate_systems_reference(source_systems, encryption_systems, repo_layers):
+    """Generate references/writ-migrate-vocabulary.yaml from Go source constants."""
     ref = {
         "version": "1.0",
         "source": "devlore-cli/cmd/writ/writ/migrate",
@@ -1063,7 +1007,6 @@ def generate_systems_reference(source_systems, encryption_systems, repo_layers, 
         layers.append({"name": r["name"], "value": r["value"], "file": r["file"], "line": r["line"]})
     ref["repo_layers"] = layers
 
-    ref["platforms"] = [str(p) for p in platforms]
     return ref
 
 

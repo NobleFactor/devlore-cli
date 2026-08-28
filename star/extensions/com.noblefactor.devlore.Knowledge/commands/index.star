@@ -17,9 +17,13 @@
 #
 # Asset types:
 #   prompts/ schemas/ examples/ transforms/ signatures/ slots/ concepts/ providers/ bindings/
+#   references/ -- generated reference material, derived from source rather than authored
 #
 # Usage:
 #   star devlore knowledge index --target=/path/to/registry [--dry_run=true]
+
+# Files permitted at a domain root, where no asset type claims them.
+DOMAIN_ROOT_FILES = ["index.yaml", "README.md"]
 
 ASSET_TYPES = [
     "prompts",
@@ -31,6 +35,7 @@ ASSET_TYPES = [
     "concepts",
     "providers",
     "bindings",
+    "references",
 ]
 
 def list_files(dir_path):
@@ -90,9 +95,14 @@ def audit_domain(domain_name, domain_path, existing):
             problems.append("directory '" + d + "/' is not a known asset type")
 
     # A file loose in the domain root belongs to no asset type, so nothing indexes it.
+    #
+    # README.md is furniture rather than an asset -- orientation addressed to a reader, the same
+    # call .github/frontmatter-exempt makes for a repository's own README. It is named explicitly
+    # rather than matched by a pattern, so admitting a second kind of loose file stays a decision
+    # somebody has to make on purpose.
     for path in file.glob(file.join(domain_path, "*")):
         name = file.name(path)
-        if file.is_dir(path) or name.startswith(".") or name == "index.yaml":
+        if file.is_dir(path) or name.startswith(".") or name in DOMAIN_ROOT_FILES:
             continue
         problems.append("file '" + name + "' is outside any asset-type directory")
 
@@ -122,6 +132,25 @@ def audit_domain(domain_name, domain_path, existing):
             if name not in present:
                 problems.append("'" + key + "/" + name + "' is indexed but no such file exists")
 
+        # Provenance is declared, never inferred. A derived artifact is regenerable and may be
+        # overwritten; an authored one may not, and nothing about a path distinguishes them --
+        # knowledge/package-authoring/bindings/ holds pipeline output while its sibling directories
+        # hold hand-written material. devlore-registry#80 deleted curated metadata precisely because
+        # nothing recorded which was which.
+        for entry in existing[key]:
+            if type(entry) != "dict" or "name" not in entry:
+                continue
+            if "generated" not in entry:
+                problems.append(
+                    "'" + key + "/" + str(entry["name"]) +
+                    "' does not declare generated: true or false",
+                )
+            elif type(entry["generated"]) != "bool":
+                problems.append(
+                    "'" + key + "/" + str(entry["name"]) +
+                    "' declares a non-boolean generated: " + str(entry["generated"]),
+                )
+
     # A directory holding assets that the index never mentions.
     for d in subdirs:
         if d in ASSET_TYPES and d not in existing and len(list_files(file.join(domain_path, d))) > 0:
@@ -146,7 +175,14 @@ def merge_entries(names, existing_entries):
         if name in by_name:
             merged.append(by_name[name])
         else:
-            merged.append({"name": name})
+            # A new file is recorded as authored. Not because that is knowable from the path -- it
+            # is not -- but because the two ways of being wrong are not symmetric. Labelling a
+            # generated file as authored costs a person one needless review of a regeneration.
+            # Labelling an authored file as generated invites a pipeline to overwrite it, which is
+            # devlore-registry#80. The default errs toward the harm that is recoverable.
+            #
+            # A pipeline adding its own output should write the entry itself, with generated: true.
+            merged.append({"name": name, "generated": False})
     return merged
 
 def build_index(domain_name, domain_path, existing):
@@ -264,6 +300,19 @@ def run(command, ctx):
 
         # A no-op is worth saying out loud: it is the evidence that a run changed nothing, which is
         # what re-enabling this in CI has to demonstrate.
+        for asset_type in ASSET_TYPES:
+            if asset_type not in index:
+                continue
+            prior_names = []
+            if asset_type in existing and type(existing[asset_type]) == "list":
+                prior_names = entry_names(existing[asset_type])
+            for e in index[asset_type]:
+                if e["name"] not in prior_names:
+                    note(
+                        "  " + domain_name + ": new " + asset_type + "/" + e["name"] +
+                        " recorded as authored (generated: false) -- correct it if a pipeline owns it",
+                    )
+
         if file.exists(index_path) and file.read_text(index_path) == index_content:
             unchanged = unchanged + 1
             total_assets = total_assets + asset_count
