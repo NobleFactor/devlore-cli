@@ -113,24 +113,37 @@ jobs:
             --body "Automated knowledge sync from [devlore-cli@\`${GITHUB_SHA::7}\`](https://github.com/NobleFactor/devlore-cli/commit/${GITHUB_SHA})." \
             --base "${{ github.ref_name }}")
           echo "Created PR: $PR_URL"
-          # This merge is expected to FAIL when devlore-registry's CI is red, and that is
-          # the point: a registry failure must stop this workflow rather than be merged past.
-          # devlore-registry carries repository ruleset 21604093, which requires quality-gate
-          # and validate-yaml-schemas. The NobleFactor Automation app is a bypass actor on the
-          # ORG ruleset (12426847) but NOT on 21604093, so a red check refuses this merge
-          # server-side.
+          # This merge is expected to FAIL when devlore-registry's CI is red, and that is the
+          # point: a registry failure must stop this workflow rather than be merged past.
           #
-          # --admin was removed deliberately. It only disarms gh's client-side merge-state veto
-          # and cannot grant entitlement the app does not have, so against 21604093 it bought
-          # nothing while implying a power that does not exist -- and it turned a clean refusal
-          # into five retries over ~100s before failing anyway.
+          # Two rulesets apply to the sync PR, and only one of them is bypassable here:
           #
-          # Retry bounded, and still worth keeping: a transient GitHub 5xx must not strand a
-          # green PR (a 502 stranded site PR #212), and a failed attempt may still have merged
+          #   org 12426847   requires an approving review; the NobleFactor Automation app IS a
+          #                  bypass actor, in pull_request mode
+          #   repo 21604093  requires quality-gate and validate-yaml-schemas; the app is NOT a
+          #                  bypass actor, so a red check refuses this merge server-side
+          #
+          # --admin was removed here on the reasoning that it "cannot grant entitlement the app does
+          # not have". That is true of 21604093 and false of 12426847, and conflating the two broke
+          # the workflow: gh's client-side veto refuses on REVIEW_REQUIRED before the server is ever
+          # asked, and no human reviews a machine-generated sync. Every PR opened was left green and
+          # stranded. devlore-registry accumulated four in two days.
+          #
+          # So the flag is back, and it does exactly one thing: it stops gh refusing on a
+          # requirement the app is entitled to bypass. A red quality-gate or validate-yaml-schemas
+          # still refuses, because 21604093 has no bypass for this actor. The cross-repo stop is
+          # unaffected.
+          #
+          # --auto is not the alternative: allow_auto_merge is false on devlore-registry, and even
+          # enabled it would queue behind a review that never arrives. require_last_push_approval is
+          # true, so the app cannot approve its own push either.
+          #
+          # Retry bounded, and still worth keeping: a transient GitHub 5xx must not strand a green
+          # PR (a 502 stranded site PR #212), and a failed attempt may still have merged
           # server-side, so the PR state is consulted before retrying.
           merged=false
           for attempt in 1 2 3 4 5; do
-            if gh pr merge "$PR_URL" --repo NobleFactor/devlore-registry --squash --delete-branch; then
+            if gh pr merge "$PR_URL" --repo NobleFactor/devlore-registry --squash --admin --delete-branch; then
               merged=true
               break
             fi
