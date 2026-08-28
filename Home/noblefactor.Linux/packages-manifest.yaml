@@ -1,0 +1,9 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
+# Linux additions, over noblefactor.Unix.
+#
+# Deliberately thin: the distributions we build on ship a GNU userland already, so the tools that
+# need naming on Darwin need no mention here.
+
+packages: []
