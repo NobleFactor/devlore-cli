@@ -30,71 +30,105 @@ type ReceiverType interface {
 // ProviderReceiverType extends [ReceiverType] with provider-specific capabilities.
 type ProviderReceiverType interface {
 	ReceiverType
-	Roles() ProviderRole
+	Flags() ProviderFlags
 	Construct() ProviderConstructor
 }
 
-// ProviderRole declares what roles a provider supports.
+// ProviderFlags packs the two independent answers about where a provider's methods appear in starlark.
 //
-// ProviderRole is a bitflag partitioned into two zones:
+//   - [ProviderFlags.Surfaces] — WHICH surfaces the methods reach. A bit field: one or more.
+//   - [ProviderFlags.Placement] — HOW their names are placed there. A value: exactly one.
 //
-//   - Dispatch zone (bits 0–7) declares how the provider's methods are invoked. Providers must set at least one bit in
-//     this zone; [AnnounceProvider] panics otherwise.
-//   - Placement zone (bits 8–15) modifies where the provider's methods surface in starlark. Orthogonal to the dispatch
-//     zone; optional.
+// The zones are read differently, and the difference is deliberate:
 //
-// [ProviderRole.Dispatch] and [ProviderRole.Placement] project a role value onto its respective zone.
-type ProviderRole uint
+//	flags.Surfaces()&SurfaceWorkflow != 0     // test a bit -- may hold several
+//	flags.Placement() == PlacementPromoted    // compare a value -- holds exactly one
+//
+// Each zone has its OWN type, following reflect, where flag.kind() returns Kind rather than another flag. That
+// makes flags.Placement() == SurfaceScript a compile error rather than nonsense that compiles.
+//
+// The name is deliberately generic. Its predecessor, ProviderRole, was specific and went stale: #677 changed the
+// zone from meaning *invocation mode* to meaning *surface eligibility*, and RoleAction, Dispatch(), and
+// ProviderRole all outlived what they named. A generic name cannot fail that way, and the accessors carry the
+// meaning.
+type ProviderFlags uint16
 
-// Dispatch zone — bits 0–7. Declares how the provider's methods are invoked.
+// Surfaces declares which surfaces a provider's methods reach.
+//
+// A BIT FIELD: a provider supports one or more. The plural is the signature -- an accessor returning
+// SurfaceScript|SurfaceWorkflow is a set, and naming it in the singular would read as a contradiction.
+type Surfaces uint8
+
+// Surface values — bits 0–7 of [ProviderFlags]. A provider must declare at least one; [AnnounceProvider] panics
+// otherwise.
 const (
-	// RoleModule declares a provider as an immediate-mode starlark global.
-	RoleModule ProviderRole = 1 << iota
+	// SurfaceScript declares the methods reachable from a script, executing when called.
+	SurfaceScript Surfaces = 0x01
 
-	// RoleAction declares a provider as a plan-mode graph node creator.
-	RoleAction
+	// SurfaceWorkflow declares the methods reachable from a workflow, where a call yields a node rather than an
+	// effect.
+	SurfaceWorkflow Surfaces = 0x02
 
-	// Bits 2–7 reserved for future dispatch modes.
+	// Bits 2–7 reserved for further surfaces.
 )
 
-// Placement zone — bits 8–15. Modifies where the provider's methods surface in starlark.
+// Placement declares how a provider's method names are placed on the surfaces it reaches.
+//
+// A VALUE, not a flag set: a name is promoted or qualified, never both. Nothing can express the combination --
+// not because a check rejects it, but because the zone holds one value of a type with two.
+type Placement uint8
+
+// Placement values — bits 8–15 of [ProviderFlags]. PlacementQualified is the zero value, so a provider that
+// declares nothing gets it.
 const (
-	// RoleRoot declares that the provider's methods surface flat at their access-defined namespace root, rather than
-	// nested under the provider's own name. For a RoleAction provider, this means the methods appear directly under
-	// plan.* (e.g., plan.choose) rather than plan.<provider>.* (e.g., plan.flow.choose). For a RoleModule provider,
-	// this means the methods appear as top-level starlark globals (e.g., note()) rather than under the provider name
-	// (e.g., ui.note()).
+	// PlacementQualified declares the methods reachable under the provider's own name: ui.note(), plan.flow.choose().
+	PlacementQualified Placement = 0x00
+
+	// PlacementPromoted declares the methods reachable at their surface's namespace root, unqualified: note(),
+	// plan.choose().
 	//
-	// ONE BIT, EVERY SURFACE, and deliberately. Placement is orthogonal to dispatch, so a provider holding both
-	// dispatch bits surfaces flat in both namespaces from a single +devlore:root=true. ui is that case: note() in a
-	// script AND plan.note() in a graph. There is no way to be root in one zone and nested in the other, because
-	// there is nothing a provider could mean by asking for it — a name is promoted because it reads better without
-	// its qualifier, and that is as true of a graph as of a script.
+	// ONE VALUE, EVERY SURFACE, and deliberately. Placement is orthogonal to the surfaces a provider reaches, so a
+	// provider reaching both surfaces is promoted on both from a single declaration. ui is that case: note() in a
+	// script AND plan.note() in a workflow. There is no way to be promoted on one surface and qualified on the
+	// other, because there is nothing a provider could mean by asking for it — a name is promoted because it reads
+	// better without its qualifier, and that is as true of a workflow as of a script.
 	//
-	// flow never exposed this: it is +devlore:surface=graph, so it holds one dispatch bit and one placement bit is
-	// obviously sufficient. ui, arriving 2026-08-27, was the first provider with both.
-	RoleRoot ProviderRole = 1 << (iota + 8)
-
-	// Bits 9–15 reserved for future placement modifiers.
+	// flow never exposed this: it is +devlore:surface=workflow, so it reaches one surface and the question does not
+	// arise. ui, arriving 2026-08-27, was the first provider reaching both.
+	PlacementPromoted Placement = 0x01
 )
 
-// Zone masks. Callers use these to extract the dispatch or placement bits from a role value.
+// Zone boundaries. The masks make each accessor's narrowing explicit rather than relying on the conversion to
+// truncate — which is correct today only because the zones happen to be a byte wide.
 const (
-	roleDispatchMask  ProviderRole = 0x00FF
-	rolePlacementMask ProviderRole = 0xFF00
+	placementShift               = 8
+	surfaceMask    ProviderFlags = 0x00FF
+	placementMask  ProviderFlags = 0xFF00
 )
 
-// Dispatch returns the dispatch-zone bits of r — which execution modes the provider supports.
+// Surfaces returns which surfaces the provider's methods reach.
 //
 // Returns:
-//   - ProviderRole: the role value masked to the dispatch zone.
-func (r ProviderRole) Dispatch() ProviderRole { return r & roleDispatchMask }
+//   - Surfaces: the bit field; test membership with &.
+func (f ProviderFlags) Surfaces() Surfaces { return Surfaces(f & surfaceMask) }
 
-// Placement returns the placement-zone bits of r — how the provider's methods are placed in the namespace.
+// Placement returns how the provider's method names are placed.
 //
 // Returns:
-//   - ProviderRole: the role value masked to the placement zone.
-func (r ProviderRole) Placement() ProviderRole { return r & rolePlacementMask }
+//   - Placement: the value; compare with ==, never &.
+func (f ProviderFlags) Placement() Placement { return Placement((f & placementMask) >> placementShift) }
+
+// NewProviderFlags packs surfaces and a placement into a [ProviderFlags].
+//
+// Parameters:
+//   - `surfaces`: the surfaces reached; at least one.
+//   - `placement`: how names are placed.
+//
+// Returns:
+//   - ProviderFlags: the packed value.
+func NewProviderFlags(surfaces Surfaces, placement Placement) ProviderFlags {
+	return ProviderFlags(surfaces) | ProviderFlags(placement)<<placementShift
+}
 
 // ResourceReceiverType extends [ReceiverType] with resource-specific capabilities.
 //
@@ -238,7 +272,7 @@ func (t *receiverType) Do(method string, receiver any, args []any) (result, comp
 // providerReceiverType is the concrete descriptor for providers.
 type providerReceiverType struct {
 	receiverType
-	roles     ProviderRole
+	flags     ProviderFlags
 	construct ProviderConstructor
 }
 
@@ -247,7 +281,7 @@ type providerReceiverType struct {
 // Parameters:
 //   - providerType: the provider's reflect.Type.
 //   - construct: creates a provider instance from RuntimeEnvironment.
-//   - roles: the provider's declared roles (RoleModule, RoleAction, or both).
+//   - flags: the provider's declared surfaces and placement.
 //   - methodParameters: parsed Parameter values per Go method. The parameter tokens are cracked into
 //     Parameter values upstream by parseParameters at the announce boundary.
 //
@@ -257,7 +291,7 @@ type providerReceiverType struct {
 func NewProviderReceiverType(
 	providerType reflect.Type,
 	construct ProviderConstructor,
-	roles ProviderRole,
+	flags ProviderFlags,
 	methodParameters map[string][]Parameter,
 	planners map[string]Planner,
 ) (ProviderReceiverType, error) {
@@ -270,7 +304,7 @@ func NewProviderReceiverType(
 	return &providerReceiverType{
 		receiverType: base,
 		construct:    construct,
-		roles:        roles,
+		flags:        flags,
 	}, nil
 }
 
@@ -284,11 +318,11 @@ func NewProviderReceiverType(
 //   - ProviderConstructor: the constructor.
 func (rt *providerReceiverType) Construct() ProviderConstructor { return rt.construct }
 
-// Roles returns the provider's declared roles.
+// Flags returns the provider's declared surfaces and placement.
 //
 // Returns:
-//   - ProviderRole: the role flags.
-func (rt *providerReceiverType) Roles() ProviderRole { return rt.roles }
+//   - ProviderFlags: the packed surfaces and placement.
+func (rt *providerReceiverType) Flags() ProviderFlags { return rt.flags }
 
 // endregion
 

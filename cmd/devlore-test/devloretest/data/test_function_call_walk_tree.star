@@ -5,7 +5,7 @@
 #
 # `function.call` is the provider's only method, and nothing exercised it. The function resource appeared
 # solely as a callback OTHER providers accept — walk_tree's reducer, choose's lambdas — never as the thing
-# being dispatched. function is RoleAction only, so it exists in graph scope alone.
+# being dispatched. function reaches both surfaces; this exercises the workflow one.
 #
 # A graph's result is not directly assertable, so each callable's return value is observed by feeding it
 # into a write and checking the file.

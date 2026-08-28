@@ -26,7 +26,7 @@ func (p *numberFidelityFixture) Chmod(mode fs.FileMode) error { return nil }
 
 func init() {
 
-	AnnounceProvider(reflect.TypeFor[numberFidelityFixture](), RoleAction,
+	AnnounceProvider(reflect.TypeFor[numberFidelityFixture](), NewProviderFlags(SurfaceWorkflow, PlacementQualified),
 		func(runtimeEnvironment *RuntimeEnvironment) (any, error) {
 			return &numberFidelityFixture{ProviderBase: NewProviderBase(runtimeEnvironment)}, nil
 		},

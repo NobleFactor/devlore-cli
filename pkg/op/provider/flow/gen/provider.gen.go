@@ -14,7 +14,7 @@ import (
 
 func init() {
 	op.AnnounceProvider(reflect.TypeFor[provider.Provider](),
-		op.RoleAction|op.RoleRoot,
+		op.NewProviderFlags(op.SurfaceWorkflow, op.PlacementPromoted),
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
 		map[string]op.MethodMetadata{
 			"Choose": {

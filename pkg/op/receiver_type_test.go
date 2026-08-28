@@ -520,7 +520,7 @@ func TestNewProviderReceiverType(t *testing.T) {
 	pType := reflect.TypeFor[*testProvider]()
 	construct := func(runtimeEnvironment *RuntimeEnvironment) (any, error) { return &testProvider{}, nil }
 
-	rt, err := NewProviderReceiverType(pType, construct, RoleAction, mustParseParameters(t, pType, map[string][]string{
+	rt, err := NewProviderReceiverType(pType, construct, NewProviderFlags(SurfaceWorkflow, PlacementQualified), mustParseParameters(t, pType, map[string][]string{
 		"Echo": {"msg"},
 	}), nil)
 
@@ -528,8 +528,8 @@ func TestNewProviderReceiverType(t *testing.T) {
 		t.Fatalf("NewProviderReceiverType: %v", err)
 	}
 
-	if rt.Roles() != RoleAction {
-		t.Errorf("Roles() = %v, want RoleAction", rt.Roles())
+	if rt.Flags() != NewProviderFlags(SurfaceWorkflow, PlacementQualified) {
+		t.Errorf("Roles() = %v, want NewProviderFlags(SurfaceWorkflow, PlacementQualified)", rt.Flags())
 	}
 
 	p, _ := rt.Construct()(nil)
@@ -625,45 +625,51 @@ func TestReceiverRegistry_TypeByReflectionOrDerive_Concurrent(t *testing.T) {
 
 // endregion
 
-// --- ProviderRole zones (step 2) ---
+// --- ProviderFlags zones (step 2) ---
 
-func TestProviderRole_ZoneBitLayout(t *testing.T) {
+func TestProviderFlags_ZoneBitLayout(t *testing.T) {
 
-	cases := []struct {
+	for _, testCase := range []struct {
 		name string
-		got  ProviderRole
-		want ProviderRole
+		got  uint
+		want uint
 	}{
-		{"RoleModule", RoleModule, 0x01},
-		{"RoleAction", RoleAction, 0x02},
-		{"RoleRoot", RoleRoot, 0x100},
-		{"dispatch mask", roleDispatchMask, 0x00FF},
-		{"placement mask", rolePlacementMask, 0xFF00},
-	}
-
-	for _, tc := range cases {
-		if tc.got != tc.want {
-			t.Errorf("%s = %#x, want %#x", tc.name, uint(tc.got), uint(tc.want))
+		{"SurfaceScript", uint(SurfaceScript), 0x01},
+		{"SurfaceWorkflow", uint(SurfaceWorkflow), 0x02},
+		{"PlacementQualified", uint(PlacementQualified), 0x00},
+		{"PlacementPromoted", uint(PlacementPromoted), 0x01},
+		{"packed: script + qualified", uint(NewProviderFlags(SurfaceScript, PlacementQualified)), 0x0001},
+		{"packed: workflow + promoted", uint(NewProviderFlags(SurfaceWorkflow, PlacementPromoted)), 0x0102},
+		{"packed: both + promoted", uint(NewProviderFlags(SurfaceScript|SurfaceWorkflow, PlacementPromoted)), 0x0103},
+	} {
+		if testCase.got != testCase.want {
+			t.Errorf("%s = %#x, want %#x", testCase.name, testCase.got, testCase.want)
 		}
 	}
 }
 
-func TestProviderRole_Dispatch_ReturnsDispatchZoneOnly(t *testing.T) {
+// TestProviderFlags_ZonesDoNotLeak pins the packing: each accessor sees its own zone and nothing else.
+//
+// The two zones are read differently by design — Surfaces is a bit field tested with &, Placement is a value
+// compared with ==. That only holds if the packing keeps them apart, which is what this asserts.
+func TestProviderFlags_ZonesDoNotLeak(t *testing.T) {
 
-	if got := (RoleAction | RoleRoot).Dispatch(); got != RoleAction {
-		t.Errorf("(RoleAction|RoleRoot).Dispatch() = %#x, want RoleAction", uint(got))
-	}
-	if got := RoleRoot.Dispatch(); got != 0 {
-		t.Errorf("RoleRoot.Dispatch() = %#x, want 0 (placement bits must not leak into the dispatch zone)", uint(got))
-	}
-}
+	both := NewProviderFlags(SurfaceScript|SurfaceWorkflow, PlacementPromoted)
 
-func TestProviderRole_Placement_ReturnsPlacementZoneOnly(t *testing.T) {
-
-	if got := (RoleAction | RoleRoot).Placement(); got != RoleRoot {
-		t.Errorf("(RoleAction|RoleRoot).Placement() = %#x, want RoleRoot", uint(got))
+	if got := both.Surfaces(); got != SurfaceScript|SurfaceWorkflow {
+		t.Errorf("Surfaces() = %#x, want %#x; the placement must not leak in", uint(got), uint(SurfaceScript|SurfaceWorkflow))
 	}
-	if got := RoleAction.Placement(); got != 0 {
-		t.Errorf("RoleAction.Placement() = %#x, want 0 (dispatch bits must not leak into the placement zone)", uint(got))
+	if got := both.Placement(); got != PlacementPromoted {
+		t.Errorf("Placement() = %#x, want %#x; the surfaces must not leak in", uint(got), uint(PlacementPromoted))
+	}
+
+	// A provider declaring no placement gets the zero value, which IS qualified — not an absent flag.
+	qualified := NewProviderFlags(SurfaceWorkflow, PlacementQualified)
+
+	if got := qualified.Placement(); got != PlacementQualified {
+		t.Errorf("Placement() = %#x, want PlacementQualified; the zero value is the qualified value", uint(got))
+	}
+	if got := qualified.Surfaces(); got != SurfaceWorkflow {
+		t.Errorf("Surfaces() = %#x, want SurfaceWorkflow", uint(got))
 	}
 }

@@ -81,7 +81,7 @@ func NewApplication(rootCmd *cobra.Command) *Application {
 
 	spec := op.NewRuntimeEnvironmentSpec("star").
 		WithApplication(app).
-		WithModules(registry.Modules()...).
+		WithModules(registry.Scripts()...).
 		WithRoot(wd)
 
 	runtimeEnvironment, err := op.NewRuntimeEnvironment(context.Background(), spec)

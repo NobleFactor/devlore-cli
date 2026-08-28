@@ -268,7 +268,7 @@ type bridgeNoClaimFixture struct{ op.ProviderBase }
 func (*bridgeNoClaimFixture) Reach() string { return "reach" }
 
 func init() {
-	op.AnnounceProvider(reflect.TypeFor[bridgeMixedClaimFixture](), op.RoleModule,
+	op.AnnounceProvider(reflect.TypeFor[bridgeMixedClaimFixture](), op.NewProviderFlags(op.SurfaceScript, op.PlacementQualified),
 		func(re *op.RuntimeEnvironment) (any, error) {
 			return &bridgeMixedClaimFixture{ProviderBase: op.NewProviderBase(re)}, nil
 		},
@@ -277,7 +277,7 @@ func init() {
 			"Impure": {ParameterNames: []string{}},
 		})
 
-	op.AnnounceProvider(reflect.TypeFor[bridgeRootMixedClaimFixture](), op.RoleModule|op.RoleRoot,
+	op.AnnounceProvider(reflect.TypeFor[bridgeRootMixedClaimFixture](), op.NewProviderFlags(op.SurfaceScript, op.PlacementPromoted),
 		func(re *op.RuntimeEnvironment) (any, error) {
 			return &bridgeRootMixedClaimFixture{ProviderBase: op.NewProviderBase(re)}, nil
 		},
@@ -287,33 +287,33 @@ func init() {
 			"Charlie": {ParameterNames: []string{}, Claims: op.ClaimDeterministic},
 		})
 
-	op.AnnounceProvider(reflect.TypeFor[bridgeNoClaimFixture](), op.RoleModule,
+	op.AnnounceProvider(reflect.TypeFor[bridgeNoClaimFixture](), op.NewProviderFlags(op.SurfaceScript, op.PlacementQualified),
 		func(re *op.RuntimeEnvironment) (any, error) {
 			return &bridgeNoClaimFixture{ProviderBase: op.NewProviderBase(re)}, nil
 		},
 		map[string]op.MethodMetadata{"Reach": {ParameterNames: []string{}}})
 
-	announce := func(providerType reflect.Type, roles op.ProviderRole, method string, construct op.ProviderConstructor) {
+	announce := func(providerType reflect.Type, roles op.ProviderFlags, method string, construct op.ProviderConstructor) {
 		op.AnnounceProvider(providerType, roles, construct,
 			map[string]op.MethodMetadata{method: {ParameterNames: []string{}}})
 	}
-	announce(reflect.TypeFor[bridgeModuleFixture](), op.RoleModule, "Ping",
+	announce(reflect.TypeFor[bridgeModuleFixture](), op.NewProviderFlags(op.SurfaceScript, op.PlacementQualified), "Ping",
 		func(re *op.RuntimeEnvironment) (any, error) {
 			return &bridgeModuleFixture{ProviderBase: op.NewProviderBase(re)}, nil
 		})
-	announce(reflect.TypeFor[bridgeRootModuleFixtureA](), op.RoleModule|op.RoleRoot, "Greet",
+	announce(reflect.TypeFor[bridgeRootModuleFixtureA](), op.NewProviderFlags(op.SurfaceScript, op.PlacementPromoted), "Greet",
 		func(re *op.RuntimeEnvironment) (any, error) {
 			return &bridgeRootModuleFixtureA{ProviderBase: op.NewProviderBase(re)}, nil
 		})
-	announce(reflect.TypeFor[bridgeRootModuleFixtureB](), op.RoleModule|op.RoleRoot, "Greet",
+	announce(reflect.TypeFor[bridgeRootModuleFixtureB](), op.NewProviderFlags(op.SurfaceScript, op.PlacementPromoted), "Greet",
 		func(re *op.RuntimeEnvironment) (any, error) {
 			return &bridgeRootModuleFixtureB{ProviderBase: op.NewProviderBase(re)}, nil
 		})
-	announce(reflect.TypeFor[bridgePlannedFixture](), op.RoleAction, "Deploy",
+	announce(reflect.TypeFor[bridgePlannedFixture](), op.NewProviderFlags(op.SurfaceWorkflow, op.PlacementQualified), "Deploy",
 		func(re *op.RuntimeEnvironment) (any, error) {
 			return &bridgePlannedFixture{ProviderBase: op.NewProviderBase(re)}, nil
 		})
-	announce(reflect.TypeFor[bridgePlannedRootFixture](), op.RoleAction|op.RoleRoot, "Launch",
+	announce(reflect.TypeFor[bridgePlannedRootFixture](), op.NewProviderFlags(op.SurfaceWorkflow, op.PlacementPromoted), "Launch",
 		func(re *op.RuntimeEnvironment) (any, error) {
 			return &bridgePlannedRootFixture{ProviderBase: op.NewProviderBase(re)}, nil
 		})
@@ -357,28 +357,28 @@ func TestNewRuntime_PlannedOnlyProvider_NotRegistered(t *testing.T) {
 	}
 }
 
-func TestNewRuntime_ModuleNonRoot_RegisteredUnderName(t *testing.T) {
+func TestNewRuntime_Qualified_RegisteredUnderName(t *testing.T) {
 
 	env := &op.RuntimeEnvironment{Modules: bridgeFixtureModules(t, "bridgeModuleFixture")}
 
 	predeclared := NewRuntime(env).Predeclared()
 
 	if _, present := predeclared["bridgeModuleFixture"]; !present {
-		t.Error(`predeclared lacks "bridgeModuleFixture"; a RoleModule non-root provider registers under its name`)
+		t.Error(`predeclared lacks "bridgeModuleFixture"; a NewProviderFlags(SurfaceScript, PlacementQualified) non-root provider registers under its name`)
 	}
 	if _, present := predeclared["ping"]; present {
 		t.Error(`predeclared contains "ping"; a non-root module's methods must not install as top-level globals`)
 	}
 }
 
-func TestNewRuntime_ModuleRoot_InstallsEachMethodAndPanicsOnCollision(t *testing.T) {
+func TestNewRuntime_Promoted_InstallsEachMethodAndPanicsOnCollision(t *testing.T) {
 
 	env := &op.RuntimeEnvironment{Modules: bridgeFixtureModules(t, "bridgeRootModuleFixtureA")}
 
 	predeclared := NewRuntime(env).Predeclared()
 
 	if _, present := predeclared["greet"]; !present {
-		t.Error(`predeclared lacks "greet"; a RoleModule|RoleRoot provider installs each method as its own global`)
+		t.Error(`predeclared lacks "greet"; a NewProviderFlags(SurfaceScript, PlacementPromoted) provider installs each method as its own global`)
 	}
 	if _, present := predeclared["bridgeRootModuleFixtureA"]; present {
 		t.Error(`predeclared contains the provider name; a root module exposes methods, not itself`)
@@ -401,9 +401,9 @@ func TestNewRuntime_ModuleRoot_InstallsEachMethodAndPanicsOnCollision(t *testing
 //
 // placeModule's root path skips a refused method and keeps going. It did not always: until 2026-08-27 the skip
 // was a `return`, which abandoned every method the loop had not yet reached. The branch carried no traffic --
-// no provider was RoleModule|RoleRoot, and ui claims deterministic on all six of its methods -- so nothing
+// no provider was NewProviderFlags(SurfaceScript, PlacementPromoted), and ui claims deterministic on all six of its methods -- so nothing
 // refused anything and the defect never surfaced. Putting ui at root is what arms it.
-func TestNewRuntime_ModuleRoot_RefusedMethodDoesNotDropTheRest(t *testing.T) {
+func TestNewRuntime_Promoted_RefusedMethodDoesNotDropTheRest(t *testing.T) {
 
 	env := &op.RuntimeEnvironment{Modules: bridgeFixtureModules(t, "bridgeRootMixedClaimFixture")}
 

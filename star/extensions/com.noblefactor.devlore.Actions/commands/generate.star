@@ -124,48 +124,52 @@ def lc_first(name):
 def struct_surface(path):
     """Extract the +devlore:surface directive from the Provider struct's doc comment.
 
-    A provider is eligible for both surfaces by default -- the graph, and the module surface of any
-    starlarkbridge.Runtime that selects it. Two providers are not, and they are opposites:
+    A provider reaches BOTH surfaces by default. Two do not, and they are opposites:
 
-      +devlore:surface=graph   flow -- its methods ARE the graph combinators and mean nothing outside a graph
-      +devlore:surface=module  plan -- there is no scenario for planning the planner
+      +devlore:surface=workflow  flow -- its methods ARE the workflow combinators and mean nothing outside one
+      +devlore:surface=script    plan -- there is no scenario for planning the planner
 
-    Returns "graph", "module", or "" for the default. The value maps onto the dispatch zone of ProviderRole:
-    graph is RoleAction alone, module is RoleModule alone, and the default is both. Which METHODS of an eligible
-    provider reach a given runtime is a separate question, answered per-runtime from their claims.
+    The value is a LIST: surface is a bit field, and a provider reaches one or more. Returns a list of
+    surface names, or [] for the default (both). Which METHODS of a reaching provider are admitted by a
+    given runtime is a separate question, answered per-runtime from their claims.
     """
     doc = goast.type_doc(path)
     for line in doc.split("\n"):
         line = line.strip().lstrip("/").strip()
         if "+devlore:surface=" in line:
             idx = line.index("+devlore:surface=")
-            value = line[idx + len("+devlore:surface="):].strip()
-            if value not in ["graph", "module"]:
-                fail("invalid +devlore:surface value %r on Provider struct (valid: graph, module; omit for both)" % value)
-            return value
-    return ""
+            raw = line[idx + len("+devlore:surface="):].strip()
+            values = [v.strip() for v in raw.split("|")]
+            for value in values:
+                if value not in ["script", "workflow"]:
+                    fail("invalid +devlore:surface value %r on Provider struct (valid: script, workflow; omit for both)" % value)
+            return values
+    return []
 
-def struct_root(path):
-    """Extract the +devlore:root flag from the Provider struct's doc comment.
+def struct_placement(path):
+    """Extract the +devlore:placement directive from the Provider struct's doc comment.
 
-    The +devlore:root=true directive sets the RoleRoot placement-zone bit on
-    the generated AnnounceProvider call, causing the provider's methods to
-    surface flat at their access-defined namespace root rather than nested
-    under the provider's own name. See Phase 8 D12 for the semantics.
+    Placement is a VALUE, not a flag set: a name is promoted or qualified, never both.
 
-    Returns False if no directive is found (the default — methods surface
-    nested under the provider's name).
+      +devlore:placement=promoted  methods surface at the namespace root of every surface the provider
+                                   reaches, unqualified -- note() in a script AND plan.note() in a workflow
+
+    ONE VALUE, EVERY SURFACE, and deliberately: there is nothing a provider could mean by asking to be
+    promoted on one surface and qualified on the other. A name is promoted because it reads better without
+    its qualifier, and that is as true of a workflow as of a script.
+
+    Returns "promoted" or "qualified", defaulting to "qualified" when no directive is found.
     """
     doc = goast.type_doc(path)
     for line in doc.split("\n"):
         line = line.strip().lstrip("/").strip()
-        if "+devlore:root=" in line:
-            idx = line.index("+devlore:root=")
-            value = line[idx + len("+devlore:root="):].strip()
-            if value not in ["true", "false"]:
-                fail("invalid +devlore:root value %r on Provider struct (valid: true, false)" % value)
-            return value == "true"
-    return False
+        if "+devlore:placement=" in line:
+            idx = line.index("+devlore:placement=")
+            value = line[idx + len("+devlore:placement="):].strip()
+            if value not in ["promoted", "qualified"]:
+                fail("invalid +devlore:placement value %r on Provider struct (valid: promoted, qualified)" % value)
+            return value
+    return "qualified"
 
 def parse_defaults(doc, method_name):
     """Parse +devlore:defaults from a method doc comment.
@@ -1031,7 +1035,7 @@ def compute_provider_import(path):
         return module_path + "/" + rel
     return module_path
 
-def emit_provider_receiver(command, path, provider, struct_short, struct_name, surface, root,
+def emit_provider_receiver(command, path, provider, struct_short, struct_name, surfaces, placement,
                       all_method_names, provider_descriptors,
                       output_dir, write_files):
     """Generate receivers in gen/ mode with type graph walking."""
@@ -1123,8 +1127,8 @@ def emit_provider_receiver(command, path, provider, struct_short, struct_name, s
     # Generate: Provider immediate receiver (gen/immediate.gen.go)
     # -------------------------------------------------------------------------
     namespace = provider
-    if surface == "graph":
-        # A graph-only provider is reached through plan.<provider> in gen/ mode
+    if surfaces == ["workflow"]:
+        # A workflow-only provider is reached through plan.<provider> in gen/ mode
         namespace = "plan." + provider
 
     # Collect cross-package imports from provider method result_exprs and struct_params
@@ -1140,8 +1144,8 @@ def emit_provider_receiver(command, path, provider, struct_short, struct_name, s
         "provider_import": provider_import,
         "methods": provider_method_descs,
         "all_methods": list(all_names_raw.keys()),
-        "surface": surface,
-        "root": root,
+        "surfaces": surfaces,
+        "placement": placement,
     }
     if provider_cross_imports:
         provider_desc["cross_package_imports"] = provider_cross_imports
@@ -1153,20 +1157,20 @@ def emit_provider_receiver(command, path, provider, struct_short, struct_name, s
     emit_file(command, "receiver_type_test", provider_desc, "gen/receiver_type.gen_test.go",
              struct_short, len(provider_method_descs), output_dir, write_files)
 
-    # Generate module tests (starlark module protocol).
-    if surface != "graph":
+    # Generate script-surface tests (starlark module protocol).
+    if len(surfaces) == 0 or "script" in surfaces:
         emit_file(command, "module_test", provider_desc, "gen/module.gen_test.go",
                  struct_short, len(provider_method_descs), output_dir, write_files)
 
-    # Generate action tests (action wrappers — dry-run, compensable, undo).
-    if surface != "module":
+    # Generate workflow-surface tests (action wrappers — dry-run, compensable, undo).
+    if len(surfaces) == 0 or "workflow" in surfaces:
         emit_file(command, "action_test", provider_desc, "gen/action.gen_test.go",
                  struct_short, len(provider_method_descs), output_dir, write_files)
 
     # Generate action-name consts (step 32) into the PACKAGE ROOT — one op.ActionName per plan-mode action, so
     # callers write plan.Plan(file.WriteText, …) instead of a string literal. Gated on the same surface that gives
     # a provider actions; the collision guard fails loudly if a const name shadows a package-level identifier.
-    if surface != "module":
+    if len(surfaces) == 0 or "workflow" in surfaces:
         action_const_names = [d["name"] for d in provider_method_descs]
         validate_action_name_consts(path, provider, action_const_names)
         emit_file(command, "action_names", provider_desc, "action_names.gen.go",
@@ -1404,24 +1408,30 @@ def prepare_render_data(descriptor, template_name):
 
     # Pre-compute descriptor fields for provider template
     if template_name == "provider":
-        # Surface eligibility, not invocation mode. Every provider reaches both the graph and a runtime's module
-        # surface unless it declares otherwise, because a graph accepts anything with an action signature and
-        # module membership is decided per METHOD, per runtime, from the claims -- never per provider. The two
-        # exceptions are opposites: flow is graph-only, plan is module-only.
-        surface = desc.get("surface", "")
-        root = desc.get("root", False)
-        desc["has_actions"] = surface != "module"
-        desc["has_planned"] = surface != "module"
-        desc["has_immediate"] = surface != "graph"
-        if surface == "graph":
-            roles = "op.RoleAction"
-        elif surface == "module":
-            roles = "op.RoleModule"
-        else:
-            roles = "op.RoleModule|op.RoleAction"
-        if root:
-            roles = roles + "|op.RoleRoot"
-        desc["roles"] = roles
+        # Which surfaces a provider REACHES, not how its methods are invoked. Every provider reaches both
+        # unless it declares otherwise, because a workflow accepts anything with an action signature and
+        # script membership is decided per METHOD, per runtime, from the claims -- never per provider. The two
+        # exceptions are opposites: flow is workflow-only, plan is script-only.
+        surfaces = desc.get("surfaces", [])
+        placement = desc.get("placement", "qualified")
+
+        reaches_script = len(surfaces) == 0 or "script" in surfaces
+        reaches_workflow = len(surfaces) == 0 or "workflow" in surfaces
+
+        desc["has_actions"] = reaches_workflow
+        desc["has_planned"] = reaches_workflow
+        desc["has_immediate"] = reaches_script
+
+        # Surfaces is a bit field -- one or more, joined. Placement is a value -- exactly one.
+        surface_terms = []
+        if reaches_script:
+            surface_terms.append("op.SurfaceScript")
+        if reaches_workflow:
+            surface_terms.append("op.SurfaceWorkflow")
+
+        placement_term = "op.PlacementPromoted" if placement == "promoted" else "op.PlacementQualified"
+
+        desc["flags"] = "op.NewProviderFlags(%s, %s)" % ("|".join(surface_terms), placement_term)
 
     # Add derived fields to each method. Sort by name first so the emitted op.MethodMetadata map is deterministic:
     # Go map iteration order is randomized, so without a stable sort the generated *.gen.go reshuffle on every run.
@@ -1538,16 +1548,15 @@ def run(command, ctx):
     note("Found " + str(len(filtered)) + " methods for " + struct_name)
 
     # -------------------------------------------------------------------------
-    # Derive names and surface/root from struct directives
+    # Derive names, surfaces, and placement from struct directives
     # -------------------------------------------------------------------------
     provider = path.split("/")[-1]
     struct_short = provider.title()
-    surface = struct_surface(path)
-    root = struct_root(path)
+    surfaces = struct_surface(path)
+    placement = struct_placement(path)
 
-    note("Provider surface: " + (surface if surface else "graph and module"))
-    if root:
-        note("Provider root: true")
+    note("Provider surfaces: " + ("|".join(surfaces) if surfaces else "script|workflow"))
+    note("Provider placement: " + placement)
 
     # -------------------------------------------------------------------------
     # Build basic method descriptors (without defaults applied)
@@ -1595,6 +1604,6 @@ def run(command, ctx):
     if not gen_mode:
         fail("--gen is required")
 
-    emit_provider_receiver(command, path, provider, struct_short, struct_name, surface, root,
+    emit_provider_receiver(command, path, provider, struct_short, struct_name, surfaces, placement,
                       all_method_names, all_descriptors,
                       output_dir, write_files)

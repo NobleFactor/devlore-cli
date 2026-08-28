@@ -25,7 +25,7 @@ func TestBuildPackage_NativePackageProducesParentedPhaseSubgraph(t *testing.T) {
 
 	registry := op.ReceiverRegistry()
 	runtimeEnvironment, err := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("lore").
-		WithModules(registry.Modules()...).
+		WithModules(registry.Scripts()...).
 		WithApplication(&application.Application{Name: "lore"}))
 	if err != nil {
 		t.Fatalf("op.NewRuntimeEnvironment: %v", err)

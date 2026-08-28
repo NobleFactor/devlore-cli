@@ -108,7 +108,7 @@ func Build(cfg BuildConfig) (*BuildResult, error) {
 
 	sharedEnvironment, err := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("lore").
 		WithStatus(cli.UI()).
-		WithModules(op.ReceiverRegistry().Modules()...).
+		WithModules(op.ReceiverRegistry().Scripts()...).
 		WithApplication(&application.Application{Name: "lore"}))
 	if err != nil {
 		return nil, fmt.Errorf("lore.Build: build runtime environment: %w", err)

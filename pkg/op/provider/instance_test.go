@@ -48,7 +48,7 @@ type unregisteredProvider struct {
 func init() {
 	op.AnnounceProvider(
 		reflect.TypeFor[fakeProvider](),
-		op.RoleAction,
+		op.NewProviderFlags(op.SurfaceWorkflow, op.PlacementQualified),
 		func(runtimeEnvironment *op.RuntimeEnvironment) (any, error) {
 			return &fakeProvider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}, nil
 		},

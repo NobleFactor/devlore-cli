@@ -72,10 +72,10 @@ func NewRuntime(env *op.RuntimeEnvironment, options ...RuntimeOption) *Runtime {
 	//                          itself is not exposed. Reserved; no Phase 8 provider uses this row.
 	//   planned, root=false → NOT registered; reached via plan.<provider>.<method> through plan.Provider's
 	//                         sub-namespace dispatch (status quo for file, git, service, …).
-	//   planned, root=true → NOT registered; plan.Provider discovers the provider via registry.RootProviders() and
+	//   workflow-only + promoted → NOT registered; plan.Provider discovers it via registry.PromotedProviders() and
 	//                        hosts its methods flat at the plan namespace root via Tier 2 dispatch (flow).
 	//
-	// Providers that declare both RoleModule and RoleAction (access=both) register their module side per the
+	// Providers reaching both SurfaceScript and SurfaceWorkflow register their script side per the
 	// dispatch-zone rows above; their planned side is reached via plan.* regardless of placement.
 
 	predeclared := starlark.StringDict{}
@@ -333,10 +333,10 @@ func (rt *Runtime) partitionMethods(module op.ProviderReceiverType) (admitted in
 //   - `predeclared`: the surface under construction, mutated in place.
 func (rt *Runtime) placeModule(module op.ProviderReceiverType, predeclared starlark.StringDict) {
 
-	dispatch := module.Roles().Dispatch()
-	isRoot := module.Roles().Placement()&op.RoleRoot != 0
+	surfaces := module.Flags().Surfaces()
+	isPromoted := module.Flags().Placement() == op.PlacementPromoted
 
-	if dispatch&op.RoleModule == 0 {
+	if surfaces&op.SurfaceScript == 0 {
 		// Not eligible for a module surface; the provider is reached through plan.* dispatch instead. flow is
 		// the case: its methods ARE the graph combinators and mean nothing outside a graph.
 		rt.selection = append(rt.selection, moduleSelection{name: module.Name()})
@@ -359,7 +359,7 @@ func (rt *Runtime) placeModule(module op.ProviderReceiverType, predeclared starl
 		return
 	}
 
-	if !isRoot {
+	if !isPromoted {
 		sv := rt.buildOne(module)
 		if sv == nil {
 			return
@@ -406,7 +406,7 @@ func (rt *Runtime) placeModule(module op.ProviderReceiverType, predeclared starl
 		// not yet reached. [ReceiverType.Methods] yields sorted by name, so the loss was deterministic
 		// rather than random -- every method sorting AFTER the refused one vanished, which is worse: a
 		// stable wrong answer reads as intended behavior. It never fired, because no provider was
-		// RoleModule|RoleRoot until ui, and ui claims deterministic on all six, so nothing refuses them.
+		// promoted on a script surface until ui, and ui claims deterministic on all six, so nothing refuses them.
 		if refused[snake] {
 			continue
 		}
@@ -421,7 +421,7 @@ func (rt *Runtime) placeModule(module op.ProviderReceiverType, predeclared starl
 		attr, err := hasAttrs.Attr(snake)
 
 		// Inverted before 2026-07-03: the assertion required err != nil — a SUCCESSFUL Attr would have panicked.
-		// The branch is reserved (no phase-8 provider is RoleModule|RoleRoot), so the inversion sat latent until
+		// The branch was reserved (no phase-8 provider was promoted on a script surface), so the inversion sat latent until
 		// step 6's registration tests exercised it.
 		assert.Truef(err == nil && attr != nil,
 			"provider %q: method %q (snake_case %q) registered in receiver type but Attr(%q) failed — registry/Attr mismatch: %v",

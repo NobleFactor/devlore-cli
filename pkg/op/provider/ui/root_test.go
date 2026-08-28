@@ -28,7 +28,7 @@ import (
 // The assertion is the mechanism rather than a proxy for it. Starlark's resolver checks predeclared names
 // BEFORE universal ones (resolve.go), so a predeclared "print" IS the replacement -- there is no separate act
 // of overriding to observe.
-func TestUIAtRoot_ReplacesTheOutputBuiltins(t *testing.T) {
+func TestUIPromoted_ReplacesTheOutputBuiltins(t *testing.T) {
 
 	receiverType, found := op.ReceiverRegistry().Type("ui")
 	if !found {
@@ -67,7 +67,7 @@ func TestUIAtRoot_ReplacesTheOutputBuiltins(t *testing.T) {
 //
 // So this executes a script that calls the bare name and asserts the narrator saw it. Registration and
 // emission are separate claims, and only this one is about the bytes.
-func TestUIAtRoot_PrintReachesTheNarrator(t *testing.T) {
+func TestUIPromoted_PrintReachesTheNarrator(t *testing.T) {
 
 	receiverType, found := op.ReceiverRegistry().Type("ui")
 	if !found {
