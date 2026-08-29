@@ -93,6 +93,10 @@ Each architecture document has a companion `*.status.md` file tracking completio
 
 ## Overview
 
+### 10. Command Line Interface
+
+- [Command Line Interface](10-command-line-interface.md) ([status](10-command-line-interface.status.md)) — One convention across every binary: the three streams (result to stdout, narration to stderr, documents to the execution store), the reserved flag set, and the conformance invariants that keep adoption from decaying
+
 The devlore-cli consists of three tools that share a common execution engine:
 
 - **writ** — File tree management (dotfiles, configs, templates)
