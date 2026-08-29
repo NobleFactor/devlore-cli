@@ -1,0 +1,24 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
+# Unix additions, over the suffix-less noblefactor layer.
+#
+# Selected on Darwin and Linux, because writ's OSFamily maps both to Unix. Windows has no family and
+# never draws this layer -- the two are siblings, not base and override.
+
+packages:
+  # markdownlint-cli2 is npm-delivered and gocyclo is `go install`ed; both are named here rather than
+  # in the base because neither has a settled Windows delivery in our tooling.
+  - markdownlint-cli2
+  - gocyclo
+
+  # Code metrics, the quality-gate's last step.
+  - scc
+
+  # Git hooks. The Makefile installs them through it.
+  - pre-commit
+
+  # Secrets. pkg/op/provider/encryption shells out to sops, and age is the backend the writ layer
+  # encrypts with. Both are needed to deploy a layer carrying .sops files.
+  - sops
+  - age
