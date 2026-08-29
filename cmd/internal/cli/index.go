@@ -8,9 +8,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
-	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 )
 
@@ -60,9 +60,9 @@ type IndexEntry struct {
 // IndexPath returns the run index's path at the store root.
 //
 // Returns:
-//   - `string`: the absolute path of `index.ndjson` under the devlore state home.
+//   - `string`: the absolute path of `index.ndjson` under [StoreHome].
 func IndexPath() string {
-	return devlore.StatePath(indexFilename)
+	return filepath.Join(StoreHome(), indexFilename)
 }
 
 // ReadIndex reads the run index, tolerating a torn final line.

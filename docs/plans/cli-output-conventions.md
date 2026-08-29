@@ -162,8 +162,13 @@ and `writ verify` cannot render yaml today.
 
 ### Phase 4: Bring star and lore into agreement
 
+- [ ] Add `TableFormatter` to `pkg/result` -- one table rendering for the whole suite.
+- [ ] Convert `lore`'s `runSearch` (`commands.go:525-556`) first: it is the only real table in the tree, and
+      converting it is a bug fix as much as a refactor (see the byte-truncation defect it carries).
 - [ ] `star` registers the common set; it has none today.
-- [ ] `lore`'s `bundle`, `onboard`, and `list` drop their hand-rolled flags.
+- [ ] `lore`'s `bundle`, `onboard`, and `list` drop their hand-rolled flags. `list` is a stub returning
+      "not yet implemented", so it adapts at no cost; its `--format manifest` is a domain rendering and does
+      not join the shared set.
 - [ ] The thirteen `fmt.Print` calls are triaged: narration to `cli.*`, results to the sink.
 
 ### Phase 5: Enforce it
@@ -213,7 +218,7 @@ governing principle forbids.
 | `cmd/internal/cli/output.go` | Modify | `--store` joins; `--format` becomes `--output` / `-o` |
 | `cmd/internal/cli/output_test.go` | Modify | Store-root resolution and flag binding |
 | `cmd/internal/cli/store.go` | Modify | `GraphsDir`/`TracesDir` resolve under a chosen root |
-| `pkg/result` | Modify | The `none` renderer |
+| `pkg/result` | Modify | The `none` renderer; `TableFormatter` in Phase 4 |
 | `cmd/devlore-test/devloretest/commands.go` | Modify | Adopt the convention; fix artifact contents |
 | `cmd/devlore-test/cli_test.go` | Modify | Assert content, not existence |
 | `cmd/writ/writ/commands.go` | Modify | `--json` retires; sink replaces direct stdout writes |

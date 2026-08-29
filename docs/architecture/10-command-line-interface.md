@@ -178,6 +178,18 @@ when observed is unreproducible. A human wanting a table asks for one: `-o table
 **Adding a formatter** is a change to `pkg/result`, never to a command. A command that needs a rendering the
 set does not have uses `--output template`.
 
+**One table formatter, no exceptions.** `table` is a general rendering and belongs in `pkg/result` like the
+others. No command owns its own. The current hand-rolled table in `lore`'s `runSearch`
+(`cmd/lore/lore/commands.go:525-556`) is not an argument for a second one: it writes through `fmt.Printf`
+rather than the sink, hard-codes column widths, measures truncation in bytes, and folds a boolean into a
+name column as a `*` suffix. A shared formatter fixes all four, and `installed` stays a field that
+`--output json` can emit.
+
+A **domain** rendering is a different question. `lore list` registers `--format manifest`, which means
+something only to lore. Under this convention that is either `--output template` with a manifest template,
+or a lore-specific flag that is not part of the common set — but it is never a value added to the shared
+formatter list.
+
 ## 8. Errors and exit codes
 
 - `0` — success.

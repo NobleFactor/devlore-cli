@@ -23,12 +23,65 @@ import (
 // per-graph subdirectory. A trace ties back to its graph through [op.Trace.GraphChecksum] (== the graph's
 // [op.Graph.Checksum]); the shared checksum is also the subdirectory name, so trace→graph lookup is direct.
 
+// storeRoot is the execution store's root, empty when the store lives at its default XDG state path.
+//
+// A process-wide value, set once from --store during root command setup and read by [GraphsDir] and
+// [TracesDir]. A store is a property of the run, not of a call site, and the two directories must move
+// together or a trace stops resolving to the definition it ran -- so a single root is the thing that is
+// configured, not each directory.
+var storeRoot string
+
+// SetStoreRoot points the execution store at root, returning a function that restores the previous value.
+//
+// An empty root restores the default XDG state path. The returned restore function makes the change safe to
+// scope to a test.
+//
+// Parameters:
+//   - `root`: the store's new root directory, or empty for the default.
+//
+// Returns:
+//   - `func()`: restores the root in effect before this call.
+func SetStoreRoot(root string) func() {
+
+	previous := storeRoot
+	storeRoot = root
+
+	return func() { storeRoot = previous }
+}
+
+// StoreHome returns the execution store's root directory.
+//
+// The store is one anchored tree, not a set of independently located directories. Everything the store owns
+// -- the graphs directory, the traces directory, and the run index -- resolves from here, and the same root
+// anchors the [fsroot.Dir] the writers open. Relocating a leaf while the anchor stayed behind produced a
+// path that escapes its parent, which is the failure this single accessor exists to prevent.
+//
+// Returns:
+//   - `string`: the store root, defaulting to devlore's XDG state home.
+func StoreHome() string {
+
+	if storeRoot == "" {
+		return devlore.StateHome()
+	}
+
+	return storeRoot
+}
+
+// storePath resolves a directory inside the execution store.
+//
+// Parameters:
+//   - `name`: the store subdirectory, "graphs" or "traces".
+//
+// Returns:
+//   - `string`: the absolute directory path.
+func storePath(name string) string { return filepath.Join(StoreHome(), name) }
+
 // GraphsDir returns the directory holding persisted graphs.
 //
 // Returns:
 //   - `string`: the absolute graphs directory under the devlore state home.
 func GraphsDir() string {
-	return devlore.StatePath("graphs")
+	return storePath("graphs")
 }
 
 // TracesDir returns the directory holding persisted execution traces.
@@ -38,7 +91,7 @@ func GraphsDir() string {
 // Returns:
 //   - `string`: the absolute traces directory under the devlore state home.
 func TracesDir() string {
-	return devlore.StatePath("traces")
+	return storePath("traces")
 }
 
 // WriteGraph persists `graph` under [GraphsDir], keyed by its checksum, and returns the file path.
@@ -65,7 +118,7 @@ func WriteGraph(graph *op.Graph) (path string, err error) {
 	// One root for the whole store write. The CLI is the session owner for CLI-side work, so it opens the
 	// tree's authority once and every mutation within it — the document, the index line, and for a trace the
 	// `latest` symlink — is anchored by the same root (#405, phase 2b).
-	stateRoot, err := OpenTree(devlore.StateHome())
+	stateRoot, err := OpenTree(StoreHome())
 	if err != nil {
 		return "", err
 	}
@@ -112,7 +165,7 @@ func WriteGraph(graph *op.Graph) (path string, err error) {
 func WriteTrace(trace *op.Trace) (path string, err error) {
 
 	// One root for the whole store write — see [WriteGraph].
-	stateRoot, err := OpenTree(devlore.StateHome())
+	stateRoot, err := OpenTree(StoreHome())
 	if err != nil {
 		return "", err
 	}

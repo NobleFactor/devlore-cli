@@ -32,6 +32,9 @@ func FormatterByName(name, templateText string) (Formatter, error) {
 	case "csv":
 		return CSVFormatter{}, nil
 
+	case "none":
+		return NoneFormatter{}, nil
+
 	case "template":
 		if templateText == "" {
 			return nil, fmt.Errorf("result.FormatterByName: 'template' requires non-empty template text")
@@ -39,7 +42,8 @@ func FormatterByName(name, templateText string) (Formatter, error) {
 		return NewTemplateFormatter(templateText)
 
 	default:
-		return nil, fmt.Errorf("result.FormatterByName: unknown formatter %q; expected one of json, yaml, csv, template", name)
+		return nil, fmt.Errorf(
+			"result.FormatterByName: unknown formatter %q; expected one of csv, json, none, template, yaml", name)
 	}
 }
 
