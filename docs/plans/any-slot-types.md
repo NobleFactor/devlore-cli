@@ -69,10 +69,20 @@ therefore does not name a resource -- it names whichever generation is current a
 graph reloaded after a resource has been re-produced binds to a generation it never saw, while the generation
 it actually used is still in the ledger under its original id.
 
-This is not confined to dispatch. `resolveDispatchResource` (`method.go:807`) has the same flaw for declared
-targets, but the codec path reaches it first: `discoverResource` is called from the resource's
-`UnmarshalJSON`, `UnmarshalText`, and `UnmarshalYAML` (`file/resource_base.go:389,420,446`, and the same shape
-in eight other providers). Retiring the dispatch path alone would not fix it.
+This is not confined to dispatch. Three paths re-identify by URI, and the codec one is reached first:
+
+| Path | Location | Reached from |
+| --- | --- | --- |
+| `discoverResource` | nine providers' `UnmarshalJSON`/`UnmarshalText`/`UnmarshalYAML` | deserialization |
+| `resolveDispatchResource` | `method.go:807` | dispatch; one production caller, `method.go:725` |
+| `resolveRecordedResource` | `recovery_stack.go:678` | receipt rehydration on resume |
+
+The third is the sharpest: it resolves a **recorded result** -- what a node actually produced on the original
+run -- so a resumed run can bind a generation that did not exist when the node ran. A produced resource is a
+historical fact with exactly one right entry.
+
+The second and third are both gated on the target or product type implementing [Resource], so neither fires
+for an `any` slot at all, which is the gap finding 3's first row describes.
 
 **Ruled: both are fixed at once** (filed as #735). Fixing the `any` case alone would leave one slot
 resolving correctly by id while the declared slot beside it drifts to the current generation -- one
@@ -154,6 +164,73 @@ finding 4's non-finite floats and decision 1's tooling normalization.
 Receipts and the recovery stack feed compensation and resume. A float that reloads as an integer there
 changes a *compensating* call, which is worse than changing a forward one. One shared treatment at every
 `any` seam, not a local patch at `bindingData`.
+
+## Work in progress — state as of 2026-08-28
+
+**Branch:** `any-slot-types`. **Committed:** `b17067b` (Phase 1: the plan and nine failing tests).
+**Everything below this line is UNCOMMITTED and will be lost if the tree is discarded.**
+
+### The tree is red, deliberately and not
+
+Three executor tests fail: `TestRun_AKindMismatchStopsEvenUnderIgnore`,
+`TestRun_ScopedPreflightFailsOnConsumedMissingClaim`, `TestRun_ScopedPreflightVerifiesConsumedClaims`. All
+three fail with `op.encodeTypeWrapper: $resource ... has no catalog to name it` — the write side reaches for
+`resource.RuntimeEnvironment().ResourceCatalog`, which is the WRONG catalog (see below).
+
+Six of the nine Phase 1 tests now pass. Still red: the truthiness guard (task 15), the Resource case, and the
+recovery-stack seam.
+
+### Uncommitted files
+
+| File | State |
+| --- | --- |
+| `pkg/op/type_wrapper.go` | New. The wrapper codec. Its own tests pass. |
+| `pkg/op/type_wrapper_test.go` | New. Round trips over both codecs, all green. |
+| `pkg/op/node.go` | Modified. `marshalBindings`/`assembleBindings` wrap and unwrap; signatures changed. |
+| `pkg/op/graph.go` | Modified. `assembleUnits` takes the environment. |
+| `pkg/op/binding_test.go` | Modified. Call sites updated for the new signatures. |
+| `pkg/op/provider/file/graph_shape_demo_test.go` | Scratch. Fails on purpose to print a doc. DELETE. |
+| `pkg/op/provider/file/resource_lifecycle_order_test.go` | Scratch. Does NOT compile; see below. |
+| `test_path_*` artifacts (repo root) | devlore-test litter. DELETE. |
+| `*/inventory.gen.go` (op and star) | Touched by `make` regeneration; verify before committing. |
+
+### The correction the next session must apply first
+
+`encodeResource` currently reads `resource.RuntimeEnvironment().ResourceCatalog`. That is wrong. The graph
+carries its own catalog and `Graph.resourceCatalog`'s doc comment says so explicitly: "every later
+session-owner (a Go-side `GraphExecutor.Run`, **a serializer**, an inspector) reads from `resourceCatalog`
+rather than from the long-gone planning environment."
+
+The obstacle: `Node.MarshalYAML() (any, error)` takes no context, and the canonical form marshals nodes
+through exactly that path, so a node marshaling standalone cannot reach `graph.resourceCatalog`. Three
+options, none chosen: give `Node` a catalog reference at construction; resolve slot ids once at `NewGraph`;
+or route the canonical form through a graph-aware marshal instead of the node's own marshaler. **This is an
+open structural decision and belongs to the user.**
+
+The read side threads `env.ResourceCatalog` through `assembleUnits`/`assembleNode`/`assembleBindings`, which
+is likewise probably the wrong catalog — the graph's own unpacked catalog is the right one.
+
+### What the devlore-test investigation established
+
+Run against real documents rather than reasoned about, and all of it now backed by artifacts:
+
+- **A graph's immediate slots hold literals.** A resource produced by a node travels as a `promise` carrying a
+  unit id. Confirmed against a two-node write-then-remove plan.
+- **A resource DOES reach an immediate slot** when the author passes a path to a `Resource`-typed parameter:
+  plan-time coercion mints the entry, `resources:` gains `id: res-1`, and the slot records the **URI**. That
+  document is #735 in one screen — the id the slot should use is eleven lines below it.
+- **Passing a path instead of a promise drops the dependency edge.** No `edges:` key is emitted, nothing
+  orders the consumer after the producer, and scoped pre-flight then fails the consumer's claim. Not filed;
+  see Open Questions.
+- **`mode: 420`** appears in a planner-produced document — #711 in the wild.
+
+### Blocked on
+
+- **#738** — `devlore-test` is broken (High/P1). Its `graph.yaml` is empty for any plan whose units return
+  nil, the graph document is written to the stream named `receipt`, and no execution trace is persisted. That
+  last point blocks observing a resource's `Pending` to `Active` transition, which is a test this plan needs.
+- **A missing accessor.** `GraphExecutor` exposes no `RuntimeEnvironment()`, so a test cannot reach the run's
+  catalog to assert resource state. Whether that is a gap or an intended restriction is unanswered.
 
 ## Requirements
 
@@ -470,6 +547,27 @@ the executor's pre-flight resolve pass through `VerifyExistence`, and by nothing
 When a consumer does find a resource missing at run time, [MissingResourcePolicy] governs: `Stop` or `Ignore`,
 `Stop` winning aggregation across the consumers of one entry, with a warning emitted under every policy.
 
+### 9. The wrapper is in the canonical form, and that is what makes reload stable
+
+Measured rather than assumed. `Graph.canonicalForm` marshals the live `*Node` values
+(`graph.go:830-851`), `Node.MarshalYAML` returns `n.marshalData()` (`node.go:203`), and `marshalData` fills
+its slots through [marshalBindings]. Wrapping in [marshalBindings] therefore puts the wrapper into the
+canonical form as well as the document.
+
+Three consequences, all wanted:
+
+- **The checksum changes** for every graph holding an immediate slot value. Greenfield, so no document needs
+  to keep validating; the Migration section already states this.
+- **The canonical form becomes codec-independent.** It now carries explicit types, so a graph written as json
+  and the same graph written as yaml canonicalize identically even for values the two codecs disagree about.
+  That is what the "JSON and YAML agree" goal has been asking for.
+- **It fixes #734 at the root.** A reloaded `{"$float64": "42"}` resolves to `float64(42)`, which re-wraps to
+  the identical bytes, so the recomputed checksum matches the stored one. The regression exists precisely
+  because a `json.Number` re-canonicalized differently from the `float64` that was written.
+
+The last point is the load-bearing one: the wrapper is not merely tolerated by the checksum, it is what makes
+save and reload agree at all.
+
 ### Out of scope, and why
 
 `converter.go:446` collapses `*starlark.List`, `starlark.Tuple`, and `*starlark.Set` into a single
@@ -597,6 +695,7 @@ change already read back wrong; Phase 4 makes them fail loudly instead of quietl
 
 | File | Action | Purpose |
 | --- | --- | --- |
+| `pkg/op/type_wrapper.go` | Create | The wrapper codec (**landed**, green) |
 | `pkg/op/convert.go` | Modify | Resolve an enveloped value at the `any` seam |
 | `pkg/op/truthiness.go` | Modify | `json.Number` case in `scalarTruthy` as a guard rail |
 | `pkg/op/node.go` | Modify | Envelope `bindingData.Value` |
@@ -608,6 +707,7 @@ change already read back wrong; Phase 4 makes them fail loudly instead of quietl
 | `pkg/op/method.go` | Modify | Retire `resolveDispatchResource`'s URI lookup for slots |
 | `pkg/op/provider/*/resource*.go` | Modify | Retire `Discover(uri)` on unmarshal for slot values |
 | `pkg/op/any_slot_types_test.go` | Create | Phase 1: one failing test per finding (**landed**) |
+| `pkg/op/type_wrapper_test.go` | Create | Wrapper round trips, both codecs (**landed**, green) |
 | _every float position_ | Modify | Non-finite floats envelope regardless of declaration (Requirement 2) |
 
 ## Related Documents
@@ -623,6 +723,3 @@ change already read back wrong; Phase 4 makes them fail loudly instead of quietl
 - Issue #443 -- Epic: Serialization and the single codec
 
 ## Open Questions
-
-- [ ] Does Phase 3 change the *canonical* form used for checksums, or only the serialized bytes? #711 is
-      already answering an adjacent version of this and the answers should match.

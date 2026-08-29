@@ -7,6 +7,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
+	"reflect"
 
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
 )
@@ -193,14 +195,22 @@ func (n *Node) Execute(
 // Returns:
 //   - []byte: the JSON encoding of the node's document form.
 //   - `error`: non-nil if JSON marshaling fails.
-func (n *Node) MarshalJSON() ([]byte, error) { return json.Marshal(n.marshalData()) }
+func (n *Node) MarshalJSON() ([]byte, error) {
+
+	data, err := n.marshalData()
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(data)
+}
 
 // MarshalYAML returns the node's [nodeData] document shape for the YAML encoder to serialize.
 //
 // Returns:
 //   - `any`: the [nodeData] document-form value.
-//   - `error`: always nil; present only to satisfy the yaml.Marshaler signature.
-func (n *Node) MarshalYAML() (any, error) { return n.marshalData(), nil }
+//   - `error`: when a slot holds a value the document has no type name for.
+func (n *Node) MarshalYAML() (any, error) { return n.marshalData() }
 
 // Parameters returns this node's variable bubble-up surface — one [Parameter] per slot whose value is a
 // [VariableBinding]. Each returned entry carries the value-side variable name (the variable a caller of this node's
@@ -264,19 +274,26 @@ func (n *Node) Parameters() ([]Parameter, error) {
 //
 // Returns:
 //   - `nodeData`: the projected serialized value.
-func (n *Node) marshalData() nodeData {
+//   - `error`: when a slot holds a value the document has no type name for.
+func (n *Node) marshalData() (nodeData, error) {
 	var actionName string
 	if a := n.Action(); a != nil {
 		actionName = string(a.Name())
 	}
+
+	slots, err := marshalBindings(n.slots, n.Action())
+	if err != nil {
+		return nodeData{}, fmt.Errorf("op.Node.marshalData: node %q: %w", n.id, err)
+	}
+
 	return nodeData{
 		ID:          n.id,
 		ActionName:  actionName,
 		Annotations: n.annotations.values,
 		Retry:       n.RetryPolicy(),
-		Slots:       marshalBindings(n.slots),
+		Slots:       slots,
 		Transition:  n.TransitionPolicy(),
-	}
+	}, nil
 }
 
 // endregion
@@ -299,10 +316,10 @@ func (n *Node) marshalData() nodeData {
 //
 // Returns:
 //   - `map[string]Binding`: the live slot map, or nil when `data` is empty.
-func assembleBindings(data map[string]bindingData, action Action) map[string]Binding {
+func assembleBindings(data map[string]bindingData, action Action, catalog *ResourceCatalog) (map[string]Binding, error) {
 
 	if len(data) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	// A nil action carries no declared types, so serialized values pass through as decoded. Only an
@@ -316,14 +333,45 @@ func assembleBindings(data map[string]bindingData, action Action) map[string]Bin
 	for name, d := range data {
 		switch {
 		case d.Immediate != nil:
-			bindings[name] = NewImmediateBinding(readAgainstField(d.Immediate.Value, method, name))
+			value, err := readSlotValue(d.Immediate.Value, method, name, catalog)
+			if err != nil {
+				return nil, fmt.Errorf("slot %q: %w", name, err)
+			}
+			bindings[name] = NewImmediateBinding(value)
 		case d.Promise != nil:
 			bindings[name] = NewPromiseBinding(d.Promise.UnitID)
 		case d.Variable != nil:
 			bindings[name] = NewVariableBindingWithField(d.Variable.Name, d.Variable.Field)
 		}
 	}
-	return bindings
+	return bindings, nil
+}
+
+// readSlotValue recovers a slot's value from its document form.
+//
+// A value that carries its own type is unwrapped, and the type it records is the answer -- no parameter is
+// consulted, because the document already said what the value is. Everything else is a bare literal whose
+// type only the field can supply, which is [readAgainstField]'s job and #711's mechanism.
+//
+// The two are told apart structurally: a type wrapper is a single-key mapping whose key names a type. That
+// works without a schema, which is what a reader holding no declared type needs.
+//
+// Parameters:
+//   - `value`: the decoded slot value.
+//   - `method`: the resolved method whose parameter this slot fills; nil when the caller has no action.
+//   - `name`: the slot name, which is the parameter name.
+//   - `catalog`: the catalog a `$resource` id resolves against.
+//
+// Returns:
+//   - `any`: the value with its recorded or declared type.
+//   - `error`: when a wrapper names a type this reader does not know, or its payload does not parse.
+func readSlotValue(value any, method *Method, name string, catalog *ResourceCatalog) (any, error) {
+
+	if isTypeWrapper(value) {
+		return decodeTypeWrapper(value, catalog)
+	}
+
+	return readAgainstField(value, method, name), nil
 }
 
 // assembleNode constructs a [*Node] from a [nodeData] payload during deserialization.
@@ -338,7 +386,7 @@ func assembleBindings(data map[string]bindingData, action Action) map[string]Bin
 // Returns:
 //   - `*Node`: the constructed node, with action bound.
 //   - `error`: non-nil if the action name cannot be resolved.
-func assembleNode(p *nodeData) (*Node, error) {
+func assembleNode(p *nodeData, catalog *ResourceCatalog) (*Node, error) {
 
 	action, err := resolvePayloadAction(p.ActionName, "node", p.ID)
 	if err != nil {
@@ -355,7 +403,11 @@ func assembleNode(p *nodeData) (*Node, error) {
 		return nil, err
 	}
 
-	node.slots = assembleBindings(p.Slots, action)
+	slots, err := assembleBindings(p.Slots, action, catalog)
+	if err != nil {
+		return nil, fmt.Errorf("op.assembleNode: node %q: %w", p.ID, err)
+	}
+	node.slots = slots
 	return node, nil
 }
 
@@ -439,17 +491,30 @@ func isDecodedNumber(value any) bool {
 //
 // Returns:
 //   - `map[string]bindingData`: the document-form slot map, or nil when `bindings` is empty.
-func marshalBindings(bindings map[string]Binding) map[string]bindingData {
+func marshalBindings(bindings map[string]Binding, action Action) (map[string]bindingData, error) {
 
 	if len(bindings) == 0 {
-		return nil
+		return nil, nil
+	}
+
+	var method *Method
+	if action != nil {
+		method = action.Method()
 	}
 
 	data := make(map[string]bindingData, len(bindings))
 	for name, binding := range bindings {
 		switch b := binding.(type) {
 		case ImmediateBinding:
-			data[name] = bindingData{Immediate: &immediateData{Value: b.value}}
+			value := b.value
+			if slotCarriesItsType(method, name, value) {
+				wrapped, err := encodeTypeWrapper(value)
+				if err != nil {
+					return nil, fmt.Errorf("slot %q: %w", name, err)
+				}
+				value = wrapped
+			}
+			data[name] = bindingData{Immediate: &immediateData{Value: value}}
 		case PromiseBinding:
 			data[name] = bindingData{Promise: &promiseData{UnitID: assert.Type[string]("promise unit ID", b.value)}}
 		case VariableBinding:
@@ -458,7 +523,61 @@ func marshalBindings(bindings map[string]Binding) map[string]bindingData {
 			panic(fmt.Sprintf("op: unknown Binding variant %T", binding))
 		}
 	}
-	return data
+	return data, nil
+}
+
+// slotCarriesItsType reports whether a slot's value must record its own type in the document.
+//
+// Two circumstances, justified differently. A slot with no declared type -- an `any` parameter, or no
+// parameter at all -- has nothing to read the value back against, so the document is the only place the type
+// can live. A non-finite float records its type wherever it appears, declared or not, because json cannot
+// express one as a bare number at any position (see finding 4).
+//
+// A slot whose parameter has a declared type records nothing extra: the field already says how to read it,
+// and writing it twice would put a second source of truth in the document.
+//
+// Parameters:
+//   - `method`: the resolved method whose parameter this slot fills; nil when the node has no action.
+//   - `name`: the slot name, which is the parameter name.
+//   - `value`: the value bound to the slot.
+//
+// Returns:
+//   - `bool`: true when the document must record the value's type.
+func slotCarriesItsType(method *Method, name string, value any) bool {
+
+	if isNonFiniteFloat(value) {
+		return true
+	}
+
+	if method == nil {
+		return true
+	}
+
+	parameter, declared := method.ParameterByName(name)
+	if !declared || parameter.Type == nil {
+		return true
+	}
+
+	return parameter.Type.Kind() == reflect.Interface && parameter.Type.NumMethod() == 0
+}
+
+// isNonFiniteFloat reports whether a value is an infinity or a NaN, which json cannot write as a bare number.
+//
+// Parameters:
+//   - `value`: the value under test.
+//
+// Returns:
+//   - `bool`: true for +Inf, -Inf, and NaN, at either float width.
+func isNonFiniteFloat(value any) bool {
+
+	switch v := value.(type) {
+	case float64:
+		return math.IsInf(v, 0) || math.IsNaN(v)
+	case float32:
+		return math.IsInf(float64(v), 0) || math.IsNaN(float64(v))
+	}
+
+	return false
 }
 
 // endregion

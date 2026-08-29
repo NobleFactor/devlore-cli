@@ -368,18 +368,24 @@ func SerializeGraphs(w io.Writer, graphs []*Graph) (err error) {
 // existence with its action already bound — NewNode / NewSubgraph's assert.NonZero invariant holds.
 //
 // Parameters:
+//   - `env`: the run environment whose catalog a `$resource` id resolves against.
 //   - `p`: the decoded graph payload.
 //
 // Returns:
 //   - `map[string]ExecutableUnit`: the unit table, keyed by ID.
 //   - `error`: the joined per-unit assembly failures, or nil.
-func assembleUnits(p *graphData) (map[string]ExecutableUnit, error) {
+func assembleUnits(env *RuntimeEnvironment, p *graphData) (map[string]ExecutableUnit, error) {
+
+	var catalog *ResourceCatalog
+	if env != nil {
+		catalog = env.ResourceCatalog
+	}
 
 	var violations []error
 	unitsByID := make(map[string]ExecutableUnit, len(p.Nodes)+len(p.Subgraphs))
 
 	for i := range p.Nodes {
-		node, err := assembleNode(&p.Nodes[i])
+		node, err := assembleNode(&p.Nodes[i], catalog)
 		if err != nil {
 			violations = append(violations, err)
 			continue
@@ -433,7 +439,7 @@ func assembleGraph(env *RuntimeEnvironment, p *graphData) (*Graph, error) {
 	// recomputed checksum matches the document's; re-deriving here would drop hand-authored, non-slot-producer edges.
 	root.edges = p.Edges
 
-	unitsByID, err := assembleUnits(p)
+	unitsByID, err := assembleUnits(env, p)
 	if err != nil {
 		return nil, err
 	}
@@ -986,7 +992,11 @@ func (g *Graph) marshalData() (graphData, error) {
 
 	nodePayloads := make([]nodeData, 0, len(descendantNodes))
 	for _, n := range descendantNodes {
-		nodePayloads = append(nodePayloads, n.marshalData())
+		nodePayload, err := n.marshalData()
+		if err != nil {
+			return graphData{}, err
+		}
+		nodePayloads = append(nodePayloads, nodePayload)
 	}
 
 	content, err := g.packContent()
