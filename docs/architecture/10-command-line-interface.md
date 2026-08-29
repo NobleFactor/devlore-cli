@@ -258,9 +258,24 @@ registers the common set.
 | --- | --- | --- | --- |
 | `lore` | 19 | 1 (`inspect`) | `bundle`, `onboard`, `list` hand-roll flags; 13 `fmt.Print` calls |
 | `writ` | 13 | 0 | `--json` booleans on `status` and `verify`; 7 direct `os.Stdout` writes |
-| `star` | 9 | 0 | no result flags at all |
+| `star` | 9 | 0 | a **second `cli` package** of its own -- see below |
 | `devlore-docs` | 3 | 0 | — |
 | `devlore-test` | 2 | 0 | `--output stream=dest` routing, `--receipt-format`, inverted artifacts |
+
+**`star` does not lack the convention -- it has a second copy of it.** `cmd/star/cli` duplicates eighteen
+exported names from `cmd/internal/cli`, including all ten exit codes and `AddOutputFlags`, and at 387 lines
+against 196 the copy has grown rather than gone stale. The two now disagree: one binds `--filter`, `--jq`,
+`--output`/`-o`, `--store`, and `--template` on `PersistentFlags`, the other binds `--format` and `--filter`
+on `Flags`. A program cannot share a common set while binding a different one from a different package
+([#743](https://github.com/NobleFactor/devlore-cli/issues/743)).
+
+Its `renderTable` is the exception worth keeping: it is the suite's only working table renderer and the
+candidate to promote into `pkg/result` in Phase 4, rather than a thing to delete.
+
+**CLI code also lives outside `cmd/`.** Every package under the repository-root `internal/` is imported only
+by `cmd/`, and `internal/console` is a Bubble Tea terminal UI. Root `internal/` is importable by the whole
+module, so nothing prevents a `pkg/` package from importing CLI presentation
+([#742](https://github.com/NobleFactor/devlore-cli/issues/742)).
 
 **Adoption has gone backwards.** [`extract-output-package.md`](../plans/extract-output-package.md) recorded
 `AddOutputFlags` as used at two call sites — `lore inspect` and `writ snapshot`. `writ snapshot` no longer
@@ -311,7 +326,17 @@ No deviation is sanctioned. Every row above is work, tracked by the plan in
    spell it `none`), and the majority spelling wins. It is a *value*, not a `--quiet` flag, for the same
    reason `--json` is not a flag: a rendering belongs in the rendering flag.
 
-4. **Rejected: `--artifacts`, `--document-dir`, `--documents`.** Each was a new word for a concept the code
+4. **Supersedes the 2026-08-20 devlore-test routing ruling.** That ruling said "results are files, narration
+   is stderr, and stdout stays clean", and `devlore-test` routed all three of its payloads to files named for
+   the script. It predates the three-stream split and treats one category where there are two: the summary is
+   a **result** and belongs on stdout; the definition and trace are **documents** and belong in the store.
+   `TestCLI_DefaultsToArtifactFiles` pinned the old behavior and is rewritten, not preserved.
+
+   This is not a convention a program may opt out of. `aws`, `az`, `docker`, and `gcloud` differ on flag
+   names, but not on this: the result goes to stdout as machine-readable data, narration goes to stderr as
+   human-readable text. Every deviation in this repository is a defect, tracked in §14.
+
+5. **Rejected: `--artifacts`, `--document-dir`, `--documents`.** Each was a new word for a concept the code
    already names. [`cmd/internal/cli/store.go`](../../cmd/internal/cli/store.go) has called it the execution
    store since it was written, and `writ secret`'s help already says so to users. A fifth synonym for one
    concept is how `graph` and `receipt` came to be inverted in `devlore-test`

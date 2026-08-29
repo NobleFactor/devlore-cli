@@ -6,7 +6,6 @@ package devloretest
 
 import (
 	"fmt"
-	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -29,24 +28,23 @@ var (
 // NewRootCmd creates the root devlore-test command with all subcommands.
 func NewRootCmd() *cobra.Command {
 
+	var opts cli.SinkOptions
+
 	rootCmd := &cobra.Command{
 		Use:   "devlore-test",
 		Short: "Graph test harness for Starlark plan + execute + verify",
-		Long: fmt.Sprintf(`devlore-test is the graph test harness for the devlore execution engine.
+		Long: `devlore-test is the graph test harness for the devlore execution engine.
 
 It executes a Starlark test script that builds an execution graph, runs the
 graph through the engine, and verifies expectations against the results.
 
-Results are files; narration is stderr; stdout stays clean. Each stream
-defaults to an artifact file named for the script, in the working directory:
+The result goes to stdout as JSON; narration goes to stderr; the definition
+and its traces go to the execution store.
 
-  summary  Test result with pass/fail and expectation counts   <script>.summary.json
-  graph    The graph document from the software under test     <script>.graph.yaml
-  receipt  Full execution graph transaction log                <script>.receipt.<format>
-
-Use --output to reroute any stream to a path, /dev/stdout, or %[1]s:
   devlore-test run test.star
-  devlore-test run --output summary=/dev/stdout --output graph=%[1]s --output receipt=%[1]s test.star`, os.DevNull),
+  devlore-test run -o yaml test.star
+  devlore-test run --store ./run test.star
+  devlore-test run -o none test.star      # exit code only`,
 		SilenceUsage: true,
 		CompletionOptions: cobra.CompletionOptions{
 			HiddenDefaultCmd: true,
@@ -76,7 +74,10 @@ Use --output to reroute any stream to a path, /dev/stdout, or %[1]s:
 	cli.AddSilentFlag(rootCmd)
 
 	// Add subcommands
-	rootCmd.AddCommand(newRunCmd())
+	// The common set binds once, on the root: every subcommand accepts every flag.
+	cli.AddOutputFlags(rootCmd, &opts)
+
+	rootCmd.AddCommand(newRunCmd(&opts))
 
 	// Shared metadata
 	manHeader := cli.ManHeader{

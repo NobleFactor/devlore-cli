@@ -162,10 +162,12 @@ and `writ verify` cannot render yaml today.
 
 ### Phase 4: Bring star and lore into agreement
 
-- [ ] Add `TableFormatter` to `pkg/result` -- one table rendering for the whole suite.
+- [ ] Promote `cmd/star/cli/output.go`'s `renderTable` into `pkg/result` as the suite's one
+      `TableFormatter`, fixing the rune-safety defect #741 records. It is a move, not a fresh write.
 - [ ] Convert `lore`'s `runSearch` (`commands.go:525-556`) first: it is the only real table in the tree, and
       converting it is a bug fix as much as a refactor (see the byte-truncation defect it carries).
-- [ ] `star` registers the common set; it has none today.
+- [ ] `star` registers the common set, and `cmd/star/cli` is deleted -- it duplicates eighteen
+      exported names from `cmd/internal/cli` and now contradicts it (#743).
 - [ ] `lore`'s `bundle`, `onboard`, and `list` drop their hand-rolled flags. `list` is a stub returning
       "not yet implemented", so it adapts at no cost; its `--format manifest` is a domain rendering and does
       not join the shared set.
@@ -231,6 +233,8 @@ governing principle forbids.
 ## Related Documents
 
 - Epic #740 -- Command line interface: one output convention, every app
+- Issue #743 -- `cmd/star/cli` duplicates `cmd/internal/cli`
+- Issue #742 -- CLI code under the root `internal/`
 - Issue #738 -- devlore-test is broken: empty artifact, inverted streams, no trace
 - Issue #739 -- CLI flag help says "Promise ..." where it means "Output ..."
 - `docs/architecture/10-command-line-interface.md` -- the spec, including the five-tool survey and the
