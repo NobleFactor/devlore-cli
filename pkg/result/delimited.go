@@ -14,17 +14,16 @@ import (
 
 // DelimitedFormatter renders values as delimiter-separated lines.
 //
-// One formatter, three attributes, three presets. gcloud reached the same shape: its `csv` and `value` are
-// one renderer differing in separator, heading, and quoting, with `value` documented as "CSV with no heading
-// and <TAB> separator instead of <COMMA>".
+// One formatter, three attributes, two presets. gcloud reached the same shape: its `csv` and `value` are one
+// renderer differing in separator, heading, and quoting, with `value` documented as "CSV with no heading and
+// <TAB> separator instead of <COMMA>".
 //
 //   - [NewCSVFormatter]   -- comma, heading, quoted. RFC 4180, for a spreadsheet.
-//   - [NewTSVFormatter]   -- tab, no heading, quoted. For `cut -f2` and `awk '{print $2}'`.
 //   - [NewValueFormatter] -- tab, no heading, raw. For text `--jq` already built.
 //
-// Quoting is what separates the last from the middle. A machine-parseable format must quote a field
-// containing its own delimiter or the row loses a boundary; a raw renderer must not, or the text a caller
-// composed comes back wearing quotes it did not write.
+// Quoting is what separates them, and it is what the two names promise. A machine-parseable format must quote
+// a field containing its own delimiter or the row loses a boundary; a raw renderer must not, or the text a
+// caller composed comes back wearing quotes it did not write.
 //
 // Shape drives column inference:
 //
@@ -59,22 +58,17 @@ type DelimitedFormatter struct {
 //   - `DelimitedFormatter`: the RFC 4180 formatter.
 func NewCSVFormatter() DelimitedFormatter { return DelimitedFormatter{Separator: ','} }
 
-// NewTSVFormatter returns the pipeline preset: tab, no heading, quoted.
-//
-// Tabs need no quoting for the values a row normally carries, so a line survives `cut -f2` without a parser.
-// Quoting stays on so a field that does contain a tab cannot silently split the row.
-//
-// Returns:
-//   - `DelimitedFormatter`: the tab-separated formatter.
-func NewTSVFormatter() DelimitedFormatter {
-	return DelimitedFormatter{Separator: '\t', SuppressHeadings: true}
-}
-
 // NewValueFormatter returns the raw preset: tab, no heading, no quoting.
 //
 // This is what completes the filter stage. `--jq` can build any line; every other format then imposes a
 // syntax on it -- json quotes and escapes, yaml applies scalar rules, csv adds a header. This one prints it.
 // `aws` ships the same rendering as `text` and `gcloud` as `value`.
+//
+// A quoted tab preset was tried and dropped. `cut` and `awk -F'\t'` have no quote awareness, so quoting a
+// field that contains a tab does not save them -- the row still splits, and they get `"a` and `b"` instead of
+// `a` and `b`. Quoting only helps a caller running a real parser, and such a caller is better served by `csv`,
+// which every language's standard library reads. That leaves nothing a quoted tab format does better than
+// both, which is why gcloud and aws each ship a raw one and no `tsv`.
 //
 // Returns:
 //   - `DelimitedFormatter`: the raw formatter.

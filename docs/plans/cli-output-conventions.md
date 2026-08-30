@@ -198,6 +198,14 @@ Phase 4's first task, and this phase is now the next work.
 - [x] `value` renders raw: no quoting, no document syntax, no header. It is what makes `--jq` complete --
       a jq-built string has no other format that prints it as written.
 - [x] An unknown `NAME` and a `NAME=` with an empty argument both error, naming the format.
+- [x] `tsv` dropped, leaving `csv` and `value` as the delimited pair. It was added on the `awk`/`cut`
+      rationale, and that rationale does not survive inspection: those tools have no quote awareness, so
+      quoting a field that contains a tab does not stop the row splitting -- it yields `"a` and `b"` instead
+      of `a` and `b`. Quoting helps only a caller running a real parser, and that caller is better served by
+      `csv` and its universal library support. gcloud and aws each ship one raw delimited format (`value`,
+      `text`) and no `tsv`, and the naming is why: `tsv` promises round-tripping that an unquoted format
+      cannot keep, so neither tool claimed the name. `DelimitedFormatter` keeps all three attributes; `Raw`
+      is what separates the two survivors.
 
 ### Phase 4: Bring star and lore into agreement
 

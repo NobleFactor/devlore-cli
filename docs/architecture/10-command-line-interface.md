@@ -166,8 +166,7 @@ than a direction.
 ## 7. `--output`: how the result is rendered
 
 `--output` / `-o` selects the rendering. Its value is a format name, or `NAME=ARGUMENT` for a format that
-needs one (§8). The set, alphabetically: `csv`, `json`, `none`, `table`, `template=<body>`, `tsv`, `value`,
-`yaml`.
+needs one (§8). The set, alphabetically: `csv`, `json`, `none`, `table`, `template=<body>`, `value`, `yaml`.
 
 Reshaping is not a rendering. Selecting fields, mapping, and interpolating happen in the filter stage
 (`--filter`, `--jq`), which composes with every format. `aws`, `az`, and `gcloud` all take this shape: a
@@ -217,7 +216,6 @@ flag:
                                               │  json                │
                reshape: select, map,          │  none                │
                project, interpolate           │  table               │
-                                              │  tsv                 │
                composable, any order          │  value               │
                                               │  yaml                │
                                               │  template=<body>     │
@@ -252,9 +250,18 @@ A sidecar flag is docker's shape, and docker has it only because `--format` *is*
 
 Parsing splits on the **first** `=`, so an argument containing `=` is unaffected.
 
-**Presets stay named.** `csv` and `tsv` are two names, not `csv` plus an argument, because two values a user
-can guess beat one value with an argument they must look up. gcloud ships `csv` and `value` as separate names
-for the same reason.
+**Presets stay named.** `csv` and `value` are two names, not one name plus an argument, because two values a
+user can guess beat one value with an argument they must look up. gcloud ships the same two names for the
+same reason.
+
+**The delimited pair splits by consumer, not by separator.** `csv` quotes, so a parser round-trips it;
+`value` does not, so a shell reads exactly what was composed. A quoted tab format -- `tsv` -- sat between
+them until 2026-08-30 and served neither. `cut` and `awk -F'\t'` have no quote awareness, so quoting a field
+that contains a tab does not rescue them: the row still splits and they get `"a` and `b"` rather than `a` and
+`b`. Quoting helps only a caller running a real parser, and that caller is better served by `csv`, which
+every standard library reads. gcloud and aws each ship a raw delimited format (`value`, `text`) and no
+`tsv`, and the naming is the reason: `tsv` promises round-tripping, and a format that does not quote cannot
+keep that promise.
 
 ## 9. Errors and exit codes
 
@@ -422,8 +429,8 @@ No deviation is sanctioned. Every row above is work, tracked by the plan in
    (`-o go-template=`, `-o jsonpath=`, `-o custom-columns=`); gcloud's `NAME[ATTRIBUTES](PROJECTION)` is the
    same idea. Parsing splits on the first `=`.
 
-   Presets stay named rather than becoming arguments: `csv` and `tsv` are two values a user can guess, where
-   `csv=tab` is one value with an argument to look up. gcloud ships `csv` and `value` separately for that
+   Presets stay named rather than becoming arguments: `csv` and `value` are two values a user can guess,
+   where `csv=tab` is one value with an argument to look up. gcloud ships the same two names for that
    reason.
 
 6. **Rejected: `--artifacts`, `--document-dir`, `--documents`.** Each was a new word for a concept the code
@@ -438,7 +445,7 @@ No deviation is sanctioned. Every row above is work, tracked by the plan in
 cannot express yaml, csv, or template. Five formats behind five booleans is five flags and an ambiguity the
 moment two are passed.
 
-**Plain output.** clig.dev recommends `--plain`; here that is `--output csv` or `--output tsv`, by the
+**Plain output.** clig.dev recommends `--plain`; here that is `--output csv` or `--output value`, by the
 same argument. Plain is a rendering, so it is a format value.
 
 **TTY-adaptive output.** clig.dev encourages adapting output to a terminal. This document **rejects** that for

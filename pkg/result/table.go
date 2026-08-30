@@ -15,7 +15,7 @@ import (
 //
 // It shares its column inference with the delimited formats -- [HasHeaders], `csv:"name"` tag overrides, and
 // the map-key union -- so one value renders the same columns whether it is asked for as `table`, `csv`, or
-// `tsv`. Only the presentation differs: commas, tabs, or padding.
+// `value`. Only the presentation differs: commas, tabs, or padding.
 //
 // Alignment is [text/tabwriter]'s, which measures cell widths in runes rather than bytes. A hand-rolled
 // `%-30s` counts bytes and so misaligns every row containing a multi-byte character -- the defect #741
@@ -23,7 +23,7 @@ import (
 //
 // Headers are upper-cased, matching `aws`, `kubectl`, and star's own table.
 //
-// This is the human rendering. A spreadsheet wants `csv`; a shell pipeline wants `tsv` or `value`.
+// This is the human rendering. A spreadsheet wants `csv`; a shell pipeline wants `value`.
 type TableFormatter struct {
 
 	// MinPadding is the space between the longest cell of a column and the next column. Zero means two.

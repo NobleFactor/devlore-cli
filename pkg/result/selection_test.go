@@ -21,7 +21,7 @@ func TestFormatterByNameKnownFormatters(t *testing.T) {
 		{"JSON", JSONFormatter{}},
 		{"  yaml  ", YAMLFormatter{}},
 		{"csv", DelimitedFormatter{}},
-		{"tsv", DelimitedFormatter{}},
+		{"value", DelimitedFormatter{}},
 		{"none", NoneFormatter{}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

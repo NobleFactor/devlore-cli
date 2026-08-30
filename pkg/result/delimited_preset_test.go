@@ -48,14 +48,14 @@ func TestCSVPreset_SpreadsheetShape(t *testing.T) {
 	}
 }
 
-// TestTSVPreset_PipelineShape pins the tab-and-no-heading preset.
+// TestValuePreset_PipelineShape pins the tab-and-no-heading preset.
 //
 // `awk '{print $2}'` should work on line one. A header row would be one more line every consumer has to
 // skip, which is why the two presets differ in delimiter AND headings rather than only the delimiter.
-func TestTSVPreset_PipelineShape(t *testing.T) {
+func TestValuePreset_PipelineShape(t *testing.T) {
 
 	var buffer bytes.Buffer
-	if err := result.NewTSVFormatter().Format(rows(), &buffer); err != nil {
+	if err := result.NewValueFormatter().Format(rows(), &buffer); err != nil {
 		t.Fatalf("Format: %v", err)
 	}
 
@@ -76,7 +76,7 @@ func TestTSVPreset_PipelineShape(t *testing.T) {
 // TestFormatterByName_BothPresetsRegister covers the selection seam.
 func TestFormatterByName_BothPresetsRegister(t *testing.T) {
 
-	for name, wantSeparator := range map[string]string{"csv": ",", "tsv": "\t"} {
+	for name, wantSeparator := range map[string]string{"csv": ",", "value": "\t"} {
 		formatter, err := result.FormatterByName(name)
 		if err != nil {
 			t.Fatalf("FormatterByName(%s): %v", name, err)

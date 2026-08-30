@@ -16,7 +16,7 @@ import (
 // TestFormatSpec_BareNamesUnchanged pins that adding the argument form did not disturb plain names.
 func TestFormatSpec_BareNamesUnchanged(t *testing.T) {
 
-	for _, name := range []string{"csv", "json", "none", "tsv", "value", "yaml"} {
+	for _, name := range []string{"csv", "json", "none", "table", "value", "yaml"} {
 		if _, err := result.FormatterByName(name); err != nil {
 			t.Errorf("FormatterByName(%q): %v", name, err)
 		}

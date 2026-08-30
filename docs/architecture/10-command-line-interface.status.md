@@ -14,7 +14,9 @@ and two of four programs landed 2026-08-30. `devlore-test` and `writ` register t
 - [x] Scope settled: `devlore-test`, `lore`, `star`, and `writ`, each registering the full common set on
   its root as persistent flags -- every command of all four accepts every flag.
 - [x] The reserved flag set settled: `--filter`, `--jq`, `--output` / `-o`, `--store`, with renderings
-  `csv`, `json`, `none`, `table`, `template=<body>`, `tsv`, `value`, `yaml`.
+  `csv`, `json`, `none`, `table`, `template=<body>`, `value`, `yaml`. A `tsv` rendering was carried until
+  2026-08-30 and dropped: quoting cannot rescue `cut` or `awk`, which have no quote awareness, so a quoted
+  tab format served neither the shell nor the parser (§8).
 - [x] The pipeline drawn: two stages, one flag each; a format needing an argument carries it as
   `NAME=ARGUMENT` rather than in a sidecar flag.
 - [x] Prior art surveyed and recorded as a table, not an assertion — the `--output` versus `--format` split is
