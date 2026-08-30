@@ -207,7 +207,8 @@ Status indicators:
                         identity: attribution indeterminate → writ upgrade`,
 		Example: `  writ status                    # Report everything writ has deployed
   writ status noblefactor        # Report one project
-  writ status --json             # Machine-readable report`,
+  writ status -o json            # Machine-readable report
+  writ status -o table           # Aligned columns`,
 		RunE: runStatus,
 	}
 
@@ -246,7 +247,7 @@ is the signing policy ladder:
   reject           Reject anything that is not valid`,
 		Example: `  writ verify ~/.local/state/devlore/graphs/*.yaml
   writ verify --signing-policy=reject_external ~/Downloads/shared-plan.yaml
-  writ verify --json --signing-policy=reject trace.yaml`,
+  writ verify -o table --signing-policy=reject trace.yaml`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: runVerify,
 	}

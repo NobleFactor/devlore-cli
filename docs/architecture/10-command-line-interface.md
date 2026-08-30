@@ -182,6 +182,14 @@ when observed is unreproducible. A human wanting a table asks for one: `-o table
 **Adding a formatter** is a change to `pkg/result`, never to a command. A command needing a shape the set
 does not have reshapes with `--jq` and renders with `value`.
 
+**`value` expects a projection.** It renders whatever it is handed, so a whole nested structure comes out as
+every field on one line, pointer addresses included. That is the same expectation `gcloud` states by
+requiring a projection for its `csv` and `value` formats. The intended use is `--jq` first:
+
+```
+writ status --jq '.entries[] | "\(.target) is \(.state)"' -o value
+```
+
 **One table formatter, no exceptions.** `table` is a general rendering and belongs in `pkg/result` like the
 others. No command owns its own. The current hand-rolled table in `lore`'s `runSearch`
 (`cmd/lore/lore/commands.go:525-556`) is not an argument for a second one: it writes through `fmt.Printf`
@@ -279,10 +287,21 @@ including when the flag's value equals its default.
 Help text is the specification a user reads. It states what the command does, what its flags mean, and what
 its output is — including, for a multi-artifact command, the names of the artifacts it writes.
 
-`docs/cli/**` is generated from the command tree by `devlore-docs`. **The generated files are never
-hand-edited.** A wrong word in the docs is a wrong word in the flag description, and it is fixed there —
-which is exactly how "Promise bundle path" reached three published pages
-([#739](https://github.com/NobleFactor/devlore-cli/issues/739)).
+`docs/cli/**` is generated from the command tree by `devlore-docs`. It is **gitignored in this repository and
+published from it**: `.github/workflows/docs-publish.yaml` runs `make docs` on every push to `develop`,
+`main`, or `release/*`, copies `docs/cli/` and `docs/guides/` into `NobleFactor/devlore.noblefactor.com`, and
+**opens and merges** the site PR unattended.
+
+Two consequences follow, and the second is the one that bites.
+
+A wrong word in the reference is a wrong word in a command's help string, and it is fixed at the source. The
+generated files are never hand-edited -- there is nowhere to hand-edit them, since this repository does not
+keep them.
+
+**A help string reaches the public site on the next merge to `develop`, with no human in the path.** That is
+how "Promise bundle path" was published
+([#739](https://github.com/NobleFactor/devlore-cli/issues/739)). Being gitignored makes it *less* visible in
+review, not less published: a flag description gets no diff here and no approval there.
 
 ## 13. Stability
 
@@ -303,22 +322,25 @@ Each rule below is greppable, and each has a test. These are the reason the docu
 | 3 | All four in-scope roots register the full common set | a test over the command tree |
 | 4 | `--store` relocates both subdirectories and the run index together | a store round-trip test |
 | 5 | Narration is absent from stdout under every format | a test capturing both streams |
-| 6 | Generated `docs/cli/**` matches the flag descriptions | the codegen determinism gate |
+| 6 | Help strings read as published prose; they ship unreviewed | `make docs` and read it, in the flag-changing work |
 
 Invariants 1 and 2 are the ones that prevent regression, because both are mechanical and both are red today.
 
 ## 15. Per-app conformance
 
-Current state, measured 2026-08-28. One command out of forty-six uses the convention, and no root
-registers the common set.
+Current state, 2026-08-30. Two of the four in-scope programs register the common set on their root.
 
-| App | Commands | Conforming | Deviations |
-| --- | --- | --- | --- |
-| `lore` | 19 | 1 (`inspect`) | `bundle`, `onboard`, `list` hand-roll flags; 13 `fmt.Print` calls |
-| `writ` | 13 | 0 | `--json` booleans on `status` and `verify`; 7 direct `os.Stdout` writes |
-| `star` | 9 | 0 | a **second `cli` package** of its own -- see below |
-| `devlore-docs` | 3 | 0 | — |
-| `devlore-test` | 2 | 0 | `--output stream=dest` routing, `--receipt-format`, inverted artifacts |
+| App | Root registers the set | Remaining deviations |
+| --- | --- | --- |
+| `devlore-test` | **yes** | none |
+| `writ` | **yes** | `status`'s 22 `fmt.Print` calls; four dry-run dumps; `migrate`'s `--format` |
+| `lore` | no | hand-rolled flags on three commands; 13 `fmt.Print`; `runSearch` (#741) |
+| `star` | no | a **second `cli` package** of its own -- see below |
+| `devlore-docs` | not in scope | — |
+
+`writ status` is bridged rather than converted: `cfg.JSONOutput` reads `outputOptions.Format == "json"` while
+its report still renders itself. The consequence is worth stating -- `writ status -o yaml` silently produces
+the human report, not yaml -- and it holds only until that report goes through the pipeline.
 
 **`star` does not lack the convention -- it has a second copy of it.** `cmd/star/cli` duplicates eighteen
 exported names from `cmd/internal/cli`, including all ten exit codes and `AddOutputFlags`, and at 387 lines
@@ -422,6 +444,15 @@ same argument. Plain is a rendering, so it is a format value.
 **TTY-adaptive output.** clig.dev encourages adapting output to a terminal. This document **rejects** that for
 the result stream: a pipeline whose data changes when observed is unreproducible. Narration adapts to a TTY
 (§10); results never do.
+
+**A query language rather than a template engine.** clig.dev does not take a position; the prior art splits
+cleanly. `aws` and `az` ship JMESPath as `--query`, `gcloud` ships projections and transforms, and none of the
+three has a template engine. `kubectl` and `docker` have templates and no query language -- docker's
+`--format` *is* the template. Nobody ships both, because they solve one problem.
+
+This suite uses `gojq`, which is strictly more capable than JMESPath and more widely known than gcloud's
+projection syntax. `template=<body>` exists for text layout a query cannot express, and is deliberately the
+only argument-taking format.
 
 **A third stream.** clig.dev describes two streams. This suite has three, because a workflow engine produces
 durable artifacts that are neither the answer to a question nor progress narration. Documents go to the store

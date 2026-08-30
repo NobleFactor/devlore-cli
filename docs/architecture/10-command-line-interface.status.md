@@ -3,8 +3,9 @@
 **Document:** [10-command-line-interface.md](10-command-line-interface.md)
 **Epic:** [#740](https://github.com/NobleFactor/devlore-cli/issues/740)
 **Plan:** [cli-output-conventions.md](../plans/cli-output-conventions.md)
-**State:** Design draft (2026-08-28), written after measuring the suite against `aws`, `az`, `docker`,
-`gcloud`, and `kubectl`. The mechanism exists; adoption is one command in forty-six. No implementation.
+**State:** Specified 2026-08-28 against `aws`, `az`, `docker`, `gcloud`, and `kubectl`; the formatter layer
+and two of four programs landed 2026-08-30. `devlore-test` and `writ` register the common set; `lore` and
+`star` do not yet.
 
 ## Completion
 
@@ -35,16 +36,19 @@
 
 ## Document discrepancies
 
-- **`extract-output-package.md` is marked complete while describing absent code.** Its stated target was an
-  `internal/output` package with a single `Render(w, data, options)`. No such package exists; the code went to
-  `pkg/result` + `pkg/sink` with `BuildPipeline`. Correcting it is a Phase 5 task.
-- **The generated CLI reference carries corrupted flag help.** Three pages under `docs/cli/lore/` read
-  "Promise bundle path" and similar, from an `Output` → `Promise` replace that caught flag descriptions
-  ([#739](https://github.com/NobleFactor/devlore-cli/issues/739)). The generated files are not hand-edited;
-  the fix is in the flag strings.
+- ~~`extract-output-package.md` is marked complete while describing absent code.~~ **Corrected 2026-08-30**
+  with a note at the head of that plan: no `internal/output` package exists, the code went to `pkg/result` +
+  `pkg/sink`, and the plan is retained as history rather than as a map of where things live.
+- ~~The generated CLI reference carries corrupted flag help.~~ **Fixed 2026-08-30.** Four sites, not three:
+  the fourth was `lore inspect`'s long description, which read "Promise is JSON by default" in prose rather
+  than in a flag string and so escaped a grep aimed at flag descriptions. Source corrected
+  ([#739](https://github.com/NobleFactor/devlore-cli/issues/739)). `docs/cli` is gitignored here but
+  published: `docs-publish.yaml` regenerates it on every push to `develop` and auto-merges it into
+  `devlore.noblefactor.com`, so the wrong strings were live on the public site.
 
 ## Outstanding work
 
 - Whether any command needs an exception to the json-always default. `lore list` defaults to `table` today.
-- `jq` versus the query languages the prior art uses — `aws` has JMESPath `--query`, `gcloud` has projections.
-  Ours is defensible and more widely known, but the divergence is not yet written into §15.
+- Whether `value` should require a projection, as `gcloud` requires one for `csv` and `value`. Applied to a
+  whole nested struct it prints every field, pointer addresses included. §7 states the expectation; nothing
+  enforces it.

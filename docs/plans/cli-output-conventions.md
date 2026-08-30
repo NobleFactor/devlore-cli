@@ -19,14 +19,14 @@ rendering, and adopts the whole set everywhere.
 
 ## Goals
 
-- [ ] `--store` is part of the shared convention, not per-command improvisation.
-- [ ] `--output` / `-o` selects the rendering, as in `aws`, `az`, and `kubectl` -- never a destination.
-- [ ] `--output none` turns the result off, reachable from config and env where a shell is not.
+- [x] `--store` is part of the shared convention, not per-command improvisation.
+- [x] `--output` / `-o` selects the rendering, as in `aws`, `az`, and `kubectl` -- never a destination.
+- [x] `--output none` turns the result off, reachable from config and env where a shell is not.
 - [ ] `devlore-test`, `lore`, `star`, and `writ` each register the full common set on their root, so
       every command of all four accepts every flag.
 - [ ] No command invents an output flag of its own.
 - [ ] Results go to stdout or a file; narration goes to stderr. Enforced, not merely stated.
-- [ ] A boolean `--json` does not exist anywhere.
+- [x] A boolean `--json` does not exist anywhere.
 
 ## Current State
 
@@ -136,23 +136,27 @@ and `writ verify` cannot render yaml today.
 
 ## Implementation Phases
 
-### Phase 1: Extend the convention
+### Phase 1: Extend the convention -- COMPLETE
 
-- [ ] Add `Store string` to `SinkOptions` and `--store` to `AddOutputFlags`.
-- [ ] `AddOutputFlags` registers on `PersistentFlags()`, so a root call covers every subcommand.
-- [ ] Rename `--format` to `--output` with the `-o` short form, via `StringVarP`.
-- [ ] Add the `none` rendering to `pkg/result`.
-- [ ] Resolve a store root, defaulting to the state root `GraphsDir`/`TracesDir` use today.
-- [ ] `GraphsDir()` and `TracesDir()` resolve under the chosen root, together.
-- [ ] Tests that a relocated store keeps its layout, checksum keying, and run index.
+- [x] Add `Store string` to `SinkOptions` and `--store` to `AddOutputFlags`.
+- [x] `AddOutputFlags` registers on `PersistentFlags()`, so a root call covers every subcommand.
+- [x] Rename `--format` to `--output` with the `-o` short form, via `StringVarP`.
+- [x] Add the `none` rendering to `pkg/result`.
+- [x] Resolve a store root, defaulting to the state root `GraphsDir`/`TracesDir` use today.
+- [x] `GraphsDir()` and `TracesDir()` resolve under the chosen root, together.
+- [x] Tests that a relocated store keeps its layout, checksum keying, and run index.
+- [x] `--store` accepts a relative path. Unplanned, and found by running the binary rather than the tests:
+      every test passed `t.TempDir()`, which is absolute, while `--store ./s` failed. [OpenTree] requires an
+      absolute path deliberately -- a drive-relative path on Windows anchors to whichever drive the process
+      is standing on -- so [SetStoreRoot] absolutizes at the seam.
 
-### Phase 2: Bring devlore-test into agreement
+### Phase 2: Bring devlore-test into agreement -- COMPLETE
 
-- [ ] Replace `--output stream=dest` and `--receipt-format` with `--output` and `--store`.
-- [ ] Fix what each artifact contains -- #738: the graph document is currently written to the stream named
+- [x] Replace `--output stream=dest` and `--receipt-format` with `--output` and `--store`.
+- [x] Fix what each artifact contains -- #738: the graph document is currently written to the stream named
       `receipt`, and the stream named `graph` emits `t.run` results.
-- [ ] Persist an execution trace, or state its absence as a decision (#738).
-- [ ] Assert artifact CONTENT in `cli_test.go`; existence-only assertions are why #738 survived.
+- [x] Persist an execution trace, or state its absence as a decision (#738).
+- [x] Assert artifact CONTENT in `cli_test.go`; existence-only assertions are why #738 survived.
 
 ### Phase 3a: Bring writ's flags into agreement -- COMPLETE
 
@@ -176,10 +180,10 @@ the same. The real figure is **30 call sites**:
 
 `migrate_cmd.go:157`'s `os.Stdout.Stat()` is a TTY check, which §9 permits, and is not among them.
 
-### Phase 3b: Bring writ's renderings into agreement -- BLOCKED on the TableFormatter
+### Phase 3b: Bring writ's renderings into agreement -- UNBLOCKED
 
-The status report is a human table. Converting it needs the shared `TableFormatter` scheduled in Phase 4, so
-this phase follows it rather than preceding it.
+The status report is a human table, so this phase waited on the shared `TableFormatter`. That landed with
+Phase 4's first task, and this phase is now the next work.
 
 - [ ] `status/report.go`'s 22 `fmt.Print` calls render through the pipeline as `table`.
 - [ ] The four dry-run `SerializeGraphs(os.Stdout, ...)` dumps emit the plan as the command's result.
@@ -187,18 +191,20 @@ this phase follows it rather than preceding it.
       `manifest`, and does not join the shared set.
 - [ ] `migrate/session.go`'s stdout write is classified: narration to stderr, or a result to the pipeline.
 
-### Phase 3c: The format value accepts an argument
+### Phase 3c: The format value accepts an argument -- COMPLETE
 
-- [ ] `--output` parses `NAME=ARGUMENT`, splitting on the first `=`. A bare name is unchanged.
-- [ ] `template=<body>` renders through a Go template. It is the only argument-taking format at first.
-- [ ] `value` renders raw: no quoting, no document syntax, no header. It is what makes `--jq` complete --
+- [x] `--output` parses `NAME=ARGUMENT`, splitting on the first `=`. A bare name is unchanged.
+- [x] `template=<body>` renders through a Go template. It is the only argument-taking format at first.
+- [x] `value` renders raw: no quoting, no document syntax, no header. It is what makes `--jq` complete --
       a jq-built string has no other format that prints it as written.
-- [ ] An unknown `NAME` and a `NAME=` with an empty argument both error, naming the format.
+- [x] An unknown `NAME` and a `NAME=` with an empty argument both error, naming the format.
 
 ### Phase 4: Bring star and lore into agreement
 
-- [ ] Promote `cmd/star/cli/output.go`'s `renderTable` into `pkg/result` as the suite's one
-      `TableFormatter`, fixing the rune-safety defect #741 records. It is a move, not a fresh write.
+- [x] One `TableFormatter` in `pkg/result`, rune-aligned via `text/tabwriter` (#741's alignment half).
+      Written as "promote star's `renderTable`"; it is really star's tabwriter approach plus the delimited
+      formatter's column inference. star's version carried its own reflection, which would have been a third
+      implementation of column selection -- so `cmd/star/cli` stays deletable whole rather than half salvaged.
 - [ ] Convert `lore`'s `runSearch` (`commands.go:525-556`) first: it is the only real table in the tree, and
       converting it is a bug fix as much as a refactor (see the byte-truncation defect it carries).
 - [ ] `star` registers the common set, and `cmd/star/cli` is deleted -- it duplicates eighteen
@@ -213,8 +219,10 @@ this phase follows it rather than preceding it.
 - [ ] A test that fails when a command registers an output flag of its own.
 - [ ] A test that fails on a direct `os.Stdout` write from a command package.
 - [ ] Regenerate the CLI docs and confirm every command documents the same flags.
-- [ ] Correct `docs/plans/extract-output-package.md`, which is marked complete while describing an
-      `internal/output` package that was never created.
+- [x] Correct `docs/plans/extract-output-package.md`, which is marked complete while describing an
+      `internal/output` package that was never created. Done ahead of the rest of this phase: a completed
+      plan describing absent code misleads anyone who reads it for where the code lives, and it holds the
+      last measurement showing adoption halving unnoticed.
 
 ## Test Plan
 

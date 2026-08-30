@@ -825,7 +825,7 @@ func newInspectCmd() *cobra.Command {
 Displays the resolved lifecycle manifest, platform support, features,
 dependencies, and deployment history for a package.
 
-Promise is JSON by default for scripting. Use --format for alternatives.`,
+Output is JSON by default for scripting. Use --output for alternatives.`,
 		Example: `  lore inspect docker
   lore inspect kubectl --format yaml
   lore inspect docker --format '{{.ReceiverName}}\t{{.Version}}'`,

@@ -462,7 +462,7 @@ func TestWritDeployScenario_Deploy(t *testing.T) {
 	}
 
 	// The status report, machine-readable: every classified entry is healthy.
-	statusOut, statusErr, err := runWrit(t, sandbox, "status", "--json")
+	statusOut, statusErr, err := runWrit(t, sandbox, "status", "-o", "json")
 	if err != nil {
 		t.Fatalf("writ status failed: %v\nstderr: %s", err, statusErr)
 	}
@@ -474,7 +474,7 @@ func TestWritDeployScenario_Deploy(t *testing.T) {
 		} `json:"entries"`
 	}
 	if err := json.Unmarshal([]byte(statusOut), &report); err != nil {
-		t.Fatalf("status --json is not parseable: %v\n%s", err, statusOut)
+		t.Fatalf("status -o json is not parseable: %v\n%s", err, statusOut)
 	}
 	// With the implicit common project: Windows deploys the base pair + common + common.Windows (4);
 	// the unix platforms add their variants (darwin 8, linux 7).

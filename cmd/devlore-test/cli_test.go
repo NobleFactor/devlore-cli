@@ -279,9 +279,17 @@ func TestCLI_UnknownRendering(t *testing.T) {
 	assertContains(t, stderr, "unknown formatter")
 }
 
-func TestCLI_BadOutputPath(t *testing.T) {
-	_, _, code := run("run", "--output", "graph=/no/such/dir/out.txt", scriptPath)
-	assertExit(t, 1, code)
+// TestCLI_UnwritableStore covers the flag that actually takes a path.
+//
+// This asserted a bad --output destination until --output became a rendering. Left as it was, it passed for
+// the wrong reason: "graph=/no/such/dir/out.txt" parses as an unknown format named "graph", so it exited
+// non-zero without ever reaching a filesystem.
+func TestCLI_UnwritableStore(t *testing.T) {
+	_, stderr, code := runIn(t.TempDir(), "run", "--store", "/no/such/dir/store", scriptPath)
+	if code == 0 {
+		t.Error("an unwritable store exited 0, want non-zero")
+	}
+	assertContains(t, stderr, "store")
 }
 
 func TestCLI_UnknownFlag(t *testing.T) {
