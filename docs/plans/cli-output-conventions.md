@@ -30,7 +30,10 @@ rendering, and adopts the whole set everywhere.
 
 ## Current State
 
-Measured, not estimated.
+Measured, not estimated -- **as of 2026-08-28, before any phase landed.** This section is the baseline the
+plan set out to change and is kept in that tense deliberately: the adoption figures are what justify Phase 5,
+and rewriting them as work lands would erase the evidence. For what has since changed, see Implementation
+Phases.
 
 ### The convention exists and is unadopted
 

@@ -22,17 +22,26 @@ and two of four programs landed 2026-08-30. `devlore-test` and `writ` register t
 - [x] Prior art surveyed and recorded as a table, not an assertion — the `--output` versus `--format` split is
   3–2, and the case against the chosen name is written into the decision rather than omitted.
 - [x] The current cost enumerated against the code: 1 of 46 commands calls `AddOutputFlags`; 12 hand-rolled
-  output flags; 13 `fmt.Print` calls in `lore`; 7 direct `os.Stdout` writes in `writ`; `devlore-test`'s three
-  streams wired to the wrong artifacts.
+  output flags; 13 `fmt.Print` calls in `lore`; `devlore-test`'s three streams wired to the wrong artifacts.
+  The `writ` figure was first recorded as "7 direct `os.Stdout` writes", counted by grepping that literal --
+  which misses every `fmt.Print`, and those reach stdout just the same. The real figure is **30**.
 - [x] Adoption measured as *decaying*, not merely lagging: `extract-output-package.md` recorded two call sites
   in March; `writ snapshot` was removed and took one with it, unrecorded.
-- [ ] `--store` implemented — `SinkOptions` gains a root, and `GraphsDir` / `TracesDir` resolve under it
-  together, keeping checksum keying and the run index intact.
-- [ ] `--format` renamed to `--output` / `-o`; the `none` renderer added to `pkg/result`.
-- [ ] `devlore-test` brought into agreement, which is where
+- [x] `--store` implemented — `SinkOptions` gains a root, and `GraphsDir` / `TracesDir` resolve under it
+  together, keeping checksum keying and the run index intact. It accepts a relative path: [OpenTree] demands
+  an absolute one, so [SetStoreRoot] absolutizes at the seam. Found by running the binary, not by the tests,
+  every one of which passed `t.TempDir()`.
+- [x] `--format` renamed to `--output` / `-o`; the `none` renderer added to `pkg/result`.
+- [x] `devlore-test` brought into agreement, which is where
   [#738](https://github.com/NobleFactor/devlore-cli/issues/738) is repaired rather than patched.
-- [ ] `writ` brought into agreement: `--json` retired, direct stdout writes routed through the sink.
+- [x] `writ`'s **flags** brought into agreement: the boolean `--json` retired by deletion on `status` and
+  `verify`, `verify.Execute` returning `[]Report` for the command to emit, and the common set registered on
+  the root.
+- [ ] `writ`'s **renderings** brought into agreement: the 30 stdout call sites routed through the sink -- 22
+  `fmt.Print` in `status/report.go`, four dry-run `SerializeGraphs` dumps, and two in `migrate`.
 - [ ] `lore`'s remaining commands brought into agreement; the `fmt.Print` calls triaged.
+- [ ] `star` registers the common set and `cmd/star/cli` is deleted, which duplicates eighteen exported names
+  from `cmd/internal/cli` ([#743](https://github.com/NobleFactor/devlore-cli/issues/743)).
 - [ ] The enforcement tests written — no direct `os.Stdout` write from a command package, and no command
   registering its own output flag. Both are red today.
 
