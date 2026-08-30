@@ -279,15 +279,25 @@ func TestCLI_UnknownRendering(t *testing.T) {
 	assertContains(t, stderr, "unknown formatter")
 }
 
-// TestCLI_UnwritableStore covers the flag that actually takes a path.
+// TestCLI_UncreatableStore covers the flag that actually takes a path.
 //
 // This asserted a bad --output destination until --output became a rendering. Left as it was, it passed for
 // the wrong reason: "graph=/no/such/dir/out.txt" parses as an unknown format named "graph", so it exited
 // non-zero without ever reaching a filesystem.
-func TestCLI_UnwritableStore(t *testing.T) {
-	_, stderr, code := runIn(t.TempDir(), "run", "--store", "/no/such/dir/store", scriptPath)
+//
+// The store root goes under a regular file, which MkdirAll cannot descend through on any platform. An
+// unwritable directory is not portable and an absent one is not either: Windows CI runs as administrator,
+// where "/no/such/dir/store" resolves to C:\no\such\dir\store and is simply created.
+func TestCLI_UncreatableStore(t *testing.T) {
+	directory := t.TempDir()
+	blocker := filepath.Join(directory, "blocker")
+	if err := os.WriteFile(blocker, nil, 0o600); err != nil {
+		t.Fatalf("writing the blocker file: %v", err)
+	}
+
+	_, stderr, code := runIn(directory, "run", "--store", filepath.Join(blocker, "store"), scriptPath)
 	if code == 0 {
-		t.Error("an unwritable store exited 0, want non-zero")
+		t.Error("a store under a regular file exited 0, want non-zero")
 	}
 	assertContains(t, stderr, "store")
 }
