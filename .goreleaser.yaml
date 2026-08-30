@@ -53,11 +53,30 @@ builds:
       - -X github.com/NobleFactor/devlore-cli/pkg/application.Commit={{.ShortCommit}}
       - -X github.com/NobleFactor/devlore-cli/pkg/application.BuildDate={{.Date}}
 
+  - id: star
+    binary: star
+    main: ./cmd/star
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X github.com/NobleFactor/devlore-cli/pkg/application.Version={{.Version}}
+      - -X github.com/NobleFactor/devlore-cli/pkg/application.Commit={{.ShortCommit}}
+      - -X github.com/NobleFactor/devlore-cli/pkg/application.BuildDate={{.Date}}
+
 archives:
   - id: default
     builds:
       - writ
       - lore
+      - star
     format: tar.gz
     format_overrides:
       - goos: windows
@@ -66,6 +85,17 @@ archives:
     files:
       - README.md
       - LICENSE
+
+      # star's extensions travel with the binary. //go:embed covers cmd/star/extensions -- the
+      # com.noblefactor.star.* lint and hook commands -- and NOT star/extensions, where the
+      # com.noblefactor.devlore.* commands live, so a binary alone answers `unknown command
+      # "devlore"`.
+      #
+      # share/star/extensions rather than beside the binaries: install.sh unpacks to <prefix>/bin
+      # and the loader probes XDG_DATA_HOME, which is <prefix>/share only when prefix is the default
+      # ~/.local. That coincidence is load-bearing -- see docs/plans/release-path.md.
+      - src: star/extensions/**/*
+        dst: share/star/extensions
 
 checksum:
   name_template: "{{ .ProjectName }}_{{ .Version }}_checksums.txt"
