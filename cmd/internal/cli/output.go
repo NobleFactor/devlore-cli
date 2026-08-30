@@ -91,7 +91,7 @@ type SinkOptions struct {
 func AddOutputFlags(cmd *cobra.Command, opts *SinkOptions) {
 
 	cmd.PersistentFlags().StringVarP(&opts.Format, "output", "o", "json",
-		`Output rendering: csv, json, none, tsv, or yaml`)
+		`Output rendering: csv, json, none, template=BODY, tsv, value, or yaml`)
 	cmd.PersistentFlags().StringArrayVar(&opts.Filters, "filter", nil,
 		`Filter expression: field=value (repeatable, AND logic)`)
 	cmd.PersistentFlags().StringVar(&opts.JQ, "jq", "",

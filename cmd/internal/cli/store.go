@@ -33,20 +33,35 @@ var storeRoot string
 
 // SetStoreRoot points the execution store at root, returning a function that restores the previous value.
 //
+// The root is made absolute against the working directory, because a relative path is the natural thing for a
+// user to type and [OpenTree] rejects anything else -- deliberately, since a drive-relative path on Windows
+// anchors to whichever drive the process is standing on. Absolutizing here keeps that invariant true for
+// every later reader rather than at each one.
+//
 // An empty root restores the default XDG state path. The returned restore function makes the change safe to
 // scope to a test.
 //
 // Parameters:
-//   - `root`: the store's new root directory, or empty for the default.
+//   - `root`: the store's new root directory, absolute or relative, or empty for the default.
 //
 // Returns:
 //   - `func()`: restores the root in effect before this call.
-func SetStoreRoot(root string) func() {
+//   - `error`: when the working directory cannot be resolved to absolutize a relative root.
+func SetStoreRoot(root string) (func(), error) {
 
 	previous := storeRoot
+
+	if root != "" {
+		absolute, err := filepath.Abs(root)
+		if err != nil {
+			return nil, fmt.Errorf("resolving the store root %q: %w", root, err)
+		}
+		root = absolute
+	}
+
 	storeRoot = root
 
-	return func() { storeRoot = previous }
+	return func() { storeRoot = previous }, nil
 }
 
 // StoreHome returns the execution store's root directory.

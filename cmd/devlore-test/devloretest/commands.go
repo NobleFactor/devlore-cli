@@ -58,7 +58,11 @@ func runTest(cmd *cobra.Command, script string, opts *cli.SinkOptions) (err erro
 	// Documents -- the definition and its traces -- go to the execution store. --store relocates the whole
 	// store; unset, it is devlore's XDG state home.
 	if opts.Store != "" {
-		defer cli.SetStoreRoot(opts.Store)()
+		restore, storeErr := cli.SetStoreRoot(opts.Store)
+		if storeErr != nil {
+			return storeErr
+		}
+		defer restore()
 	}
 
 	runOptions := []Option{}

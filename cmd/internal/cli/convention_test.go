@@ -151,7 +151,10 @@ func TestStoreRoot_RelocatesGraphsAndTracesTogether(t *testing.T) {
 
 	root := t.TempDir()
 
-	restore := SetStoreRoot(root)
+	restore, err := SetStoreRoot(root)
+	if err != nil {
+		t.Fatalf("SetStoreRoot: %v", err)
+	}
 	t.Cleanup(restore)
 
 	graphs, traces := GraphsDir(), TracesDir()
@@ -192,7 +195,10 @@ func TestStoreRoot_RelocatesTheWholeStore(t *testing.T) {
 	stateHome, storeHome := t.TempDir(), t.TempDir()
 	t.Setenv("XDG_STATE_HOME", stateHome)
 
-	restore := SetStoreRoot(storeHome)
+	restore, err := SetStoreRoot(storeHome)
+	if err != nil {
+		t.Fatalf("SetStoreRoot: %v", err)
+	}
 	t.Cleanup(restore)
 
 	const checksum = "sha256:5eaf00d5eaf00d5eaf00d5eaf00d5eaf00d5eaf00d5eaf00d5eaf00d5eaf00d5"

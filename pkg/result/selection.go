@@ -8,20 +8,37 @@ import (
 	"strings"
 )
 
-// FormatterByName returns the [Formatter] registered under name.
+// FormatterByName returns the [Formatter] named by spec.
 //
-// The known names are "csv", "json", "none", "tsv", and "yaml". Reshaping a value is the filter stage's
-// job -- see [FilterByExprs] -- so no formatter takes a body or an expression.
+// spec is a format name, or `NAME=ARGUMENT` for a format that takes one. The split is on the FIRST `=`, so an
+// argument containing `=` survives intact. A format needing an argument carries it here rather than in a
+// second flag: a sidecar would give the format stage two inputs and a mutual-exclusion rule to enforce, where
+// this makes the conflict impossible by construction. `kubectl` ships the same form -- `-o go-template=`,
+// `-o jsonpath=`, `-o custom-columns=`.
+//
+// The names are "csv", "json", "none", "template=BODY", "tsv", "value", and "yaml". Reshaping a value is the
+// filter stage's job -- see [FilterByExprs] -- so only "template" takes an argument.
 //
 // Parameters:
-//   - `name`: the formatter name; case-insensitive.
+//   - `spec`: the format name, or `NAME=ARGUMENT`; the name is case-insensitive.
 //
 // Returns:
 //   - `Formatter`: the constructed formatter.
-//   - `error`: when name is unknown.
-func FormatterByName(name string) (Formatter, error) {
+//   - `error`: when the name is unknown, or an argument is required and missing, or given and unwanted.
+func FormatterByName(spec string) (Formatter, error) {
 
-	switch strings.ToLower(strings.TrimSpace(name)) {
+	name, argument, hasArgument := strings.Cut(strings.TrimSpace(spec), "=")
+	name = strings.ToLower(strings.TrimSpace(name))
+
+	if hasArgument && argument == "" {
+		return nil, fmt.Errorf("result.FormatterByName: %q gives an empty argument; drop the '=' or supply one", spec)
+	}
+
+	if hasArgument && name != "template" {
+		return nil, fmt.Errorf("result.FormatterByName: %q takes no argument", name)
+	}
+
+	switch name {
 
 	case "json":
 		return JSONFormatter{}, nil
@@ -38,9 +55,19 @@ func FormatterByName(name string) (Formatter, error) {
 	case "none":
 		return NoneFormatter{}, nil
 
+	case "value":
+		return NewValueFormatter(), nil
+
+	case "template":
+		if !hasArgument {
+			return nil, fmt.Errorf("result.FormatterByName: template needs a body: --output template=<body>")
+		}
+		return NewTemplateFormatter(argument)
+
 	default:
 		return nil, fmt.Errorf(
-			"result.FormatterByName: unknown formatter %q; expected one of csv, json, none, tsv, yaml", name)
+			"result.FormatterByName: unknown formatter %q; expected one of csv, json, none, template=BODY, "+
+				"tsv, value, yaml", name)
 	}
 }
 
