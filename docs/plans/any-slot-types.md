@@ -3,7 +3,7 @@ title: "Slots must carry their type"
 issue: https://github.com/NobleFactor/devlore-cli/issues/712
 status: in-progress
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-08-30
 ---
 
 # Plan: Slots must carry their type
@@ -165,50 +165,44 @@ Receipts and the recovery stack feed compensation and resume. A float that reloa
 changes a *compensating* call, which is worse than changing a forward one. One shared treatment at every
 `any` seam, not a local patch at `bindingData`.
 
-## Work in progress — state as of 2026-08-28
+## Work in progress — state as of 2026-08-30
 
-**Branch:** `any-slot-types`. **Committed:** `b17067b` (Phase 1: the plan and nine failing tests).
-**Everything below this line is UNCOMMITTED and will be lost if the tree is discarded.**
+**Branch:** `any-slot-types`. **Committed:** `b17067b` (Phase 1: the plan and nine failing tests) and
+`ff33a2f` (the type wrapper, wired at the graph slot seam). No code changes are outstanding; the scratch
+tests and the `test_path_*` litter this section once listed are gone.
 
 ### The tree is red, deliberately and not
 
 Three executor tests fail: `TestRun_AKindMismatchStopsEvenUnderIgnore`,
 `TestRun_ScopedPreflightFailsOnConsumedMissingClaim`, `TestRun_ScopedPreflightVerifiesConsumedClaims`. All
 three fail with `op.encodeTypeWrapper: $resource ... has no catalog to name it` — the write side reaches for
-`resource.RuntimeEnvironment().ResourceCatalog`, which is the WRONG catalog (see below).
+`resource.RuntimeEnvironment().ResourceCatalog`, which is the wrong catalog.
 
 Six of the nine Phase 1 tests now pass. Still red: the truthiness guard (task 15), the Resource case, and the
 recovery-stack seam.
 
-### Uncommitted files
+### What `ff33a2f` carries
 
-| File | State |
+| File | What it carries |
 | --- | --- |
 | `pkg/op/type_wrapper.go` | New. The wrapper codec. Its own tests pass. |
 | `pkg/op/type_wrapper_test.go` | New. Round trips over both codecs, all green. |
-| `pkg/op/node.go` | Modified. `marshalBindings`/`assembleBindings` wrap and unwrap; signatures changed. |
-| `pkg/op/graph.go` | Modified. `assembleUnits` takes the environment. |
-| `pkg/op/binding_test.go` | Modified. Call sites updated for the new signatures. |
-| `pkg/op/provider/file/graph_shape_demo_test.go` | Scratch. Fails on purpose to print a doc. DELETE. |
-| `pkg/op/provider/file/resource_lifecycle_order_test.go` | Scratch. Does NOT compile; see below. |
-| `test_path_*` artifacts (repo root) | devlore-test litter. DELETE. |
-| `*/inventory.gen.go` (op and star) | Touched by `make` regeneration; verify before committing. |
+| `pkg/op/node.go` | `marshalBindings` / `assembleBindings` wrap and unwrap; signatures changed. |
+| `pkg/op/graph.go` | `assembleUnits` takes the environment. |
+| `pkg/op/binding_test.go` | Call sites updated for the new signatures. |
 
-### The correction the next session must apply first
+### The correction to apply first
 
-`encodeResource` currently reads `resource.RuntimeEnvironment().ResourceCatalog`. That is wrong. The graph
-carries its own catalog and `Graph.resourceCatalog`'s doc comment says so explicitly: "every later
-session-owner (a Go-side `GraphExecutor.Run`, **a serializer**, an inspector) reads from `resourceCatalog`
-rather than from the long-gone planning environment."
+`encodeResource` asks `resource.RuntimeEnvironment().ResourceCatalog` to `Resolve` the resource into an id.
+It should read `resource.ID()`. A cataloged resource carries its own catalog id -- the catalog stamps it at
+catalog time -- so the write side needs no catalog at all. Decision 8's "A cataloged resource names itself"
+carries the ruling and the six-line replacement. The structural question that stood open here -- how a node
+marshaling standalone reaches `graph.resourceCatalog`, given `Node.MarshalYAML() (any, error)` takes no
+context -- dissolves: it never needed to.
 
-The obstacle: `Node.MarshalYAML() (any, error)` takes no context, and the canonical form marshals nodes
-through exactly that path, so a node marshaling standalone cannot reach `graph.resourceCatalog`. Three
-options, none chosen: give `Node` a catalog reference at construction; resolve slot ids once at `NewGraph`;
-or route the canonical form through a graph-aware marshal instead of the node's own marshaler. **This is an
-open structural decision and belongs to the user.**
-
-The read side threads `env.ResourceCatalog` through `assembleUnits`/`assembleNode`/`assembleBindings`, which
-is likewise probably the wrong catalog — the graph's own unpacked catalog is the right one.
+Decoding is not symmetric. It holds an id and must find what the id names, so it does need a catalog.
+`assembleUnits` / `assembleNode` / `assembleBindings` thread `env.ResourceCatalog`; the graph's own unpacked
+catalog is probably the right one. Still open.
 
 ### What the devlore-test investigation established
 
@@ -515,6 +509,51 @@ question "what if there is no entry yet?" does not arise:
 
 The third row is correct rather than a gap. A bare string in an `any` position is a string, and treating it as
 a resource would be the reader inferring what the writer never said -- decision 7's rule, in another costume.
+
+#### A cataloged resource names itself
+
+**Ruled 2026-08-30.** `encodeResource` needs no catalog. A resource that has been cataloged already carries
+its catalog id, and the write side asks the resource for it:
+
+```go
+func encodeResource(resource Resource) (map[string]any, error) {
+	id := resource.ID()
+	if id == "" {
+		return nil, fmt.Errorf("op.encodeTypeWrapper: %s %q is not cataloged", typeNameResource, resource.URI())
+	}
+	return map[string]any{typeNameResource: id}, nil
+}
+```
+
+**The catalog is the stamper, not the namer.** [ResourceBase] holds `id` and `producerID`, and its doc
+comment says who owns them: "stamped by the [ResourceCatalog] when the resource is cataloged; they are not a
+concern of the resource itself" (`resource.go:144-149`). The stamping is literal -- `base.id = id` at
+`resource_catalog.go:828` and `:936`. `ID()` returns that field (`resource.go:218`). So identity is settled
+once, at catalog time, and every later reader just reads it.
+
+**What was wrong before.** The code asked `resource.RuntimeEnvironment().ResourceCatalog` to `Resolve` the
+resource back into an id. Two defects in one line. The environment's catalog is nil by design at that point
+-- [plan.Provider.Assemble] nils it at `provider.go:204` once [NewGraph] has taken ownership -- which is what
+the three executor tests were reporting. And `Resolve` *mutates*: it catalogs a resource that is not yet
+present. A serializer that interns into a catalog is writing where it was asked to read.
+
+The chain that reaches the resource is real -- a node holds slots, a slot holds a resource -- and it ends
+there. There is no next hop to reach for.
+
+**Rejected: stamping each node with its graph's catalog.** Considered on 2026-08-29 and wrong. It re-plumbs a
+lookup that does not need to exist, adds a field to every node to answer a question the resource already
+answers, and leaves the mutating `Resolve` call on the write path. No node changes; no `graph.go` changes.
+
+**What it fixes.** The three executor tests failing on `$resource ... has no catalog to name it`
+(`TestRun_AKindMismatchStopsEvenUnderIgnore`, `TestRun_ScopedPreflightFailsOnConsumedMissingClaim`,
+`TestRun_ScopedPreflightVerifiesConsumedClaims`), plus
+`TestLoadGraph_AResourceInAnAnySlotReloadsAsAResource`. All four are that one defect.
+
+**The read side is not symmetric.** Decoding holds an id and must find the resource it names, so it does need
+a catalog -- the graph's own, reconstructed by `unpackCatalog` from the document's `resources` section, not
+the ambient environment's. `assembleUnits` / `assembleNode` / `assembleBindings` thread `env.ResourceCatalog`
+today. Which catalog they should thread is still open; that the write side never needed one does not settle
+it.
 
 #### What load must not do: existence belongs to pre-flight
 
