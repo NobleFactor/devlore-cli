@@ -1,9 +1,9 @@
 ---
 title: "One output convention, every app"
 issue: https://github.com/NobleFactor/devlore-cli/issues/740
-status: draft
+status: in-progress
 created: 2026-08-28
-updated: 2026-08-28
+updated: 2026-08-30
 ---
 
 # Plan: One output convention, every app
