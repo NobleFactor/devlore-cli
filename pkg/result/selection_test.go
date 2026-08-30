@@ -20,8 +20,8 @@ func TestFormatterByNameKnownFormatters(t *testing.T) {
 		{"json", JSONFormatter{}},
 		{"JSON", JSONFormatter{}},
 		{"  yaml  ", YAMLFormatter{}},
-		{"csv", CSVFormatter{}},
-		{"tsv", CSVFormatter{}},
+		{"csv", DelimitedFormatter{}},
+		{"tsv", DelimitedFormatter{}},
 		{"none", NoneFormatter{}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -9,55 +9,78 @@ import (
 	"io"
 	"reflect"
 	"sort"
+	"strings"
 )
 
-// CSVFormatter renders a slice of rows as delimiter-separated values.
+// DelimitedFormatter renders values as delimiter-separated lines.
 //
-// One formatter serves two jobs that disagree about two things at once, so each gets a preset rather than a
-// flag. A spreadsheet wants a comma and a header row; `awk '{print $2}'` wants a tab and no header row to
-// skip. gcloud reached the same shape -- its `value` format is documented as "CSV with no heading and <TAB>
-// separator instead of <COMMA>" -- and exposes the separator as an attribute of one implementation.
+// One formatter, three attributes, three presets. gcloud reached the same shape: its `csv` and `value` are
+// one renderer differing in separator, heading, and quoting, with `value` documented as "CSV with no heading
+// and <TAB> separator instead of <COMMA>".
 //
-//   - [NewCSVFormatter] -- comma, with headings. The spreadsheet preset.
-//   - [NewTSVFormatter] -- tab, no headings. The pipeline preset.
+//   - [NewCSVFormatter]   -- comma, heading, quoted. RFC 4180, for a spreadsheet.
+//   - [NewTSVFormatter]   -- tab, no heading, quoted. For `cut -f2` and `awk '{print $2}'`.
+//   - [NewValueFormatter] -- tab, no heading, raw. For text `--jq` already built.
 //
-// The shape of value drives header inference:
+// Quoting is what separates the last from the middle. A machine-parseable format must quote a field
+// containing its own delimiter or the row loses a boundary; a raw renderer must not, or the text a caller
+// composed comes back wearing quotes it did not write.
+//
+// Shape drives column inference:
 //
 //   - If value implements [HasHeaders], its Headers() result is the column order.
 //   - Otherwise, if value is a slice/array of structs, the struct fields (in declaration order, with
 //     `csv:"name"` overrides and `csv:"-"` skips) are the columns.
 //   - Otherwise, if value is a slice/array of maps, the union of map keys (sorted alphabetically) is
 //     the columns.
-//   - Otherwise, [Format] returns an error.
+//   - Otherwise the elements are scalars: one column, no header, since a scalar has no field to name.
 //
-// Cell values are rendered via fmt.Sprint, which honors fmt.Stringer for custom types and produces
-// reasonable defaults for numbers, bools, time.Time, and nil. Quoting is handled by encoding/csv per
-// RFC 4180. Empty input renders no bytes (no header row).
-type CSVFormatter struct {
+// A value that is not a slice or array at all is one row. That is the shape `--jq '.count'` produces, and
+// erroring on it would make the filter stage incomplete.
+//
+// Cell values render via fmt.Sprint, which honors fmt.Stringer and produces reasonable defaults for numbers,
+// bools, time.Time, and nil. Empty input renders no bytes.
+type DelimitedFormatter struct {
 
-	// Separator is the field delimiter. The zero value is a comma, so the zero CSVFormatter is RFC 4180.
+	// Separator is the field delimiter. The zero value is a comma.
 	Separator rune
 
-	// SuppressHeadings omits the header row. A spreadsheet wants the row; a shell pipeline does not, since
-	// `awk` and `cut` would each have to skip it.
+	// SuppressHeadings omits the header row. A spreadsheet wants it; a shell pipeline does not, since awk
+	// and cut would each have to skip it.
 	SuppressHeadings bool
+
+	// Raw disables RFC 4180 quoting. Set for a renderer whose job is to print what it was given.
+	Raw bool
 }
 
-// NewCSVFormatter returns the spreadsheet preset: comma-separated, with a header row.
+// NewCSVFormatter returns the spreadsheet preset: comma, heading, quoted.
 //
 // Returns:
-//   - `CSVFormatter`: the RFC 4180 formatter.
-func NewCSVFormatter() CSVFormatter { return CSVFormatter{Separator: ','} }
+//   - `DelimitedFormatter`: the RFC 4180 formatter.
+func NewCSVFormatter() DelimitedFormatter { return DelimitedFormatter{Separator: ','} }
 
-// NewTSVFormatter returns the pipeline preset: tab-separated, with no header row.
+// NewTSVFormatter returns the pipeline preset: tab, no heading, quoted.
 //
-// Tabs need no quoting for the values a row normally carries, so a line survives `cut -f2` and
-// `awk '{print $2}'` without a parser. Suppressing the header is half of that: a header row is one more
-// line every consumer has to skip.
+// Tabs need no quoting for the values a row normally carries, so a line survives `cut -f2` without a parser.
+// Quoting stays on so a field that does contain a tab cannot silently split the row.
 //
 // Returns:
-//   - `CSVFormatter`: the tab-separated formatter.
-func NewTSVFormatter() CSVFormatter { return CSVFormatter{Separator: '\t', SuppressHeadings: true} }
+//   - `DelimitedFormatter`: the tab-separated formatter.
+func NewTSVFormatter() DelimitedFormatter {
+	return DelimitedFormatter{Separator: '\t', SuppressHeadings: true}
+}
+
+// NewValueFormatter returns the raw preset: tab, no heading, no quoting.
+//
+// This is what completes the filter stage. `--jq` can build any line; every other format then imposes a
+// syntax on it -- json quotes and escapes, yaml applies scalar rules, csv adds a header. This one prints it.
+// `aws` ships the same rendering as `text` and `gcloud` as `value`.
+//
+// Returns:
+//   - `DelimitedFormatter`: the raw formatter.
+func NewValueFormatter() DelimitedFormatter {
+	return DelimitedFormatter{Separator: '\t', SuppressHeadings: true, Raw: true}
+}
 
 // HasHeaders is the opt-in interface that overrides automatic header inference. Implementations are
 // typically named-slice types whose row shape doesn't lend itself to reflection (e.g., heterogeneous
@@ -69,7 +92,7 @@ type HasHeaders interface {
 }
 
 // Compile-time interface guard.
-var _ Formatter = CSVFormatter{}
+var _ Formatter = DelimitedFormatter{}
 
 // region Formatter
 
@@ -77,22 +100,26 @@ var _ Formatter = CSVFormatter{}
 //
 // Returns an error if value is not a slice/array of structs or maps and does not implement
 // [HasHeaders].
-func (f CSVFormatter) Format(value any, w io.Writer) error {
+func (f DelimitedFormatter) Format(value any, w io.Writer) error {
 
 	if value == nil {
 		return nil
 	}
 
-	rv := reflect.ValueOf(value)
-	if rv.Kind() == reflect.Pointer {
-		if rv.IsNil() {
-			return nil
-		}
-		rv = rv.Elem()
+	rv := indirect(reflect.ValueOf(value))
+	if !rv.IsValid() {
+		return nil
 	}
 
+	// A value that is not a sequence is one row. `--jq '.count'` produces this, and refusing it would make
+	// the filter stage incomplete.
 	if rv.Kind() != reflect.Slice && rv.Kind() != reflect.Array {
-		return fmt.Errorf("result.CSVFormatter: expected slice or array, got %T", value)
+		return f.emit(w, nil, [][]string{{csvCellValue(rv)}})
+	}
+
+	// A byte slice is one value, not a sequence of numbers.
+	if rv.Type().Elem().Kind() == reflect.Uint8 {
+		return f.emit(w, nil, [][]string{{string(rv.Bytes())}})
 	}
 
 	if rv.Len() == 0 {
@@ -101,29 +128,52 @@ func (f CSVFormatter) Format(value any, w io.Writer) error {
 
 	headers, headersFromValue := csvHeadersFromValue(value)
 	if !headersFromValue {
-		var err error
-		headers, err = csvHeadersFromElements(rv)
-		if err != nil {
-			return err
+		headers = csvHeadersFromElements(rv)
+	}
+
+	rows := make([][]string, 0, rv.Len())
+	for i := range rv.Len() {
+		rows = append(rows, csvRowFromElement(rv.Index(i), headers))
+	}
+
+	return f.emit(w, headers, rows)
+}
+
+// emit writes the header and rows, quoted or raw.
+//
+// Parameters:
+//   - `w`: the destination.
+//   - `headers`: the column names, or nil when the rows are scalars.
+//   - `rows`: the rendered cells.
+//
+// Returns:
+//   - `error`: any write error.
+func (f DelimitedFormatter) emit(w io.Writer, headers []string, rows [][]string) error {
+
+	separator := f.Separator
+	if separator == 0 {
+		separator = ','
+	}
+
+	if f.Raw {
+		for _, row := range rows {
+			if _, err := fmt.Fprintln(w, strings.Join(row, string(separator))); err != nil {
+				return err
+			}
 		}
+		return nil
 	}
 
 	writer := csv.NewWriter(w)
-	if f.Separator != 0 {
-		writer.Comma = f.Separator
-	}
+	writer.Comma = separator
 
-	if !f.SuppressHeadings {
+	if !f.SuppressHeadings && len(headers) > 0 {
 		if err := writer.Write(headers); err != nil {
 			return err
 		}
 	}
 
-	for i := range rv.Len() {
-		row, err := csvRowFromElement(rv.Index(i), headers)
-		if err != nil {
-			return err
-		}
+	for _, row := range rows {
 		if err := writer.Write(row); err != nil {
 			return err
 		}
@@ -149,19 +199,20 @@ func csvHeadersFromValue(value any) ([]string, bool) {
 
 // csvHeadersFromElements infers headers from the first element's shape. Slice-of-structs uses field
 // declaration order; slice-of-maps uses the union of keys across every element, sorted alphabetically.
-func csvHeadersFromElements(rv reflect.Value) ([]string, error) {
+func csvHeadersFromElements(rv reflect.Value) []string {
 
 	first := indirect(rv.Index(0))
 	switch first.Kind() {
 
 	case reflect.Struct:
-		return csvHeadersFromStruct(first.Type()), nil
+		return csvHeadersFromStruct(first.Type())
 
 	case reflect.Map:
-		return csvHeadersFromMaps(rv), nil
+		return csvHeadersFromMaps(rv)
 
 	default:
-		return nil, fmt.Errorf("result.CSVFormatter: element kind %s is not struct or map", first.Kind())
+		// Scalars have no field to name, so there is no header row.
+		return nil
 	}
 }
 
@@ -229,19 +280,20 @@ func csvHeadersFromMaps(rv reflect.Value) []string {
 
 // csvRowFromElement renders a single element (struct or map) as a row in headers order. Missing
 // fields/keys render as "" — the empty string. Anything that is not struct or map errors loudly.
-func csvRowFromElement(rv reflect.Value, headers []string) ([]string, error) {
+func csvRowFromElement(rv reflect.Value, headers []string) []string {
 
 	rv = indirect(rv)
 	switch rv.Kind() {
 
 	case reflect.Struct:
-		return csvRowFromStruct(rv, headers), nil
+		return csvRowFromStruct(rv, headers)
 
 	case reflect.Map:
-		return csvRowFromMap(rv, headers), nil
+		return csvRowFromMap(rv, headers)
 
 	default:
-		return nil, fmt.Errorf("result.CSVFormatter: element kind %s is not struct or map", rv.Kind())
+		// A scalar element is a single-field row.
+		return []string{csvCellValue(rv)}
 	}
 }
 
