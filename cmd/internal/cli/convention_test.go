@@ -67,7 +67,7 @@ func TestAddOutputFlags_AreInheritedBySubcommands(t *testing.T) {
 	child := &cobra.Command{Use: "child"}
 	root.AddCommand(child)
 
-	for _, name := range []string{"filter", "jq", "output", "store", "template"} {
+	for _, name := range []string{"filter", "jq", "output", "store"} {
 		if child.InheritedFlags().Lookup(name) == nil {
 			t.Errorf("subcommand does not inherit --%s; the set belongs on PersistentFlags", name)
 		}
@@ -115,7 +115,7 @@ func TestAddOutputFlags_SubcommandParsesTheShortForm(t *testing.T) {
 // environment variable where no shell exists to redirect.
 func TestFormatterByName_NoneWritesNothing(t *testing.T) {
 
-	formatter, err := result.FormatterByName("none", "")
+	formatter, err := result.FormatterByName("none")
 	if err != nil {
 		t.Fatalf("FormatterByName(none): %v", err)
 	}
@@ -133,7 +133,7 @@ func TestFormatterByName_NoneWritesNothing(t *testing.T) {
 // TestFormatterByName_UnknownNameListsTheSet keeps the error message honest as the set grows.
 func TestFormatterByName_UnknownNameListsTheSet(t *testing.T) {
 
-	_, err := result.FormatterByName("nope", "")
+	_, err := result.FormatterByName("nope")
 	if err == nil {
 		t.Fatal("FormatterByName(nope) succeeded, want an error")
 	}

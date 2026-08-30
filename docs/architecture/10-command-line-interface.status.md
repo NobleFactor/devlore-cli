@@ -12,8 +12,10 @@
   execution store; one shared flag set decides how each is rendered and where the store lives.
 - [x] Scope settled: `devlore-test`, `lore`, `star`, and `writ`, each registering the full common set on
   its root as persistent flags -- every command of all four accepts every flag.
-- [x] The reserved flag set settled: `--filter`, `--jq`, `--output` / `-o`, `--store`, `--template`, with
-  renderings `csv`, `json`, `none`, `table`, `template`, `yaml`.
+- [x] The reserved flag set settled: `--filter`, `--jq`, `--output` / `-o`, `--store`, with renderings
+  `csv`, `json`, `none`, `table`, `template=<body>`, `tsv`, `value`, `yaml`.
+- [x] The pipeline drawn: two stages, one flag each; a format needing an argument carries it as
+  `NAME=ARGUMENT` rather than in a sidecar flag.
 - [x] Prior art surveyed and recorded as a table, not an assertion — the `--output` versus `--format` split is
   3–2, and the case against the chosen name is written into the decision rather than omitted.
 - [x] The current cost enumerated against the code: 1 of 46 commands calls `AddOutputFlags`; 12 hand-rolled

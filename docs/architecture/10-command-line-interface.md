@@ -18,8 +18,8 @@
 set decides how each is rendered and where the store lives, and no command invents its own.**
 
 The suite already has the mechanism —
-[`cmd/internal/cli/output.go`](../../cmd/internal/cli/output.go) today binds `--filter`, `--format`, `--jq`,
-and `--template`, and composes a `result.Pipeline` of filter, formatter, and sink. What it has never had is a
+[`cmd/internal/cli/output.go`](../../cmd/internal/cli/output.go) today binds `--filter`, `--format`, and
+`--jq`, and composes a `result.Pipeline` of filter, formatter, and sink. What it has never had is a
 statement that using it is mandatory, or a `--output` flag to say *where*. Both absences are why forty-five of
 forty-six commands improvise.
 
@@ -104,9 +104,8 @@ repurpose them:
 | --- | --- | --- | --- |
 | `--filter` | | string, repeatable | `field=value`, AND logic |
 | `--jq` | | string | jq expression, applied after `--filter` |
-| `--output` | `-o` | string | How the result is rendered. §7 |
+| `--output` | `-o` | string | How the result is rendered; `NAME` or `NAME=ARGUMENT`. §7, §8 |
 | `--store` | | string | The execution store's root. §6 |
-| `--template` | | string | Template body, with `--output template` |
 
 `--output` / `-o` selects the **rendering**, matching `az` and `kubectl`. It is deliberately not a
 destination: a user typing `-o json` must never be silently creating a file named `json`. See Design
@@ -166,8 +165,13 @@ than a direction.
 
 ## 7. `--output`: how the result is rendered
 
-`--output` / `-o` selects the rendering. The formatter set, alphabetically, is `csv`, `json`, `none`, `table`,
-`template`, and `yaml`; `--template` supplies the body when `--output template`.
+`--output` / `-o` selects the rendering. Its value is a format name, or `NAME=ARGUMENT` for a format that
+needs one (§8). The set, alphabetically: `csv`, `json`, `none`, `table`, `template=<body>`, `tsv`, `value`,
+`yaml`.
+
+Reshaping is not a rendering. Selecting fields, mapping, and interpolating happen in the filter stage
+(`--filter`, `--jq`), which composes with every format. `aws`, `az`, and `gcloud` all take this shape: a
+query language reshapes, a format renders, and neither borrows the other's job.
 
 **JSON is the default**, following `az`. A command's result is data first, and the common case — a script or a
 pipe — should need no flag at all.
@@ -175,8 +179,8 @@ pipe — should need no flag at all.
 **A command does not switch format based on whether stdout is a TTY.** A pipeline that behaves differently
 when observed is unreproducible. A human wanting a table asks for one: `-o table`.
 
-**Adding a formatter** is a change to `pkg/result`, never to a command. A command that needs a rendering the
-set does not have uses `--output template`.
+**Adding a formatter** is a change to `pkg/result`, never to a command. A command needing a shape the set
+does not have reshapes with `--jq` and renders with `value`.
 
 **One table formatter, no exceptions.** `table` is a general rendering and belongs in `pkg/result` like the
 others. No command owns its own. The current hand-rolled table in `lore`'s `runSearch`
@@ -186,11 +190,65 @@ name column as a `*` suffix. A shared formatter fixes all four, and `installed` 
 `--output json` can emit.
 
 A **domain** rendering is a different question. `lore list` registers `--format manifest`, which means
-something only to lore. Under this convention that is either `--output template` with a manifest template,
-or a lore-specific flag that is not part of the common set — but it is never a value added to the shared
-formatter list.
+something only to lore. Under this convention that is a lore-specific flag outside the common set -- never a
+value added to the shared formatter list.
 
-## 8. Errors and exit codes
+## 8. The pipeline: two stages, one flag each
+
+Everything a command emits as a result passes through two stages, and each stage is owned by exactly one
+flag:
+
+```
+                   FILTER STAGE                    FORMAT STAGE
+                (value ──► value)               (value ──► bytes)
+
+              ┌──────────┐  ┌────────┐        ┌──────────────────────┐
+ result ─────►│ --filter │─►│  --jq  │───────►│      --output        │──► sink ──► stdout
+  value       │ field=v  │  │  gojq  │        │                      │
+              └──────────┘  └────────┘        │  csv                 │
+                                              │  json                │
+               reshape: select, map,          │  none                │
+               project, interpolate           │  table               │
+                                              │  tsv                 │
+               composable, any order          │  value               │
+                                              │  yaml                │
+                                              │  template=<body>     │
+                                              └──────────────────────┘
+                                                 pick exactly one
+```
+
+**Reshaping is not rendering.** Choosing which fields appear, mapping over a list, and building a string are
+the filter stage's work, and they compose with every format. `aws`, `az`, and `gcloud` all take this shape --
+a query language reshapes, a format renders, and neither borrows the other's job.
+
+### A format that needs an argument carries it
+
+`--output template=<body>` is one flag with one value. The alternative -- a sidecar `--template` flag -- gives
+the format stage two inputs and needs a rule about how they interact:
+
+```
+                                              ┌──────────────────────┐
+                                     ────────►│      --output        │
+                                              │                      │──► sink
+                                     ────────►│      --template      │
+                                              └──────────────────────┘
+                                                mutually exclusive --
+                                                a rule to document,
+                                                enforce, and get wrong
+```
+
+The `NAME=ARGUMENT` form deletes that rule rather than stating it: conflict is impossible by construction, not
+prevented by validation. `kubectl` ships exactly this -- `-o go-template=...`, `-o jsonpath=...`,
+`-o custom-columns=...` -- and gcloud's `NAME[ATTRIBUTES](PROJECTION)` is the same idea with richer syntax.
+A sidecar flag is docker's shape, and docker has it only because `--format` *is* the template.
+
+Parsing splits on the **first** `=`, so an argument containing `=` is unaffected.
+
+**Presets stay named.** `csv` and `tsv` are two names, not `csv` plus an argument, because two values a user
+can guess beat one value with an argument they must look up. gcloud ships `csv` and `value` as separate names
+for the same reason.
+
+## 9. Errors and exit codes
 
 - `0` — success.
 - `1` — the command ran and the answer is failure (a verification failed, a package is missing).
@@ -200,14 +258,14 @@ An error message names what failed, what was expected, and what the user can do.
 errors are rewritten at the boundary rather than surfaced raw; a Go error string is a diagnostic, not a
 message.
 
-## 9. Interactivity and TTY
+## 10. Interactivity and TTY
 
 - Prompt only when stdin is a TTY. A non-interactive invocation that would prompt fails instead, naming the
   flag that would have supplied the answer.
 - Color and progress indicators only when stderr is a TTY, and never in the result stream.
 - `--silent` suppresses narration. It never suppresses the result, and never changes the exit code.
 
-## 10. Configuration precedence
+## 11. Configuration precedence
 
 Highest to lowest: **flags**, then environment variables, then project configuration, then user, then system.
 This document owns only the first rung; [`configuration.md`](configuration.md) owns the rest and is
@@ -216,7 +274,7 @@ authoritative where the two meet.
 A flag always wins. A command must not read configuration in a way that overrides an explicitly passed flag,
 including when the flag's value equals its default.
 
-## 11. Help and generated documentation
+## 12. Help and generated documentation
 
 Help text is the specification a user reads. It states what the command does, what its flags mean, and what
 its output is — including, for a multi-artifact command, the names of the artifacts it writes.
@@ -226,7 +284,7 @@ hand-edited.** A wrong word in the docs is a wrong word in the flag description,
 which is exactly how "Promise bundle path" reached three published pages
 ([#739](https://github.com/NobleFactor/devlore-cli/issues/739)).
 
-## 12. Stability
+## 13. Stability
 
 Greenfield, per the repository's governing principle. There are no released CLI contracts to preserve.
 
@@ -234,7 +292,7 @@ Greenfield, per the repository's governing principle. There are no released CLI 
 backward-compatibility shim the governing principle forbids, and it doubles the surface every future change
 must consider.
 
-## 13. Conformance and enforcement
+## 14. Conformance and enforcement
 
 Each rule below is greppable, and each has a test. These are the reason the document is worth writing.
 
@@ -249,7 +307,7 @@ Each rule below is greppable, and each has a test. These are the reason the docu
 
 Invariants 1 and 2 are the ones that prevent regression, because both are mechanical and both are red today.
 
-## 14. Per-app conformance
+## 15. Per-app conformance
 
 Current state, measured 2026-08-28. One command out of forty-six uses the convention, and no root
 registers the common set.
@@ -265,7 +323,7 @@ registers the common set.
 **`star` does not lack the convention -- it has a second copy of it.** `cmd/star/cli` duplicates eighteen
 exported names from `cmd/internal/cli`, including all ten exit codes and `AddOutputFlags`, and at 387 lines
 against 196 the copy has grown rather than gone stale. The two now disagree: one binds `--filter`, `--jq`,
-`--output`/`-o`, `--store`, and `--template` on `PersistentFlags`, the other binds `--format` and `--filter`
+`--output`/`-o`, and `--store` on `PersistentFlags`, the other binds `--format` and `--filter`
 on `Flags`. A program cannot share a common set while binding a different one from a different package
 ([#743](https://github.com/NobleFactor/devlore-cli/issues/743)).
 
@@ -313,8 +371,8 @@ No deviation is sanctioned. Every row above is work, tracked by the plan in
    churn against a near-tie. And the short-form argument is symmetric: binding `-o` strands `gcloud` and
    `docker` users typing `--format`, just as not binding it strands `az` and `kubectl` users typing `-o`.
 
-   **Cost, accepted:** "output" names the stream, not the rendering. Docker's template case is still served;
-   it hangs off `--output template` with `--template`.
+   **Cost, accepted:** "output" names the stream, not the rendering. That precision is traded for the flag
+   users already type.
 
 2. **`--store` names the execution store's root**, and no `--output <file>` exists. An earlier draft of this
    document used `--output` for a *destination*, which would have meant the opposite of what `az` and
@@ -334,26 +392,36 @@ No deviation is sanctioned. Every row above is work, tracked by the plan in
 
    This is not a convention a program may opt out of. `aws`, `az`, `docker`, and `gcloud` differ on flag
    names, but not on this: the result goes to stdout as machine-readable data, narration goes to stderr as
-   human-readable text. Every deviation in this repository is a defect, tracked in §14.
+   human-readable text. Every deviation in this repository is a defect, tracked in §15.
 
-5. **Rejected: `--artifacts`, `--document-dir`, `--documents`.** Each was a new word for a concept the code
+5. **A format needing an argument carries it in the value: `NAME=ARGUMENT`.** The alternative, a sidecar
+   flag, gives the format stage two inputs and a mutual-exclusion rule to enforce. `--output template=<body>`
+   makes the conflict impossible by construction instead. `kubectl` ships this exact form
+   (`-o go-template=`, `-o jsonpath=`, `-o custom-columns=`); gcloud's `NAME[ATTRIBUTES](PROJECTION)` is the
+   same idea. Parsing splits on the first `=`.
+
+   Presets stay named rather than becoming arguments: `csv` and `tsv` are two values a user can guess, where
+   `csv=tab` is one value with an argument to look up. gcloud ships `csv` and `value` separately for that
+   reason.
+
+6. **Rejected: `--artifacts`, `--document-dir`, `--documents`.** Each was a new word for a concept the code
    already names. [`cmd/internal/cli/store.go`](../../cmd/internal/cli/store.go) has called it the execution
    store since it was written, and `writ secret`'s help already says so to users. A fifth synonym for one
    concept is how `graph` and `receipt` came to be inverted in `devlore-test`
    ([#738](https://github.com/NobleFactor/devlore-cli/issues/738)).
 
-## 15. Divergences from clig.dev
+## 16. Divergences from clig.dev
 
 **Machine-readable output.** clig.dev recommends a `--json` flag; this suite uses `--output json`. A boolean
 cannot express yaml, csv, or template. Five formats behind five booleans is five flags and an ambiguity the
 moment two are passed.
 
-**Plain output.** clig.dev recommends `--plain`; here that is `--output csv` or `--output template`, by the
+**Plain output.** clig.dev recommends `--plain`; here that is `--output csv` or `--output tsv`, by the
 same argument. Plain is a rendering, so it is a format value.
 
 **TTY-adaptive output.** clig.dev encourages adapting output to a terminal. This document **rejects** that for
 the result stream: a pipeline whose data changes when observed is unreproducible. Narration adapts to a TTY
-(§9); results never do.
+(§10); results never do.
 
 **A third stream.** clig.dev describes two streams. This suite has three, because a workflow engine produces
 durable artifacts that are neither the answer to a question nor progress narration. Documents go to the store

@@ -11,7 +11,15 @@ import (
 	"sort"
 )
 
-// CSVFormatter renders a slice of rows as RFC 4180 comma-separated values.
+// CSVFormatter renders a slice of rows as delimiter-separated values.
+//
+// One formatter serves two jobs that disagree about two things at once, so each gets a preset rather than a
+// flag. A spreadsheet wants a comma and a header row; `awk '{print $2}'` wants a tab and no header row to
+// skip. gcloud reached the same shape -- its `value` format is documented as "CSV with no heading and <TAB>
+// separator instead of <COMMA>" -- and exposes the separator as an attribute of one implementation.
+//
+//   - [NewCSVFormatter] -- comma, with headings. The spreadsheet preset.
+//   - [NewTSVFormatter] -- tab, no headings. The pipeline preset.
 //
 // The shape of value drives header inference:
 //
@@ -25,7 +33,31 @@ import (
 // Cell values are rendered via fmt.Sprint, which honors fmt.Stringer for custom types and produces
 // reasonable defaults for numbers, bools, time.Time, and nil. Quoting is handled by encoding/csv per
 // RFC 4180. Empty input renders no bytes (no header row).
-type CSVFormatter struct{}
+type CSVFormatter struct {
+
+	// Separator is the field delimiter. The zero value is a comma, so the zero CSVFormatter is RFC 4180.
+	Separator rune
+
+	// SuppressHeadings omits the header row. A spreadsheet wants the row; a shell pipeline does not, since
+	// `awk` and `cut` would each have to skip it.
+	SuppressHeadings bool
+}
+
+// NewCSVFormatter returns the spreadsheet preset: comma-separated, with a header row.
+//
+// Returns:
+//   - `CSVFormatter`: the RFC 4180 formatter.
+func NewCSVFormatter() CSVFormatter { return CSVFormatter{Separator: ','} }
+
+// NewTSVFormatter returns the pipeline preset: tab-separated, with no header row.
+//
+// Tabs need no quoting for the values a row normally carries, so a line survives `cut -f2` and
+// `awk '{print $2}'` without a parser. Suppressing the header is half of that: a header row is one more
+// line every consumer has to skip.
+//
+// Returns:
+//   - `CSVFormatter`: the tab-separated formatter.
+func NewTSVFormatter() CSVFormatter { return CSVFormatter{Separator: '\t', SuppressHeadings: true} }
 
 // HasHeaders is the opt-in interface that overrides automatic header inference. Implementations are
 // typically named-slice types whose row shape doesn't lend itself to reflection (e.g., heterogeneous
@@ -41,11 +73,11 @@ var _ Formatter = CSVFormatter{}
 
 // region Formatter
 
-// Format renders value as RFC 4180 CSV to w.
+// Format renders value as delimiter-separated values to w.
 //
 // Returns an error if value is not a slice/array of structs or maps and does not implement
 // [HasHeaders].
-func (CSVFormatter) Format(value any, w io.Writer) error {
+func (f CSVFormatter) Format(value any, w io.Writer) error {
 
 	if value == nil {
 		return nil
@@ -77,8 +109,14 @@ func (CSVFormatter) Format(value any, w io.Writer) error {
 	}
 
 	writer := csv.NewWriter(w)
-	if err := writer.Write(headers); err != nil {
-		return err
+	if f.Separator != 0 {
+		writer.Comma = f.Separator
+	}
+
+	if !f.SuppressHeadings {
+		if err := writer.Write(headers); err != nil {
+			return err
+		}
 	}
 
 	for i := range rv.Len() {

@@ -8,18 +8,18 @@ import (
 	"strings"
 )
 
-// FormatterByName returns the [Formatter] registered under name. The known names are "json", "yaml",
-// "csv", and "template". The "template" form requires a non-empty templateText; the others ignore
-// it.
+// FormatterByName returns the [Formatter] registered under name.
+//
+// The known names are "csv", "json", "none", "tsv", and "yaml". Reshaping a value is the filter stage's
+// job -- see [FilterByExprs] -- so no formatter takes a body or an expression.
 //
 // Parameters:
-//   - name: the formatter name; case-insensitive.
-//   - templateText: the body for the "template" formatter; ignored otherwise.
+//   - `name`: the formatter name; case-insensitive.
 //
 // Returns:
-//   - Formatter: the constructed formatter.
-//   - error: when name is unknown or when the template fails to parse.
-func FormatterByName(name, templateText string) (Formatter, error) {
+//   - `Formatter`: the constructed formatter.
+//   - `error`: when name is unknown.
+func FormatterByName(name string) (Formatter, error) {
 
 	switch strings.ToLower(strings.TrimSpace(name)) {
 
@@ -30,20 +30,17 @@ func FormatterByName(name, templateText string) (Formatter, error) {
 		return YAMLFormatter{}, nil
 
 	case "csv":
-		return CSVFormatter{}, nil
+		return NewCSVFormatter(), nil
+
+	case "tsv":
+		return NewTSVFormatter(), nil
 
 	case "none":
 		return NoneFormatter{}, nil
 
-	case "template":
-		if templateText == "" {
-			return nil, fmt.Errorf("result.FormatterByName: 'template' requires non-empty template text")
-		}
-		return NewTemplateFormatter(templateText)
-
 	default:
 		return nil, fmt.Errorf(
-			"result.FormatterByName: unknown formatter %q; expected one of csv, json, none, template, yaml", name)
+			"result.FormatterByName: unknown formatter %q; expected one of csv, json, none, tsv, yaml", name)
 	}
 }
 

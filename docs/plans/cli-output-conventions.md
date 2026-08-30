@@ -10,8 +10,8 @@ updated: 2026-08-28
 
 ## Summary
 
-`cmd/internal/cli` already defines an output convention -- `AddOutputFlags` binds `--format`, `--template`,
-`--filter`, and `--jq`; `BuildPipeline` composes a `result.Pipeline` of filter, formatter, and sink. One
+`cmd/internal/cli` already defines an output convention -- `AddOutputFlags` binds `--filter`, `--format`,
+and `--jq`; `BuildPipeline` composes a `result.Pipeline` of filter, formatter, and sink. One
 command out of forty-six uses it. Every other command invents its own flags. The convention also has no way
 to point at the **execution store**, which is where definitions and traces persist, so that has been
 improvised too. This plan adds `--store`, renames `--format` to `--output` / `-o`, adds the `none`
@@ -186,6 +186,14 @@ this phase follows it rather than preceding it.
 - [ ] `migrate`'s own `--format` retires; its `text` rendering is a domain question like `lore list`'s
       `manifest`, and does not join the shared set.
 - [ ] `migrate/session.go`'s stdout write is classified: narration to stderr, or a result to the pipeline.
+
+### Phase 3c: The format value accepts an argument
+
+- [ ] `--output` parses `NAME=ARGUMENT`, splitting on the first `=`. A bare name is unchanged.
+- [ ] `template=<body>` renders through a Go template. It is the only argument-taking format at first.
+- [ ] `value` renders raw: no quoting, no document syntax, no header. It is what makes `--jq` complete --
+      a jq-built string has no other format that prints it as written.
+- [ ] An unknown `NAME` and a `NAME=` with an empty argument both error, naming the format.
 
 ### Phase 4: Bring star and lore into agreement
 

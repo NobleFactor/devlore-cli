@@ -70,14 +70,13 @@ func ExitCode(err error) int {
 // SinkOptions captures the populated values from [AddOutputFlags]. The struct is the input to
 // [BuildPipeline], which composes a [result.Pipeline] from the flag values.
 type SinkOptions struct {
-	Format   string // bound to --output; the field names the concept, the flag names what users type
-	Template string
-	Filters  []string
-	JQ       string
-	Store    string
+	Format  string // bound to --output; the field names the concept, the flag names what users type
+	Filters []string
+	JQ      string
+	Store   string
 }
 
-// AddOutputFlags binds the common set -- --filter, --jq, --output/-o, --store, and --template -- to opts.
+// AddOutputFlags binds the common set -- --filter, --jq, --output/-o, and --store -- to opts.
 //
 // Bound to PersistentFlags, so one call on a program's root command covers every subcommand. All four
 // in-scope programs register the whole set: a user who learns `-o yaml` on one types it on the next without
@@ -92,9 +91,7 @@ type SinkOptions struct {
 func AddOutputFlags(cmd *cobra.Command, opts *SinkOptions) {
 
 	cmd.PersistentFlags().StringVarP(&opts.Format, "output", "o", "json",
-		`Output rendering: csv, json, none, template, or yaml`)
-	cmd.PersistentFlags().StringVar(&opts.Template, "template", "",
-		`Template body, used when --output template (e.g. '{{.Name}}\t{{.Version}}')`)
+		`Output rendering: csv, json, none, tsv, or yaml`)
 	cmd.PersistentFlags().StringArrayVar(&opts.Filters, "filter", nil,
 		`Filter expression: field=value (repeatable, AND logic)`)
 	cmd.PersistentFlags().StringVar(&opts.JQ, "jq", "",
@@ -107,11 +104,11 @@ func AddOutputFlags(cmd *cobra.Command, opts *SinkOptions) {
 // Filters compose in --filter-then--jq order; the formatter is selected by [result.FormatterByName].
 // The writer is wrapped in a [sink.Sink] via [sink.New] internally.
 //
-// Returns an error when the formatter name is unknown, the template body fails to parse, the field
+// Returns an error when the formatter name is unknown, the field
 // expressions fail to parse, or the jq expression fails to compile.
 func BuildPipeline(opts SinkOptions, w io.Writer) (*result.Pipeline, error) {
 
-	formatter, err := result.FormatterByName(opts.Format, opts.Template)
+	formatter, err := result.FormatterByName(opts.Format)
 	if err != nil {
 		return nil, err
 	}

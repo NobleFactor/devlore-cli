@@ -21,10 +21,12 @@ func TestFormatterByNameKnownFormatters(t *testing.T) {
 		{"JSON", JSONFormatter{}},
 		{"  yaml  ", YAMLFormatter{}},
 		{"csv", CSVFormatter{}},
+		{"tsv", CSVFormatter{}},
+		{"none", NoneFormatter{}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 
-			got, err := FormatterByName(tc.name, "")
+			got, err := FormatterByName(tc.name)
 			if err != nil {
 				t.Fatalf("FormatterByName(%q): %v", tc.name, err)
 			}
@@ -35,39 +37,9 @@ func TestFormatterByNameKnownFormatters(t *testing.T) {
 	}
 }
 
-func TestFormatterByNameTemplateRequiresText(t *testing.T) {
-
-	_, err := FormatterByName("template", "")
-	if err == nil {
-		t.Fatal("expected error for empty template text; got nil")
-	}
-	if !strings.Contains(err.Error(), "non-empty") {
-		t.Errorf("error text = %q, want substring 'non-empty'", err.Error())
-	}
-}
-
-func TestFormatterByNameTemplateUsesText(t *testing.T) {
-
-	got, err := FormatterByName("template", "{{.}}")
-	if err != nil {
-		t.Fatalf("FormatterByName: %v", err)
-	}
-	if _, ok := got.(*TemplateFormatter); !ok {
-		t.Errorf("FormatterByName(template) = %T, want *TemplateFormatter", got)
-	}
-}
-
-func TestFormatterByNameTemplateReportsParseError(t *testing.T) {
-
-	_, err := FormatterByName("template", "{{.unterminated")
-	if err == nil {
-		t.Fatal("expected parse error; got nil")
-	}
-}
-
 func TestFormatterByNameUnknownErrors(t *testing.T) {
 
-	_, err := FormatterByName("xml", "")
+	_, err := FormatterByName("xml")
 	if err == nil {
 		t.Fatal("expected error for unknown formatter; got nil")
 	}
