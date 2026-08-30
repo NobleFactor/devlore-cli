@@ -154,11 +154,38 @@ and `writ verify` cannot render yaml today.
 - [ ] Persist an execution trace, or state its absence as a decision (#738).
 - [ ] Assert artifact CONTENT in `cli_test.go`; existence-only assertions are why #738 survived.
 
-### Phase 3: Bring writ into agreement
+### Phase 3a: Bring writ's flags into agreement -- COMPLETE
 
-- [ ] `--json` becomes `--output` on `status` and `verify`.
-- [ ] `migrate` adopts the shared flags; its help text is corrected (#739).
-- [ ] The seven direct `os.Stdout` writes route through the sink.
+- [x] `--json` becomes `--output` on `status` and `verify`, by deletion rather than alias.
+- [x] `writ` registers the common set on its root; every subcommand accepts every flag.
+- [x] `verify.Execute` returns `[]Report` and the command emits them. Rendering belongs to the pipeline, not
+      to the package that computes the answer.
+- [x] The corrupted flag descriptions are corrected (#739).
+
+**The scope was measured wrong when this plan was written.** It said "the seven direct `os.Stdout` writes",
+counted by grepping the literal `os.Stdout` -- which misses every `fmt.Print`, and those write to stdout just
+the same. The real figure is **30 call sites**:
+
+| Location | Calls | What it is |
+| --- | --- | --- |
+| `cmd/writ/writ/status/report.go` | 22 `fmt.Print*` | the human status report |
+| `cmd/writ/writ/verify/verify.go` | 2 `fmt.Print*` | now removed with `presentReport` |
+| `deploy`, `decommission`, `upgrade`, `secret` | 4 `SerializeGraphs(os.Stdout, ...)` | the dry-run plan dump |
+| `cmd/writ/writ/migrate/session.go` | 1 `os.Stdout` | TUI session output |
+| `cmd/writ/writ/migrate_cmd.go` | 1 `os.Stdout` | `FormatMigrationPlan` |
+
+`migrate_cmd.go:157`'s `os.Stdout.Stat()` is a TTY check, which §9 permits, and is not among them.
+
+### Phase 3b: Bring writ's renderings into agreement -- BLOCKED on the TableFormatter
+
+The status report is a human table. Converting it needs the shared `TableFormatter` scheduled in Phase 4, so
+this phase follows it rather than preceding it.
+
+- [ ] `status/report.go`'s 22 `fmt.Print` calls render through the pipeline as `table`.
+- [ ] The four dry-run `SerializeGraphs(os.Stdout, ...)` dumps emit the plan as the command's result.
+- [ ] `migrate`'s own `--format` retires; its `text` rendering is a domain question like `lore list`'s
+      `manifest`, and does not join the shared set.
+- [ ] `migrate/session.go`'s stdout write is classified: narration to stderr, or a result to the pipeline.
 
 ### Phase 4: Bring star and lore into agreement
 

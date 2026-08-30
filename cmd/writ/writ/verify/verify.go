@@ -13,7 +13,6 @@ package verify
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -42,7 +41,6 @@ type Config struct {
 	AllowedSigners string
 
 	// JSON emits the reports as JSON instead of human-readable text.
-	JSON bool
 }
 
 // Report is one document's verification report.
@@ -77,8 +75,9 @@ type Report struct {
 //   - `cfg`: the resolved verify configuration.
 //
 // Returns:
+//   - `[]Report`: one report per verified document, for the caller to render.
 //   - `error`: non-nil when a document cannot be read/decoded, or when the policy rejects any document.
-func Execute(ctx context.Context, cfg *Config) error {
+func Execute(ctx context.Context, cfg *Config) ([]Report, error) {
 
 	var reports []Report
 	var rejections []error
@@ -87,7 +86,7 @@ func Execute(ctx context.Context, cfg *Config) error {
 
 		report, err := verifyDocument(ctx, cfg, path)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		if judgment := cfg.Policy.Judge(verdictOf(report), report.External); judgment != nil {
@@ -98,24 +97,12 @@ func Execute(ctx context.Context, cfg *Config) error {
 		reports = append(reports, report)
 	}
 
-	if cfg.JSON {
-		data, err := json.MarshalIndent(reports, "", "  ")
-		if err != nil {
-			return err
-		}
-		fmt.Println(string(data))
-	} else {
-		for _, report := range reports {
-			presentReport(report)
-		}
-	}
-
 	if len(rejections) > 0 {
-		return fmt.Errorf("signing policy %s rejected %d document(s): %w",
+		return reports, fmt.Errorf("signing policy %s rejected %d document(s): %w",
 			cfg.Policy, len(rejections), errors.Join(rejections...))
 	}
 
-	return nil
+	return reports, nil
 }
 
 // region HELPER FUNCTIONS
@@ -219,27 +206,6 @@ func verdictOf(report Report) signing.Verdict {
 		outcome = signing.OutcomeUntrusted
 	}
 	return signing.Verdict{Outcome: outcome, Principal: report.Principal, Detail: report.Detail}
-}
-
-// presentReport prints one human-readable report line pair.
-func presentReport(report Report) {
-
-	origin := "own store"
-	if report.External {
-		origin = "external"
-	}
-
-	line := fmt.Sprintf("%s: %s %s (%s)", report.Path, report.Kind, report.Outcome, origin)
-	if report.Principal != "" {
-		line += " — signed by " + report.Principal
-	}
-	if report.Detail != "" && report.Outcome != "valid" {
-		line += " — " + report.Detail
-	}
-	if report.Rejected {
-		line += " — REJECTED by policy"
-	}
-	fmt.Println(line)
 }
 
 // loadGraph loads a graph document through the sealed load path (integrity-checked).
