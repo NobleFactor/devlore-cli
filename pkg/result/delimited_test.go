@@ -175,7 +175,7 @@ func TestCSVFormatterQuotesNewlines(t *testing.T) {
 func TestCSVFormatterEmptySliceProducesNoOutput(t *testing.T) {
 
 	var buf bytes.Buffer
-	if err := (CSVFormatter{}).Format([]map[string]any{}, &buf); err != nil {
+	if err := (DelimitedFormatter{}).Format([]map[string]any{}, &buf); err != nil {
 		t.Fatalf("Format: %v", err)
 	}
 	if buf.Len() != 0 {
@@ -186,7 +186,7 @@ func TestCSVFormatterEmptySliceProducesNoOutput(t *testing.T) {
 func TestCSVFormatterNilProducesNoOutput(t *testing.T) {
 
 	var buf bytes.Buffer
-	if err := (CSVFormatter{}).Format(nil, &buf); err != nil {
+	if err := (DelimitedFormatter{}).Format(nil, &buf); err != nil {
 		t.Fatalf("Format: %v", err)
 	}
 	if buf.Len() != 0 {
@@ -194,27 +194,39 @@ func TestCSVFormatterNilProducesNoOutput(t *testing.T) {
 	}
 }
 
-func TestCSVFormatterRejectsScalar(t *testing.T) {
+// TestDelimitedFormatterAcceptsScalar covers the shape `--jq '.count'` produces.
+//
+// This asserted a refusal until the formatter took on the raw and pipeline presets. A value that is not a
+// sequence is one row; refusing it would make the filter stage incomplete, since a query that narrows to a
+// single number is the most ordinary thing a caller writes.
+func TestDelimitedFormatterAcceptsScalar(t *testing.T) {
 
 	var buf bytes.Buffer
-	err := (CSVFormatter{}).Format(42, &buf)
-	if err == nil {
-		t.Fatal("expected error for scalar input; got nil")
+	if err := (DelimitedFormatter{}).Format(42, &buf); err != nil {
+		t.Fatalf("Format(42): %v", err)
 	}
-	if !strings.Contains(err.Error(), "expected slice or array") {
-		t.Errorf("error text = %q, want substring 'expected slice or array'", err.Error())
+	if strings.TrimSpace(buf.String()) != "42" {
+		t.Errorf("rendered %q, want %q", buf.String(), "42")
 	}
 }
 
-func TestCSVFormatterRejectsSliceOfScalars(t *testing.T) {
+// TestDelimitedFormatterAcceptsSliceOfScalars covers a one-column result: no field names, so no header.
+//
+// This asserted a refusal until the raw preset arrived. `--jq '.entries[] | .target'` yields exactly this
+// shape, and it is the case `value` exists to print.
+func TestDelimitedFormatterAcceptsSliceOfScalars(t *testing.T) {
 
 	var buf bytes.Buffer
-	err := (CSVFormatter{}).Format([]int{1, 2, 3}, &buf)
-	if err == nil {
-		t.Fatal("expected error for slice of scalars; got nil")
+	if err := (DelimitedFormatter{}).Format([]int{1, 2, 3}, &buf); err != nil {
+		t.Fatalf("Format([]int): %v", err)
 	}
-	if !strings.Contains(err.Error(), "not struct or map") {
-		t.Errorf("error text = %q, want substring 'not struct or map'", err.Error())
+
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("lines = %d, want 3 (no header for scalars): %q", len(lines), buf.String())
+	}
+	if lines[0] != "1" {
+		t.Errorf("first line = %q, want %q", lines[0], "1")
 	}
 }
 
@@ -243,7 +255,7 @@ func TestCSVFormatterRoundTripsThroughCsvReader(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	if err := (CSVFormatter{}).Format(in, &buf); err != nil {
+	if err := (DelimitedFormatter{}).Format(in, &buf); err != nil {
 		t.Fatalf("Format: %v", err)
 	}
 
@@ -306,7 +318,7 @@ func mustFormatCSV(t *testing.T, value any) string {
 
 	t.Helper()
 	var buf bytes.Buffer
-	if err := (CSVFormatter{}).Format(value, &buf); err != nil {
+	if err := (DelimitedFormatter{}).Format(value, &buf); err != nil {
 		t.Fatalf("Format: %v", err)
 	}
 	return buf.String()

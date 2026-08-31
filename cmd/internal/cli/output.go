@@ -70,35 +70,45 @@ func ExitCode(err error) int {
 // SinkOptions captures the populated values from [AddOutputFlags]. The struct is the input to
 // [BuildPipeline], which composes a [result.Pipeline] from the flag values.
 type SinkOptions struct {
-	Format   string
-	Template string
-	Filters  []string
-	JQ       string
+	Format  string // bound to --output; the field names the concept, the flag names what users type
+	Filters []string
+	JQ      string
+	Store   string
 }
 
-// AddOutputFlags binds --format, --template, --filter, and --jq to opts. Call once during command
-// setup, then call [BuildPipeline] from the cobra RunE to compose the [result.Pipeline].
+// AddOutputFlags binds the common set -- --filter, --jq, --output/-o, and --store -- to opts.
+//
+// Bound to PersistentFlags, so one call on a program's root command covers every subcommand. All four
+// in-scope programs register the whole set: a user who learns `-o yaml` on one types it on the next without
+// checking. See docs/architecture/10-command-line-interface.md.
+//
+// Call once during root setup, then call [BuildPipeline] from a command's RunE to compose the
+// [result.Pipeline].
+//
+// Parameters:
+//   - `cmd`: the command to bind to, normally a program's root.
+//   - `opts`: the struct the flag values populate.
 func AddOutputFlags(cmd *cobra.Command, opts *SinkOptions) {
 
-	cmd.Flags().StringVar(&opts.Format, "format", "json",
-		`Output format: json, yaml, csv, or template`)
-	cmd.Flags().StringVar(&opts.Template, "template", "",
-		`Template body, used when --format=template (e.g. '{{.Name}}\t{{.Version}}')`)
-	cmd.Flags().StringArrayVar(&opts.Filters, "filter", nil,
+	cmd.PersistentFlags().StringVarP(&opts.Format, "output", "o", "json",
+		`Output rendering: json, yaml, table, csv, value (raw, pairs with --jq), template=BODY, or none`)
+	cmd.PersistentFlags().StringArrayVar(&opts.Filters, "filter", nil,
 		`Filter expression: field=value (repeatable, AND logic)`)
-	cmd.Flags().StringVar(&opts.JQ, "jq", "",
+	cmd.PersistentFlags().StringVar(&opts.JQ, "jq", "",
 		`jq expression applied after --filter; see github.com/itchyny/gojq`)
+	cmd.PersistentFlags().StringVar(&opts.Store, "store", "",
+		`Execution store root, holding definitions and traces (default: the XDG state path)`)
 }
 
 // BuildPipeline composes a [result.Pipeline] from the populated [SinkOptions] writing through w.
 // Filters compose in --filter-then--jq order; the formatter is selected by [result.FormatterByName].
 // The writer is wrapped in a [sink.Sink] via [sink.New] internally.
 //
-// Returns an error when the formatter name is unknown, the template body fails to parse, the field
+// Returns an error when the formatter name is unknown, the field
 // expressions fail to parse, or the jq expression fails to compile.
 func BuildPipeline(opts SinkOptions, w io.Writer) (*result.Pipeline, error) {
 
-	formatter, err := result.FormatterByName(opts.Format, opts.Template)
+	formatter, err := result.FormatterByName(opts.Format)
 	if err != nil {
 		return nil, err
 	}

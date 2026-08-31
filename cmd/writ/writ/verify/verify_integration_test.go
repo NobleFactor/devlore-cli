@@ -82,7 +82,7 @@ func TestExecute_StoreDocumentsAreValid(t *testing.T) {
 
 	graphPath, tracePath := fixture(t)
 
-	err := verify.Execute(context.Background(), &verify.Config{
+	_, err := verify.Execute(context.Background(), &verify.Config{
 		Paths:  []string{graphPath, tracePath},
 		Policy: signing.PolicyReject,
 	})
@@ -107,7 +107,7 @@ func TestExecute_TamperedExternalDocument(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = verify.Execute(context.Background(), &verify.Config{
+	_, err = verify.Execute(context.Background(), &verify.Config{
 		Paths:  []string{external},
 		Policy: signing.PolicyRejectExternal,
 	})
@@ -115,7 +115,7 @@ func TestExecute_TamperedExternalDocument(t *testing.T) {
 		t.Fatalf("Execute over a tampered external document = %v, want the policy rejection", err)
 	}
 
-	if err := verify.Execute(context.Background(), &verify.Config{
+	if _, err := verify.Execute(context.Background(), &verify.Config{
 		Paths:  []string{external},
 		Policy: signing.PolicyReport,
 	}); err != nil {
@@ -135,14 +135,14 @@ func TestExecute_UnsignedIsAFinding(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := verify.Execute(context.Background(), &verify.Config{
+	if _, err := verify.Execute(context.Background(), &verify.Config{
 		Paths:  []string{unsigned},
 		Policy: signing.PolicyReport,
 	}); err != nil {
 		t.Errorf("unsigned under report = %v, want reported-not-rejected", err)
 	}
 
-	err := verify.Execute(context.Background(), &verify.Config{
+	_, err := verify.Execute(context.Background(), &verify.Config{
 		Paths:  []string{unsigned},
 		Policy: signing.PolicyReject,
 	})

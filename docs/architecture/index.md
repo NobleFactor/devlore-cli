@@ -93,10 +93,15 @@ Each architecture document has a companion `*.status.md` file tracking completio
 
 ## Overview
 
-The devlore-cli consists of three tools that share a common execution engine:
+### 10. Command Line Interface
+
+- [Command Line Interface](10-command-line-interface.md) ([status](10-command-line-interface.status.md)) — One convention across every binary: the three streams (result to stdout, narration to stderr, documents to the execution store), the reserved flag set, and the conformance invariants that keep adoption from decaying
+
+The devlore-cli consists of these tools, which share a common execution engine and one command-line convention ([10-command-line-interface.md](10-command-line-interface.md)):
 
 - **writ** — File tree management (dotfiles, configs, templates)
 - **lore** — Package management (software installation, configuration)
 - **star** — Starlark-powered operations tool (linting, setup, hooks, project automation)
+- **devlore-test** — the graph test harness: plan, execute, verify
 
 All three tools consume the shared provider framework in `pkg/op/` and the starlark runtime. Writ and lore produce sealed execution graphs run by `op.GraphExecutor` in `pkg/op/`. Star uses a lightweight command model where extensions define commands in Starlark and providers supply the bindings.

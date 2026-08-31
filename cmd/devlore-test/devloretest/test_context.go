@@ -5,9 +5,7 @@ package devloretest
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -55,7 +53,8 @@ type Failure struct {
 type TestContext struct {
 	tmpDir       string
 	root         fsroot.Dir
-	writer       io.Writer // graph-output channel: t.run writes each execution result here
+	runTraces    []*op.Trace // one per t.run, kept for the store
+	runResults   []any       // one per t.run, folded into the summary
 	expectations []Expectation
 	sources      *BindingSources        // shared pointer to the Runner's BindingSources; mutated by t.set_* builtins
 	variables    map[string]op.Variable // populated by SetResolvedVariables after the resolver runs; consumed in Check
@@ -826,46 +825,36 @@ func (tc *TestContext) starRun(
 	result, runErr := executor.Run(context.Background(), nil)
 	tc.SetResolvedVariables(executor.LastVariables())
 
+	// The trace is kept whether or not the run succeeded: a failed run's trace is the one worth reading, and
+	// it is what makes a run resumable. Discarding it was the third defect in #738.
+	if trace := executor.Trace(); trace != nil {
+		tc.runTraces = append(tc.runTraces, trace)
+	}
+
 	if runErr != nil {
 		return nil, runErr
 	}
 
-	// The graph-output channel carries the execution result — the return value of the graph's final unit,
-	// distinct from result.Pipeline / status.Narrator output — so `--output graph=<dest>` receives it.
-	if err := tc.emitResult(result); err != nil {
-		return nil, err
+	// The final unit's return value. It is part of the test result, not a document and not narration, so it
+	// travels in the summary the pipeline renders to stdout.
+	if result != nil {
+		tc.runResults = append(tc.runResults, result)
 	}
 
 	return starlark.None, nil
 }
 
-// emitResult writes a t.run execution result to the graph-output channel as JSON.
-//
-// The result is the return value of the graph's final unit. A nil writer (tests that do not route the graph
-// channel) or a nil result is a no-op.
-//
-// Parameters:
-//   - `result`: the execution result to emit.
+// RunTraces returns one execution trace per t.run call, in call order.
 //
 // Returns:
-//   - `error`: non-nil if JSON marshaling or the write fails.
-func (tc *TestContext) emitResult(result any) error {
+//   - `[]*op.Trace`: the traces, empty when no graph ran.
+func (tc *TestContext) RunTraces() []*op.Trace { return tc.runTraces }
 
-	if tc.writer == nil || result == nil {
-		return nil
-	}
-
-	data, err := json.Marshal(result)
-	if err != nil {
-		return fmt.Errorf("t.run: marshal result: %w", err)
-	}
-
-	if _, err := fmt.Fprintln(tc.writer, string(data)); err != nil {
-		return fmt.Errorf("t.run: write result: %w", err)
-	}
-
-	return nil
-}
+// RunResults returns each t.run call's execution result, in call order.
+//
+// Returns:
+//   - `[]any`: the results, empty when no graph ran or every run returned nothing.
+func (tc *TestContext) RunResults() []any { return tc.runResults }
 
 // buildSpec constructs a fresh [*op.RuntimeEnvironmentSpec] for [starRun] / [t.run].
 //

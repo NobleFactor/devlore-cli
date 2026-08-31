@@ -148,14 +148,16 @@ func parseUpgradeConfig(cmd *cobra.Command, args []string) *UpgradeConfig {
 }
 
 // parseReconcileConfig resolves all settings for a reconcile operation.
-func parseStatusConfig(cmd *cobra.Command, args []string) *StatusConfig {
+func parseStatusConfig(args []string) *StatusConfig {
 	cfg := &StatusConfig{}
 	cfg.Tool = "writ"
 	cfg.Projects = args
 
 	// Behavior flags
 	cfg.Verbose = viper.GetBool("writ.verbose")
-	cfg.JSONOutput = assert.Must(cmd.Flags().GetBool("json"))
+	// Bridged from the common set while status still renders its own report (#740 phase 3b). A boolean
+	// cannot express a third format, which is why --json retired; this reads the one flag that can.
+	cfg.JSONOutput = outputOptions.Format == "json"
 
 	// Segments and template variables feed the freshness comparison; status needs no repo — the deployed
 	// inventory (sources included) comes from the store readback.

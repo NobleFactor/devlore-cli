@@ -4,11 +4,14 @@
 package devloretest
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/inventory"
 )
 
@@ -22,73 +25,31 @@ func writeScript(t *testing.T, content string) string {
 	return path
 }
 
-// runCmd executes the run subcommand with outputs routed to temp files.
-// Returns parsed summary and any error from execution.
+// runCmd executes the run subcommand and returns the result it wrote to stdout.
+//
+// Documents go to a store rooted in the test's own directory, so a run leaves nothing in the shared state
+// home and one test cannot see another's definitions.
 func runCmd(t *testing.T, script string, extraArgs ...string) (Result, error) {
 	t.Helper()
-	dir := t.TempDir()
-	summaryFile := filepath.Join(dir, "summary.json")
-	receiptFile := filepath.Join(dir, "receipt.yaml")
-	graphFile := filepath.Join(dir, "graph.txt")
 
-	args := []string{
-		"--output", "summary=" + summaryFile,
-		"--output", "receipt=" + receiptFile,
-		"--output", "graph=" + graphFile,
-	}
-	args = append(args, extraArgs...)
-	args = append(args, script)
+	opts := cli.SinkOptions{Format: "json", Store: t.TempDir()}
 
-	cmd := newRunCmd()
+	args := append(append([]string{}, extraArgs...), script)
+
+	var stdout bytes.Buffer
+	cmd := newRunCmd(&opts)
 	cmd.SilenceErrors = true
 	cmd.SilenceUsage = true
 	cmd.SetArgs(args)
+	cmd.SetOut(&stdout)
 	err := cmd.Execute()
 
 	var result Result
-	if data, readErr := os.ReadFile(summaryFile); readErr == nil {
-		_ = json.Unmarshal(data, &result)
+	if stdout.Len() > 0 {
+		_ = json.Unmarshal(stdout.Bytes(), &result)
 	}
 	return result, err
 }
-
-// --- outputFlags ---
-
-func TestOutputFlags_Set_ValidKeys(t *testing.T) {
-	of := &outputFlags{entries: make(map[string]string)}
-	for _, key := range []string{"summary", "receipt", "graph"} {
-		val := key + "=/tmp/out"
-		if err := of.Set(val); err != nil {
-			t.Errorf("Set(%q): %v", val, err)
-		}
-		if of.entries[key] != "/tmp/out" {
-			t.Errorf("entries[%q] = %q, want /tmp/out", key, of.entries[key])
-		}
-	}
-}
-
-func TestOutputFlags_Set_InvalidKey(t *testing.T) {
-	of := &outputFlags{entries: make(map[string]string)}
-	if err := of.Set("bogus=/tmp/out"); err == nil {
-		t.Fatal("expected error for invalid key")
-	}
-}
-
-func TestOutputFlags_Set_MissingEquals(t *testing.T) {
-	of := &outputFlags{entries: make(map[string]string)}
-	if err := of.Set("summary"); err == nil {
-		t.Fatal("expected error for missing =")
-	}
-}
-
-func TestOutputFlags_Type(t *testing.T) {
-	of := &outputFlags{}
-	if got := of.Type(); got != "stream=dest" {
-		t.Errorf("ProviderType() = %q, want \"stream=dest\"", got)
-	}
-}
-
-// --- runner wiring ---
 
 func TestRunCmd_BasicExecution(t *testing.T) {
 	script := writeScript(t, `graph = plan.assemble_definition([])
@@ -136,86 +97,97 @@ t.expect_unit_count(0)`)
 	}
 }
 
-func TestRunCmd_InvalidReceiptFormat(t *testing.T) {
-	script := writeScript(t, `graph = plan.assemble_definition([])
-t.expect_unit_count(0)`)
-	_, err := runCmd(t, script, "--receipt-format", "xml")
-	if err == nil {
-		t.Fatal("expected error for invalid receipt format")
+// TestRunCmd_ResultGoesToStdout is the law: the result is machine-readable data on stdout.
+func TestRunCmd_ResultGoesToStdout(t *testing.T) {
+
+	script := writeScript(t, `
+graph = plan.assemble_definition([plan.shell.exec(command='echo hi')])
+t.expect_unit_count(1)
+t.run(graph)
+`)
+
+	opts := cli.SinkOptions{Format: "json", Store: t.TempDir()}
+
+	var stdout bytes.Buffer
+	cmd := newRunCmd(&opts)
+	cmd.SilenceErrors, cmd.SilenceUsage = true, true
+	cmd.SetArgs([]string{script})
+	cmd.SetOut(&stdout)
+
+	if err := cmd.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	var result Result
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+		t.Fatalf("stdout is not the JSON result: %v\n%s", err, stdout.String())
+	}
+	if !result.Passed {
+		t.Errorf("result.Passed = false, want true: %+v", result)
 	}
 }
 
-func TestRunCmd_ReceiptJSON(t *testing.T) {
-	dir := t.TempDir()
-	receiptFile := filepath.Join(dir, "receipt.json")
+// TestRunCmd_DocumentsGoToTheStore is row 10 of the #740 test plan.
+//
+// The definition and its trace are documents. They belong in the execution store, keyed by checksum, and
+// nowhere else -- #738 wrote the definition to a file named for the script and called it a receipt.
+func TestRunCmd_DocumentsGoToTheStore(t *testing.T) {
+
 	script := writeScript(t, `
-graph = plan.assemble_definition([
-    plan.shell.exec(command="echo hello"),
-])
-t.expect_unit_count(1)
+graph = plan.assemble_definition([plan.shell.exec(command='echo hi')])
+t.run(graph)
 `)
-	cmd := newRunCmd()
-	cmd.SilenceErrors = true
-	cmd.SilenceUsage = true
-	cmd.SetArgs([]string{
-		"--dry-run",
-		"--receipt-format", "json",
-		"--output", "summary=" + os.DevNull,
-		"--output", "receipt=" + receiptFile,
-		"--output", "graph=" + os.DevNull,
-		script,
-	})
+
+	store := t.TempDir()
+	opts := cli.SinkOptions{Format: "json", Store: store}
+
+	cmd := newRunCmd(&opts)
+	cmd.SilenceErrors, cmd.SilenceUsage = true, true
+	cmd.SetArgs([]string{script})
+	cmd.SetOut(&bytes.Buffer{})
+
 	if err := cmd.Execute(); err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("Execute: %v", err)
 	}
-	data, err := os.ReadFile(receiptFile)
-	if err != nil {
-		t.Fatalf("reading receipt: %v", err)
+
+	definitions, err := filepath.Glob(filepath.Join(store, "graphs", "*.yaml"))
+	if err != nil || len(definitions) != 1 {
+		t.Fatalf("definitions in the store = %v (err %v), want exactly one", definitions, err)
 	}
-	if !json.Valid(data) {
-		t.Errorf("receipt is not valid JSON: %s", data)
+
+	traces, err := filepath.Glob(filepath.Join(store, "traces", "*", "2*.yaml"))
+	if err != nil || len(traces) != 1 {
+		t.Fatalf("traces in the store = %v (err %v), want exactly one", traces, err)
+	}
+
+	// The trace lives under its definition's checksum: that tie is what makes a trace resumable.
+	checksum := strings.TrimSuffix(filepath.Base(definitions[0]), ".yaml")
+	if got := filepath.Base(filepath.Dir(traces[0])); got != checksum {
+		t.Errorf("trace filed under %q, want its definition's checksum %q", got, checksum)
 	}
 }
 
-func TestRunCmd_OutputRouting(t *testing.T) {
-	dir := t.TempDir()
-	summaryFile := filepath.Join(dir, "summary.json")
-	receiptFile := filepath.Join(dir, "receipt.yaml")
+// TestRunCmd_NoneRendersNothing covers `-o none`: the result is not produced, not merely discarded.
+func TestRunCmd_NoneRendersNothing(t *testing.T) {
 
 	script := writeScript(t, `
-graph = plan.assemble_definition([
-    plan.shell.exec(command="echo routed"),
-])
-t.expect_unit_count(1)
+graph = plan.assemble_definition([plan.shell.exec(command='echo hi')])
+t.run(graph)
 `)
-	cmd := newRunCmd()
-	cmd.SilenceErrors = true
-	cmd.SilenceUsage = true
-	cmd.SetArgs([]string{
-		"--dry-run",
-		"--output", "summary=" + summaryFile,
-		"--output", "receipt=" + receiptFile,
-		"--output", "graph=" + os.DevNull,
-		script,
-	})
+
+	opts := cli.SinkOptions{Format: "none", Store: t.TempDir()}
+
+	var stdout bytes.Buffer
+	cmd := newRunCmd(&opts)
+	cmd.SilenceErrors, cmd.SilenceUsage = true, true
+	cmd.SetArgs([]string{script})
+	cmd.SetOut(&stdout)
+
 	if err := cmd.Execute(); err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("Execute: %v", err)
 	}
-
-	sData, err := os.ReadFile(summaryFile)
-	if err != nil {
-		t.Fatalf("summary not written: %v", err)
-	}
-	if !json.Valid(sData) {
-		t.Errorf("summary is not valid JSON: %s", sData)
-	}
-
-	rData, err := os.ReadFile(receiptFile)
-	if err != nil {
-		t.Fatalf("receipt not written: %v", err)
-	}
-	if len(rData) == 0 {
-		t.Error("receipt file is empty")
+	if stdout.Len() != 0 {
+		t.Errorf("stdout wrote %d bytes under -o none: %q", stdout.Len(), stdout.String())
 	}
 }
 
@@ -229,26 +201,38 @@ func TestRunCmd_MissingScript(t *testing.T) {
 // TestRunCmd_DefaultsToScriptNamedArtifacts pins the default routing (ruled 2026-08-20): each stream lands in
 // an artifact file named for the script, in the working directory — results are files, narration is stderr,
 // and stdout stays clean. An explicit --output overrides per stream, which every other test here exercises.
-func TestRunCmd_DefaultsToScriptNamedArtifacts(t *testing.T) {
+func TestRunCmd_LeavesNoArtifactsInTheWorkingDirectory(t *testing.T) {
+
+	script := writeScript(t, `
+graph = plan.assemble_definition([plan.shell.exec(command='echo hi')])
+t.run(graph)
+`)
 
 	work := t.TempDir()
-	script := filepath.Join(work, "probe.star")
-	if err := os.WriteFile(script, []byte("t.expect_unit_count(0)\n"), 0o644); err != nil {
-		t.Fatal(err)
+	previous, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
 	}
-	t.Chdir(work)
+	if err := os.Chdir(work); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(previous) })
 
-	cmd := newRunCmd()
-	cmd.SilenceErrors = true
-	cmd.SilenceUsage = true
+	opts := cli.SinkOptions{Format: "json", Store: t.TempDir()}
+	cmd := newRunCmd(&opts)
+	cmd.SilenceErrors, cmd.SilenceUsage = true, true
 	cmd.SetArgs([]string{script})
+	cmd.SetOut(&bytes.Buffer{})
+
 	if err := cmd.Execute(); err != nil {
-		t.Fatalf("run: %v", err)
+		t.Fatalf("Execute: %v", err)
 	}
 
-	for _, artifact := range []string{"probe.summary.json", "probe.graph.yaml", "probe.receipt.yaml"} {
-		if _, err := os.Stat(filepath.Join(work, artifact)); err != nil {
-			t.Errorf("default artifact %s not written: %v", artifact, err)
-		}
+	entries, err := os.ReadDir(work)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("the run littered the working directory: %v", entries)
 	}
 }

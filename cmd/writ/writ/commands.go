@@ -18,6 +18,8 @@ import (
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/verify"
 	"github.com/spf13/cobra"
 
+	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
+
 	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
 	"github.com/NobleFactor/devlore-cli/pkg/signing"
 )
@@ -205,11 +207,10 @@ Status indicators:
                         identity: attribution indeterminate → writ upgrade`,
 		Example: `  writ status                    # Report everything writ has deployed
   writ status noblefactor        # Report one project
-  writ status --json             # Machine-readable report`,
+  writ status -o json            # Machine-readable report
+  writ status -o table           # Aligned columns`,
 		RunE: runStatus,
 	}
-
-	cmd.Flags().Bool("json", false, "Emit the report as JSON")
 
 	return cmd
 }
@@ -217,7 +218,7 @@ Status indicators:
 // runStatus implements the status command on the status package (phase-8 step 47 slice 3).
 func runStatus(cmd *cobra.Command, args []string) error {
 
-	cfg := parseStatusConfig(cmd, args)
+	cfg := parseStatusConfig(args)
 
 	return status.Execute(cmd.Context(), &status.Config{
 		Projects: cfg.Projects,
@@ -246,14 +247,13 @@ is the signing policy ladder:
   reject           Reject anything that is not valid`,
 		Example: `  writ verify ~/.local/state/devlore/graphs/*.yaml
   writ verify --signing-policy=reject_external ~/Downloads/shared-plan.yaml
-  writ verify --json --signing-policy=reject trace.yaml`,
+  writ verify -o table --signing-policy=reject trace.yaml`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: runVerify,
 	}
 
 	cmd.Flags().String("signing-policy", "report", "Verification policy: ignore, report, reject_external, reject")
 	cmd.Flags().String("allowed-signers", "", "Trust-list path (default: <config>/devlore/allowed_signers)")
-	cmd.Flags().Bool("json", false, "Emit the reports as JSON")
 
 	return cmd
 }
@@ -268,14 +268,43 @@ func runVerify(cmd *cobra.Command, args []string) error {
 	}
 
 	allowedSigners, _ := cmd.Flags().GetString("allowed-signers") //nolint:errcheck // flag registered above
-	jsonOutput, _ := cmd.Flags().GetBool("json")                  //nolint:errcheck // flag registered above
 
-	return verify.Execute(cmd.Context(), &verify.Config{
+	reports, err := verify.Execute(cmd.Context(), &verify.Config{
 		Paths:          args,
 		Policy:         policy,
 		AllowedSigners: allowedSigners,
-		JSON:           jsonOutput,
 	})
+
+	// The reports are the result and are emitted whether or not the policy rejected: a rejection is the
+	// answer to the question, not a reason to withhold it.
+	if emitErr := emitResult(cmd, reports); emitErr != nil {
+		return emitErr
+	}
+
+	return err
+}
+
+// outputOptions holds the common set's values for every writ command.
+//
+// Bound once on the root by [NewRootCmd]; read by [emitResult] wherever a command has a result to render.
+var outputOptions cli.SinkOptions
+
+// emitResult renders a command's result to stdout through the shared pipeline.
+//
+// Parameters:
+//   - `cmd`: the running command, for its output writer.
+//   - `value`: the result to render.
+//
+// Returns:
+//   - `error`: non-nil when the pipeline cannot be built or the value cannot be rendered.
+func emitResult(cmd *cobra.Command, value any) error {
+
+	pipeline, err := cli.BuildPipeline(outputOptions, cmd.OutOrStdout())
+	if err != nil {
+		return err
+	}
+
+	return pipeline.Emit(value)
 }
 
 // getConfiguredRepo returns the path for a layer, or empty string if it doesn't exist.
