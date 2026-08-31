@@ -210,6 +210,38 @@ Phase 4's first task, and this phase is now the next work.
       cannot keep, so neither tool claimed the name. `DelimitedFormatter` keeps all three attributes; `Raw`
       is what separates the two survivors.
 
+### Phase 3d: The formatting rules, and stage 1 -- COMPLETE
+
+The rules were written first and judged the code, rather than the code being read and described. Three of
+the four findings below are defects the rules exposed on their first contact with a real result.
+
+- [x] `docs/architecture/10-command-line-interface.md` §8 states the two stages, the eight shapes a
+      presenter must answer for (S1-S8), the per-shape matrix, and the divergences from PowerShell --
+      measured against pwsh 7.5.4 rather than recalled.
+- [x] A non-scalar cell renders as **compact JSON** at any depth. It went through `fmt.Sprint` before, so a
+      nested map rendered as Go's own `map[runs:3]` -- a notation naming the language rather than the data,
+      which nothing downstream can parse.
+- [x] A type that renders itself is excluded: an `error`, a `fmt.Stringer`, an `encoding.TextMarshaler`. A
+      `time.Time` is a struct, and JSON-encoding it would replace the form it defines for itself.
+- [x] **Stage 1 is real.** `normalize` moved from inside the jq filter to the head of `Pipeline.Emit`, so
+      every presentation is a presentation of the JSON. Before this, `-o list` named a field `UnitCount`
+      and `--jq . -o list` named the same field `unit_count` -- the same result, two vocabularies,
+      depending on an unrelated flag. The json names are what the Starlark surface shows a customer, and
+      they are now what every rendering shows.
+- [x] Normalization keeps `json.Number`. Decoding to float64 rounds any integer past 2^53, which is the
+      defect #712 records; gojq's conversion stays inside the jq filter, where it is gojq's requirement.
+- [x] A single record is one row (S3). `table` refused an object outright, and `csv` rendered the whole
+      record into one cell -- two different wrong answers to the shape a command produces whenever it
+      reports on one thing.
+- [x] `list` added: one field per line, keys aligned within a record, each record keeping its own keys.
+      It is the rendering for a result that is wide or heterogeneous, where `table` is sparse and `json`
+      is punctuation to see past. gcloud ships `list` and `flattened` separately; one suffices here because
+      the compact-JSON cell rule already handles the nesting `flattened` exists to spread out.
+- [x] A conformance suite: one fixture, every formatter. It carries `json:` tags that differ from the Go
+      names, a nested object, an array, an integer past 2^53, a bool, and an empty string -- so a formatter
+      that disagrees with the others about a field's NAME or about what a nested value looks like fails
+      there rather than in a command months later.
+
 ### Phase 4: Bring star and lore into agreement
 
 - [x] One `TableFormatter` in `pkg/result`, rune-aligned via `text/tabwriter` (#741's alignment half).

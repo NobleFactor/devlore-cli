@@ -16,8 +16,8 @@ import (
 // this makes the conflict impossible by construction. `kubectl` ships the same form -- `-o go-template=`,
 // `-o jsonpath=`, `-o custom-columns=`.
 //
-// The names are "csv", "json", "none", "table", "template=BODY", "value", and "yaml". Reshaping a value is
-// the filter stage's job -- see [FilterByExprs] -- so only "template" takes an argument.
+// The names are "csv", "json", "list", "none", "table", "template=BODY", "value", and "yaml". Reshaping a
+// value is the filter stage's job -- see [FilterByExprs] -- so only "template" takes an argument.
 //
 // "csv" and "value" are the delimited pair, and the split is by consumer rather than by separator: "csv"
 // quotes, so a parser can round-trip it; "value" does not, so a shell reads exactly what was composed. A
@@ -53,6 +53,9 @@ func FormatterByName(spec string) (Formatter, error) {
 	case "csv":
 		return NewCSVFormatter(), nil
 
+	case "list":
+		return NewListFormatter(), nil
+
 	case "none":
 		return NoneFormatter{}, nil
 
@@ -70,8 +73,8 @@ func FormatterByName(spec string) (Formatter, error) {
 
 	default:
 		return nil, fmt.Errorf(
-			"result.FormatterByName: unknown formatter %q; expected one of csv, json, none, table, "+
-				"template=BODY, value, yaml", name)
+			"result.FormatterByName: unknown formatter %q; expected one of csv, json, list, none, "+
+				"table, template=BODY, value, yaml", name)
 	}
 }
 

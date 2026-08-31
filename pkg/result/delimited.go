@@ -4,7 +4,9 @@
 package result
 
 import (
+	"encoding"
 	"encoding/csv"
+	"encoding/json"
 	"fmt"
 	"io"
 	"reflect"
@@ -105,8 +107,12 @@ func (f DelimitedFormatter) Format(value any, w io.Writer) error {
 		return nil
 	}
 
-	// A value that is not a sequence is one row. `--jq '.count'` produces this, and refusing it would make
-	// the filter stage incomplete.
+	// A lone record is a sequence of one, so an object renders as a header and a row rather than as one
+	// cell holding the whole thing.
+	rv = asRecords(rv)
+
+	// A value that is still not a sequence is a scalar, and one row. `--jq '.count'` produces this, and
+	// refusing it would make the filter stage incomplete.
 	if rv.Kind() != reflect.Slice && rv.Kind() != reflect.Array {
 		return f.emit(w, nil, [][]string{{csvCellValue(rv)}})
 	}
@@ -373,7 +379,59 @@ func csvCellValue(rv reflect.Value) string {
 	if !rv.IsValid() {
 		return ""
 	}
+
+	if isComposite(rv) {
+		encoded, err := json.Marshal(rv.Interface())
+		if err == nil {
+			return string(encoded)
+		}
+		// A value JSON cannot encode is rare and never worth losing the row over: a channel or a func
+		// reaching a cell means the result was mis-shaped upstream, and Go's own rendering names the
+		// type, which is what a reader needs in order to go fix it.
+		return fmt.Sprint(rv.Interface())
+	}
+
 	return fmt.Sprint(rv.Interface())
+}
+
+// Interfaces whose implementations render themselves as a scalar. Checked against the value's own type and
+// not its pointer, which is what [fmt.Sprint] does -- a String method on *T does not make a T print itself.
+var (
+	errorInterface         = reflect.TypeOf((*error)(nil)).Elem()
+	stringerInterface      = reflect.TypeOf((*fmt.Stringer)(nil)).Elem()
+	textMarshalerInterface = reflect.TypeOf((*encoding.TextMarshaler)(nil)).Elem()
+)
+
+// isComposite reports whether a cell holds a structure rather than a scalar.
+//
+// Two exclusions, both because the value is already one scalar:
+//
+//   - A byte slice. [DelimitedFormatter.Format] renders it as its own string rather than as a sequence of
+//     numbers, and a cell follows.
+//   - Anything that renders itself -- an [error], a [fmt.Stringer], an [encoding.TextMarshaler]. A
+//     [time.Time] is a struct, and JSON-encoding it would replace the form it defines for itself with a
+//     quoted timestamp; a type whose String method is its presentation would lose it entirely.
+//
+// Parameters:
+//   - `rv`: the dereferenced cell value.
+//
+// Returns:
+//   - `bool`: true when the value renders as compact JSON rather than through [fmt.Sprint].
+func isComposite(rv reflect.Value) bool {
+
+	t := rv.Type()
+	if t.Implements(errorInterface) || t.Implements(stringerInterface) || t.Implements(textMarshalerInterface) {
+		return false
+	}
+
+	switch rv.Kind() {
+	case reflect.Map, reflect.Struct:
+		return true
+	case reflect.Slice, reflect.Array:
+		return t.Elem().Kind() != reflect.Uint8
+	default:
+		return false
+	}
 }
 
 // endregion

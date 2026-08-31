@@ -4,7 +4,6 @@
 package result
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -101,29 +100,19 @@ func (f *JQFilter) Apply(value any) (any, error) {
 
 // region Helpers
 
-// jqNormalize converts value into gojq's native shape via JSON round-trip. gojq operates on
-// map[string]any / []any / primitives; struct values pass through json.Marshal which honors `json:`
-// tags. The conversion is needed because gojq cannot reflect on arbitrary Go structs.
+// jqNormalize puts value into gojq's native shape.
+//
+// [normalize] does the JSON round trip; the number conversion is gojq's own requirement and stays here. gojq
+// compares int64 and float64 directly and has no notion of [json.Number], where the presenters keep it
+// precisely because it preserves the literal digits.
 func jqNormalize(value any) (any, error) {
 
-	if value == nil {
-		return nil, nil
-	}
-
-	encoded, err := json.Marshal(value)
+	normalized, err := normalize(value)
 	if err != nil {
 		return nil, err
 	}
 
-	decoder := json.NewDecoder(bytes.NewReader(encoded))
-	decoder.UseNumber()
-
-	var out any
-	if err := decoder.Decode(&out); err != nil {
-		return nil, err
-	}
-
-	return jqUnwrapNumbers(out), nil
+	return jqUnwrapNumbers(normalized), nil
 }
 
 // jqUnwrapNumbers walks the decoded value and converts json.Number values to int64 or float64. gojq

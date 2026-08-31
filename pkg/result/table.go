@@ -63,15 +63,20 @@ func (f TableFormatter) Format(value any, w io.Writer) error {
 		rv = rv.Elem()
 	}
 
+	// A lone record is a sequence of one (§8's S3). A scalar is one row of one column, which is what
+	// `--jq '.count' -o table` should print rather than an error.
+	rv = asRecords(rv)
+
 	if rv.Kind() != reflect.Slice && rv.Kind() != reflect.Array {
-		return fmt.Errorf("result.TableFormatter: expected slice or array, got %T", value)
+		_, err := fmt.Fprintln(w, csvCellValue(rv))
+		return err
 	}
 
 	if rv.Len() == 0 {
 		return nil
 	}
 
-	headers, headersFromValue := csvHeadersFromValue(value)
+	headers, headersFromValue := csvHeadersFromValue(rv.Interface())
 	if !headersFromValue {
 		headers = csvHeadersFromElements(rv)
 	}

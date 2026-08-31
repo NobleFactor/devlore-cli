@@ -166,7 +166,8 @@ than a direction.
 ## 7. `--output`: how the result is rendered
 
 `--output` / `-o` selects the rendering. Its value is a format name, or `NAME=ARGUMENT` for a format that
-needs one (§8). The set, alphabetically: `csv`, `json`, `none`, `table`, `template=<body>`, `value`, `yaml`.
+needs one (§8). The set, alphabetically: `csv`, `json`, `list`, `none`, `table`, `template=<body>`, `value`,
+`yaml`.
 
 Reshaping is not a rendering. Selecting fields, mapping, and interpolating happen in the filter stage
 (`--filter`, `--jq`), which composes with every format. `aws`, `az`, and `gcloud` all take this shape: a
@@ -182,8 +183,9 @@ when observed is unreproducible. A human wanting a table asks for one: `-o table
 does not have reshapes with `--jq` and renders with `value`.
 
 **`value` expects a projection.** It renders whatever it is handed, so a whole nested structure comes out as
-every field on one line, pointer addresses included. That is the same expectation `gcloud` states by
-requiring a projection for its `csv` and `value` formats. The intended use is `--jq` first:
+one line with its nested members as compact JSON. That is readable, and it is not what a pipe wants. It is
+the same expectation `gcloud` states by requiring a projection for its `csv` and `value` formats. The
+intended use is `--jq` first:
 
 ```
 writ status --jq '.entries[] | "\(.target) is \(.state)"' -o value
@@ -214,6 +216,7 @@ flag:
   value       │ field=v  │  │  gojq  │        │                      │
               └──────────┘  └────────┘        │  csv                 │
                                               │  json                │
+                                              │  list                │
                reshape: select, map,          │  none                │
                project, interpolate           │  table               │
                composable, any order          │  value               │
@@ -226,6 +229,161 @@ flag:
 **Reshaping is not rendering.** Choosing which fields appear, mapping over a list, and building a string are
 the filter stage's work, and they compose with every format. `aws`, `az`, and `gcloud` all take this shape --
 a query language reshapes, a format renders, and neither borrows the other's job.
+
+### From a Go value to a presentation
+
+The pipeline has two stages, and the first is total: **every result becomes JSON before anything renders
+it.** JSON is the native format, and `table`, `csv`, `list`, and `value` are presentations of that JSON --
+not of the Go value behind it.
+
+```
+  Go value            JSON                    presentation
+     |                  |                          |
+     v                  v                          v
+  +--------+       +---------+   filter      +-----------+
+  | struct |------>| object  |-->--filter--->|  --output |--> stdout
+  | slice  | stage | array   |   --jq        |           |
+  | map    |   1   | scalar  |               |  json     |  serialize
+  | scalar |       | null    |               |  yaml     |  serialize
+  +--------+       +---------+               |  table    |  }
+                                             |  csv      |  } one key derivation,
+                        stage 2 ------------>|  list     |  } four presentations
+                                             |  value    |  }
+                                             |  template |  applied to the value
+                                             |  none     |  discards
+                                             +-----------+
+```
+
+Stage 1 runs once, at the head of [Pipeline.Emit], so the filter and the formatter see the same data. A
+formatter called directly renders what it is handed; a *command* never does that, which is what makes the
+rule below true of everything a user sees.
+
+Normalizing first is what keeps the presenters honest, and the cost of skipping it is measurable -- see
+"What PowerShell gets wrong, and why" below. It also decides field NAMES: a struct field carries its
+`json:` tag through every rendering, and those are the names the Starlark surface shows a customer. Before
+stage 1 ran here only the jq filter normalized, so `-o list` named a field `UnitCount` while
+`--jq . -o list` named the same field `unit_count`.
+
+**Numbers stay `json.Number`.** Decoding to `float64` rounds any integer past 2^53 -- the defect
+[#712](https://github.com/NobleFactor/devlore-cli/issues/712) records against the document codec -- so a
+presenter renders the literal digits it was given. `gojq` needs int64 and float64 and gets them inside the
+jq filter, where the conversion is gojq's requirement rather than this pipeline's.
+
+#### The shapes a presenter must answer for
+
+| | Shape | Example |
+| --- | --- | --- |
+| S1 | scalar | `"active"`, `3`, `true`, `null` |
+| S2 | array of scalars | `["a","b"]` |
+| S3 | flat object | `{"name":"x","state":"active"}` |
+| S4 | nested object | `{"name":"x","health":{"runs":3}}` |
+| S5 | array of flat objects | `[{...},{...}]` -- **the table** |
+| S6 | array of objects, differing keys | union, with holes |
+| S7 | array of arrays | positional rows |
+| S8 | empty array, or null | |
+
+`json`, `yaml`, and `none` are shape-independent: the first two serialize anything, the third discards.
+`template=BODY` hands the value to a template. The rules below govern the four that lay data out.
+
+#### Keys are derived once; presentations differ
+
+One derivation serves all four. A `csv:"name"` tag renames a field, `-` omits it, and a [HasHeaders]
+implementation overrides inference entirely. Absent those: a struct contributes its exported fields in
+declaration order, and a map contributes its keys sorted alphabetically.
+
+What differs is whether records share a schema.
+
+- `table`, `csv`, and `value` derive **one** column set -- the union of keys across every record -- and
+  every record fills it, leaving holes where a key is absent.
+- `list` gives each record **its own** keys. That is what makes it right for S6.
+
+| Shape | `table` / `csv` / `value` | `list` |
+| --- | --- | --- |
+| S1 | one row, one column, no header | the value alone, no key |
+| S2 | one column, one row per element | one value per line |
+| S3 | one row | `key : value` per field |
+| S4 | one row; nested values as compact JSON | as S3, nested values as compact JSON |
+| S5 | one row per element; columns = union | one block per element, blank line between |
+| S6 | as S5; absent keys render empty | as S5 -- each block shows only its own keys |
+| S7 | one row per inner array, positional, no header | one block per inner array, values unkeyed |
+| S8 | nothing, exit 0 | nothing, exit 0 |
+
+**A non-scalar cell renders as compact JSON.** `{"runs":3}`, `["a","b","c"]`, at any depth, never
+truncated. Three reasons over the alternatives:
+
+1. Columns stay shallow and predictable, which is the property that makes `table` and `csv` usable at all.
+   Flattening to `health.runs` makes column count a function of data depth.
+2. The cell holds the native format, so it pipes back into `jq`.
+3. It loses nothing. Refusing a nested value would be defensible, but it makes a command author's shaping
+   mistake into a user's error.
+
+Flattening remains available where it belongs -- in the filter stage, chosen explicitly:
+`--jq '{name, runs: .health.runs}'`.
+
+#### What PowerShell gets wrong, and why
+
+PowerShell has the richest formatter set in this survey, and its inline rendering of a nested value is the
+choice adopted above. Three of its behaviors are rejected, and all three have one cause: **it formats .NET
+objects by their properties, without normalizing first.** Measured against pwsh 7.5.4.
+
+| Behavior | Output | Cause |
+| --- | --- | --- |
+| Depth truncates at the third level | `@{c=}` -- the value of `d` silently gone | the property walk stops |
+| Type names leak | `System.Collections.Hashtable`, where an object gives `@{k=v}` | different .NET types |
+| Arrays are reflected over | `Length LongLength Rank SyncRoot IsReadOnly ...` | an array is an object with properties |
+
+Stage 1 makes all three impossible here. By the time a presenter sees the value it is JSON: no
+Hashtable-versus-object distinction exists, an array is an array, and nothing has properties to reflect
+over. That is the argument for normalizing before presenting, stated as a consequence rather than a taste.
+
+**Rejected: automatic table/list switching.** PowerShell renders four properties or fewer as a table and
+five or more as a list. The same command changes shape because someone added a field. §10 rejects TTY
+adaptation because a pipeline that behaves differently when observed is unreproducible; switching on
+property count is that defect with a different trigger. Neither `aws`, `gcloud`, nor `kubectl` does it.
+
+**Divergence: S6 unions keys rather than sampling the first record.** `Format-Table` takes its columns from
+the first object and blanks every key the later ones introduce:
+
+```
+$het = @(
+  [pscustomobject]@{ name="x"; state="active" }
+  [pscustomobject]@{ name="y"; runs=3; findings=@("a","b") }
+  [pscustomobject]@{ kind="package"; action="install" }
+)
+$het | Format-Table
+
+name state
+---- -----
+x    active
+y
+
+        <- runs, findings, kind, and action are gone, and nothing says so
+```
+
+A sparse table is a worse presentation than a dense one. Silently dropping columns is a worse *answer*. We
+take the sparse table, and `list` exists so heterogeneity has a rendering that is not sparse.
+
+#### `list`: one field per line
+
+`list` is the rendering for a result that is wide, heterogeneous, or both -- where `table` is unreadable and
+`json` is punctuation a reader has to see past.
+
+```
+name  : x
+state : active
+
+name     : y
+runs     : 3
+findings : ["a","b"]
+```
+
+Keys are padded within a record, not across the stream, so a heterogeneous stream does not pay for its
+widest key everywhere. Records are separated by a blank line. The separator is `` : `` with the colon
+aligned, deliberately not `key: value`, which would read as YAML and invite the belief that it is -- `-o
+yaml` is one flag away and means something different.
+
+`aws` has no equivalent; `gcloud` ships `list` and `flattened` as separate formats. One suffices here
+because the compact-JSON cell rule already handles the nesting that `flattened` exists to spread out.
 
 ### A format that needs an argument carries it
 

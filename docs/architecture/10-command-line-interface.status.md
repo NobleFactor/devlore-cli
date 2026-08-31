@@ -14,7 +14,7 @@ and two of four programs landed 2026-08-30. `devlore-test` and `writ` register t
 - [x] Scope settled: `devlore-test`, `lore`, `star`, and `writ`, each registering the full common set on
   its root as persistent flags -- every command of all four accepts every flag.
 - [x] The reserved flag set settled: `--filter`, `--jq`, `--output` / `-o`, `--store`, with renderings
-  `csv`, `json`, `none`, `table`, `template=<body>`, `value`, `yaml`. A `tsv` rendering was carried until
+  `csv`, `json`, `list`, `none`, `table`, `template=<body>`, `value`, `yaml`. A `tsv` rendering was carried until
   2026-08-30 and dropped: quoting cannot rescue `cut` or `awk`, which have no quote awareness, so a quoted
   tab format served neither the shell nor the parser (§8).
 - [x] The pipeline drawn: two stages, one flag each; a format needing an argument carries it as
@@ -37,6 +37,9 @@ and two of four programs landed 2026-08-30. `devlore-test` and `writ` register t
 - [x] `writ`'s **flags** brought into agreement: the boolean `--json` retired by deletion on `status` and
   `verify`, `verify.Execute` returning `[]Report` for the command to emit, and the common set registered on
   the root.
+- [x] The formatting rules written down and the code judged against them: the two stages, S1-S8, the
+  per-shape matrix, and the divergences from PowerShell. Stage 1 is real -- `Pipeline.Emit` normalizes, so
+  every rendering names a field by its `json:` tag, which is the name the Starlark surface shows.
 - [ ] `writ`'s **renderings** brought into agreement: the 30 stdout call sites routed through the sink -- 22
   `fmt.Print` in `status/report.go`, four dry-run `SerializeGraphs` dumps, and two in `migrate`.
 - [ ] `lore`'s remaining commands brought into agreement; the `fmt.Print` calls triaged.
