@@ -503,9 +503,42 @@ Current state, 2026-08-30. Two of the four in-scope programs register the common
 | `star` | no | a **second `cli` package** of its own -- see below |
 | `devlore-docs` | not in scope | — |
 
-`writ status` is bridged rather than converted: `cfg.JSONOutput` reads `outputOptions.Format == "json"` while
-its report still renders itself. The consequence is worth stating -- `writ status -o yaml` silently produces
-the human report, not yaml -- and it holds only until that report goes through the pipeline.
+`writ status` is bridged rather than converted, and the bridge is one bool: `cfg.JSONOutput` reads
+`outputOptions.Format == "json"` (`cmd/writ/writ/config.go:160`) while the report still renders itself.
+Measured 2026-08-30, **one of eight formats works**:
+
+| `-o` | Result |
+| --- | --- |
+| `json` | real JSON |
+| `yaml`, `table`, `list`, `csv`, `value`, `none`, `template=BODY` | byte-identical human dashboard |
+
+Three of those are worse than ignored. `-o none` prints ten lines where its whole contract is silence.
+`-o yaml` emits text a parser fails on at line 1. `-o template=BODY` neither renders the template nor
+rejects it.
+
+**And the value is never validated** ([#754](https://github.com/NobleFactor/devlore-cli/issues/754)).
+Because the format string never reaches [FormatterByName], any string is accepted: `writ status -o bogus`
+prints the dashboard and exits 0, where `devlore-test -o bogus` reports `unknown formatter "bogus"; expected
+one of csv, json, list, none, table, template=BODY, value, yaml`. A typo is silently honored as a request for
+the default. That is a second defect, distinct from the seven wrong renderings: one does the wrong thing, the
+other accepts wrong input. It is not confined to `status` -- every writ command but `verify` accepts any
+value.
+
+**`--store` is read nowhere in writ at all**
+([#753](https://github.com/NobleFactor/devlore-cli/issues/753)), and that is the severe face of the same
+cause. `outputOptions` is read in exactly two places: `config.go:160` takes `.Format`, and `commands.go:302`
+hands the struct to [BuildPipeline] in `runVerify`. Meanwhile `readback.go` genuinely reads [TracesDir] and
+[GraphsDir] to fold runs into the inventory. So `writ status --store <elsewhere>` reads the default store and
+reports the result as compliance -- not a formatting nicety, but the wrong data, silently.
+
+**The shared cause is a flag registered on a root that no leaf consumes.** `root.go:49` calls
+[AddOutputFlags], so cobra advertises the whole set on every command's help; consuming it is a separate act,
+performed once. Registration without consumption is worse than absence: an absent flag errors and the user
+tries something else, where a present one that does nothing returns a confident wrong answer.
+
+Both end the moment `runStatus` calls [BuildPipeline] the way `runVerify` already does. `BuildReport`
+already returns `*Report`, so the conversion deletes `status.Execute`'s branch, `presentJSON`, `presentText`,
+and `JSONOutput` together.
 
 **`star` does not lack the convention -- it has a second copy of it.** `cmd/star/cli` duplicates eighteen
 exported names from `cmd/internal/cli`, including all ten exit codes and `AddOutputFlags`, and at 387 lines
@@ -514,8 +547,10 @@ against 196 the copy has grown rather than gone stale. The two now disagree: one
 on `Flags`. A program cannot share a common set while binding a different one from a different package
 ([#743](https://github.com/NobleFactor/devlore-cli/issues/743)).
 
-Its `renderTable` is the exception worth keeping: it is the suite's only working table renderer and the
-candidate to promote into `pkg/result` in Phase 4, rather than a thing to delete.
+Its `renderTable` was the exception worth keeping, and it has been kept: [TableFormatter] in `pkg/result`
+took star's `text/tabwriter` approach and joined it to the delimited formats' column inference. star's own
+version carried a third implementation of column selection, so `cmd/star/cli` is now deletable whole rather
+than half salvaged.
 
 **CLI code also lives outside `cmd/`.** Every package under the repository-root `internal/` is imported only
 by `cmd/`, and `internal/console` is a Bubble Tea terminal UI. Root `internal/` is importable by the whole

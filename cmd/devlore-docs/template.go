@@ -184,7 +184,7 @@ func collectFlags(flags *pflag.FlagSet) []FlagInfo {
 		result = append(result, FlagInfo{
 			Name:        name,
 			Default:     formatDefault(f),
-			Description: f.Usage,
+			Description: tableCell(f.Usage),
 		})
 	})
 	return result
@@ -214,4 +214,20 @@ func trimExampleLines(s string) string {
 		lines[i] = strings.TrimSpace(line)
 	}
 	return strings.Join(lines, "\n")
+}
+
+// tableCell renders a flag's usage text for a Markdown table cell.
+//
+// A cell cannot hold a newline, and a pipe would end it. Multi-line usage exists because a flag whose values
+// each deserve a sentence -- `--output`, whose eight renderings each have a job -- is unreadable as one line.
+//
+// Parameters:
+//   - `usage`: the flag's usage string, possibly multi-line.
+//
+// Returns:
+//   - `string`: the text with line breaks as `<br>` and pipes escaped.
+func tableCell(usage string) string {
+
+	escaped := strings.ReplaceAll(usage, "|", "\\|")
+	return strings.ReplaceAll(escaped, "\n", "<br>")
 }

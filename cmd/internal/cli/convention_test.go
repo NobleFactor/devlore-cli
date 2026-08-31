@@ -90,7 +90,8 @@ func TestAddOutputFlags_SubcommandParsesTheShortForm(t *testing.T) {
 		return nil
 	}})
 
-	root.SetArgs([]string{"child", "-o", "yaml", "--store", "/tmp/store"})
+	store := t.TempDir()
+	root.SetArgs([]string{"child", "-o", "yaml", "--store", store})
 	root.SetOut(&bytes.Buffer{})
 	root.SetErr(&bytes.Buffer{})
 
@@ -103,8 +104,78 @@ func TestAddOutputFlags_SubcommandParsesTheShortForm(t *testing.T) {
 	if opts.Format != "yaml" {
 		t.Errorf("-o yaml gave Format %q, want yaml", opts.Format)
 	}
-	if opts.Store != "/tmp/store" {
-		t.Errorf("--store gave Store %q, want /tmp/store", opts.Store)
+	if opts.Store != store {
+		t.Errorf("--store gave Store %q, want %q", opts.Store, store)
+	}
+}
+
+// TestAddOutputFlags_ResolvesTheStoreAndRestoresIt pins #753.
+//
+// `--store` used to populate the options struct and stop there, so `writ status --store <elsewhere>` folded
+// runs from the DEFAULT store and reported the result as compliance. Binding the set now resolves it, and
+// undoes the resolution when the command tree finishes -- without which the first command passing --store
+// would silently relocate every command after it in the same process.
+func TestAddOutputFlags_ResolvesTheStoreAndRestoresIt(t *testing.T) {
+
+	before := StoreHome()
+	store := t.TempDir()
+
+	var opts SinkOptions
+	root := &cobra.Command{Use: "root"}
+	AddOutputFlags(root, &opts)
+
+	var during string
+	root.AddCommand(&cobra.Command{Use: "child", RunE: func(*cobra.Command, []string) error {
+		during = StoreHome()
+		return nil
+	}})
+
+	root.SetArgs([]string{"child", "--store", store})
+	root.SetOut(&bytes.Buffer{})
+	root.SetErr(&bytes.Buffer{})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	if during != store {
+		t.Errorf("during the command the store was %q, want %q", during, store)
+	}
+	if after := StoreHome(); after != before {
+		t.Errorf("the store was left at %q, want it restored to %q", after, before)
+	}
+}
+
+// TestAddOutputFlags_RejectsAnUnknownFormat pins #754.
+//
+// The format string is checked in exactly one place, [result.FormatterByName], reached from
+// [BuildPipeline]. A command that renders itself never got there, so `writ status -o bogus` printed its
+// report and exited 0 -- a typo honored as a request for the default. Binding the set now validates.
+func TestAddOutputFlags_RejectsAnUnknownFormat(t *testing.T) {
+
+	var opts SinkOptions
+	root := &cobra.Command{Use: "root"}
+	AddOutputFlags(root, &opts)
+
+	ran := false
+	root.AddCommand(&cobra.Command{Use: "child", RunE: func(*cobra.Command, []string) error {
+		ran = true
+		return nil
+	}})
+
+	root.SetArgs([]string{"child", "-o", "bogus"})
+	root.SetOut(&bytes.Buffer{})
+	root.SetErr(&bytes.Buffer{})
+
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("an unknown formatter was accepted, want an error")
+	}
+	if ran {
+		t.Error("the command ran despite an unknown formatter")
+	}
+	if !strings.Contains(err.Error(), "bogus") {
+		t.Errorf("the error does not name the value: %v", err)
 	}
 }
 

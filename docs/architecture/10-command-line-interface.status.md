@@ -40,6 +40,10 @@ and two of four programs landed 2026-08-30. `devlore-test` and `writ` register t
 - [x] The formatting rules written down and the code judged against them: the two stages, S1-S8, the
   per-shape matrix, and the divergences from PowerShell. Stage 1 is real -- `Pipeline.Emit` normalizes, so
   every rendering names a field by its `json:` tag, which is the name the Starlark surface shows.
+- [ ] `writ` consumes the set it registers. Measured 2026-08-30: one of eight formats works, the value is
+  never validated ([#754](https://github.com/NobleFactor/devlore-cli/issues/754)), and `--store` is read
+  nowhere at all ([#753](https://github.com/NobleFactor/devlore-cli/issues/753)) while `readback` folds runs
+  from the default store. A flag registered on a root that no leaf consumes is worse than an absent one.
 - [ ] `writ`'s **renderings** brought into agreement: the 30 stdout call sites routed through the sink -- 22
   `fmt.Print` in `status/report.go`, four dry-run `SerializeGraphs` dumps, and two in `migrate`.
 - [ ] `lore`'s remaining commands brought into agreement; the `fmt.Print` calls triaged.

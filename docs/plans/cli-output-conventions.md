@@ -186,13 +186,43 @@ the same. The real figure is **30 call sites**:
 ### Phase 3b: Bring writ's renderings into agreement -- UNBLOCKED
 
 The status report is a human table, so this phase waited on the shared `TableFormatter`. That landed with
-Phase 4's first task, and this phase is now the next work.
+Phase 4's first task, and Phase 3d settled how a value of any shape renders. This phase is now the next work.
 
-- [ ] `status/report.go`'s 22 `fmt.Print` calls render through the pipeline as `table`.
+One question it raises and does not answer: `Report` is an object of three slices and a struct -- shape S4 --
+so `-o list` renders four lines with each section as compact JSON, and `-o table` renders one row of four
+cells. Legible for `list`, useless for `table`. Whether that is acceptable, or whether the presenters need a
+case for a sectioned object, is a design question for after the pipeline is wired. Wiring is not blocked on
+it: `-o json`, `-o yaml`, `-o none`, `--jq`, and `--filter` all become correct immediately.
+
+**Measured 2026-08-30, before starting.** `writ status` honors one of eight formats. `-o json` produces
+JSON; `yaml`, `table`, `list`, `csv`, `value`, `none`, and `template=BODY` all produce the same
+byte-identical human dashboard. `-o none` prints ten lines where its contract is silence, and `-o yaml`
+emits text a parser fails on. The bridge is one bool at `cmd/writ/writ/config.go:160`.
+
+The format value is also never validated (#754), because it never reaches `FormatterByName`:
+`writ status -o bogus` prints the dashboard and exits 0, and so does every writ command but `verify`. That is
+a second defect, distinct from the wrong renderings -- one does the wrong thing, the other accepts wrong
+input.
+
+`--store` is read nowhere in writ at all (#753), which is the severe face of the same cause. `readback.go`
+reads `TracesDir()` and `GraphsDir()` to fold runs, so `writ status --store <elsewhere>` reports on the
+default store as though it had complied -- the wrong data rather than the wrong shape.
+
+The shared cause is a flag registered on a root that no leaf consumes. `root.go:49` registers the whole set,
+so cobra advertises it everywhere; `commands.go:302` consumes it once. Registration without consumption is
+worse than absence: an absent flag errors, a present one that does nothing lies.
+
+- [ ] `runStatus` calls `BuildPipeline` and emits `*Report`, as `runVerify` already does. `BuildReport`
+      already returns the value, so this deletes `status.Execute`'s branch, `presentJSON`, `presentText`,
+      and `JSONOutput` together -- the 22 `fmt.Print` calls go with them.
 - [ ] The four dry-run `SerializeGraphs(os.Stdout, ...)` dumps emit the plan as the command's result.
 - [ ] `migrate`'s own `--format` retires; its `text` rendering is a domain question like `lore list`'s
       `manifest`, and does not join the shared set.
 - [ ] `migrate/session.go`'s stdout write is classified: narration to stderr, or a result to the pipeline.
+- [ ] `writ` resolves `--store` through `cli.SetStoreRoot` before any command that touches the store,
+      restoring on exit as `devlore-test` does (#753). Every command routed through `readback` is affected,
+      not only `status`.
+- [ ] Every writ command validates `--output`, which follows from reaching `BuildPipeline` (#754).
 
 ### Phase 3c: The format value accepts an argument -- COMPLETE
 
@@ -261,6 +291,11 @@ the four findings below are defects the rules exposed on their first contact wit
 
 - [ ] A test that fails when a command registers an output flag of its own.
 - [ ] A test that fails on a direct `os.Stdout` write from a command package.
+- [ ] A test that fails when a root registers the common set and a leaf command does not consume it.
+      Neither invariant above catches #753 or #754: `writ` registers no flags of its own, and the
+      `os.Stdout` check finds `status` but not `repo`, which is equally unvalidated while printing nothing
+      of its own. Greppable as "every root calling `AddOutputFlags` has every leaf reaching
+      `BuildPipeline`".
 - [ ] Regenerate the CLI docs and confirm every command documents the same flags.
 - [x] Correct `docs/plans/extract-output-package.md`, which is marked complete while describing an
       `internal/output` package that was never created. Done ahead of the rest of this phase: a completed

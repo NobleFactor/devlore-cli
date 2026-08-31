@@ -146,6 +146,26 @@ func TestConformance_EveryFormatterKeepsIntegerPrecision(t *testing.T) {
 	}
 }
 
+// TestConformance_ANumberIsANumberInEveryDocumentFormat guards what the precision test alone does not.
+//
+// Keeping [json.Number] through stage 1 preserves the digits, and [encoding/json] emits the type bare. yaml
+// does not: [json.Number] is a string type, so `-o yaml` answered `unit_count: "2"` where `-o json` answered
+// `2` -- one value with two types, decided by the rendering. The precision test passed throughout, because
+// the digits were present; they were merely in quotes.
+func TestConformance_ANumberIsANumberInEveryDocumentFormat(t *testing.T) {
+
+	for _, format := range []string{"json", "yaml"} {
+		t.Run(format, func(t *testing.T) {
+
+			got := emit(t, format, fixture())
+
+			if strings.Contains(got, `"9007199254740993"`) {
+				t.Errorf("the number was quoted, making it a string:\n%s", got)
+			}
+		})
+	}
+}
+
 // TestConformance_NestedValuesAreCompactJSON pins the S4 rule across the presenters that lay data out.
 //
 // `json` and `yaml` render structure natively and are excluded; `value` is raw and carries the same cell
