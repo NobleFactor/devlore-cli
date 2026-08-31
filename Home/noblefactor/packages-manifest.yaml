@@ -14,10 +14,6 @@
 # always matches". Platform layers add to it: Darwin and Linux also draw noblefactor.Unix, because
 # OSFamily maps both to Unix; Windows has no family and draws only noblefactor.Windows.
 #
-# The suffix namespace belongs to segment values alone. Segments.Match requires every suffix to be one
-# the machine reports, so a Home/noblefactor.secrets would match nowhere -- silently, not loudly. Any
-# sub-scoping goes in the project name, Home/noblefactor-secrets, never after a dot.
-#
 # Every entry below is one this repository demonstrably uses -- a Makefile target, a CI step, a star
 # extension, or a provider that shells out to it. Nothing is here because it happens to be installed
 # on someone's laptop.
