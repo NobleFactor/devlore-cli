@@ -1,13 +1,24 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright Noble Factor. All rights reserved.
 
-# The tools a devlore-cli working environment needs on every platform.
+# What this repository contributes to the noblefactor layer, on every platform.
+#
+# The layer name is an address, not a description. Base, team, and personal repositories each carry a
+# Home/noblefactor, and `writ deploy noblefactor` assembles all of them -- so the name has to be
+# identical across repositories owned by different people, and stable as products are renamed. That is
+# why it names the company and not devlore: the personal and team repositories are not about devlore,
+# and a Home/devlore in them would be empty. Each repository decides what it contributes; this one
+# contributes the tools its own work needs.
 #
 # This layer has no suffix, so writ's Segments.Match selects it everywhere -- "no suffixes means it
 # always matches". Platform layers add to it: Darwin and Linux also draw noblefactor.Unix, because
 # OSFamily maps both to Unix; Windows has no family and draws only noblefactor.Windows.
 #
-# Every entry is one this repository demonstrably uses -- a Makefile target, a CI step, a star
+# The suffix namespace belongs to segment values alone. Segments.Match requires every suffix to be one
+# the machine reports, so a Home/noblefactor.secrets would match nowhere -- silently, not loudly. Any
+# sub-scoping goes in the project name, Home/noblefactor-secrets, never after a dot.
+#
+# Every entry below is one this repository demonstrably uses -- a Makefile target, a CI step, a star
 # extension, or a provider that shells out to it. Nothing is here because it happens to be installed
 # on someone's laptop.
 #
