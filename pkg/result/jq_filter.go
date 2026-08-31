@@ -4,7 +4,6 @@
 package result
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -64,7 +63,7 @@ func NewJQFilter(expression string) (*JQFilter, error) {
 // returned as-is.
 func (f *JQFilter) Apply(value any) (any, error) {
 
-	normalized, err := jqNormalize(value)
+	normalized, err := normalize(value)
 	if err != nil {
 		return nil, fmt.Errorf("result.JQFilter: normalize input: %w", err)
 	}
@@ -99,53 +98,5 @@ func (f *JQFilter) Apply(value any) (any, error) {
 // endregion
 
 // region Helpers
-
-// jqNormalize puts value into gojq's native shape.
-//
-// [normalize] does the JSON round trip; the number conversion is gojq's own requirement and stays here. gojq
-// compares int64 and float64 directly and has no notion of [json.Number], where the presenters keep it
-// precisely because it preserves the literal digits.
-func jqNormalize(value any) (any, error) {
-
-	normalized, err := normalize(value)
-	if err != nil {
-		return nil, err
-	}
-
-	return jqUnwrapNumbers(normalized), nil
-}
-
-// jqUnwrapNumbers walks the decoded value and converts json.Number values to int64 or float64. gojq
-// understands both directly; the conversion keeps `==` comparisons stable across integer and float
-// branches.
-func jqUnwrapNumbers(value any) any {
-
-	switch v := value.(type) {
-
-	case json.Number:
-		if i, err := v.Int64(); err == nil {
-			return i
-		}
-		if f, err := v.Float64(); err == nil {
-			return f
-		}
-		return v.String()
-
-	case map[string]any:
-		for key, child := range v {
-			v[key] = jqUnwrapNumbers(child)
-		}
-		return v
-
-	case []any:
-		for i, child := range v {
-			v[i] = jqUnwrapNumbers(child)
-		}
-		return v
-
-	default:
-		return v
-	}
-}
 
 // endregion

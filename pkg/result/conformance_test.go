@@ -61,6 +61,43 @@ func emit(t *testing.T, format string, value any) string {
 	return buffer.String()
 }
 
+// TestConformance_ATableCellNeverSplitsItsRow pins #748.
+//
+// Every shell result carries a `stdout` field ending in a newline, so this is the ordinary case. A table
+// pads with spaces and has no quoting, so an unescaped newline terminates the line and renders one record as
+// two -- silently. A tab is worse: tabwriter reads it as a column break and shifts every following cell.
+func TestConformance_ATableCellNeverSplitsItsRow(t *testing.T) {
+
+	record := map[string]any{"name": "x", "stdout": "one\ntwo\n", "note": "a\tb"}
+	lines := strings.Split(strings.TrimRight(emit(t, "table", record), "\n"), "\n")
+
+	if len(lines) != 2 {
+		t.Fatalf("got %d lines, want 2 (a header and one row):\n%s", len(lines), strings.Join(lines, "|"))
+	}
+	if !strings.Contains(lines[1], `one\ntwo\n`) {
+		t.Errorf("newlines were not escaped: %q", lines[1])
+	}
+	if !strings.Contains(lines[1], `a\tb`) {
+		t.Errorf("tab was not escaped: %q", lines[1])
+	}
+}
+
+// TestConformance_CSVKeepsAnEmbeddedNewlineInsideQuotes is the other half of #748.
+//
+// The fix belongs to `table` alone. RFC 4180 quoting already keeps an embedded newline inside its field
+// where a parser reads it correctly, and escaping it here would corrupt a value that round-trips today.
+func TestConformance_CSVKeepsAnEmbeddedNewlineInsideQuotes(t *testing.T) {
+
+	got := emit(t, "csv", map[string]any{"stdout": "one\ntwo\n"})
+
+	if strings.Contains(got, `\n`) {
+		t.Errorf("csv escaped a newline it should have quoted: %q", got)
+	}
+	if !strings.Contains(got, "\"one\ntwo\n\"") {
+		t.Errorf("csv did not quote the embedded newline: %q", got)
+	}
+}
+
 // endregion
 
 // region Tests
