@@ -80,31 +80,31 @@ func TestExitCode(t *testing.T) {
 	}
 }
 
-func TestAddOutputFlagsBindsAllFour(t *testing.T) {
+func TestAddOutputFlagsBindsTheCommonSet(t *testing.T) {
 
 	cmd := &cobra.Command{Use: "test"}
 	var opts SinkOptions
 	AddOutputFlags(cmd, &opts)
 
-	for _, name := range []string{"format", "template", "filter", "jq"} {
-		if cmd.Flags().Lookup(name) == nil {
-			t.Errorf("expected --%s flag to be added", name)
+	for _, name := range []string{"filter", "jq", "output", "store"} {
+		if cmd.PersistentFlags().Lookup(name) == nil {
+			t.Errorf("--%s is not bound; the common set is registered in full or not at all", name)
 		}
 	}
 }
 
-func TestAddOutputFlagsFormatDefaultsToJSON(t *testing.T) {
+func TestAddOutputFlagsOutputDefaultsToJSON(t *testing.T) {
 
 	cmd := &cobra.Command{Use: "test"}
 	var opts SinkOptions
 	AddOutputFlags(cmd, &opts)
 
-	flag := cmd.Flags().Lookup("format")
+	flag := cmd.PersistentFlags().Lookup("output")
 	if flag == nil {
-		t.Fatal("--format not bound")
+		t.Fatal("--output not bound")
 	}
 	if flag.DefValue != "json" {
-		t.Errorf("--format default = %q, want %q", flag.DefValue, "json")
+		t.Errorf("--output default = %q, want %q", flag.DefValue, "json")
 	}
 }
 
@@ -182,35 +182,6 @@ func TestBuildPipelineReportsUnknownFormat(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "unknown formatter") {
 		t.Errorf("error text = %q, want substring 'unknown formatter'", err.Error())
-	}
-}
-
-func TestBuildPipelineRequiresTemplateBodyForTemplateFormat(t *testing.T) {
-
-	var buf bytes.Buffer
-	_, err := BuildPipeline(SinkOptions{Format: "template"}, &buf)
-	if err == nil {
-		t.Fatal("expected error for template format with empty body; got nil")
-	}
-}
-
-func TestBuildPipelineUsesProvidedTemplateBody(t *testing.T) {
-
-	var buf bytes.Buffer
-	sink, err := BuildPipeline(
-		SinkOptions{Format: "template", Template: "hi {{.Name}}"},
-		&buf,
-	)
-	if err != nil {
-		t.Fatalf("BuildPipeline: %v", err)
-	}
-
-	if err := sink.Emit(struct{ Name string }{Name: "world"}); err != nil {
-		t.Fatalf("Emit: %v", err)
-	}
-
-	if got := buf.String(); got != "hi world" {
-		t.Errorf("template emit = %q, want %q", got, "hi world")
 	}
 }
 

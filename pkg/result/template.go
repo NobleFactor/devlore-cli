@@ -9,12 +9,16 @@ import (
 	"text/template"
 )
 
-// TemplateFormatter renders the value through a [text/template.Template]. The template text is
-// supplied at construction; the value passed to [Format] is the template's `.` (dot) data binding.
+// TemplateFormatter renders a value through a [text/template.Template].
 //
-// Construct via [NewTemplateFormatter]. The template is parsed once at construction; parse errors
-// surface there rather than per-Emit. Callers passing user-supplied template text should surface
-// parse errors directly to the user (no silent fallback).
+// Reached as `--output template=<body>`, never as a separate flag: the format value carries its own argument,
+// so there is no pairing to get wrong and no state where a body is supplied and ignored.
+//
+// The value passed to [Format] is the template's `.` binding. The template is parsed once at construction, so
+// a malformed body fails when the pipeline is built rather than per emission.
+//
+// Most reshaping belongs in the filter stage instead. `--jq` selects, maps, and interpolates, and composes
+// with every format; a template earns its place only for text layout a query cannot express.
 type TemplateFormatter struct {
 	template *template.Template
 }
@@ -22,46 +26,41 @@ type TemplateFormatter struct {
 // Compile-time interface guard.
 var _ Formatter = (*TemplateFormatter)(nil)
 
-// NewTemplateFormatter parses text into a [text/template.Template] and returns a [Formatter] that
-// applies it to each emitted value. The template's name is "result" — referenced by other templates
-// via {{template "result" .}}. Functions registered via the standard text/template helpers are not
-// pre-installed; callers needing helpers can construct a template separately and pass it via
-// [NewTemplateFormatterFromTemplate].
+// NewTemplateFormatter parses body and returns the formatter that renders through it.
 //
 // Parameters:
-//   - text: the template body.
+//   - `body`: the template text; the value being rendered is its `.` binding.
 //
 // Returns:
-//   - *TemplateFormatter: the formatter.
-//   - error: when text fails to parse.
-func NewTemplateFormatter(text string) (*TemplateFormatter, error) {
+//   - `*TemplateFormatter`: the formatter.
+//   - `error`: when the body does not parse.
+func NewTemplateFormatter(body string) (*TemplateFormatter, error) {
 
-	tmpl, err := template.New("result").Parse(text)
+	parsed, err := template.New("output").Parse(body)
 	if err != nil {
-		return nil, fmt.Errorf("result.TemplateFormatter: parse: %w", err)
+		return nil, fmt.Errorf("result.NewTemplateFormatter: %w", err)
 	}
-	return &TemplateFormatter{template: tmpl}, nil
+
+	return &TemplateFormatter{template: parsed}, nil
 }
 
-// NewTemplateFormatterFromTemplate wraps an already-constructed [text/template.Template]. Use this
-// when the caller needs to register custom Funcs, parse multiple files, or otherwise configure the
-// template beyond what [NewTemplateFormatter] supports.
+// region Formatter
+
+// Format executes the template against value, writing to w.
 //
 // Parameters:
-//   - tmpl: the pre-constructed template; must not be nil.
+//   - `value`: the template's `.` binding.
+//   - `w`: the destination.
 //
 // Returns:
-//   - *TemplateFormatter: the formatter.
-func NewTemplateFormatterFromTemplate(tmpl *template.Template) *TemplateFormatter {
-	return &TemplateFormatter{template: tmpl}
-}
-
-// Format applies the template to value, writing the rendered bytes to w. Execution errors (e.g.,
-// missing fields with template option "missingkey=error") are propagated as-is.
+//   - `error`: any execution or write error.
 func (t *TemplateFormatter) Format(value any, w io.Writer) error {
 
 	if err := t.template.Execute(w, value); err != nil {
-		return fmt.Errorf("result.TemplateFormatter: execute: %w", err)
+		return fmt.Errorf("result.TemplateFormatter: %w", err)
 	}
+
 	return nil
 }
+
+// endregion

@@ -6,7 +6,6 @@ package devloretest
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -44,6 +43,7 @@ type Result struct {
 	ExpectationCount int       `json:"expectation_count"`
 	Failures         []Failure `json:"failures"`
 	Trace            []string  `json:"trace,omitempty"`
+	Results          []any     `json:"results,omitempty"`
 }
 
 // Option configures a Runner.
@@ -76,17 +76,6 @@ func WithProvider(name string) Option {
 	return func(r *Runner) { r.provider = name }
 }
 
-// WithWriter sets the output writer for executor messages.
-//
-// Parameters:
-//   - `w`: the output writer.
-//
-// Returns:
-//   - `Option`: a runner option that sets the writer.
-func WithWriter(w io.Writer) Option {
-	return func(r *Runner) { r.writer = w }
-}
-
 // WithReceivers sets the receiver factories to expose as Starlark globals.
 //
 // Parameters:
@@ -114,10 +103,10 @@ type Runner struct {
 	dryRun           bool
 	trace            bool
 	provider         string
-	writer           io.Writer
 	receivers        []op.ReceiverType
 	withGraphBuilder bool
 	graph            *op.Graph
+	traces           []*op.Trace
 	sources          *BindingSources
 }
 
@@ -189,6 +178,12 @@ func (r *Runner) Sources() *BindingSources {
 	return r.sources
 }
 
+// Traces returns the execution traces produced by Start, one per t.run call.
+//
+// Returns:
+//   - `[]*op.Trace`: the traces, empty before Start is called or when no graph ran.
+func (r *Runner) Traces() []*op.Trace { return r.traces }
+
 // Graph returns the execution graph after Start completes. Returns nil before Start is called.
 //
 // Returns:
@@ -208,7 +203,6 @@ func (r *Runner) Graph() *op.Graph {
 func NewRunner(script string, opts ...Option) *Runner {
 	r := &Runner{
 		script:  script,
-		writer:  io.Discard,
 		sources: &BindingSources{},
 	}
 	for _, o := range opts {
@@ -292,7 +286,6 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 	}
 
 	tc := NewTestContext(testTmpDir, root, r.sources)
-	tc.writer = r.writer // graph-output channel: t.run emits each execution result here
 
 	defer func() {
 		for k := range tc.EnvSet() {
@@ -395,7 +388,10 @@ func (r *Runner) buildResult(graph *op.Graph, tc *TestContext, tracer *Tracer, e
 		UnitCount:        unitCount,
 		ExpectationCount: len(tc.Expectations()),
 		Failures:         failures,
+		Results:          tc.RunResults(),
 	}
+
+	r.traces = tc.RunTraces()
 
 	// If there were no error expectations but execution failed, report it
 	if execErr != nil && !hasErrorExpectation(tc) {

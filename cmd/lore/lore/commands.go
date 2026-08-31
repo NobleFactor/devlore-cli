@@ -357,7 +357,7 @@ func newBundleCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().StringP("output", "o", "", "Promise bundle path")
+	cmd.Flags().StringP("output", "o", "", "Output bundle path")
 	cmd.Flags().String("platform", "", "Target platform (e.g., linux/fedora)")
 	cmd.Flags().StringArray("include-repo", nil, "Include repository in bundle")
 
@@ -566,7 +566,7 @@ func newListCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().String("format", "table", "Promise format (table, manifest, json)")
+	cmd.Flags().String("format", "table", "Output format (table, manifest, json)")
 
 	return cmd
 }
@@ -618,7 +618,7 @@ environment repository.`,
 	}
 
 	cmd.Flags().String("from", "", "Source URL or file path")
-	cmd.Flags().String("output", "", "Promise directory path (default: current directory)")
+	cmd.Flags().String("output", "", "Output directory path (default: current directory)")
 	cmd.Flags().String("format", "plain", "Manifest format (plain, yaml)")
 	cmd.Flags().Bool("verbose", false, "Show AI reasoning")
 	cmd.Flags().Bool("explain", false, "Show detailed reasoning for each confidence decision")
@@ -825,7 +825,7 @@ func newInspectCmd() *cobra.Command {
 Displays the resolved lifecycle manifest, platform support, features,
 dependencies, and deployment history for a package.
 
-Promise is JSON by default for scripting. Use --format for alternatives.`,
+Output is JSON by default for scripting. Use --output for alternatives.`,
 		Example: `  lore inspect docker
   lore inspect kubectl --format yaml
   lore inspect docker --format '{{.ReceiverName}}\t{{.Version}}'`,

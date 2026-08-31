@@ -158,141 +158,111 @@ func TestCLI_RunMissingFile(t *testing.T) {
 }
 
 func TestCLI_ScriptFirst(t *testing.T) {
-	stdout, _, code := run("run", scriptPath, "--output", "summary=/dev/stdout", "--output", "receipt="+os.DevNull, "--output", "graph="+os.DevNull)
-	assertExit(t, 0, code)
-	assertValidSummary(t, stdout)
-}
-
-func TestCLI_ScriptMiddle(t *testing.T) {
-	stdout, _, code := run("run", "--output", "summary=/dev/stdout", "--output", "receipt="+os.DevNull, scriptPath, "--output", "graph="+os.DevNull)
+	stdout, _, code := run("run", scriptPath, "-o", "json")
 	assertExit(t, 0, code)
 	assertValidSummary(t, stdout)
 }
 
 func TestCLI_ScriptLast(t *testing.T) {
-	stdout, _, code := run("run", "--output", "summary=/dev/stdout", "--output", "receipt="+os.DevNull, "--output", "graph="+os.DevNull, scriptPath)
+	stdout, _, code := run("run", "-o", "json", scriptPath)
 	assertExit(t, 0, code)
 	assertValidSummary(t, stdout)
 }
 
-// --- Output routing ---
+// TestCLI_ResultToStdoutStoreForDocuments is the law, end to end.
+//
+// The result is JSON on stdout, narration is on stderr, documents are in the store, and the working
+// directory is left alone. This replaces the 2026-08-20 routing it used to pin, which sent all three
+// payloads to files named for the script and kept stdout empty.
+func TestCLI_ResultToStdoutStoreForDocuments(t *testing.T) {
+	work, store := t.TempDir(), t.TempDir()
 
-// TestCLI_DefaultsToArtifactFiles pins the ruled default routing (2026-08-20): results are files named for
-// the script in the working directory; stdout carries none of the three payloads.
-func TestCLI_DefaultsToArtifactFiles(t *testing.T) {
-	work := t.TempDir()
-	stdout, _, code := runIn(work, "run", scriptPath)
+	stdout, stderr, code := runIn(work, "run", "--store", store, scriptPath)
 	assertExit(t, 0, code)
-	assertNotContains(t, stdout, `"passed"`)
-	assertNotContains(t, stdout, "Hello World!")
-	assertNotContains(t, stdout, "version:")
-	for _, artifact := range []string{"test_hello.summary.json", "test_hello.graph.yaml", "test_hello.receipt.yaml"} {
-		if _, err := os.Stat(filepath.Join(work, artifact)); err != nil {
-			t.Errorf("default artifact %s not written: %v", artifact, err)
-		}
+
+	assertValidSummary(t, stdout)
+	assertNotContains(t, stdout, "[devlore-test]")
+
+	// Narration went to stderr, where it belongs.
+	assertContains(t, stderr, "[devlore-test]")
+
+	// Documents went to the store.
+	definitions, err := filepath.Glob(filepath.Join(store, "graphs", "*.yaml"))
+	if err != nil || len(definitions) != 1 {
+		t.Fatalf("definitions = %v (err %v), want one", definitions, err)
+	}
+	traces, err := filepath.Glob(filepath.Join(store, "traces", "*", "2*.yaml"))
+	if err != nil || len(traces) != 1 {
+		t.Fatalf("traces = %v (err %v), want one", traces, err)
+	}
+
+	// The working directory is untouched.
+	entries, err := os.ReadDir(work)
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("the run littered the working directory: %v", entries)
 	}
 }
 
-func TestCLI_SummaryOnly(t *testing.T) {
-	stdout, _, code := run("run", "--output", "summary=/dev/stdout", "--output", "graph="+os.DevNull, "--output", "receipt="+os.DevNull, scriptPath)
+// TestCLI_StoredDefinitionIsTheDocument asserts artifact CONTENT, which #738 says existence-only checks
+// never did -- a 0-byte file satisfied the old assertion.
+func TestCLI_StoredDefinitionIsTheDocument(t *testing.T) {
+	store := t.TempDir()
+
+	_, _, code := runIn(t.TempDir(), "run", "--store", store, scriptPath)
 	assertExit(t, 0, code)
-	assertValidSummary(t, stdout)
-	assertNotContains(t, stdout, "Hello World!")
-	assertNotContains(t, stdout, "version:")
+
+	definitions, err := filepath.Glob(filepath.Join(store, "graphs", "*.yaml"))
+	if err != nil || len(definitions) != 1 {
+		t.Fatalf("definitions = %v (err %v), want one", definitions, err)
+	}
+
+	data, err := os.ReadFile(definitions[0])
+	if err != nil {
+		t.Fatalf("reading the definition: %v", err)
+	}
+	if len(data) == 0 {
+		t.Fatal("the stored definition is empty")
+	}
+
+	body := string(data)
+	assertContains(t, body, "shell.exec")
+	assertContains(t, body, "checksum:")
 }
 
-func TestCLI_GraphOnly(t *testing.T) {
-	stdout, _, code := run("run", "--output", "graph=/dev/stdout", "--output", "summary="+os.DevNull, "--output", "receipt="+os.DevNull, scriptPath)
+// TestCLI_YAMLRendering covers -o yaml on the result stream.
+func TestCLI_YAMLRendering(t *testing.T) {
+	stdout, _, code := runIn(t.TempDir(), "run", "--store", t.TempDir(), "-o", "yaml", scriptPath)
 	assertExit(t, 0, code)
-	assertContains(t, stdout, "Hello World!")
-	assertNotContains(t, stdout, `"passed"`)
-	assertNotContains(t, stdout, "version:")
-}
-
-func TestCLI_ReceiptOnlyYAML(t *testing.T) {
-	stdout, _, code := run("run", "--output", "receipt=/dev/stdout", "--output", "graph="+os.DevNull, "--output", "summary="+os.DevNull, scriptPath)
-	assertExit(t, 0, code)
-	assertNotContains(t, stdout, `"passed"`)
 	assertValidYAML(t, stdout)
-	assertContains(t, stdout, "shell.exec")
-	assertContains(t, stdout, "version:")
+	assertContains(t, stdout, "passed:")
 }
 
-func TestCLI_ReceiptOnlyJSON(t *testing.T) {
-	stdout, _, code := run("run", "--output", "receipt=/dev/stdout", "--output", "graph="+os.DevNull, "--output", "summary="+os.DevNull, "--receipt-format=json", scriptPath)
+// TestCLI_NoneRendersNothing covers -o none: no result is produced, and the exit code still reports.
+func TestCLI_NoneRendersNothing(t *testing.T) {
+	stdout, _, code := runIn(t.TempDir(), "run", "--store", t.TempDir(), "-o", "none", scriptPath)
 	assertExit(t, 0, code)
-	assertValidJSON(t, stdout)
-	assertContains(t, stdout, "shell.exec")
+	if strings.TrimSpace(stdout) != "" {
+		t.Errorf("stdout = %q under -o none, want empty", stdout)
+	}
 }
-
-func TestCLI_RoutToFiles(t *testing.T) {
-	tmp := t.TempDir()
-	summaryPath := filepath.Join(tmp, "summary.json")
-	receiptPath := filepath.Join(tmp, "receipt.yaml")
-	graphPath := filepath.Join(tmp, "graph.txt")
-
-	_, _, code := run("run",
-		"--output", "summary="+summaryPath,
-		"--output", "receipt="+receiptPath,
-		"--output", "graph="+graphPath,
-		scriptPath)
-	assertExit(t, 0, code)
-
-	summary, err := os.ReadFile(summaryPath)
-	if err != nil {
-		t.Fatalf("reading summary: %v", err)
-	}
-	assertValidSummary(t, string(summary))
-
-	receipt, err := os.ReadFile(receiptPath)
-	if err != nil {
-		t.Fatalf("reading receipt: %v", err)
-	}
-	assertValidYAML(t, string(receipt))
-	assertContains(t, string(receipt), "shell.exec")
-
-	graph, err := os.ReadFile(graphPath)
-	if err != nil {
-		t.Fatalf("reading graph: %v", err)
-	}
-	assertContains(t, string(graph), "Hello World!")
-}
-
-func TestCLI_JSONReceiptToFile(t *testing.T) {
-	tmp := t.TempDir()
-	receiptPath := filepath.Join(tmp, "receipt.json")
-
-	_, _, code := run("run",
-		"--output", "receipt="+receiptPath,
-		"--output", "graph="+os.DevNull,
-		"--output", "summary="+os.DevNull,
-		"--receipt-format=json",
-		scriptPath)
-	assertExit(t, 0, code)
-
-	data, err := os.ReadFile(receiptPath)
-	if err != nil {
-		t.Fatalf("reading receipt: %v", err)
-	}
-	assertValidJSON(t, string(data))
-}
-
-// --- Flags ---
 
 func TestCLI_DryRun(t *testing.T) {
-	stdout, _, code := run("run", "--dry-run", "--output", "summary=/dev/stdout", "--output", "graph="+os.DevNull, "--output", "receipt="+os.DevNull, scriptPath)
+	stdout, _, code := runIn(t.TempDir(), "run", "--dry-run", "--store", t.TempDir(), scriptPath)
 	assertExit(t, 0, code)
 	assertValidSummary(t, stdout)
 }
 
 func TestCLI_Trace(t *testing.T) {
-	stdout, _, code := run("run", "--trace", "--output", "summary=/dev/stdout", "--output", "graph="+os.DevNull, "--output", "receipt="+os.DevNull, scriptPath)
+	stdout, _, code := runIn(t.TempDir(), "run", "--trace", "--store", t.TempDir(), scriptPath)
 	assertExit(t, 0, code)
 	assertContains(t, stdout, `"trace"`)
 }
 
 func TestCLI_Silent(t *testing.T) {
-	_, stderr, code := run("--silent", "run", "--output", "summary="+os.DevNull, "--output", "graph="+os.DevNull, "--output", "receipt="+os.DevNull, scriptPath)
+	_, stderr, code := runIn(t.TempDir(), "--silent", "run", "-o", "none", "--store", t.TempDir(), scriptPath)
 	assertExit(t, 0, code)
 	if stderr != "" {
 		t.Errorf("--silent should suppress stderr, got: %q", stderr)
@@ -301,24 +271,35 @@ func TestCLI_Silent(t *testing.T) {
 
 // --- Error cases ---
 
-func TestCLI_InvalidOutputStream(t *testing.T) {
-	_, _, code := run("run", "--output", "bogus="+os.DevNull, scriptPath)
-	assertExit(t, 1, code)
+func TestCLI_UnknownRendering(t *testing.T) {
+	_, stderr, code := runIn(t.TempDir(), "run", "-o", "nope", scriptPath)
+	if code == 0 {
+		t.Error("an unknown rendering exited 0, want non-zero")
+	}
+	assertContains(t, stderr, "unknown formatter")
 }
 
-func TestCLI_MalformedOutput(t *testing.T) {
-	_, _, code := run("run", "--output", "nodestination", scriptPath)
-	assertExit(t, 1, code)
-}
+// TestCLI_UncreatableStore covers the flag that actually takes a path.
+//
+// This asserted a bad --output destination until --output became a rendering. Left as it was, it passed for
+// the wrong reason: "graph=/no/such/dir/out.txt" parses as an unknown format named "graph", so it exited
+// non-zero without ever reaching a filesystem.
+//
+// The store root goes under a regular file, which MkdirAll cannot descend through on any platform. An
+// unwritable directory is not portable and an absent one is not either: Windows CI runs as administrator,
+// where "/no/such/dir/store" resolves to C:\no\such\dir\store and is simply created.
+func TestCLI_UncreatableStore(t *testing.T) {
+	directory := t.TempDir()
+	blocker := filepath.Join(directory, "blocker")
+	if err := os.WriteFile(blocker, nil, 0o600); err != nil {
+		t.Fatalf("writing the blocker file: %v", err)
+	}
 
-func TestCLI_InvalidReceiptFormat(t *testing.T) {
-	_, _, code := run("run", "--receipt-format=xml", "--output", "receipt="+os.DevNull, "--output", "graph="+os.DevNull, scriptPath)
-	assertExit(t, 1, code)
-}
-
-func TestCLI_BadOutputPath(t *testing.T) {
-	_, _, code := run("run", "--output", "graph=/no/such/dir/out.txt", scriptPath)
-	assertExit(t, 1, code)
+	_, stderr, code := runIn(directory, "run", "--store", filepath.Join(blocker, "store"), scriptPath)
+	if code == 0 {
+		t.Error("a store under a regular file exited 0, want non-zero")
+	}
+	assertContains(t, stderr, "store")
 }
 
 func TestCLI_UnknownFlag(t *testing.T) {
@@ -404,32 +385,18 @@ func assertNotContains(t *testing.T, s, substr string) {
 
 func assertValidSummary(t *testing.T, s string) {
 	t.Helper()
-	// Summary line is the first JSON line in the output.
-	for _, line := range strings.Split(strings.TrimSpace(s), "\n") {
-		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "{") {
-			continue
-		}
-		var result struct {
-			Passed bool `json:"passed"`
-		}
-		if err := json.Unmarshal([]byte(line), &result); err != nil {
-			t.Errorf("summary is not valid JSON: %v", err)
-			return
-		}
-		if !result.Passed {
-			t.Errorf("summary.passed = %v, want true", result.Passed)
-		}
+
+	// The result is the whole of stdout, not a line within it: the json rendering is indented, so a
+	// line-oriented parse sees only "{". Narration never lands here -- it is on stderr.
+	var result struct {
+		Passed bool `json:"passed"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(s)), &result); err != nil {
+		t.Errorf("stdout is not the JSON result: %v\nstdout was:\n%s", err, s)
 		return
 	}
-	t.Error("no JSON summary found in output")
-}
-
-func assertValidJSON(t *testing.T, s string) {
-	t.Helper()
-	var v any
-	if err := json.Unmarshal([]byte(strings.TrimSpace(s)), &v); err != nil {
-		t.Errorf("invalid JSON: %v", err)
+	if !result.Passed {
+		t.Errorf("result.passed = %v, want true", result.Passed)
 	}
 }
 

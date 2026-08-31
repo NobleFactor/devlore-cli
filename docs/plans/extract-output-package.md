@@ -8,6 +8,20 @@ updated: 2026-03-19
 
 # Plan: Extract output package from internal/cli
 
+> **Correction, 2026-08-30.** This plan is marked complete but describes a structure the repository does not
+> have. Its stated target was an `internal/output` package exposing a single
+> `Render(w io.Writer, data any, options Options)`. **No such package exists.** The rendering pipeline went a
+> different way: `pkg/result` (formatters and filters) and `pkg/sink`, composed by
+> `cli.BuildPipeline` into a `result.Pipeline`.
+>
+> The plan's Current State table is also the last measurement of how widely the convention was adopted --
+> "`AddOutputFlags` | Used | 2 call sites (lore inspect, writ snapshot)". `writ snapshot` was later removed
+> as a command, taking one of the two with it, and nothing recorded that adoption had halved. That is the
+> evidence behind the enforcement invariants in
+> [`10-command-line-interface.md`](../architecture/10-command-line-interface.md) §14.
+>
+> Retained as history. Read it for how the convention came about, not for where the code lives.
+
 ## Summary
 
 Extract the structured-data rendering pipeline from `internal/cli/output.go` into a new `internal/output` package with a single public function: `Render(w io.Writer, data any, options Options)`. Remove dead convenience wrappers (`RenderTo`, `RenderMutationTo`). Keep cobra flag bindings in `internal/cli`.

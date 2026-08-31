@@ -1,0 +1,34 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
+# The tools a devlore-cli working environment needs on every platform.
+#
+# This layer has no suffix, so writ's Segments.Match selects it everywhere -- "no suffixes means it
+# always matches". Platform layers add to it: Darwin and Linux also draw noblefactor.Unix, because
+# OSFamily maps both to Unix; Windows has no family and draws only noblefactor.Windows.
+#
+# Every entry is one this repository demonstrably uses -- a Makefile target, a CI step, a star
+# extension, or a provider that shells out to it. Nothing is here because it happens to be installed
+# on someone's laptop.
+#
+# This file is not symlinked. writ recognizes the name and routes it through manifest.resolve, which
+# hands it to the lore planner as package-installation nodes.
+
+packages:
+  # Version control, and the only external command the codebase calls directly (7 call sites).
+  - git
+
+  # The toolchain. go.mod requires 1.27.
+  - go
+
+  # Linting. golangci-lint runs from `make lint-all` against a pinned version; shellcheck and shfmt
+  # are what `star lint shell` invokes, the latter as `shfmt -d -i 4 -ci`.
+  - golangci-lint
+  - shellcheck
+  - shfmt
+
+  # The pull-request workflow: release.yaml, lkg-tag.yaml, and every PR script.
+  - gh
+
+  # JSON handling in docs-publish.yaml.
+  - jq
