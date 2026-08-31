@@ -5,10 +5,14 @@ package cli
 
 import (
 	"fmt"
+	"os"
+	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
+	"golang.org/x/term"
 
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/sink"
@@ -65,6 +69,8 @@ func NewRootCmd(cfg RootConfig) *cobra.Command {
 			return initRootConfig(cmd, cfg.Name)
 		},
 	}
+
+	wrapHelp(rootCmd)
 
 	// Standard flags
 	rootCmd.PersistentFlags().String("config", "", "Config file (default: ~/.config/devlore/config.yaml)")
@@ -155,3 +161,172 @@ func initRootConfig(cmd *cobra.Command, name string) error {
 
 	return nil
 }
+
+// region Help wrapping
+
+// helpFallbackWidth is the width used when neither COLUMNS nor the terminal answers.
+//
+// Chosen over pflag's zero, which means "do not wrap at all": a pipe or a CI log has no width to report,
+// and an unwrapped line there is a wall of text rather than a deliberate choice.
+const helpFallbackWidth = 100
+
+// helpMinimumTextWidth is the narrowest column of text worth hanging under.
+//
+// Below it, honoring a hanging indent leaves a sliver too narrow to read, so the line falls back to its
+// leading indent and gives the text the whole width instead.
+const helpMinimumTextWidth = 24
+
+// wrapHelp makes flag usage wrap to the terminal, keeping any column structure the usage text has.
+//
+// Cobra's default template calls [pflag.FlagSet.FlagUsages], which is `FlagUsagesWrapped(0)`, and zero means
+// no wrapping at all -- so without this every line's width is the author's to maintain by hand, correct only
+// on a terminal at least as wide as the constant they guessed (#755).
+//
+// pflag's own wrapping is not the answer either. It indents every continuation to the flag's description
+// column, having one indent level and no notion of structure, so a two-column usage -- `--output`'s eight
+// renderings, each with a name and a sentence -- collapses the moment it wraps:
+//
+//	csv            quoted and parseable; when
+//	a spreadsheet or a data tool reads it
+//
+// [wrapUsageLine] hangs continuations under the text they continue, which is what keeps that readable.
+//
+// Parameters:
+//   - `cmd`: the root command whose usage template is rewritten.
+func wrapHelp(cmd *cobra.Command) {
+
+	cobra.AddTemplateFunc("wrappedFlagUsages", func(flags *pflag.FlagSet) string {
+		return wrapUsage(flags.FlagUsages(), helpWidth())
+	})
+
+	template := cmd.UsageTemplate()
+	template = strings.ReplaceAll(template, ".LocalFlags.FlagUsages", "wrappedFlagUsages .LocalFlags")
+	template = strings.ReplaceAll(template, ".InheritedFlags.FlagUsages", "wrappedFlagUsages .InheritedFlags")
+	cmd.SetUsageTemplate(template)
+}
+
+// wrapUsage wraps pflag's laid-out usage block to width, line by line.
+//
+// The input is pflag's own output with no wrapping applied, so the flag-name column and the description
+// column are already aligned; only the over-long lines need breaking.
+//
+// Parameters:
+//   - `usage`: pflag's rendered usage block.
+//   - `width`: the column count to wrap to; zero or less leaves the block untouched.
+//
+// Returns:
+//   - `string`: the wrapped block, newline-terminated as pflag's is.
+func wrapUsage(usage string, width int) string {
+
+	if width <= 0 {
+		return usage
+	}
+
+	lines := strings.Split(strings.TrimRight(usage, "\n"), "\n")
+	wrapped := make([]string, 0, len(lines))
+	for _, line := range lines {
+		wrapped = append(wrapped, wrapUsageLine(line, width))
+	}
+
+	return strings.Join(wrapped, "\n") + "\n"
+}
+
+// wrapUsageLine breaks one line at width, hanging continuations under the text they continue.
+//
+// The hanging indent is where the line's text begins, which is after its leading whitespace and after any
+// name column the line carries -- see [usageTextColumn]. Widths are measured in runes rather than bytes, so
+// a description containing a multi-byte character wraps where it looks like it should.
+//
+// Parameters:
+//   - `line`: one line of pflag's usage block.
+//   - `width`: the column count to wrap to.
+//
+// Returns:
+//   - `string`: the line, broken across as many lines as it needs.
+func wrapUsageLine(line string, width int) string {
+
+	if len([]rune(line)) <= width {
+		return line
+	}
+
+	hang := usageTextColumn(line)
+	if width-hang < helpMinimumTextWidth {
+		hang = len(line) - len(strings.TrimLeft(line, " "))
+	}
+	if width-hang < helpMinimumTextWidth {
+		return line
+	}
+
+	indent := strings.Repeat(" ", hang)
+	current := line[:hang]
+	first := true
+
+	var wrapped []string
+	for _, word := range strings.Fields(line[hang:]) {
+		switch {
+		case first:
+			current += word
+			first = false
+		case len([]rune(current))+1+len([]rune(word)) > width:
+			wrapped = append(wrapped, strings.TrimRight(current, " "))
+			current = indent + word
+		default:
+			current += " " + word
+		}
+	}
+
+	return strings.Join(append(wrapped, strings.TrimRight(current, " ")), "\n")
+}
+
+// usageTextColumn returns the column at which a usage line's prose begins.
+//
+// pflag separates a name column from its description with a run of two or more spaces, and `--output`'s
+// rendering list uses the same shape one level in. Taking the first such run after the line's first
+// non-space character finds the description column on a flag line and the sentence column on a rendering
+// line, which is where each one's continuations belong.
+//
+// Parameters:
+//   - `line`: one line of pflag's usage block.
+//
+// Returns:
+//   - `int`: the column, or the line's leading indent when it carries no name column.
+func usageTextColumn(line string) int {
+
+	leading := len(line) - len(strings.TrimLeft(line, " "))
+
+	rest := line[leading:]
+	for i := 0; i < len(rest)-1; i++ {
+		if rest[i] == ' ' && rest[i+1] == ' ' {
+			text := i
+			for text < len(rest) && rest[text] == ' ' {
+				text++
+			}
+			return leading + text
+		}
+	}
+
+	return leading
+}
+
+// helpWidth reports the column count help text should wrap to.
+//
+// COLUMNS wins when it is set and sane: a user who exports it has said what they want, and it is the only
+// answer available when stdout is a pipe. The terminal is asked next, and [helpFallbackWidth] answers when
+// neither does.
+//
+// Returns:
+//   - `int`: the wrap width in columns.
+func helpWidth() int {
+
+	if columns, err := strconv.Atoi(os.Getenv("COLUMNS")); err == nil && columns > 0 {
+		return columns
+	}
+
+	if width, _, err := term.GetSize(int(os.Stdout.Fd())); err == nil && width > 0 {
+		return width
+	}
+
+	return helpFallbackWidth
+}
+
+// endregion

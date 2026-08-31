@@ -4,6 +4,7 @@
 package result
 
 import (
+	"encoding/json"
 	"reflect"
 	"strings"
 	"testing"
@@ -106,9 +107,11 @@ func TestJQFilterAppliesToStructInputViaJSONTags(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
-	// Numbers come out as int64 (UseNumber + Int64 conversion).
-	if got != int64(30) {
-		t.Errorf("Apply = %v (%T), want int64(30)", got, got)
+	// Numbers stay json.Number, which is one of the types gojq accepts (type.go:20-30) and the one that
+	// keeps an integer's digits. Converting to int64 here used to panic gojq the moment an expression asked
+	// a value's type, because int64 is NOT in that list -- see #749.
+	if got != json.Number("30") {
+		t.Errorf("Apply = %v (%T), want json.Number(\"30\")", got, got)
 	}
 }
 
@@ -140,7 +143,7 @@ func TestJQFilterMultiResultReturnsSlice(t *testing.T) {
 		t.Fatalf("Apply: %v", err)
 	}
 
-	want := []any{int64(1), int64(2), int64(3)}
+	want := []any{json.Number("1"), json.Number("2"), json.Number("3")}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Apply = %v, want %v", got, want)
 	}

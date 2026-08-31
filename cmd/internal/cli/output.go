@@ -76,6 +76,34 @@ type SinkOptions struct {
 	Store   string
 }
 
+// restoreStoreRoot undoes the root's `--store` selection when the command tree finishes. A package-level
+// value because [SetStoreRoot]'s own root is one: the pair is scoped to a single command invocation, which
+// is the only thing a cobra process runs.
+var restoreStoreRoot func()
+
+// outputUsage documents --output.
+//
+// The prose is one logical line, joined across source lines, so [wrapUsage] reflows it to the terminal
+// rather than to a width guessed here. The rendering list is one line each, because those carry a name
+// column that wrapping hangs under -- a shape pflag's own wrapper flattens.
+//
+// The prose orders the renderings by usefulness; the list is alphabetical, matching
+// [result.FormatterByName]'s error and §7 of the specification. Everyday use wants to find a name.
+const outputUsage = "Output rendering. json is the default and the native format; every other rendering " +
+	"presents that JSON rather than the Go value behind it. Reach for yaml to read a large result, table " +
+	"or list to scan one, csv or value to feed another program, template when you need a shape none of " +
+	"these produce, and none when you want the exit code and the side effects alone.\n" +
+	"\n" +
+	"The renderings, alphabetically, each closing with what it is for:\n" +
+	"csv            quoted and parseable; when a spreadsheet or a data tool reads it\n" +
+	"json           the native format, nothing elided; when a script consumes it\n" +
+	"list           one field per line; when a record is wide, or records differ\n" +
+	"none           nothing at all; when you want the exit code, not the output\n" +
+	"table          aligned columns, one row per record; when scanning many rows\n" +
+	"template=BODY  a Go template; when you need a shape none of the others give\n" +
+	"value          raw, tab-separated, no header; when cut or awk consumes it\n" +
+	"yaml           the same content as json; when reading a large result by eye"
+
 // AddOutputFlags binds the common set -- --filter, --jq, --output/-o, and --store -- to opts.
 //
 // Bound to PersistentFlags, so one call on a program's root command covers every subcommand. All four
@@ -85,13 +113,69 @@ type SinkOptions struct {
 // Call once during root setup, then call [BuildPipeline] from a command's RunE to compose the
 // [result.Pipeline].
 //
+// Binding also WIRES the two flags whose meaning does not depend on a command rendering anything, so
+// registering the set and honoring it cannot come apart:
+//
+//   - `--output` is validated. A command that never reaches [BuildPipeline] used to accept any string,
+//     because [result.FormatterByName] is the only place the value is checked -- `writ status -o bogus`
+//     printed its report and exited 0 (#754).
+//   - `--store` is resolved. It used to be read by nothing outside `devlore-test`, so `writ status --store
+//     <elsewhere>` folded runs from the DEFAULT store and reported the result as compliance (#753).
+//
+// Both were one defect wearing two faces: a flag registered on a root that no leaf consumed. Cobra
+// advertised the whole set on every command's help while one command honored it, and a flag that is present
+// and inert is worse than an absent one -- an absent flag errors, and the user tries something else.
+//
+// The store selection is undone when the command tree finishes. Leaving it set would be harmless in a
+// process that runs one command and exits, and corrupting in a test binary that runs many: the root is a
+// package-level value, so the first command passing `--store` would silently relocate every command after
+// it. A caller needing a narrower scope still calls [SetStoreRoot] itself, as `devlore-test` does per run.
+//
 // Parameters:
 //   - `cmd`: the command to bind to, normally a program's root.
 //   - `opts`: the struct the flag values populate.
 func AddOutputFlags(cmd *cobra.Command, opts *SinkOptions) {
 
+	previous := cmd.PersistentPreRunE
+	cmd.PersistentPreRunE = func(c *cobra.Command, args []string) error {
+
+		if previous != nil {
+			if err := previous(c, args); err != nil {
+				return err
+			}
+		}
+
+		if _, err := result.FormatterByName(opts.Format); err != nil {
+			return err
+		}
+
+		if opts.Store != "" {
+			restore, err := SetStoreRoot(opts.Store)
+			if err != nil {
+				return err
+			}
+			restoreStoreRoot = restore
+		}
+
+		return nil
+	}
+
+	previousPost := cmd.PersistentPostRunE
+	cmd.PersistentPostRunE = func(c *cobra.Command, args []string) error {
+
+		if restoreStoreRoot != nil {
+			restoreStoreRoot()
+			restoreStoreRoot = nil
+		}
+
+		if previousPost != nil {
+			return previousPost(c, args)
+		}
+		return nil
+	}
+
 	cmd.PersistentFlags().StringVarP(&opts.Format, "output", "o", "json",
-		`Output rendering: json, yaml, table, csv, value (raw, pairs with --jq), template=BODY, or none`)
+		outputUsage)
 	cmd.PersistentFlags().StringArrayVar(&opts.Filters, "filter", nil,
 		`Filter expression: field=value (repeatable, AND logic)`)
 	cmd.PersistentFlags().StringVar(&opts.JQ, "jq", "",

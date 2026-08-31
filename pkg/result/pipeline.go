@@ -13,6 +13,7 @@
 package result
 
 import (
+	"fmt"
 	"io"
 
 	"github.com/NobleFactor/devlore-cli/pkg/sink"
@@ -91,7 +92,17 @@ func NewPipeline(filter Filter, formatter Formatter, s sink.Sink) *Pipeline {
 //   - error: non-nil if the filter rejects value, or if the formatter fails to encode it.
 func (p *Pipeline) Emit(value any) error {
 
-	filtered, err := p.filter.Apply(value)
+	// Stage 1, run once for both stages below. Every presentation is a presentation of the JSON, so a
+	// field is named by its `json:` tag in `table`, `csv`, `list`, and `value` exactly as it is in `json`
+	// itself -- and those are the names the Starlark surface shows a customer. Before this ran here, only
+	// the jq filter normalized, so `-o list` named a field UnitCount and `--jq . -o list` named the same
+	// field unit_count.
+	normalized, err := normalize(value)
+	if err != nil {
+		return fmt.Errorf("result.Pipeline: normalize result: %w", err)
+	}
+
+	filtered, err := p.filter.Apply(normalized)
 	if err != nil {
 		return err
 	}

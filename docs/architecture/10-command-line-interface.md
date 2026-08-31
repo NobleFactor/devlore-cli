@@ -55,6 +55,17 @@ Developer tooling is held to the same convention. A harness whose output is inco
 confusion as a shipped command, and `devlore-test` is the proof: its three output streams were wired to the
 wrong artifacts for months without anyone noticing ([#738](https://github.com/NobleFactor/devlore-cli/issues/738)).
 
+**Ruled 2026-08-31: membership is about infrastructure, not about shipping.** An in-scope program builds its
+command tree the way every other in-scope program does -- [NewRootCmd] for the root, [AddOutputFlags] on that
+root, `cmd/internal/cli` for the exit codes and the store. `devlore-test` is subject to this whether or not
+it is ever shipped, and the question of whether it ships does not enter into it.
+
+The reason is not symmetry. A program that assembles its own root inherits nothing later: the help wrapping
+of [#755](https://github.com/NobleFactor/devlore-cli/issues/755) reached `lore` and `writ` and not
+`devlore-test`, because `devlore-test` constructs a `cobra.Command` directly. Nobody decided to exclude it;
+it was excluded by a construction choice made elsewhere, and discovered by measurement afterwards. Every
+future repair in `cmd/internal/cli` has the same reach and the same silence.
+
 ## 3. Command grammar
 
 Commands are `<binary> <noun> <verb>` or `<binary> <verb>` where the noun is implied by the binary. `lore
@@ -166,7 +177,8 @@ than a direction.
 ## 7. `--output`: how the result is rendered
 
 `--output` / `-o` selects the rendering. Its value is a format name, or `NAME=ARGUMENT` for a format that
-needs one (§8). The set, alphabetically: `csv`, `json`, `none`, `table`, `template=<body>`, `value`, `yaml`.
+needs one (§8). The set, alphabetically: `csv`, `json`, `list`, `none`, `table`, `template=<body>`, `value`,
+`yaml`.
 
 Reshaping is not a rendering. Selecting fields, mapping, and interpolating happen in the filter stage
 (`--filter`, `--jq`), which composes with every format. `aws`, `az`, and `gcloud` all take this shape: a
@@ -182,8 +194,9 @@ when observed is unreproducible. A human wanting a table asks for one: `-o table
 does not have reshapes with `--jq` and renders with `value`.
 
 **`value` expects a projection.** It renders whatever it is handed, so a whole nested structure comes out as
-every field on one line, pointer addresses included. That is the same expectation `gcloud` states by
-requiring a projection for its `csv` and `value` formats. The intended use is `--jq` first:
+one line with its nested members as compact JSON. That is readable, and it is not what a pipe wants. It is
+the same expectation `gcloud` states by requiring a projection for its `csv` and `value` formats. The
+intended use is `--jq` first:
 
 ```
 writ status --jq '.entries[] | "\(.target) is \(.state)"' -o value
@@ -214,6 +227,7 @@ flag:
   value       │ field=v  │  │  gojq  │        │                      │
               └──────────┘  └────────┘        │  csv                 │
                                               │  json                │
+                                              │  list                │
                reshape: select, map,          │  none                │
                project, interpolate           │  table               │
                composable, any order          │  value               │
@@ -226,6 +240,161 @@ flag:
 **Reshaping is not rendering.** Choosing which fields appear, mapping over a list, and building a string are
 the filter stage's work, and they compose with every format. `aws`, `az`, and `gcloud` all take this shape --
 a query language reshapes, a format renders, and neither borrows the other's job.
+
+### From a Go value to a presentation
+
+The pipeline has two stages, and the first is total: **every result becomes JSON before anything renders
+it.** JSON is the native format, and `table`, `csv`, `list`, and `value` are presentations of that JSON --
+not of the Go value behind it.
+
+```
+  Go value            JSON                    presentation
+     |                  |                          |
+     v                  v                          v
+  +--------+       +---------+   filter      +-----------+
+  | struct |------>| object  |-->--filter--->|  --output |--> stdout
+  | slice  | stage | array   |   --jq        |           |
+  | map    |   1   | scalar  |               |  json     |  serialize
+  | scalar |       | null    |               |  yaml     |  serialize
+  +--------+       +---------+               |  table    |  }
+                                             |  csv      |  } one key derivation,
+                        stage 2 ------------>|  list     |  } four presentations
+                                             |  value    |  }
+                                             |  template |  applied to the value
+                                             |  none     |  discards
+                                             +-----------+
+```
+
+Stage 1 runs once, at the head of [Pipeline.Emit], so the filter and the formatter see the same data. A
+formatter called directly renders what it is handed; a *command* never does that, which is what makes the
+rule below true of everything a user sees.
+
+Normalizing first is what keeps the presenters honest, and the cost of skipping it is measurable -- see
+"What PowerShell gets wrong, and why" below. It also decides field NAMES: a struct field carries its
+`json:` tag through every rendering, and those are the names the Starlark surface shows a customer. Before
+stage 1 ran here only the jq filter normalized, so `-o list` named a field `UnitCount` while
+`--jq . -o list` named the same field `unit_count`.
+
+**Numbers stay `json.Number`.** Decoding to `float64` rounds any integer past 2^53 -- the defect
+[#712](https://github.com/NobleFactor/devlore-cli/issues/712) records against the document codec -- so a
+presenter renders the literal digits it was given. `gojq` needs int64 and float64 and gets them inside the
+jq filter, where the conversion is gojq's requirement rather than this pipeline's.
+
+#### The shapes a presenter must answer for
+
+| | Shape | Example |
+| --- | --- | --- |
+| S1 | scalar | `"active"`, `3`, `true`, `null` |
+| S2 | array of scalars | `["a","b"]` |
+| S3 | flat object | `{"name":"x","state":"active"}` |
+| S4 | nested object | `{"name":"x","health":{"runs":3}}` |
+| S5 | array of flat objects | `[{...},{...}]` -- **the table** |
+| S6 | array of objects, differing keys | union, with holes |
+| S7 | array of arrays | positional rows |
+| S8 | empty array, or null | |
+
+`json`, `yaml`, and `none` are shape-independent: the first two serialize anything, the third discards.
+`template=BODY` hands the value to a template. The rules below govern the four that lay data out.
+
+#### Keys are derived once; presentations differ
+
+One derivation serves all four. A `csv:"name"` tag renames a field, `-` omits it, and a [HasHeaders]
+implementation overrides inference entirely. Absent those: a struct contributes its exported fields in
+declaration order, and a map contributes its keys sorted alphabetically.
+
+What differs is whether records share a schema.
+
+- `table`, `csv`, and `value` derive **one** column set -- the union of keys across every record -- and
+  every record fills it, leaving holes where a key is absent.
+- `list` gives each record **its own** keys. That is what makes it right for S6.
+
+| Shape | `table` / `csv` / `value` | `list` |
+| --- | --- | --- |
+| S1 | one row, one column, no header | the value alone, no key |
+| S2 | one column, one row per element | one value per line |
+| S3 | one row | `key : value` per field |
+| S4 | one row; nested values as compact JSON | as S3, nested values as compact JSON |
+| S5 | one row per element; columns = union | one block per element, blank line between |
+| S6 | as S5; absent keys render empty | as S5 -- each block shows only its own keys |
+| S7 | one row per inner array, positional, no header | one block per inner array, values unkeyed |
+| S8 | nothing, exit 0 | nothing, exit 0 |
+
+**A non-scalar cell renders as compact JSON.** `{"runs":3}`, `["a","b","c"]`, at any depth, never
+truncated. Three reasons over the alternatives:
+
+1. Columns stay shallow and predictable, which is the property that makes `table` and `csv` usable at all.
+   Flattening to `health.runs` makes column count a function of data depth.
+2. The cell holds the native format, so it pipes back into `jq`.
+3. It loses nothing. Refusing a nested value would be defensible, but it makes a command author's shaping
+   mistake into a user's error.
+
+Flattening remains available where it belongs -- in the filter stage, chosen explicitly:
+`--jq '{name, runs: .health.runs}'`.
+
+#### What PowerShell gets wrong, and why
+
+PowerShell has the richest formatter set in this survey, and its inline rendering of a nested value is the
+choice adopted above. Three of its behaviors are rejected, and all three have one cause: **it formats .NET
+objects by their properties, without normalizing first.** Measured against pwsh 7.5.4.
+
+| Behavior | Output | Cause |
+| --- | --- | --- |
+| Depth truncates at the third level | `@{c=}` -- the value of `d` silently gone | the property walk stops |
+| Type names leak | `System.Collections.Hashtable`, where an object gives `@{k=v}` | different .NET types |
+| Arrays are reflected over | `Length LongLength Rank SyncRoot IsReadOnly ...` | an array is an object with properties |
+
+Stage 1 makes all three impossible here. By the time a presenter sees the value it is JSON: no
+Hashtable-versus-object distinction exists, an array is an array, and nothing has properties to reflect
+over. That is the argument for normalizing before presenting, stated as a consequence rather than a taste.
+
+**Rejected: automatic table/list switching.** PowerShell renders four properties or fewer as a table and
+five or more as a list. The same command changes shape because someone added a field. §10 rejects TTY
+adaptation because a pipeline that behaves differently when observed is unreproducible; switching on
+property count is that defect with a different trigger. Neither `aws`, `gcloud`, nor `kubectl` does it.
+
+**Divergence: S6 unions keys rather than sampling the first record.** `Format-Table` takes its columns from
+the first object and blanks every key the later ones introduce:
+
+```
+$het = @(
+  [pscustomobject]@{ name="x"; state="active" }
+  [pscustomobject]@{ name="y"; runs=3; findings=@("a","b") }
+  [pscustomobject]@{ kind="package"; action="install" }
+)
+$het | Format-Table
+
+name state
+---- -----
+x    active
+y
+
+        <- runs, findings, kind, and action are gone, and nothing says so
+```
+
+A sparse table is a worse presentation than a dense one. Silently dropping columns is a worse *answer*. We
+take the sparse table, and `list` exists so heterogeneity has a rendering that is not sparse.
+
+#### `list`: one field per line
+
+`list` is the rendering for a result that is wide, heterogeneous, or both -- where `table` is unreadable and
+`json` is punctuation a reader has to see past.
+
+```
+name  : x
+state : active
+
+name     : y
+runs     : 3
+findings : ["a","b"]
+```
+
+Keys are padded within a record, not across the stream, so a heterogeneous stream does not pay for its
+widest key everywhere. Records are separated by a blank line. The separator is `` : `` with the colon
+aligned, deliberately not `key: value`, which would read as YAML and invite the belief that it is -- `-o
+yaml` is one flag away and means something different.
+
+`aws` has no equivalent; `gcloud` ships `list` and `flattened` as separate formats. One suffices here
+because the compact-JSON cell rule already handles the nesting that `flattened` exists to spread out.
 
 ### A format that needs an argument carries it
 
@@ -318,6 +487,42 @@ Greenfield, per the repository's governing principle. There are no released CLI 
 backward-compatibility shim the governing principle forbids, and it doubles the surface every future change
 must consider.
 
+### Two version numbers, coupled by policy
+
+**Ruled 2026-08-31.** An application and the documents it writes carry separate version numbers.
+
+| | Scheme | Today | Where |
+| --- | --- | --- | --- |
+| Application | semver, **computed** by `git describe` | `v0.1.0` | `pkg/application`, `-X` stamp |
+| Document format | semver, **declared** as a literal | `schema_version: 1` | `GraphSchemaVersion`, `graph.go:41` |
+
+**Computed against declared is the distinction that matters.** The application version is derived from the
+build: `git describe` appends the commit distance and a hash, so it differs between two builds of identical
+source. A document format version is written down by hand and changes only when someone changes it. Stamping
+a computed version into a document would claim a new format on every build, between formats that are the
+same.
+
+**Ruled 2026-08-31: the document version is a semver string whose value tracks the application's, for now.**
+That is the hedge. A reader seeing `schema_version: "1.0.0"` can attribute a document to a release without a
+lookup table, which is the benefit of one number; and because the value is a declared literal rather than a
+computed one, the two can diverge the day a format changes and the application does not -- or the reverse --
+without changing anything but the constant. Nothing needs deciding in advance.
+
+The field is a `uint32` today (`GraphSchemaVersion = 1`), which forecloses that: an integer cannot express
+`1.2.0`, so a format change would have to become a major bump or go unrecorded. Widening it to a string is
+tracked with the rest of [#758](https://github.com/NobleFactor/devlore-cli/issues/758)'s work.
+
+**On the release of a major application version, the store version is bumped with it.** A major release
+versions the apps *and* the file formats they write, so a document can be attributed to a release without
+consulting a table. This is policy rather than an invariant: the two remain independently versionable, and a
+format bumps on its own whenever the format actually changes, major release or not. The policy is revisited
+on a regular basis, and the possibility of the two diverging permanently is left open.
+
+What this buys is the distinction [#758](https://github.com/NobleFactor/devlore-cli/issues/758) asks for.
+A document whose `schema_version` is absent or below the supported floor was **written by a retired format**;
+a document at the current version that fails to decode is **damaged**. Today a trace carries no version at
+all, so the two are indistinguishable and both surface as corruption.
+
 ## 14. Conformance and enforcement
 
 Each rule below is greppable, and each has a test. These are the reason the document is worth writing.
@@ -345,9 +550,42 @@ Current state, 2026-08-30. Two of the four in-scope programs register the common
 | `star` | no | a **second `cli` package** of its own -- see below |
 | `devlore-docs` | not in scope | — |
 
-`writ status` is bridged rather than converted: `cfg.JSONOutput` reads `outputOptions.Format == "json"` while
-its report still renders itself. The consequence is worth stating -- `writ status -o yaml` silently produces
-the human report, not yaml -- and it holds only until that report goes through the pipeline.
+`writ status` is bridged rather than converted, and the bridge is one bool: `cfg.JSONOutput` reads
+`outputOptions.Format == "json"` (`cmd/writ/writ/config.go:160`) while the report still renders itself.
+Measured 2026-08-30, **one of eight formats works**:
+
+| `-o` | Result |
+| --- | --- |
+| `json` | real JSON |
+| `yaml`, `table`, `list`, `csv`, `value`, `none`, `template=BODY` | byte-identical human dashboard |
+
+Three of those are worse than ignored. `-o none` prints ten lines where its whole contract is silence.
+`-o yaml` emits text a parser fails on at line 1. `-o template=BODY` neither renders the template nor
+rejects it.
+
+**And the value is never validated** ([#754](https://github.com/NobleFactor/devlore-cli/issues/754)).
+Because the format string never reaches [FormatterByName], any string is accepted: `writ status -o bogus`
+prints the dashboard and exits 0, where `devlore-test -o bogus` reports `unknown formatter "bogus"; expected
+one of csv, json, list, none, table, template=BODY, value, yaml`. A typo is silently honored as a request for
+the default. That is a second defect, distinct from the seven wrong renderings: one does the wrong thing, the
+other accepts wrong input. It is not confined to `status` -- every writ command but `verify` accepts any
+value.
+
+**`--store` is read nowhere in writ at all**
+([#753](https://github.com/NobleFactor/devlore-cli/issues/753)), and that is the severe face of the same
+cause. `outputOptions` is read in exactly two places: `config.go:160` takes `.Format`, and `commands.go:302`
+hands the struct to [BuildPipeline] in `runVerify`. Meanwhile `readback.go` genuinely reads [TracesDir] and
+[GraphsDir] to fold runs into the inventory. So `writ status --store <elsewhere>` reads the default store and
+reports the result as compliance -- not a formatting nicety, but the wrong data, silently.
+
+**The shared cause is a flag registered on a root that no leaf consumes.** `root.go:49` calls
+[AddOutputFlags], so cobra advertises the whole set on every command's help; consuming it is a separate act,
+performed once. Registration without consumption is worse than absence: an absent flag errors and the user
+tries something else, where a present one that does nothing returns a confident wrong answer.
+
+Both end the moment `runStatus` calls [BuildPipeline] the way `runVerify` already does. `BuildReport`
+already returns `*Report`, so the conversion deletes `status.Execute`'s branch, `presentJSON`, `presentText`,
+and `JSONOutput` together.
 
 **`star` does not lack the convention -- it has a second copy of it.** `cmd/star/cli` duplicates eighteen
 exported names from `cmd/internal/cli`, including all ten exit codes and `AddOutputFlags`, and at 387 lines
@@ -356,8 +594,10 @@ against 196 the copy has grown rather than gone stale. The two now disagree: one
 on `Flags`. A program cannot share a common set while binding a different one from a different package
 ([#743](https://github.com/NobleFactor/devlore-cli/issues/743)).
 
-Its `renderTable` is the exception worth keeping: it is the suite's only working table renderer and the
-candidate to promote into `pkg/result` in Phase 4, rather than a thing to delete.
+Its `renderTable` was the exception worth keeping, and it has been kept: [TableFormatter] in `pkg/result`
+took star's `text/tabwriter` approach and joined it to the delimited formats' column inference. star's own
+version carried a third implementation of column selection, so `cmd/star/cli` is now deletable whole rather
+than half salvaged.
 
 **CLI code also lives outside `cmd/`.** Every package under the repository-root `internal/` is imported only
 by `cmd/`, and `internal/console` is a Bubble Tea terminal UI. Root `internal/` is importable by the whole
@@ -368,6 +608,42 @@ module, so nothing prevents a `pkg/` package from importing CLI presentation
 `AddOutputFlags` as used at two call sites — `lore inspect` and `writ snapshot`. `writ snapshot` no longer
 exists as a command, and nothing recorded that the convention lost a user with it. That is invariant 3's
 justification: adoption that is not enforced decays silently.
+
+### A fix to the shared package does not reach every app
+
+Measured 2026-08-31, after the fixes for
+[#753](https://github.com/NobleFactor/devlore-cli/issues/753),
+[#754](https://github.com/NobleFactor/devlore-cli/issues/754), and
+[#755](https://github.com/NobleFactor/devlore-cli/issues/755) landed in `cmd/internal/cli`:
+
+| App | Help wraps (`NewRootCmd`) | `--output` validated, `--store` resolved (`AddOutputFlags`) |
+| --- | --- | --- |
+| `writ` | yes | yes -- registered on the root, so every command |
+| `lore` | yes | **`inspect` only** -- the one command that registers the set |
+| `devlore-test` | **no** | yes -- registered on the root |
+| `star` | **no** | **no** |
+
+    COLUMNS=70, longest flag line
+      writ           70
+      lore           70
+      devlore-test  389   <- unwrapped
+      star           65
+
+Three different causes, each already tracked:
+
+- `devlore-test` builds its root directly rather than through [NewRootCmd], so it inherits `AddOutputFlags`
+  and not the help wrapping. Nothing prevents it from using the shared constructor; it simply does not.
+- `star` binds its own `cmd/star/cli.AddOutputFlags`, so a fix to the shared package cannot reach it. This
+  is the concrete cost of the duplication in
+  [#743](https://github.com/NobleFactor/devlore-cli/issues/743), and the argument against keeping the copy:
+  a defect fixed once is fixed once per package.
+- `lore` calls [AddOutputFlags] on its `inspect` command rather than its root
+  (`cmd/lore/lore/commands.go:838`), so every other lore command does not have the flags at all -- the
+  "1 of 46 commands" measurement, still true.
+
+The lesson generalizes past these three fixes: **a repair in `cmd/internal/cli` reaches exactly the programs
+that route through `cmd/internal/cli`.** Registration on a root is what turns one fix into a program-wide
+one, and a second copy of the package is what stops it being a suite-wide one.
 
 No deviation is sanctioned. Every row above is work, tracked by the plan in
 [`cli-output-conventions.md`](../plans/cli-output-conventions.md).
