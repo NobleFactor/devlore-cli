@@ -287,6 +287,22 @@ the four findings below are defects the rules exposed on their first contact wit
       not join the shared set.
 - [ ] The thirteen `fmt.Print` calls are triaged: narration to `cli.*`, results to the sink.
 
+### Phase 4b: Every in-scope program uses the shared infrastructure
+
+**Ruled 2026-08-31.** Membership in the suite is about infrastructure, not about shipping. A program that
+assembles its own root inherits nothing later, and the reach of a fix in `cmd/internal/cli` is exactly the
+set of programs that route through it -- measured, not assumed, in §15.
+
+- [ ] `devlore-test` builds its root through `cli.NewRootCmd` rather than constructing a `cobra.Command`
+      directly. It has `AddOutputFlags` and therefore #753 and #754, and lacks #755's help wrapping for no
+      reason anyone chose: at `COLUMNS=70` its longest flag line is 389 columns where `writ` and `lore` are
+      at 70. This holds whether or not `devlore-test` ever ships.
+- [ ] `star` uses `cmd/internal/cli` and `cmd/star/cli` is deleted -- the same task as #743, restated here
+      because the duplication's cost is now demonstrated rather than argued: a defect fixed in the shared
+      package is fixed once per package, and star got neither of this branch's three fixes.
+- [ ] `lore` registers the common set on its root rather than on `inspect` alone, which is what makes a
+      program-wide fix program-wide.
+
 ### Phase 5: Enforce it
 
 - [ ] A test that fails when a command registers an output flag of its own.

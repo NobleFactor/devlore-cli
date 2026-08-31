@@ -55,6 +55,17 @@ Developer tooling is held to the same convention. A harness whose output is inco
 confusion as a shipped command, and `devlore-test` is the proof: its three output streams were wired to the
 wrong artifacts for months without anyone noticing ([#738](https://github.com/NobleFactor/devlore-cli/issues/738)).
 
+**Ruled 2026-08-31: membership is about infrastructure, not about shipping.** An in-scope program builds its
+command tree the way every other in-scope program does -- [NewRootCmd] for the root, [AddOutputFlags] on that
+root, `cmd/internal/cli` for the exit codes and the store. `devlore-test` is subject to this whether or not
+it is ever shipped, and the question of whether it ships does not enter into it.
+
+The reason is not symmetry. A program that assembles its own root inherits nothing later: the help wrapping
+of [#755](https://github.com/NobleFactor/devlore-cli/issues/755) reached `lore` and `writ` and not
+`devlore-test`, because `devlore-test` constructs a `cobra.Command` directly. Nobody decided to exclude it;
+it was excluded by a construction choice made elsewhere, and discovered by measurement afterwards. Every
+future repair in `cmd/internal/cli` has the same reach and the same silence.
+
 ## 3. Command grammar
 
 Commands are `<binary> <noun> <verb>` or `<binary> <verb>` where the noun is implied by the binary. `lore
@@ -476,6 +487,42 @@ Greenfield, per the repository's governing principle. There are no released CLI 
 backward-compatibility shim the governing principle forbids, and it doubles the surface every future change
 must consider.
 
+### Two version numbers, coupled by policy
+
+**Ruled 2026-08-31.** An application and the documents it writes carry separate version numbers.
+
+| | Scheme | Today | Where |
+| --- | --- | --- | --- |
+| Application | semver, **computed** by `git describe` | `v0.1.0` | `pkg/application`, `-X` stamp |
+| Document format | semver, **declared** as a literal | `schema_version: 1` | `GraphSchemaVersion`, `graph.go:41` |
+
+**Computed against declared is the distinction that matters.** The application version is derived from the
+build: `git describe` appends the commit distance and a hash, so it differs between two builds of identical
+source. A document format version is written down by hand and changes only when someone changes it. Stamping
+a computed version into a document would claim a new format on every build, between formats that are the
+same.
+
+**Ruled 2026-08-31: the document version is a semver string whose value tracks the application's, for now.**
+That is the hedge. A reader seeing `schema_version: "1.0.0"` can attribute a document to a release without a
+lookup table, which is the benefit of one number; and because the value is a declared literal rather than a
+computed one, the two can diverge the day a format changes and the application does not -- or the reverse --
+without changing anything but the constant. Nothing needs deciding in advance.
+
+The field is a `uint32` today (`GraphSchemaVersion = 1`), which forecloses that: an integer cannot express
+`1.2.0`, so a format change would have to become a major bump or go unrecorded. Widening it to a string is
+tracked with the rest of [#758](https://github.com/NobleFactor/devlore-cli/issues/758)'s work.
+
+**On the release of a major application version, the store version is bumped with it.** A major release
+versions the apps *and* the file formats they write, so a document can be attributed to a release without
+consulting a table. This is policy rather than an invariant: the two remain independently versionable, and a
+format bumps on its own whenever the format actually changes, major release or not. The policy is revisited
+on a regular basis, and the possibility of the two diverging permanently is left open.
+
+What this buys is the distinction [#758](https://github.com/NobleFactor/devlore-cli/issues/758) asks for.
+A document whose `schema_version` is absent or below the supported floor was **written by a retired format**;
+a document at the current version that fails to decode is **damaged**. Today a trace carries no version at
+all, so the two are indistinguishable and both surface as corruption.
+
 ## 14. Conformance and enforcement
 
 Each rule below is greppable, and each has a test. These are the reason the document is worth writing.
@@ -561,6 +608,42 @@ module, so nothing prevents a `pkg/` package from importing CLI presentation
 `AddOutputFlags` as used at two call sites — `lore inspect` and `writ snapshot`. `writ snapshot` no longer
 exists as a command, and nothing recorded that the convention lost a user with it. That is invariant 3's
 justification: adoption that is not enforced decays silently.
+
+### A fix to the shared package does not reach every app
+
+Measured 2026-08-31, after the fixes for
+[#753](https://github.com/NobleFactor/devlore-cli/issues/753),
+[#754](https://github.com/NobleFactor/devlore-cli/issues/754), and
+[#755](https://github.com/NobleFactor/devlore-cli/issues/755) landed in `cmd/internal/cli`:
+
+| App | Help wraps (`NewRootCmd`) | `--output` validated, `--store` resolved (`AddOutputFlags`) |
+| --- | --- | --- |
+| `writ` | yes | yes -- registered on the root, so every command |
+| `lore` | yes | **`inspect` only** -- the one command that registers the set |
+| `devlore-test` | **no** | yes -- registered on the root |
+| `star` | **no** | **no** |
+
+    COLUMNS=70, longest flag line
+      writ           70
+      lore           70
+      devlore-test  389   <- unwrapped
+      star           65
+
+Three different causes, each already tracked:
+
+- `devlore-test` builds its root directly rather than through [NewRootCmd], so it inherits `AddOutputFlags`
+  and not the help wrapping. Nothing prevents it from using the shared constructor; it simply does not.
+- `star` binds its own `cmd/star/cli.AddOutputFlags`, so a fix to the shared package cannot reach it. This
+  is the concrete cost of the duplication in
+  [#743](https://github.com/NobleFactor/devlore-cli/issues/743), and the argument against keeping the copy:
+  a defect fixed once is fixed once per package.
+- `lore` calls [AddOutputFlags] on its `inspect` command rather than its root
+  (`cmd/lore/lore/commands.go:838`), so every other lore command does not have the flags at all -- the
+  "1 of 46 commands" measurement, still true.
+
+The lesson generalizes past these three fixes: **a repair in `cmd/internal/cli` reaches exactly the programs
+that route through `cmd/internal/cli`.** Registration on a root is what turns one fix into a program-wide
+one, and a second copy of the package is what stops it being a suite-wide one.
 
 No deviation is sanctioned. Every row above is work, tracked by the plan in
 [`cli-output-conventions.md`](../plans/cli-output-conventions.md).
