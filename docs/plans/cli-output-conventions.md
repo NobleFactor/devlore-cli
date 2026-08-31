@@ -186,13 +186,43 @@ the same. The real figure is **30 call sites**:
 ### Phase 3b: Bring writ's renderings into agreement -- UNBLOCKED
 
 The status report is a human table, so this phase waited on the shared `TableFormatter`. That landed with
-Phase 4's first task, and this phase is now the next work.
+Phase 4's first task, and Phase 3d settled how a value of any shape renders. This phase is now the next work.
 
-- [ ] `status/report.go`'s 22 `fmt.Print` calls render through the pipeline as `table`.
+One question it raises and does not answer: `Report` is an object of three slices and a struct -- shape S4 --
+so `-o list` renders four lines with each section as compact JSON, and `-o table` renders one row of four
+cells. Legible for `list`, useless for `table`. Whether that is acceptable, or whether the presenters need a
+case for a sectioned object, is a design question for after the pipeline is wired. Wiring is not blocked on
+it: `-o json`, `-o yaml`, `-o none`, `--jq`, and `--filter` all become correct immediately.
+
+**Measured 2026-08-30, before starting.** `writ status` honors one of eight formats. `-o json` produces
+JSON; `yaml`, `table`, `list`, `csv`, `value`, `none`, and `template=BODY` all produce the same
+byte-identical human dashboard. `-o none` prints ten lines where its contract is silence, and `-o yaml`
+emits text a parser fails on. The bridge is one bool at `cmd/writ/writ/config.go:160`.
+
+The format value is also never validated (#754), because it never reaches `FormatterByName`:
+`writ status -o bogus` prints the dashboard and exits 0, and so does every writ command but `verify`. That is
+a second defect, distinct from the wrong renderings -- one does the wrong thing, the other accepts wrong
+input.
+
+`--store` is read nowhere in writ at all (#753), which is the severe face of the same cause. `readback.go`
+reads `TracesDir()` and `GraphsDir()` to fold runs, so `writ status --store <elsewhere>` reports on the
+default store as though it had complied -- the wrong data rather than the wrong shape.
+
+The shared cause is a flag registered on a root that no leaf consumes. `root.go:49` registers the whole set,
+so cobra advertises it everywhere; `commands.go:302` consumes it once. Registration without consumption is
+worse than absence: an absent flag errors, a present one that does nothing lies.
+
+- [ ] `runStatus` calls `BuildPipeline` and emits `*Report`, as `runVerify` already does. `BuildReport`
+      already returns the value, so this deletes `status.Execute`'s branch, `presentJSON`, `presentText`,
+      and `JSONOutput` together -- the 22 `fmt.Print` calls go with them.
 - [ ] The four dry-run `SerializeGraphs(os.Stdout, ...)` dumps emit the plan as the command's result.
 - [ ] `migrate`'s own `--format` retires; its `text` rendering is a domain question like `lore list`'s
       `manifest`, and does not join the shared set.
 - [ ] `migrate/session.go`'s stdout write is classified: narration to stderr, or a result to the pipeline.
+- [ ] `writ` resolves `--store` through `cli.SetStoreRoot` before any command that touches the store,
+      restoring on exit as `devlore-test` does (#753). Every command routed through `readback` is affected,
+      not only `status`.
+- [ ] Every writ command validates `--output`, which follows from reaching `BuildPipeline` (#754).
 
 ### Phase 3c: The format value accepts an argument -- COMPLETE
 
@@ -210,6 +240,38 @@ Phase 4's first task, and this phase is now the next work.
       cannot keep, so neither tool claimed the name. `DelimitedFormatter` keeps all three attributes; `Raw`
       is what separates the two survivors.
 
+### Phase 3d: The formatting rules, and stage 1 -- COMPLETE
+
+The rules were written first and judged the code, rather than the code being read and described. Three of
+the four findings below are defects the rules exposed on their first contact with a real result.
+
+- [x] `docs/architecture/10-command-line-interface.md` §8 states the two stages, the eight shapes a
+      presenter must answer for (S1-S8), the per-shape matrix, and the divergences from PowerShell --
+      measured against pwsh 7.5.4 rather than recalled.
+- [x] A non-scalar cell renders as **compact JSON** at any depth. It went through `fmt.Sprint` before, so a
+      nested map rendered as Go's own `map[runs:3]` -- a notation naming the language rather than the data,
+      which nothing downstream can parse.
+- [x] A type that renders itself is excluded: an `error`, a `fmt.Stringer`, an `encoding.TextMarshaler`. A
+      `time.Time` is a struct, and JSON-encoding it would replace the form it defines for itself.
+- [x] **Stage 1 is real.** `normalize` moved from inside the jq filter to the head of `Pipeline.Emit`, so
+      every presentation is a presentation of the JSON. Before this, `-o list` named a field `UnitCount`
+      and `--jq . -o list` named the same field `unit_count` -- the same result, two vocabularies,
+      depending on an unrelated flag. The json names are what the Starlark surface shows a customer, and
+      they are now what every rendering shows.
+- [x] Normalization keeps `json.Number`. Decoding to float64 rounds any integer past 2^53, which is the
+      defect #712 records; gojq's conversion stays inside the jq filter, where it is gojq's requirement.
+- [x] A single record is one row (S3). `table` refused an object outright, and `csv` rendered the whole
+      record into one cell -- two different wrong answers to the shape a command produces whenever it
+      reports on one thing.
+- [x] `list` added: one field per line, keys aligned within a record, each record keeping its own keys.
+      It is the rendering for a result that is wide or heterogeneous, where `table` is sparse and `json`
+      is punctuation to see past. gcloud ships `list` and `flattened` separately; one suffices here because
+      the compact-JSON cell rule already handles the nesting `flattened` exists to spread out.
+- [x] A conformance suite: one fixture, every formatter. It carries `json:` tags that differ from the Go
+      names, a nested object, an array, an integer past 2^53, a bool, and an empty string -- so a formatter
+      that disagrees with the others about a field's NAME or about what a nested value looks like fails
+      there rather than in a command months later.
+
 ### Phase 4: Bring star and lore into agreement
 
 - [x] One `TableFormatter` in `pkg/result`, rune-aligned via `text/tabwriter` (#741's alignment half).
@@ -225,10 +287,31 @@ Phase 4's first task, and this phase is now the next work.
       not join the shared set.
 - [ ] The thirteen `fmt.Print` calls are triaged: narration to `cli.*`, results to the sink.
 
+### Phase 4b: Every in-scope program uses the shared infrastructure
+
+**Ruled 2026-08-31.** Membership in the suite is about infrastructure, not about shipping. A program that
+assembles its own root inherits nothing later, and the reach of a fix in `cmd/internal/cli` is exactly the
+set of programs that route through it -- measured, not assumed, in §15.
+
+- [ ] `devlore-test` builds its root through `cli.NewRootCmd` rather than constructing a `cobra.Command`
+      directly. It has `AddOutputFlags` and therefore #753 and #754, and lacks #755's help wrapping for no
+      reason anyone chose: at `COLUMNS=70` its longest flag line is 389 columns where `writ` and `lore` are
+      at 70. This holds whether or not `devlore-test` ever ships.
+- [ ] `star` uses `cmd/internal/cli` and `cmd/star/cli` is deleted -- the same task as #743, restated here
+      because the duplication's cost is now demonstrated rather than argued: a defect fixed in the shared
+      package is fixed once per package, and star got neither of this branch's three fixes.
+- [ ] `lore` registers the common set on its root rather than on `inspect` alone, which is what makes a
+      program-wide fix program-wide.
+
 ### Phase 5: Enforce it
 
 - [ ] A test that fails when a command registers an output flag of its own.
 - [ ] A test that fails on a direct `os.Stdout` write from a command package.
+- [ ] A test that fails when a root registers the common set and a leaf command does not consume it.
+      Neither invariant above catches #753 or #754: `writ` registers no flags of its own, and the
+      `os.Stdout` check finds `status` but not `repo`, which is equally unvalidated while printing nothing
+      of its own. Greppable as "every root calling `AddOutputFlags` has every leaf reaching
+      `BuildPipeline`".
 - [ ] Regenerate the CLI docs and confirm every command documents the same flags.
 - [x] Correct `docs/plans/extract-output-package.md`, which is marked complete while describing an
       `internal/output` package that was never created. Done ahead of the rest of this phase: a completed
