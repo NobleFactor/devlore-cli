@@ -48,8 +48,10 @@ phase-8 step 47. From `writ-deploy-family.md:136`:
 > … "reconcile" retires entirely — no `--fix`: the repair for each finding is [named] instead.
 
 Reconcile now reports **and** repairs (ruled 2026-08-31), so the promise will be kept and the name returns.
-The original shape is recorded at `writ-deploy-family.md:31`:
-`writ reconcile [--drift] [--fix] [--json] [<project>...]`.
+
+`writ-deploy-family.md:31` records an original shape carrying `--drift`, `--fix` and `--json`. **None of
+those three survives.** `--json` is replaced by the shared `--output` / `-o` (#740); the other two are the
+deferred selector under earlier names.
 
 ### The vocabulary collides in one file, four lines apart
 
@@ -90,10 +92,26 @@ Zero occurrences in the tree of `RootReader`, `RootReaderWriter`, `confinedRoot`
 `deploy`, `reconcile`, `upgrade`, `decommission`, in both programs. No `status` command anywhere. The
 retirement is by deletion — no alias, no hidden command (§13).
 
-### Requirement 2: Reconcile reports and repairs
+### Requirement 2: Reconcile produces a report, and takes no command flags
 
-The command answers "what changed since deploy and some number of upgrades", like `git diff`; the repair
-half is chartered, not built here. `5.1`'s "there is no `--fix`" is retired as the stale claim it is.
+`writ reconcile` **produces a report** answering "what changed since deploy and some number of upgrades",
+like `git diff`. The repair half is chartered, not built here.
+
+**It has no command flags.** It takes the globals — `--output` / `-o`, `--filter`, `--jq`, `--store`,
+`--dry-run` — and must utilize all of them faithfully. A command that registers a flag its root already
+provides is the defect #740 exists to stop.
+
+The selector between fix, diff and summary behaviors is **deferred to the reconciliation epic**. `5.1`'s
+"there is no `--fix`" is no longer the whole truth — reconcile will repair — but neither is a `--fix`
+flag settled: today there is none, and the surface for choosing is undesigned.
+
+**A caution for whoever designs it.** Two of the three candidate views are already projections of the one
+document the report produces: the diff is `--jq '.entries'`, and the history is `--jq '.packages'`. Those
+are stage 2 of the pipeline #740 landed, and `--jq` and `--filter` are already in the reserved set.
+Adding `--diff` and `--history` flags would create a second way to select a subset of the same document,
+and the two will drift. Only the repair half is genuinely new, because it is a mutation rather than a
+projection — and the mutation axis already carries `--dry-run`, so anything added there has to say how
+the two compose.
 
 ### Requirement 3: Reconcile is valid only after deployment
 
