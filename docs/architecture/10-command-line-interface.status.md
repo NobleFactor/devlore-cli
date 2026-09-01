@@ -50,7 +50,9 @@ and two of four programs landed 2026-08-30. `devlore-test` and `writ` register t
   landed work as outstanding. That is the drift the revised process exists to prevent, and it is recorded
   here rather than quietly ticked.
 - [ ] `writ`'s **renderings** brought into agreement: the 30 stdout call sites routed through the sink -- 22
-  `fmt.Print` in `status/report.go`, four dry-run `SerializeGraphs` dumps, and two in `migrate`.
+  `fmt.Print` in `reconcile/report.go` (**deleted under #774 phase 2, 2026-09-01**: the report is the result
+  and every rendering is `-o` applied to its JSON), four dry-run `SerializeGraphs` dumps and two in
+  `migrate` still to go (#774 phase 3).
 - [ ] `lore`'s remaining commands brought into agreement; the `fmt.Print` calls triaged.
 - [ ] `star` registers the common set and `cmd/star/cli` is deleted, which duplicates eighteen exported names
   from `cmd/internal/cli` ([#743](https://github.com/NobleFactor/devlore-cli/issues/743)).

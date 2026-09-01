@@ -40,9 +40,6 @@ type Config struct {
 	// Projects filters the inventory section; empty reports every project.
 	Projects []string
 
-	// JSON emits the report as JSON instead of human-readable text.
-	JSON bool
-
 	// Verbose narrates store detail via the shared console narrator.
 	Verbose bool
 
@@ -53,28 +50,10 @@ type Config struct {
 	Vars map[string]any
 }
 
-// Execute builds the reconcile report and presents it.
-//
-// Parameters:
-//   - `ctx`: the context for the store fold.
-//   - `cfg`: the resolved reconcile configuration.
-//
-// Returns:
-//   - `error`: non-nil when the run index is missing, the fold fails, or presentation fails.
-func Execute(ctx context.Context, cfg *Config) error {
-
-	report, err := BuildReport(ctx, cfg)
-	if err != nil {
-		return err
-	}
-
-	if cfg.JSON {
-		return presentJSON(report)
-	}
-	return presentText(report)
-}
-
 // BuildReport derives the four-section reconcile report from the store and the live filesystem.
+//
+// The report is the command's result and is rendered by the shared pipeline: every presentation is a
+// presentation of its JSON, so there is no text renderer here and no format decision.
 //
 // Parameters:
 //   - `ctx`: the context for the store fold.

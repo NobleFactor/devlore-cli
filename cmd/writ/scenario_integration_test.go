@@ -461,6 +461,24 @@ func TestWritDeployScenario_Deploy(t *testing.T) {
 		assertAbsent(t, filepath.Join(sandbox.Home, "scenario-note.md"))
 	}
 
+	// Every rendering of the report is a rendering of its JSON. A format that is registered but falls
+	// through to a human dashboard fails here; shape only, since content is asserted on the JSON below.
+	for _, format := range []string{"yaml", "table", "list", "csv", "value", "none", "template={{len .entries}}"} {
+		out, stderr, err := runWrit(t, sandbox, "reconcile", "-o", format)
+		if err != nil {
+			t.Fatalf("writ reconcile -o %s failed: %v\nstderr: %s", format, err, stderr)
+		}
+		if strings.Contains(out, "Layers:") || strings.Contains(out, "Store: ") {
+			t.Fatalf("writ reconcile -o %s printed the human dashboard:\n%s", format, out)
+		}
+		if format == "none" && strings.TrimSpace(out) != "" {
+			t.Fatalf("writ reconcile -o none wrote to stdout:\n%s", out)
+		}
+		if format != "none" && strings.TrimSpace(out) == "" {
+			t.Fatalf("writ reconcile -o %s wrote nothing", format)
+		}
+	}
+
 	// The reconcile report, machine-readable: every classified entry is healthy.
 	reconcileOut, reconcileErr, err := runWrit(t, sandbox, "reconcile", "-o", "json")
 	if err != nil {

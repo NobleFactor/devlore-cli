@@ -155,10 +155,6 @@ func parseReconcileConfig(args []string) *ReconcileConfig {
 
 	// Behavior flags
 	cfg.Verbose = viper.GetBool("writ.verbose")
-	// Bridged from the common set while reconcile still renders its own report (#740 phase 3b). A boolean
-	// cannot express a third format, which is why --json retired; this reads the one flag that can.
-	cfg.JSONOutput = outputOptions.Format == "json"
-
 	// Segments and template variables feed the freshness comparison; reconcile needs no repo — the deployed
 	// inventory (sources included) comes from the store readback.
 	cfg.Segments = segment.DetectSegments().LoadFromEnv()

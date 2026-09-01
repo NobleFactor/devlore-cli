@@ -164,6 +164,10 @@ Row 2 exists because row 1's fix is the natural place to over-apply the rule.
 
 - [ ] Scope-composition home — one shared assembly package, or per-app? Carried from
       `configuration.status.md`'s own open questions and unresolved.
+- [ ] **Should we instantiate a config system with flags that it can pull from cobra/viper?** Asked
+      2026-09-01 and recorded in the spec's Open questions. Source 5 of resolution is "the parsed pflag set,
+      read once"; the question is whose flag set — devconfig's own binding, or a snapshot of what cobra has
+      parsed and viper has bound, which is how `parseReconcileConfig` reads settings today.
 - [ ] Does the unknown-key report fail the load, or accumulate and report at the end? The design says "detected
       here and reported" without saying whether one typo stops the process. A loud error at startup argues for
       failing; a user with three typos argues for accumulating.

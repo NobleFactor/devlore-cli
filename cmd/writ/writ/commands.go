@@ -193,18 +193,19 @@ The report is derived from the store (the run index plus the persisted graphs an
 traces) — never from a directory scan — and has four sections: the registered layer
 tree, the deployed inventory classified against the live filesystem, the package
 operations writ's runs performed, and store health. Reconcile produces a report; each
-finding names the lifecycle command that repairs it.
+finding names the lifecycle command that repairs it. The report is one JSON document,
+rendered by --output like every other result; --jq '.entries' selects the delta alone.
 
 Entry states:
-  ✓ Linked            — Symlink present and resolving to its source
-  ✓ Copied            — Copied file present (encrypted content is not compared)
-  ✗ Missing           — Deployed target is gone            → writ deploy
-  ⚠ Conflict          — Something else occupies the target
-  ? Orphan            — Target's source no longer exists   → writ decommission
-  ↑ Stale             — Source changed since the run       → writ upgrade
-  M Modified          — Target edited out-of-band          → writ upgrade --force
-  M Modified-or-stale — Differs, but the run predates recorded content
-                        identity: attribution indeterminate → writ upgrade`,
+  linked             Symlink present and resolving to its source
+  copied             Copied file present (encrypted content is not compared)
+  missing            Deployed target is gone                     → writ deploy
+  conflict           Something else occupies the target
+  orphan             Target's source no longer exists            → writ decommission
+  stale              Source changed since the run                → writ upgrade
+  modified           Target edited out-of-band                   → writ upgrade --force
+  modified-or-stale  Differs, but the run predates recorded content
+                     identity: attribution indeterminate         → writ upgrade`,
 		Example: `  writ reconcile                 # Report everything writ has deployed
   writ reconcile noblefactor     # Report one project
   writ reconcile -o json         # Machine-readable report
@@ -220,13 +221,19 @@ func runReconcile(cmd *cobra.Command, args []string) error {
 
 	cfg := parseReconcileConfig(args)
 
-	return reconcile.Execute(cmd.Context(), &reconcile.Config{
+	report, err := reconcile.BuildReport(cmd.Context(), &reconcile.Config{
 		Projects: cfg.Projects,
-		JSON:     cfg.JSONOutput,
 		Verbose:  cfg.Verbose,
 		Segments: cfg.Segments,
 		Vars:     cfg.TemplateData,
 	})
+	if err != nil {
+		return err
+	}
+
+	// The report is the result. Rendering is the pipeline's, so every --output value, --jq and --filter
+	// apply to it exactly as they do to any other command's result.
+	return emitResult(cmd, report)
 }
 
 func newVerifyCmd() *cobra.Command {

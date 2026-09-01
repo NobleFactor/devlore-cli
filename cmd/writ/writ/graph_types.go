@@ -60,9 +60,6 @@ type UpgradeConfig struct {
 // ReconcileConfig contains all settings for a reconcile report.
 type ReconcileConfig struct {
 	Config
-
-	// JSONOutput outputs JSON instead of human-readable text.
-	JSONOutput bool
 }
 
 // DecommissionConfig contains all settings for a decommission operation.

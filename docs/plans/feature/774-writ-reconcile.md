@@ -46,10 +46,10 @@ The report is one JSON document: `entries[]` (the delta, eight states, each nami
 | --- | --- | --- |
 | The command | ✅ `writ reconcile` | `cmd/writ/writ/reconcile/`, renamed with history under phase 1 |
 | `--json` boolean | ✅ retired | done in #740 phase 3a |
-| `-o` rendering | ❌ one of eight | measured 2026-08-30: everything but `json` prints the human dashboard |
+| `-o` rendering | ✅ all eight | phase 2: the report is the result; the presenters are deleted |
 | `-o` validation | ✅ | `PersistentPreRunE`, #754 |
 | `--store` read | ✅ | resolved in `PersistentPreRunE`, #753 |
-| `--jq` / `--filter` reaching the pipeline | ❌ | they never reach `FormatterByName` because the report bypasses it |
+| `--jq` / `--filter` reaching the pipeline | ✅ | phase 2: `emitResult` builds the pipeline from the bound options |
 | `--dry-run` | ❌ unverified | four `SerializeGraphs(os.Stdout, …)` dumps are the dry-run output, unrouted |
 
 The 30 stdout call sites, from 740's measurement:
@@ -111,12 +111,21 @@ Each global is exercised end-to-end and its effect observed, not assumed from re
 - [x] Every plan document naming `writ status` as live — the eight sites in 740 already changed under
       #772; the remaining plan documents are found by search and corrected
 
-### Phase 2: The report through the sink (status: not started)
+### Phase 2: The report through the sink (status: complete)
 
-- [ ] `reconcile.Report` returned to the command, handed to `BuildPipeline`
-- [ ] The 22 `fmt.Print*` calls deleted
-- [ ] Test: `-o json`, `-o yaml`, `-o list`, `-o table`, `-o csv`, `-o value`, `-o none`, `-o template=`
-      each produce their format — eight rows, eight assertions
+- [x] `reconcile.Report` returned to the command, handed to `BuildPipeline` — `BuildReport` is the entry;
+      `Execute` and `Config.JSON` are deleted, and with them the one-bool bridge at `config.go:160`
+- [x] The 22 `fmt.Print*` calls deleted, along with `State.String()`, the glyph they rendered; the help
+      text's "Entry states" now lists the labels JSON emits rather than glyphs no output carries
+- [x] Test: every format, at two levels. `TestReport_EveryFormatRenders` (unit, in the package) pins the
+      Report's shape under the shared pipeline — State marshals as its label, the four sections survive
+      normalization. `TestWritDeployScenario_Deploy` (scenario, `make test-scenario`) runs the real binary
+      through all seven non-JSON formats and fails on the human dashboard or on silence.
+
+**On "write the failing test first."** The scenario assertion is red on the tree before this phase by
+construction: `presentText`'s first statement was `fmt.Println("Layers:")`, and the assertion fails on
+exactly that string. It was written and the wiring changed in one pass, so red was argued rather than
+observed. Recorded so the claim is the right size.
 
 ### Phase 3: Dry-run dumps and migrate (status: not started)
 
@@ -143,7 +152,7 @@ Each global is exercised end-to-end and its effect observed, not assumed from re
 | # | What it proves | Level | Fails when |
 | --- | --- | --- | --- |
 | 1 | `writ status` does not exist | unit | an alias or the old command survives |
-| 2 | Each of eight `-o` values renders its format on `writ reconcile` | unit | the report bypasses the pipeline |
+| 2 | Each of eight `-o` values renders its format on `writ reconcile` | unit + scenario | the report bypasses the pipeline |
 | 3 | `--jq '.entries'` returns the delta alone | unit | `--jq` never reaches the pipeline |
 | 4 | `--store <dir>` reads that store | unit | `readback` folds the default store regardless |
 | 5 | `--dry-run` on `deploy` yields the graph, rendered by `-o` | unit | `SerializeGraphs` still writes stdout |
