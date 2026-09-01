@@ -22,7 +22,7 @@ rendering, and adopts the whole set everywhere.
 This plan is **thread 1 of four**, worked in order: this epic, then resource management
 (`Epic:ResourceModel`), then the writ lifecycle surface ([#762](https://github.com/NobleFactor/devlore-cli/issues/762)),
 then unified configuration ([#441](https://github.com/NobleFactor/devlore-cli/issues/441), planned at
-[441-unified-configuration.md](feature/441-unified-configuration.md)). Threads 1 and 3 were previously
+[441-unified-configuration.md](441-unified-configuration.md)). Threads 1 and 3 were previously
 entangled -- #762 renames the package this epic's next phase rewrites -- and are now separated. Doing this
 epic first means `status/report.go` is rewritten before #762 moves it; `git mv` still records a clean
 rename, so the cost is small.

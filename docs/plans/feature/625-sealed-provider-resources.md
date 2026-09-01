@@ -13,7 +13,7 @@ updated: 2026-09-01
 
 This plan is **thread 2 of four**, worked after the CLI output conventions
 ([#740](https://github.com/NobleFactor/devlore-cli/issues/740),
-[cli-output-conventions.md](cli-output-conventions.md)) and before the writ lifecycle surface
+[cli-output-conventions.md](740-cli-output-conventions.md)) and before the writ lifecycle surface
 ([#762](https://github.com/NobleFactor/devlore-cli/issues/762)) and unified configuration
 ([#441](https://github.com/NobleFactor/devlore-cli/issues/441)).
 
@@ -43,7 +43,7 @@ Not part of this plan, and tracked separately under `Epic:ResourceModel`:
 
 ### The four items outstanding on the status document
 
-[4-resource-management.status.md](../architecture/4-resource-management.status.md) records the
+[4-resource-management.status.md](../../architecture/4-resource-management.status.md) records the
 construction campaign as **converged** — design and tree agree, no surviving divergence row — and lists
 four items that outlive it:
 
@@ -85,7 +85,7 @@ The threat is not a struct literal somebody might one day write. **No `&<provide
 outside its own package anywhere in the tree** — checked across all eight on 2026-08-24. The live threat
 is a path the framework already takes.
 
-`tryHydrateStruct` ([pkg/op/convert.go:441](../../pkg/op/convert.go)) is generic map→struct hydration
+`tryHydrateStruct` ([pkg/op/convert.go:441](../../../pkg/op/convert.go)) is generic map→struct hydration
 inside `op.Convert`. Its guard admits any conversion whose source is a string-keyed map and whose target
 has concrete kind `reflect.Struct`. A resource slot declaring `*service.Resource` satisfies that today.
 So an author who supplies a dict where a resource is expected gets `reflect.New(concrete).Elem()` — a
@@ -93,7 +93,7 @@ freshly minted `service.Resource` with its exported fields filled from the map.
 
 The embedded `op.ResourceBase` has only unexported fields, so it stays zero. `URI()` returns `""`. The
 value is not merely unclaimed, it is **identity-less** — and it reaches
-[pkg/op/provider/service/provider.go:50](../../pkg/op/provider/service/provider.go), which reads
+[pkg/op/provider/service/provider.go:50](../../../pkg/op/provider/service/provider.go), which reads
 `name.Name` directly (20 such reads, none re-canonicalizing) and calls `sm.Disable(name.Name)` against
 the host. A host mutation performed for a resource the ledger never issued.
 
@@ -114,7 +114,7 @@ fills nothing yet still forges and returns an identity-less `*Regular`. Part 1 a
 most-used provider open on the very path that motivates the feature — which is why part 2 is not polish.
 
 **What this does not fix.** `ConvertFrom` — e.g.
-[pkg/op/provider/service/resource.go:305](../../pkg/op/provider/service/resource.go) — returns
+[pkg/op/provider/service/resource.go:305](../../../pkg/op/provider/service/resource.go) — returns
 `&Resource{Name: str}`, the same identity-less value, and it ships. Its own doc comment hands the problem
 downstream: *"Provider methods consuming the projected Resource are responsible for re-canonicalization
 … when full identity is required."* That is in-package construction, which the seal permits by design.
@@ -160,7 +160,7 @@ Two import paths, the same package *name*, **different packages**. The gen file 
 `package service` line and stopped before the import.
 
 That mattered because the fragment is `typeIDOf(goType) = PkgPath() + "." + Name()`
-([pkg/op/resource.go:529](../../pkg/op/resource.go)). Holding to ruling 2's fragment clause would have
+([pkg/op/resource.go:529](../../../pkg/op/resource.go)). Holding to ruling 2's fragment clause would have
 required each provider to export a `ResourceType() reflect.Type` seam for the gen file to announce — and
 `reflect.New` on that seam forges a resource, reopening the door the feature exists to close. It would
 also have moved every URI, contradicting this plan's own no-drift criterion.
@@ -179,8 +179,8 @@ three ways at once. All three surface in phase 1 and are paid once.
 
 **Where it breaks.**
 
-1. **The two `PointerTo` promotions** — [pkg/op/helpers.go:258](../../pkg/op/helpers.go) and
-   [pkg/op/receiver_type.go:357](../../pkg/op/receiver_type.go). Both read *"if not a pointer, make it
+1. **The two `PointerTo` promotions** — [pkg/op/helpers.go:258](../../../pkg/op/helpers.go) and
+   [pkg/op/receiver_type.go:357](../../../pkg/op/receiver_type.go). Both read *"if not a pointer, make it
    one, so pointer-receiver methods are visible."* On an interface that yields `*Resource` — a pointer to
    interface, whose method set is **empty**. Providers that announce method metadata fail loudly at init
    (`parseParameters` → `MethodByName` → `"method Equal: not found on type service.Resource"`).
@@ -188,7 +188,7 @@ three ways at once. All three surface in phase 1 and are paid once.
    returns an empty but non-nil map and the announced path then matches nothing.
 
 2. **`NewMethod` cannot consume an interface method at all** —
-   [pkg/op/method.go:178](../../pkg/op/method.go). Per `reflect`, an interface type's `Method` has
+   [pkg/op/method.go:178](../../../pkg/op/method.go). Per `reflect`, an interface type's `Method` has
    `Func == nil` and a `Type` carrying **no receiver**. So `do.Type.In(0)` yields the first *parameter*
    for `Equal(other any)`, producing the action name `"..Equal"`, and **panics** outright for a no-arg
    method like `Etag()`, where `NumIn()` is 0. Ten lines on, `doFn := do.Func` is the zero `Value` and
@@ -204,7 +204,7 @@ machinery cannot build a dispatchable method from an interface however it is rea
 concrete types instead, and split the one field that is doing two jobs:
 
 - **the concrete `*resource`** serves method enumeration, promotion, dispatch, and the `byType` key at
-  [pkg/op/receiver_registry.go:960](../../pkg/op/receiver_registry.go) — which must key on the concrete
+  [pkg/op/receiver_registry.go:960](../../../pkg/op/receiver_registry.go) — which must key on the concrete
   type, because `marshalReflect` looks up by `reflect.TypeOf(value)`.
 - **a stored `typeID string`**, computed once from the interface at announce time, serves the two
   `typeIDOf(ProviderType()) == typeID` comparisons at `receiver_registry.go:486` and `:513`, which match
@@ -227,9 +227,9 @@ emits both.
 identity. Today any Go rename silently invalidates every saved document; afterwards the id is a value that
 can be seen and pinned.
 
-Checked and *not* a cost: `plannerForType` ([pkg/op/planner.go:147](../../pkg/op/planner.go)) does the
+Checked and *not* a cost: `plannerForType` ([pkg/op/planner.go:147](../../../pkg/op/planner.go)) does the
 same nil-interface probe but is only ever called with `metadata.Planner` — never a resource type. And
-`deriveMethodParams` ([pkg/op/receiver_type.go:702](../../pkg/op/receiver_type.go)) already filters
+`deriveMethodParams` ([pkg/op/receiver_type.go:702](../../../pkg/op/receiver_type.go)) already filters
 `!m.IsExported()`.
 
 One consequence ruling 6 does add: `file`'s variant interfaces each declare `kind()`, so part 2 must
@@ -249,9 +249,9 @@ exported one.
 a separate string, derived from a different type by a different function.
 
 `ReceiptBase.Commit` records `canonicalIDOf(result)` — the produced value's **dynamic** type
-([pkg/op/receipt.go:438](../../pkg/op/receipt.go)). `ProductTypeByID` resolves it through an index built
+([pkg/op/receipt.go:438](../../../pkg/op/receipt.go)). `ProductTypeByID` resolves it through an index built
 from **every** action method's **declared** result type
-([pkg/op/receiver_registry.go:542](../../pkg/op/receiver_registry.go)). The two need not agree, and today
+([pkg/op/receiver_registry.go:542](../../../pkg/op/receiver_registry.go)). The two need not agree, and today
 they agree only by coincidence:
 
 - `file.Move`, `Remove`, `RemoveAll`, and `Backup` already return the `Resource` interface, so they record
@@ -261,7 +261,7 @@ they agree only by coincidence:
 
 **Sealing removes the coincidence.** The dynamic type becomes `*…/file.regular`, an unexported struct no
 method declares, so nothing contributes the key and the lookup misses. And the miss is **silent** —
-`retypeStampedResult` ([pkg/op/recovery_stack.go:647](../../pkg/op/recovery_stack.go)) reads:
+`retypeStampedResult` ([pkg/op/recovery_stack.go:647](../../../pkg/op/recovery_stack.go)) reads:
 
 ```go
 productType, ok := ReceiverRegistry().ProductTypeByID(s.resultType)

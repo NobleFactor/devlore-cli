@@ -2,7 +2,7 @@
 
 **Document:** [10-command-line-interface.md](10-command-line-interface.md)
 **Epic:** [#740](https://github.com/NobleFactor/devlore-cli/issues/740)
-**Plan:** [cli-output-conventions.md](../plans/cli-output-conventions.md)
+**Plan:** [740-cli-output-conventions.md](../plans/feature/740-cli-output-conventions.md)
 **State:** Specified 2026-08-28 against `aws`, `az`, `docker`, `gcloud`, and `kubectl`; the formatter layer
 and two of four programs landed 2026-08-30. `devlore-test` and `writ` register the common set; `lore` and
 `star` do not yet.
