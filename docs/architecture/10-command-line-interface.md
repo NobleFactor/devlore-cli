@@ -23,7 +23,10 @@ The suite already has the mechanism —
 statement that using it is mandatory, or a `--output` flag to say *where*. Both absences are why forty-five of
 forty-six commands improvise.
 
-## 1. Scope and principles
+## 1. What this governs
+
+*(Titled for what it does rather than "Scope", because a **scope** is now a named execution context --
+`Home`, `System`, `ProgramFiles` -- and one document should not spend the word twice. See §4.)*
 
 This document governs four binaries -- `devlore-test`, `lore`, `star`, and `writ`. They **will use the
 same common flag set**, in full: every flag in §4 is available on every command of all four.
@@ -146,6 +149,10 @@ repurpose them:
 | `--jq` | | string | jq expression, applied after `--filter` |
 | `--output` | `-o` | string | How the result is rendered; `NAME` or `NAME=ARGUMENT`. §7, §8 |
 | `--store` | | string | The execution store's root. §6 |
+
+`--scope` is reserved too, and is not in that table because it is not shared: only `writ` binds it, and a
+name reserved for one program is a different promise from one every program keeps. No other program may
+take the name for something else. See §4.1.
 
 `--output` / `-o` selects the **rendering**, matching `az` and `kubectl`. It is deliberately not a
 destination: a user typing `-o json` must never be silently creating a file named `json`. See Design
@@ -280,7 +287,7 @@ the same expectation `gcloud` states by requiring a projection for its `csv` and
 intended use is `--jq` first:
 
 ```
-writ status --jq '.entries[] | "\(.target) is \(.state)"' -o value
+writ reconcile --jq '.entries[] | "\(.target) is \(.state)"' -o value
 ```
 
 **One table formatter, no exceptions.** `table` is a general rendering and belongs in `pkg/result` like the
@@ -663,7 +670,7 @@ Current state, 2026-08-30. Two of the four in-scope programs register the common
 | `star` | no | a **second `cli` package** of its own -- see below |
 | `devlore-docs` | not in scope | — |
 
-`writ status` is bridged rather than converted, and the bridge is one bool: `cfg.JSONOutput` reads
+`writ reconcile` is bridged rather than converted, and the bridge is one bool: `cfg.JSONOutput` reads
 `outputOptions.Format == "json"` (`cmd/writ/writ/config.go:160`) while the report still renders itself.
 Measured 2026-08-30, **one of eight formats works**:
 
@@ -677,7 +684,7 @@ Three of those are worse than ignored. `-o none` prints ten lines where its whol
 rejects it.
 
 **And the value is never validated** ([#754](https://github.com/NobleFactor/devlore-cli/issues/754)).
-Because the format string never reaches [FormatterByName], any string is accepted: `writ status -o bogus`
+Because the format string never reaches [FormatterByName], any string is accepted: `writ reconcile -o bogus`
 prints the dashboard and exits 0, where `devlore-test -o bogus` reports `unknown formatter "bogus"; expected
 one of csv, json, list, none, table, template=BODY, value, yaml`. A typo is silently honored as a request for
 the default. That is a second defect, distinct from the seven wrong renderings: one does the wrong thing, the
@@ -688,7 +695,7 @@ value.
 ([#753](https://github.com/NobleFactor/devlore-cli/issues/753)), and that is the severe face of the same
 cause. `outputOptions` is read in exactly two places: `config.go:160` takes `.Format`, and `commands.go:302`
 hands the struct to [BuildPipeline] in `runVerify`. Meanwhile `readback.go` genuinely reads [TracesDir] and
-[GraphsDir] to fold runs into the inventory. So `writ status --store <elsewhere>` reads the default store and
+[GraphsDir] to fold runs into the inventory. So `writ reconcile --store <elsewhere>` reads the default store and
 reports the result as compliance -- not a formatting nicety, but the wrong data, silently.
 
 **The shared cause is a flag registered on a root that no leaf consumes.** `root.go:49` calls
