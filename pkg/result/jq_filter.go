@@ -4,8 +4,6 @@
 package result
 
 import (
-	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -65,7 +63,7 @@ func NewJQFilter(expression string) (*JQFilter, error) {
 // returned as-is.
 func (f *JQFilter) Apply(value any) (any, error) {
 
-	normalized, err := jqNormalize(value)
+	normalized, err := normalize(value)
 	if err != nil {
 		return nil, fmt.Errorf("result.JQFilter: normalize input: %w", err)
 	}
@@ -100,63 +98,5 @@ func (f *JQFilter) Apply(value any) (any, error) {
 // endregion
 
 // region Helpers
-
-// jqNormalize converts value into gojq's native shape via JSON round-trip. gojq operates on
-// map[string]any / []any / primitives; struct values pass through json.Marshal which honors `json:`
-// tags. The conversion is needed because gojq cannot reflect on arbitrary Go structs.
-func jqNormalize(value any) (any, error) {
-
-	if value == nil {
-		return nil, nil
-	}
-
-	encoded, err := json.Marshal(value)
-	if err != nil {
-		return nil, err
-	}
-
-	decoder := json.NewDecoder(bytes.NewReader(encoded))
-	decoder.UseNumber()
-
-	var out any
-	if err := decoder.Decode(&out); err != nil {
-		return nil, err
-	}
-
-	return jqUnwrapNumbers(out), nil
-}
-
-// jqUnwrapNumbers walks the decoded value and converts json.Number values to int64 or float64. gojq
-// understands both directly; the conversion keeps `==` comparisons stable across integer and float
-// branches.
-func jqUnwrapNumbers(value any) any {
-
-	switch v := value.(type) {
-
-	case json.Number:
-		if i, err := v.Int64(); err == nil {
-			return i
-		}
-		if f, err := v.Float64(); err == nil {
-			return f
-		}
-		return v.String()
-
-	case map[string]any:
-		for key, child := range v {
-			v[key] = jqUnwrapNumbers(child)
-		}
-		return v
-
-	case []any:
-		for i, child := range v {
-			v[i] = jqUnwrapNumbers(child)
-		}
-		return v
-
-	default:
-		return v
-	}
-}
 
 // endregion

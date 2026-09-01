@@ -63,15 +63,20 @@ func (f TableFormatter) Format(value any, w io.Writer) error {
 		rv = rv.Elem()
 	}
 
+	// A lone record is a sequence of one (§8's S3). A scalar is one row of one column, which is what
+	// `--jq '.count' -o table` should print rather than an error.
+	rv = asRecords(rv)
+
 	if rv.Kind() != reflect.Slice && rv.Kind() != reflect.Array {
-		return fmt.Errorf("result.TableFormatter: expected slice or array, got %T", value)
+		_, err := fmt.Fprintln(w, escapeControlCharacters(csvCellValue(rv)))
+		return err
 	}
 
 	if rv.Len() == 0 {
 		return nil
 	}
 
-	headers, headersFromValue := csvHeadersFromValue(value)
+	headers, headersFromValue := csvHeadersFromValue(rv.Interface())
 	if !headersFromValue {
 		headers = csvHeadersFromElements(rv)
 	}
@@ -93,12 +98,46 @@ func (f TableFormatter) Format(value any, w io.Writer) error {
 
 	for i := range rv.Len() {
 		row := csvRowFromElement(rv.Index(i), headers)
+		for j, cell := range row {
+			row[j] = escapeControlCharacters(cell)
+		}
 		if _, err := fmt.Fprintln(writer, strings.Join(row, "\t")); err != nil {
 			return err
 		}
 	}
 
 	return writer.Flush()
+}
+
+// endregion
+
+// region Helpers
+
+// escapeControlCharacters renders a cell's newlines, tabs, and carriage returns as their two-character
+// escapes.
+//
+// A table pads with spaces and has no quoting, so a cell carrying its own newline terminates the line and
+// splits the record across two -- silently, and for the ordinary case rather than an exotic one, since every
+// shell result's `stdout` ends in a newline (#748). A tab is worse: it reaches [text/tabwriter] as a column
+// break and shifts every following cell.
+//
+// `csv` needs none of this. RFC 4180 quoting already keeps an embedded newline inside its field, where a
+// parser reads it correctly, and escaping there would corrupt a value that round-trips today. `value` needs
+// none of it either: raw is raw, which is the contract `gcloud` and `aws` state for the same rendering.
+//
+// Parameters:
+//   - `cell`: the rendered cell text.
+//
+// Returns:
+//   - `string`: the cell with control characters escaped.
+func escapeControlCharacters(cell string) string {
+
+	if !strings.ContainsAny(cell, "\n\r\t") {
+		return cell
+	}
+
+	replacer := strings.NewReplacer("\n", `\n`, "\r", `\r`, "\t", `\t`)
+	return replacer.Replace(cell)
 }
 
 // endregion

@@ -4,29 +4,61 @@
 # See: writ config --schema
 
 writ:
-  # Custom segments (beyond built-in OS, DISTRO, ARCH)
+  # Custom segments, as name to value (beyond built-in OS, DISTRO, ARCH)
+  #
+  # A key introduces the segment name; its value sets the segment. A key with no value declares a
+  # segment set elsewhere -- by WRIT_SEGMENT_<NAME> or --segment NAME=value. A directory suffix
+  # matches only a segment that has a value, so an unset segment behaves like DISTRO on macOS:
+  # nothing carrying that suffix is selected.
   # segments:
-  #   - ROLE
-  #   - SITE
+  #   ROLE: desktop
+  #   SITE:
 
-  # Template variables and segment value overrides
+  # Scopes, as name to root directory
+  #
+  # A scope is a named execution context: a directory in the root of a layer repository, whose
+  # contents deploy beneath the root named here. Paths are preserved, so Home/.config/app/x lands
+  # at <home>/.config/app/x. Every lifecycle operation takes a scope -- deploy writes into one,
+  # reconcile classifies what is in it, upgrade re-deploys into it, decommission removes from it.
+  # Restrict an operation to particular scopes with --scope.
+  #
+  # scopes:
+  #   Staging: ~/staging/root
+  #   Home: ~/staging/home
+  #
+  # Five scopes are builtin and resolve per platform:
+  #
+  #   Home             your home directory, on every platform
+  #   System           / on Unix, %SystemDrive%\ on Windows              (elevated)
+  #   ProgramData      undefined on Unix, %ProgramData% on Windows        (elevated)
+  #   ProgramFiles     undefined on Unix, %ProgramFiles% on Windows       (elevated)
+  #   ProgramFilesX86  undefined on Unix, %ProgramFiles(x86)% on Windows  (elevated)
+  #
+  # A builtin's key overrides its default root, which is how a deployment is aimed at a staging
+  # tree or a sandbox. For Home that is the ONLY way: the home directory is resolved from your
+  # account, so setting HOME does not move a deployment.
+  #
+  # Builtin names are reserved on EVERY platform, including those where they do not resolve, so
+  # one repository means one thing on every machine. Introducing `ProgramFiles` on Unix is an
+  # error -- the name is Windows', and honouring it here would make one repository mean two
+  # things. A layer that carries a ProgramFiles/ directory on a Unix machine is skipped in
+  # silence: the repository is shared, and that directory is there for the Windows machines.
+  # Asking for it outright, --scope=ProgramFiles, is an error there. Data is skipped;
+  # instructions are refused.
+  #
+  # LOCALAPPDATA and APPDATA are deliberately not builtin. Microsoft documents no supported way to
+  # relocate Local AppData, so it is pinned beneath %USERPROFILE% and reaches through Home as
+  # Home/AppData/Local/... -- an ordinary relative path. Roaming IS redirectable under domain
+  # policy, so a builtin would hardcode a location an administrator may override; name a scope
+  # for it where one has.
+
+  # Template variables
+  #
+  # What templates interpolate, and nothing else. Segment values live under segments; scope roots
+  # live under scopes.
   # vars:
   #   USER_NAME: "Your Name"
   #   USER_EMAIL: "you@example.com"
-  #   ROLE: desktop
-
-  # Deployment target roots. A layer's Home/ tree deploys beneath `home`; its System/ tree
-  # deploys beneath `system`. Paths are preserved, so Home/.config/app/x lands at
-  # <home>/.config/app/x.
-  #
-  # Defaults: home = your home directory, system = /
-  #
-  # Set these to deploy somewhere other than the live system — a staging tree, or a sandbox.
-  # Note that `home` is the ONLY way to redirect the Home target: the home directory is
-  # resolved from your account, so setting HOME does not move a deployment.
-  # targets:
-  #   home: ~/staging/home
-  #   system: ~/staging/system
 
 # Layers are directories at ~/.local/share/devlore/writ/layers/
 #   base/
