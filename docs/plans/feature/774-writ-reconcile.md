@@ -44,7 +44,7 @@ The report is one JSON document: `entries[]` (the delta, eight states, each nami
 
 | Component | Status | Notes |
 | --- | --- | --- |
-| The command | ❌ `writ status` | `cmd/writ/writ/status/` |
+| The command | ✅ `writ reconcile` | `cmd/writ/writ/reconcile/`, renamed with history under phase 1 |
 | `--json` boolean | ✅ retired | done in #740 phase 3a |
 | `-o` rendering | ❌ one of eight | measured 2026-08-30: everything but `json` prints the human dashboard |
 | `-o` validation | ✅ | `PersistentPreRunE`, #754 |
@@ -103,12 +103,12 @@ Each global is exercised end-to-end and its effect observed, not assumed from re
 
 ## Implementation Phases
 
-### Phase 1: The rename (status: not started)
+### Phase 1: The rename (status: complete)
 
-- [ ] `git mv cmd/writ/writ/status cmd/writ/writ/reconcile`; `status.go` → `reconcile.go`
-- [ ] `status.Report` → `reconcile.Report`; the package surface follows
-- [ ] `writ status` → `writ reconcile` in the scenario tests
-- [ ] Every plan document naming `writ status` as live — the eight sites in 740 already changed under
+- [x] `git mv cmd/writ/writ/status cmd/writ/writ/reconcile`; `status.go` → `reconcile.go`
+- [x] `status.Report` → `reconcile.Report`; the package surface follows
+- [x] `writ status` → `writ reconcile` in the scenario tests
+- [x] Every plan document naming `writ status` as live — the eight sites in 740 already changed under
       #772; the remaining plan documents are found by search and corrected
 
 ### Phase 2: The report through the sink (status: not started)

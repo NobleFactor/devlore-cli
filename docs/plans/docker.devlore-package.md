@@ -410,7 +410,7 @@ package-authored after all.
 
 The predicates exist and are sufficient to *detect* drift: `plan.pkg.installed`,
 `plan.pkg.version_gte`, `plan.pkg.observe`, `plan.service.enabled`, `plan.service.running`.
-`docs/architecture/5.1-reconciliation.md` records that `writ status` with Etag/Digest drift
+`docs/architecture/5.1-reconciliation.md` records that `writ reconcile` with Etag/Digest drift
 attribution landed in steps 47–48, but that the `ExecutionEvent` / `Reconcile` triangle is
 "Not implemented — preserved as design."
 

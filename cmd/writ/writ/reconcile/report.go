@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Noble Factor. All rights reserved.
 
-package status
+package reconcile
 
 import (
 	"encoding/json"
@@ -11,7 +11,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/readback"
 )
 
-// Report is the four-section status report.
+// Report is the four-section reconcile report.
 type Report struct {
 
 	// Layers is the registered layer tree — the "where from".

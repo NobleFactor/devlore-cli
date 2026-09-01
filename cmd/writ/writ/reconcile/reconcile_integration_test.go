@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Noble Factor. All rights reserved.
 
-package status_test
+package reconcile_test
 
 import (
 	"context"
@@ -12,15 +12,15 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/deploy"
+	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/reconcile"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/segment"
-	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/status"
 
 	// Blank-import the op inventory so provider registration runs for planning and graph loading.
 	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/inventory"
 )
 
-// fixtureSegments is the segment set shared by the deploy fixture and the status configs.
+// fixtureSegments is the segment set shared by the deploy fixture and the reconcile configs.
 var fixtureSegments = segment.Segments{{Name: "OS", Value: "Darwin"}}
 
 // deployFixture runs one real deploy (a plain link and a template) and returns the roots and template source.
@@ -65,13 +65,13 @@ func deployFixture(t *testing.T) (sourceRoot, targetRoot, templateSource string)
 	return sourceRoot, targetRoot, templateSource
 }
 
-// statusConfig returns the baseline status configuration for the fixture.
-func statusConfig() *status.Config {
-	return &status.Config{Segments: fixtureSegments}
+// reconcileConfig returns the baseline reconcile configuration for the fixture.
+func reconcileConfig() *reconcile.Config {
+	return &reconcile.Config{Segments: fixtureSegments}
 }
 
 // entryFor finds the report entry for a target.
-func entryFor(t *testing.T, report *status.Report, target string) status.Entry {
+func entryFor(t *testing.T, report *reconcile.Report, target string) reconcile.Entry {
 
 	t.Helper()
 	for i := range report.Entries {
@@ -80,7 +80,7 @@ func entryFor(t *testing.T, report *status.Report, target string) status.Entry {
 		}
 	}
 	t.Fatalf("no entry for %s; entries: %+v", target, report.Entries)
-	return status.Entry{}
+	return reconcile.Entry{}
 }
 
 // TestBuildReport_CleanDeployment pins the healthy shape: linked + copied entries, three absent layers, one
@@ -89,18 +89,18 @@ func TestBuildReport_CleanDeployment(t *testing.T) {
 
 	_, targetRoot, _ := deployFixture(t)
 
-	report, err := status.BuildReport(context.Background(), statusConfig())
+	report, err := reconcile.BuildReport(context.Background(), reconcileConfig())
 	if err != nil {
 		t.Fatalf("BuildReport: %v", err)
 	}
 
 	link := entryFor(t, report, filepath.Join(targetRoot, ".zshrc"))
-	if link.State != status.StateLinked || link.Repair != "" {
+	if link.State != reconcile.StateLinked || link.Repair != "" {
 		t.Errorf("link entry = %+v, want linked with no repair", link)
 	}
 
 	rendered := entryFor(t, report, filepath.Join(targetRoot, ".gitconfig"))
-	if rendered.State != status.StateCopied || rendered.Repair != "" {
+	if rendered.State != reconcile.StateCopied || rendered.Repair != "" {
 		t.Errorf("rendered entry = %+v, want copied with no repair", rendered)
 	}
 
@@ -137,18 +137,18 @@ func TestBuildReport_Classifications(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	report, err := status.BuildReport(context.Background(), statusConfig())
+	report, err := reconcile.BuildReport(context.Background(), reconcileConfig())
 	if err != nil {
 		t.Fatalf("BuildReport: %v", err)
 	}
 
 	missing := entryFor(t, report, filepath.Join(targetRoot, ".gitconfig"))
-	if missing.State != status.StateMissing || missing.Repair != "writ deploy" {
+	if missing.State != reconcile.StateMissing || missing.Repair != "writ deploy" {
 		t.Errorf("missing entry = %+v, want missing with repair 'writ deploy'", missing)
 	}
 
 	conflict := entryFor(t, report, linkPath)
-	if conflict.State != status.StateConflict {
+	if conflict.State != reconcile.StateConflict {
 		t.Errorf("conflict entry = %+v, want conflict", conflict)
 	}
 
@@ -169,13 +169,13 @@ func TestBuildReport_Classifications(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	report, err = status.BuildReport(context.Background(), statusConfig())
+	report, err = reconcile.BuildReport(context.Background(), reconcileConfig())
 	if err != nil {
 		t.Fatalf("BuildReport (round 2): %v", err)
 	}
 
 	stale := entryFor(t, report, filepath.Join(targetRoot, ".gitconfig"))
-	if stale.State != status.StateStale || stale.Repair != "writ upgrade" {
+	if stale.State != reconcile.StateStale || stale.Repair != "writ upgrade" {
 		t.Errorf("stale entry = %+v, want stale (attributed via the recorded identity) with repair 'writ upgrade'", stale)
 	}
 
@@ -183,12 +183,12 @@ func TestBuildReport_Classifications(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(targetRoot, ".gitconfig"), []byte("my local edits"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	report, err = status.BuildReport(context.Background(), statusConfig())
+	report, err = reconcile.BuildReport(context.Background(), reconcileConfig())
 	if err != nil {
 		t.Fatalf("BuildReport (modified round): %v", err)
 	}
 	modified := entryFor(t, report, filepath.Join(targetRoot, ".gitconfig"))
-	if modified.State != status.StateModified || modified.Repair != "writ upgrade --force" {
+	if modified.State != reconcile.StateModified || modified.Repair != "writ upgrade --force" {
 		t.Errorf("modified entry = %+v, want modified with repair 'writ upgrade --force'", modified)
 	}
 
@@ -196,12 +196,12 @@ func TestBuildReport_Classifications(t *testing.T) {
 	if err := os.Remove(filepath.Join(sourceRoot, "myproj", ".zshrc")); err != nil {
 		t.Fatal(err)
 	}
-	report, err = status.BuildReport(context.Background(), statusConfig())
+	report, err = reconcile.BuildReport(context.Background(), reconcileConfig())
 	if err != nil {
 		t.Fatalf("BuildReport (round 3): %v", err)
 	}
 	orphan := entryFor(t, report, linkPath)
-	if orphan.State != status.StateOrphan || orphan.Repair != "writ decommission" {
+	if orphan.State != reconcile.StateOrphan || orphan.Repair != "writ decommission" {
 		t.Errorf("orphan entry = %+v, want orphan with repair 'writ decommission'", orphan)
 	}
 }
@@ -219,7 +219,7 @@ func TestBuildReport_LayerLink(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	report, err := status.BuildReport(context.Background(), statusConfig())
+	report, err := reconcile.BuildReport(context.Background(), reconcileConfig())
 	if err != nil {
 		t.Fatalf("BuildReport: %v", err)
 	}
@@ -249,7 +249,7 @@ func TestBuildReport_MissingIndexIsHardError(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err := status.BuildReport(context.Background(), statusConfig())
+	_, err := reconcile.BuildReport(context.Background(), reconcileConfig())
 	if err == nil || !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("BuildReport over a missing index = %v, want the hard error", err)
 	}

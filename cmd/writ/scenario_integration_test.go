@@ -421,7 +421,7 @@ func segmentOS() string {
 }
 
 // TestWritDeployScenario_Deploy is the phase-2 leg: deploy noblefactor and thenobles into the sandbox, then
-// assert the deployed filesystem, the status report, the execution store, and a clean second deploy.
+// assert the deployed filesystem, the reconcile report, the execution store, and a clean second deploy.
 func TestWritDeployScenario_Deploy(t *testing.T) {
 
 	sandbox := newScenarioSandbox(t)
@@ -432,7 +432,7 @@ func TestWritDeployScenario_Deploy(t *testing.T) {
 	}
 
 	// The per-file inventory assertions are fixture-specific; a real repo (WRIT_SCENARIO_REPO) carries
-	// the owner's content, so that mode asserts the generic invariants only (status, store, re-deploy).
+	// the owner's content, so that mode asserts the generic invariants only (reconcile, store, re-deploy).
 	fixtureMode := os.Getenv("WRIT_SCENARIO_REPO") == ""
 
 	// The deployed inventory: base dot-content on every platform, segment variants by matching, the
@@ -461,10 +461,10 @@ func TestWritDeployScenario_Deploy(t *testing.T) {
 		assertAbsent(t, filepath.Join(sandbox.Home, "scenario-note.md"))
 	}
 
-	// The status report, machine-readable: every classified entry is healthy.
-	statusOut, statusErr, err := runWrit(t, sandbox, "status", "-o", "json")
+	// The reconcile report, machine-readable: every classified entry is healthy.
+	reconcileOut, reconcileErr, err := runWrit(t, sandbox, "reconcile", "-o", "json")
 	if err != nil {
-		t.Fatalf("writ status failed: %v\nstderr: %s", err, statusErr)
+		t.Fatalf("writ reconcile failed: %v\nstderr: %s", err, reconcileErr)
 	}
 	var report struct {
 		Entries []struct {
@@ -473,8 +473,8 @@ func TestWritDeployScenario_Deploy(t *testing.T) {
 			Project string `json:"project"`
 		} `json:"entries"`
 	}
-	if err := json.Unmarshal([]byte(statusOut), &report); err != nil {
-		t.Fatalf("status -o json is not parseable: %v\n%s", err, statusOut)
+	if err := json.Unmarshal([]byte(reconcileOut), &report); err != nil {
+		t.Fatalf("reconcile -o json is not parseable: %v\n%s", err, reconcileOut)
 	}
 	// With the implicit common project: Windows deploys the base pair + common + common.Windows (4);
 	// the unix platforms add their variants (darwin 8, linux 7).
@@ -483,7 +483,7 @@ func TestWritDeployScenario_Deploy(t *testing.T) {
 		minimumEntries = 4
 	}
 	if len(report.Entries) < minimumEntries {
-		t.Fatalf("status reports %d entries, expected at least %d:\n%s", len(report.Entries), minimumEntries, statusOut)
+		t.Fatalf("reconcile reports %d entries, expected at least %d:\n%s", len(report.Entries), minimumEntries, reconcileOut)
 	}
 	for _, entry := range report.Entries {
 		if entry.State != "linked" && entry.State != "copied" {

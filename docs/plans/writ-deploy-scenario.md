@@ -98,7 +98,7 @@ corrected shape.
 | Install devlore-cli | Real binaries built once, placed on the sandbox `PATH`; the test shells `writ` as a subprocess |
 | Configure writ (personal only) | The harness registers the layer at `XDG_DATA_HOME/devlore/writ/layers/personal` (symlink to the repo) — base and team absent |
 | `writ deploy noblefactor thenobles` | Deploy both projects into the sandbox home |
-| Verify | Links/copies land; `writ status` reports all ✓; the store holds the graph (once) + one trace + index entries; a second deploy is idempotent |
+| Verify | Links/copies land; `writ reconcile` reports all ✓; the store holds the graph (once) + one trace + index entries; a second deploy is idempotent |
 
 ## Source resolution: branch locally, fixture in CI
 
@@ -114,7 +114,7 @@ branch's content evolves, the fixture is refreshed deliberately.
 
 1. **Location**: `cmd/writ/scenario_integration_test.go`, subprocess-driving, its own
    make target (`make test-scenario`) so `make test` stays fast.
-2. **Assertions read public surfaces only**: the sandbox filesystem, `writ status`
+2. **Assertions read public surfaces only**: the sandbox filesystem, `writ reconcile`
    output, and the execution store (`graphs/`, `traces/`, `index.jsonl`).
 3. **CI**: a scenario matrix job — ubuntu + macos first, windows per Q3 — running build +
    the scenario test only; the full gate stays ubuntu.
@@ -160,7 +160,7 @@ branch's content evolves, the fixture is refreshed deliberately.
    modes — fixture and the real `devlore-cli/writ-layer` branch.
 2. **Deploy leg — done 2026-08-08.** `TestWritDeployScenario_Deploy`: deploy both
    projects, assert the filesystem (links resolve, template rendered with segment data,
-   undeployed projects absent — fixture mode), `writ status --json` all-healthy, the
+   undeployed projects absent — fixture mode), `writ reconcile -o json` all-healthy, the
    store (graph, timestamped trace, `index.ndjson`), and a clean second deploy appending
    a trace. Green in fixture mode and against the real `devlore-cli/writ-layer` branch.
    **Three real defects caught and fixed** — the scenario's charter proven on its first
