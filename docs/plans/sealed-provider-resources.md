@@ -1,12 +1,70 @@
 ---
 title: "Sealed provider resources: every announced resource type is an interface"
 issue: https://github.com/NobleFactor/devlore-cli/issues/625
-status: approved
+status: in-progress
 created: 2026-08-23
-updated: 2026-08-24
+updated: 2026-09-01
 ---
 
 # Plan: Sealed provider resources — every announced resource type is an interface
+
+
+## Where we are (2026-09-01)
+
+This plan is **thread 2 of four**, worked after the CLI output conventions
+([#740](https://github.com/NobleFactor/devlore-cli/issues/740),
+[cli-output-conventions.md](cli-output-conventions.md)) and before the writ lifecycle surface
+([#762](https://github.com/NobleFactor/devlore-cli/issues/762)) and unified configuration
+([#441](https://github.com/NobleFactor/devlore-cli/issues/441)).
+
+**Five of ten phases have landed.** Phases 1-5 are complete: the framework repairs and `service`, the
+generator inspecting the implementation, `git` and `appnet`, `json` and `yaml`, and `mem` and `function`.
+
+| Phase | Subject | Issue |
+| --- | --- | --- |
+| 6 | `pkg` — the widest consumer surface | [#644](https://github.com/NobleFactor/devlore-cli/issues/644) |
+| 7 | `file`'s four variants, discriminated by `kind()` | [#645](https://github.com/NobleFactor/devlore-cli/issues/645) |
+| 8 | sweep `ConvertFrom` / `CanConvertFrom` | [#649](https://github.com/NobleFactor/devlore-cli/issues/649) |
+| 9 | the rule becomes structurally enforceable | [#646](https://github.com/NobleFactor/devlore-cli/issues/646) |
+| 10 | closure — the design record states the contract | [#647](https://github.com/NobleFactor/devlore-cli/issues/647) |
+
+Every remaining phase already has an issue. **#644 is next.**
+
+### The thread's other open work
+
+Not part of this plan, and tracked separately under `Epic:ResourceModel`:
+
+- [#635](https://github.com/NobleFactor/devlore-cli/issues/635) — a unit test and a functional test for
+  every provider method, one pull request per provider.
+- [#597](https://github.com/NobleFactor/devlore-cli/issues/597) — design: the RuntimeEnvironment holds a
+  named set of roots, `(root-name, rel)` identity.
+- [#735](https://github.com/NobleFactor/devlore-cli/issues/735) — a resource-valued slot re-identifies by
+  URI, binding to the current generation. High severity, P1.
+
+### The four items outstanding on the status document
+
+[4-resource-management.status.md](../architecture/4-resource-management.status.md) records the
+construction campaign as **converged** — design and tree agree, no surviving divergence row — and lists
+four items that outlive it:
+
+1. **The staged per-type `Resolve`/`Exists` rollout.** `file` is proven and kind-honest; the other eight
+   resource-bearing providers await their per-type step. Phases 6 and 7 of this plan touch `pkg` and
+   `file`, so the rollout and the sealing overlap and should be sequenced together rather than twice.
+2. **Remote-execution filesystem abstraction** (open question §10.1). No owner, no thread.
+3. **Run-start claiming for variable-fed resource slots**, ruled 2026-08-22 and explicitly sequenced after
+   the resource-construction campaign. The interim posture is a plan-time refusal of plain variables into
+   resource-typed slots, the reserved gather `item` frame excepted. That interim is live, so this is not
+   blocking anything today.
+4. **Judgment scenario 2** — relocate the tree, reconcile at the new root. It is the direct payoff of rel
+   identity and stays a recorded prediction **until there is a drivable reconcile surface**, which is
+   thread 3's phase 2 ([#762](https://github.com/NobleFactor/devlore-cli/issues/762)). This is a
+   cross-thread dependency running thread 3 → thread 2, and it is the reason to expect a return to this
+   thread after #762 lands rather than to treat it as finished when phase 10 closes.
+
+**The process this thread is worked under** is
+[noblefactor-ops `development-process.md`](https://github.com/NobleFactor/noblefactor-ops/blob/develop/docs/guides/development-process.md):
+one open worktree at a time, every issue in it resolved before a pull request, issues logged on discovery
+with their resolution site decided at that moment, and every commit updating every document it touches.
 
 ## Summary
 
