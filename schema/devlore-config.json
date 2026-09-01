@@ -7,7 +7,11 @@
   "properties": {
     "verbosity": {
       "type": "string",
-      "enum": ["quiet", "normal", "verbose"],
+      "enum": [
+        "quiet",
+        "normal",
+        "verbose"
+      ],
       "description": "Output verbosity level (shared across lore and writ)",
       "default": "normal"
     },
@@ -22,7 +26,14 @@
       "properties": {
         "provider": {
           "type": "string",
-          "enum": ["ollama", "anthropic", "openai", "github", "groq", "gemini"],
+          "enum": [
+            "ollama",
+            "anthropic",
+            "openai",
+            "github",
+            "groq",
+            "gemini"
+          ],
           "description": "AI provider backend",
           "default": "ollama"
         },
@@ -89,7 +100,11 @@
         "on_error": {
           "type": "string",
           "description": "Behavior on decryption failure",
-          "enum": ["error", "warn", "skip"],
+          "enum": [
+            "error",
+            "warn",
+            "skip"
+          ],
           "default": "error"
         }
       }
@@ -139,13 +154,22 @@
             },
             "symlink_strategy": {
               "type": "string",
-              "enum": ["prefer", "avoid", "always"],
+              "enum": [
+                "prefer",
+                "avoid",
+                "always"
+              ],
               "description": "Symlink creation strategy",
               "default": "prefer"
             },
             "conflict_policy": {
               "type": "string",
-              "enum": ["backup", "overwrite", "skip", "ask"],
+              "enum": [
+                "backup",
+                "overwrite",
+                "skip",
+                "ask"
+              ],
               "description": "How to handle file conflicts",
               "default": "ask"
             },
@@ -171,12 +195,25 @@
               "items": {
                 "type": "object",
                 "properties": {
-                  "name": {"type": "string"},
-                  "url": {"type": "string", "format": "uri"},
-                  "priority": {"type": "integer"},
-                  "enabled": {"type": "boolean", "default": true}
+                  "name": {
+                    "type": "string"
+                  },
+                  "url": {
+                    "type": "string",
+                    "format": "uri"
+                  },
+                  "priority": {
+                    "type": "integer"
+                  },
+                  "enabled": {
+                    "type": "boolean",
+                    "default": true
+                  }
                 },
-                "required": ["name", "url"]
+                "required": [
+                  "name",
+                  "url"
+                ]
               }
             }
           }
@@ -187,18 +224,40 @@
       "type": "object",
       "description": "Writ-specific configuration (verbosity and dry_run are shared at root level). Layers are directories at ~/.local/share/devlore/writ/layers/",
       "properties": {
-        "segments": {
-          "type": "array",
-          "description": "Custom segment names (beyond built-in OS, DISTRO, ARCH)",
-          "items": {
+        "scopes": {
+          "type": "object",
+          "description": "Scopes, as name to root directory (beyond built-in Home, System, ProgramData, ProgramFiles, ProgramFilesX86). A scope is a named execution context: a directory in the root of a layer repository, deployed beneath the root named here. A builtin's key overrides its default root; for Home that is the only way to redirect a deployment, since the home directory is resolved from the account database. Builtin names are reserved on every platform, so introducing ProgramFiles on Unix is an error.",
+          "additionalProperties": {
             "type": "string",
-            "description": "Segment name in UPPERCASE (e.g., ROLE, SITE)"
+            "description": "The directory this scope deploys beneath."
           },
-          "examples": [["ROLE", "SITE"]]
+          "examples": [
+            {
+              "Staging": "~/staging/root",
+              "Home": "~/staging/home"
+            }
+          ]
+        },
+        "segments": {
+          "type": "object",
+          "description": "Custom segments, as name to value (beyond built-in OS, DISTRO, ARCH). A key introduces the segment name; its value sets the segment. A key with no value declares a segment that is set elsewhere -- by WRIT_SEGMENT_<NAME> or --segment NAME=value. A directory suffix matches only a segment that has a value.",
+          "additionalProperties": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The segment's value, or null to declare it and set it elsewhere."
+          },
+          "examples": [
+            {
+              "ROLE": "desktop",
+              "SITE": null
+            }
+          ]
         },
         "vars": {
           "type": "object",
-          "description": "Template variables and segment value overrides",
+          "description": "Template variables. Segment values live under segments, and scope roots under scopes; this holds what templates interpolate and nothing else.",
           "properties": {
             "USER_NAME": {
               "type": "string",
