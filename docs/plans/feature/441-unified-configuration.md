@@ -95,6 +95,23 @@ It also **blocks phase 3.3b of the Windows campaign** — `document.Write` takin
 land with this work and the codec. A thread that blocks other work and is scheduled nowhere is the finding this
 plan exists to record.
 
+### The concrete serialization target
+
+[`441-unified-configuration.case-study.yaml`](441-unified-configuration.case-study.yaml) is an
+illustrative full-hierarchy configuration, written 2026-06-17 to settle the devconfig model against
+something concrete. Values are fabricated; the shape is the point.
+
+It covers what a smaller example omits: all three reserved resolver-level keys, the app-by-profile
+recursion in `applications.lore.profiles` — a layer inside a layer, and where an overlay implementation
+goes wrong — typed leaves beside bare kv maps, a brokered provider beside an unbrokered one, and an
+application overriding nothing so inheritance is exercised.
+
+`configuration.md`'s own case study covers the elevation section alone. This is the whole tree.
+
+**It has not been re-verified against design changes since June**, and `elevator` was renamed to
+`elevation` when it entered the repository, per [#679](https://github.com/NobleFactor/devlore-cli/issues/679).
+Re-verifying it is this thread's first task, because a stale target is worse than none.
+
 ## Implementation Phases
 
 Sequencing is **not** duplicated here. The implementation plan of record is
@@ -109,6 +126,8 @@ refine, return to schema.
 - [x] The #762 dependency stated as a cross-reference rather than a reordering
 - [ ] `phase-8/configuration.md` reviewed for drift against the current design, and its `status: draft`
       reconciled with what has landed since 2026-07-16
+- [ ] The case study re-verified against the current design — it predates every change since
+      2026-06-17, and nothing has checked it since
 
 ### Phase 2: Not yet scheduled
 
@@ -135,6 +154,8 @@ Row 2 exists because row 1's fix is the natural place to over-apply the rule.
 - [`configuration.status.md`](../../architecture/configuration.status.md) — landed versus designed
 - [`phase-8/configuration.md`](../extract-starlark-from-op/phase-8/configuration.md) — the implementation plan
 - [`phase-8/sops-config-discovery.md`](../extract-starlark-from-op/phase-8/sops-config-discovery.md)
+- [`441-unified-configuration.case-study.yaml`](441-unified-configuration.case-study.yaml) — the
+  full-tree serialization target
 - [`762-lifecycle-scopes.md`](762-lifecycle-scopes.md) — Thread 3, whose migration note depends on this thread
 - Issue [#441](https://github.com/NobleFactor/devlore-cli/issues/441) — Epic: Unified configuration
 - Issues #455, #456, #335, #336, #337, #280, #385, #694, #763 — the epic's open members

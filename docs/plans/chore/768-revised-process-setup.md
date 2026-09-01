@@ -84,6 +84,9 @@ worktree.
 ### Phase 1: The documents (status: in progress)
 
 - [x] `docs/plans/feature/441-unified-configuration.md` — thread 4's plan, new
+- [x] `docs/plans/feature/441-unified-configuration.case-study.yaml` — the full-tree serialization
+      target the plan lacked, recovered from outside any repository and renamed `elevator` to
+      `elevation` per #679
 - [x] `docs/architecture/10-command-line-interface.status.md` — the stale tick corrected, with the
       correction recorded in place
 - [x] `docs/plans/feature/740-cli-output-conventions.md` — a "Where we are" section: four items
@@ -137,6 +140,7 @@ None. Documents only.
 | --- | --- | --- |
 | `docs/plans/chore/768-revised-process-setup.md` | Create | This plan |
 | `docs/plans/feature/441-unified-configuration.md` | Create | Thread 4's plan |
+| `docs/plans/feature/441-unified-configuration.case-study.yaml` | Create | Its full-tree serialization target |
 | `docs/architecture/10-command-line-interface.status.md` | Modify | Correct the stale tick |
 | `docs/plans/feature/740-cli-output-conventions.md` | Rename + Modify | Where thread 1 stands; named after #740 |
 | `docs/plans/feature/625-sealed-provider-resources.md` | Rename + Modify | Where thread 2 stands; named after #625 |
