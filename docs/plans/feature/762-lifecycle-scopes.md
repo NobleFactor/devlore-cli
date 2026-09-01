@@ -138,17 +138,47 @@ belongs to a custom scope when an operator has moved it.
 Reserving on every platform — not only where defined — is what keeps one repository meaning one thing on
 every machine.
 
-### Requirement 8: Custom scopes are configuration, converging with segments
+### Requirement 8: Segments and scopes are name-to-value maps — tracked by #765
+
+**Neither key is read today.** `writ.segments` has been documented since the schema was written and has never
+worked (#746); `writ.scopes` is new here. `--scope` has nothing to select until scopes can be introduced, so
+this is the prerequisite for Phase 4 rather than a parallel task.
+
+**RULED: one key per concept, holding both the name and the value.** A key introduces the name; its value
+sets it. `vars` reverts to what templates interpolate and holds nothing else.
 
 ```yaml
 writ:
+  segments:
+    ROLE: desktop            # introduced and set
+    SITE:                    # introduced; set by WRIT_SEGMENT_SITE or --segment
   scopes:
-    Staging: ~/staging/root
+    Staging: ~/staging/root  # a custom scope
+    Home: ~/staging/home     # a BUILTIN's root, overridden
+  vars:
+    USER_NAME: "Your Name"   # template variables only
 ```
 
-Declared before use; an undeclared `--scope` errors naming what is accepted; a builtin name is refused.
-Segments split declaration from assignment because a segment's name is org-wide and its value per-machine; a
-scope's name and root are both per-machine, so one map states both.
+Three concerns were sharing `vars` -- template variables, segment values, and scope roots -- and a reader had
+to know which was which by the key's name. Now each concept states its own names and its own values in one
+place, and `vars` means one thing.
+
+**A key with no value declares without setting.** That is the shape `DetectSegmentsWithNames` already
+describes ("values are empty until set via CLI `--segment` flags"), and it stays reachable: a segment
+declared here takes its value from `WRIT_SEGMENT_<NAME>` or `--segment`. An unset segment matches no
+directory suffix, behaving as `DISTRO` does on macOS.
+
+**A builtin scope's key overrides its default root**, which is how a deployment is aimed at a staging tree.
+For `Home` it is the only way, since the home directory is resolved from the account database and `HOME`
+cannot move it.
+
+The one asymmetry is in the concepts, not the shape: segment builtins (`OS`, `DISTRO`, `ARCH`) resolve on
+every platform, where scope builtins resolve per platform. So scopes need a rule segments do not -- override
+the root of a builtin that resolves here, never introduce one that does not.
+
+**#746 applies to both.** `writ.segments` is read by nothing today, so this shape is a documented design
+rather than working code, and it changes from an array to a map in this plan. Scopes must not repeat that
+defect: the key is read in the same change that documents it.
 
 ### Requirement 9: Elevation is per scope
 
@@ -158,20 +188,24 @@ field now so the requirement is expressible.
 
 ## Implementation Phases
 
-### Phase 1: Documents
+### Phase 1: Documents — tracked by #766
 
 Documents first: the code changes cite them, and three of them currently describe removed types.
 
-- [ ] `2.4-hermeticity-guarantees.md` — the authority the rest cites. Scope vocabulary; remove the three
-      "unconfined" claims (lines 73, 79, 180). Per `4.5` §5, System targets `/` and a sandboxed root at `/`
-      bounds nothing on Unix, so "System is unsandboxed" is a degenerate sandbox, not a second variant.
-- [ ] `4.4-root-path-triad.md` — §4 "Mode Switch" tabulates `confinedRoot` / `RootReader` /
-      `RootReaderWriter`, none of which exist. Line 79's diagram says `Abs() → abs (unconfined I/O)`.
-- [ ] `5.3-recovery-site.md:225` — a `RootReaderWriter` test mode that no longer exists.
-- [ ] `5.1-reconciliation.md` — reconcile reports AND repairs; record why step 47's reason lapsed; the
-      not-found rule confirmed.
-- [ ] `10-command-line-interface.md` — the four operations, `--scope`, reserved names, custom scopes.
-- [ ] `schema/defaults/writ.yaml` and `schema/devlore-config.json` — `writ.scopes` as an open map, in BOTH.
+- [x] `10-command-line-interface.md` §3.1 — the lifecycle named once
+- [x] `10-command-line-interface.md` §4.1 — `--scope`, the builtins, reserved names, elevation
+- [x] `10-command-line-interface.md` §11.1 — segments and scopes as name-to-value maps
+- [x] `2.4-hermeticity-guarantees.md` — the scope model; three "unconfined" claims; the "Six Cells" and
+      "2×3 matrix" arithmetic, which assumed exactly two scopes
+- [x] `5.1-reconciliation.md` — the reversion, reconcile repairs, `writ status` renamed throughout
+- [x] `5.3-recovery-site.md` — the `RootReaderWriter` test mode that no longer exists
+- [x] `schema/devlore-config.json` and `schema/defaults/writ.yaml` — `writ.scopes` added, `writ.segments`
+      reshaped to a map, `vars` reduced to template variables
+- [ ] `4.4-root-path-triad.md` — §4 "Mode Switch" tabulates three types with zero tree occurrences. OPEN:
+      rewrite, or delete and renumber?
+- [ ] `10-command-line-interface.md` §15 — the conformance table still says `writ status`
+- [ ] `10-command-line-interface.md` §1 is titled "Scope and principles"; "scope" now names an execution
+      context. Two meanings, one document.
 
 ### Phase 2: The rename
 
@@ -223,8 +257,9 @@ nothing validates unknown keys today, so a stale `writ.targets` would be ignored
 - [`4.5-fsroot-variants.md`](../../architecture/4.5-fsroot-variants.md) — why the unsandboxed variants went
 - [`6.1-privilege-elevation.md`](../../architecture/6.1-privilege-elevation.md) — elevation, draft
 - `writ-deploy-family.md` — the phase-8 design that renamed reconcile to status
-- Issues: #762 (this plan), #761 (System roots disagree), #763 (doubled env prefix), #756 (corrected here),
-  #746 (`writ.segments`, same shape as `writ.targets`)
+- Issues: #762 (this plan), #765 (neither config key is read — the prerequisite for `--scope`),
+  #766 (the CLI specification), #761 (System roots disagree), #763 (doubled env prefix),
+  #756 (corrected by the not-found ruling), #746 (segments unwired, superseded in scope by #765)
 
 ## Open Questions
 

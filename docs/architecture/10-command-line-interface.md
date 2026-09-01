@@ -78,6 +78,35 @@ manifest create` is noun-verb; `lore deploy` is a verb whose noun is the binary'
 This is the same rule the Starlark surface follows for `devlore.<noun>.<verb>`; the two trees are separate
 namespaces with one naming convention.
 
+### The lifecycle is named once
+
+`lore` manages devlore packages; `writ` manages engineering environments. They run the same lifecycle over
+different subjects, so they carry the same four verbs, and nothing else may be called by these names.
+
+| Verb | `lore` -- a package | `writ` -- an environment |
+| --- | --- | --- |
+| `deploy` | install the package's lifecycle pipelines | link, write, and create files under each scope |
+| `reconcile` | compare the receipt against the live system, report drift | the same, per scope |
+| `upgrade` | constrained re-deploy with drift attribution | the same |
+| `decommission` | reverse traversal, receipts for the removals | the same |
+
+**No program has a `status` command.** A program that reports on its subject's state calls that `reconcile`,
+because the operation compares a record against reality -- what `git diff` answers, and one day what a merge
+tool answers: restore a system from its current state back to its desired one.
+
+**Reconcile reports and repairs.** The repair half is chartered, not built; until it lands, the report names
+the repairing lifecycle command per finding. `writ reconcile` held the name until phase-8 step 47 renamed it
+`writ status`, on the grounds that *"'Reconcile' promises mutation the command does not perform"*
+([`writ-deploy-family.md:136`](../plans/extract-starlark-from-op/phase-8/writ-deploy-family.md)). That reason
+lapses when the mutation is built, and the name returns with it
+([#762](https://github.com/NobleFactor/devlore-cli/issues/762)).
+
+**Reconcile is valid only after deployment.** Before it there is nothing to compare against, and the answer
+is a not-found error rather than an empty report. That is what lets an exit code carry information: never
+deployed, deployed and clean, and deployed and drifted are three different answers, and
+[5.1](5.1-reconciliation.md) already requires the first of them -- "a missing run index is a hard error, not
+a silent rescan."
+
 ## 4. Arguments and flags
 
 **Positional arguments** are the objects the verb acts on, and only that. A command takes positionals when the
@@ -124,6 +153,58 @@ decisions.
 
 **No boolean format flags.** `--json` is not a flag; `--output json` is. A boolean cannot express a third
 format, which is why two `writ` commands cannot emit YAML today.
+
+### `--scope`: which execution contexts an operation runs on
+
+`--scope` is `writ`'s alone. `lore` deploys into a package's own execution scope
+([2.4](2.4-hermeticity-guarantees.md) §Lore Package Scope); `star` and `devlore-test` have no deployment
+surface. It is persistent on `writ`'s root, because all four lifecycle verbs take it.
+
+| Flag | Short | Type | Meaning |
+| --- | --- | --- | --- |
+| `--scope` | | string, **repeatable** | Restrict the operation to these scopes. `[--scope=<name>]...` |
+
+A **scope** is a named execution context: a name, a target root, a confinement boundary, an elevation
+posture, and its own graph. The scope names a directory in the root of a layer repository, and the
+directories beneath it are projects. `Home/.config/app/x` deploys to `<home>/.config/app/x`; paths are
+preserved. A scope *has* a target root, and that root is generally not known until runtime.
+
+**Repeatable because the default is plural.** Absent the flag, every scope the layer defines runs, each as
+its own graph, in order. A single-valued flag would make "System and ProgramFiles but not Home"
+inexpressible, and on Windows that is the ordinary case.
+
+Five scopes are builtin, reserved on **every** platform and defined on some:
+
+| Scope | Unix | Windows | Elevation |
+| --- | --- | --- | --- |
+| `Home` | `os.UserHomeDir()` | `os.UserHomeDir()` | no |
+| `System` | `/` | `%SystemDrive%\` | required |
+| `ProgramData` | undefined | `%ProgramData%` | required |
+| `ProgramFiles` | undefined | `%ProgramFiles%` | required |
+| `ProgramFilesX86` | undefined | `%ProgramFiles(x86)%` | required |
+
+The capitalization is the platform's own. `LOCALAPPDATA` and `APPDATA` are deliberately absent: Microsoft
+documents no supported way to relocate **Local** AppData, so it is pinned beneath `%USERPROFILE%` and reaches
+through `Home` as an ordinary relative path, while **Roaming** *is* redirectable under domain policy, so a
+builtin would hardcode a location an administrator is entitled to override.
+
+**Data is skipped; instructions are refused.**
+
+| Situation | Behaviour |
+| --- | --- |
+| A layer carries `ProgramFiles/` on a Unix machine | skipped, silently |
+| `--scope=ProgramFiles` on a Unix machine | error: not defined on this platform |
+| Config introduces a scope named `ProgramFiles`, on **any** platform | error: a builtin name |
+
+The first is data: the repository is shared across machines, and that directory is there for the Windows
+ones. The second is an instruction that cannot be carried out. The third is reserved everywhere rather than
+only where it resolves — otherwise one repository would mean two things on two machines, which is the failure
+the layer model exists to prevent. Segments answer the same shape the same way, and the rule generalizes:
+**a directory that does not apply is skipped, a flag that cannot apply is refused.**
+
+**Elevation is per scope**, and automatic: updating `/` or `%SystemDrive%\` runs as a sudo user on Unix and
+as an Administrator on Windows, as needed. A scope declares that it requires elevation;
+[6.1](6.1-privilege-elevation.md)'s `elevation.Provider` satisfies it.
 
 ## 5. The output model
 
@@ -457,6 +538,38 @@ authoritative where the two meet.
 
 A flag always wins. A command must not read configuration in a way that overrides an explicitly passed flag,
 including when the flag's value equals its default.
+
+### Introducing a name and setting its value
+
+Segments and scopes are extensible sets, and they take the same shape: **one key per concept, holding both
+the names and their values.** A key introduces the name; its value sets it.
+
+```yaml
+writ:
+  segments:
+    ROLE: desktop            # introduced and set
+    SITE:                    # introduced; set by WRIT_SEGMENT_SITE or --segment
+  scopes:
+    Staging: ~/staging/root  # a custom scope
+    Home: ~/staging/home     # a BUILTIN's root, overridden
+  vars:
+    USER_NAME: "Your Name"   # what templates interpolate, and nothing else
+```
+
+**A key with no value introduces without setting.** The value then comes from the environment or a flag, and
+until it has one the segment matches no directory suffix -- the behaviour `DISTRO` already has on macOS.
+
+**A builtin's key overrides its default.** There is no separate override mechanism, so a staging deployment
+is aimed by naming the builtin. For `Home` this is the only way: the home directory is resolved from the
+account database, and `HOME` cannot move a deployment.
+
+**`vars` holds template variables alone.** It carried segment values as well, which meant a reader had to
+know a key's concept from its name; each concept now states its own.
+
+Segments and scopes differ in one place, and it is in the concepts rather than the shape: segment builtins
+(`OS`, `DISTRO`, `ARCH`) resolve on every platform, where scope builtins resolve per platform. So scopes
+carry a rule segments do not -- override the root of a builtin that resolves here, never introduce one that
+does not.
 
 ## 12. Help and generated documentation
 
