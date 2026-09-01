@@ -766,7 +766,7 @@ that route through `cmd/internal/cli`.** Registration on a root is what turns on
 one, and a second copy of the package is what stops it being a suite-wide one.
 
 No deviation is sanctioned. Every row above is work, tracked by the plan in
-[`cli-output-conventions.md`](../plans/cli-output-conventions.md).
+[`740-cli-output-conventions.md`](../plans/feature/740-cli-output-conventions.md).
 
 
 ## Design decisions

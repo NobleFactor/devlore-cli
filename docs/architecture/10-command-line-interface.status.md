@@ -2,7 +2,7 @@
 
 **Document:** [10-command-line-interface.md](10-command-line-interface.md)
 **Epic:** [#740](https://github.com/NobleFactor/devlore-cli/issues/740)
-**Plan:** [cli-output-conventions.md](../plans/cli-output-conventions.md)
+**Plan:** [740-cli-output-conventions.md](../plans/feature/740-cli-output-conventions.md)
 **State:** Specified 2026-08-28 against `aws`, `az`, `docker`, `gcloud`, and `kubectl`; the formatter layer
 and two of four programs landed 2026-08-30. `devlore-test` and `writ` register the common set; `lore` and
 `star` do not yet.
@@ -40,10 +40,15 @@ and two of four programs landed 2026-08-30. `devlore-test` and `writ` register t
 - [x] The formatting rules written down and the code judged against them: the two stages, S1-S8, the
   per-shape matrix, and the divergences from PowerShell. Stage 1 is real -- `Pipeline.Emit` normalizes, so
   every rendering names a field by its `json:` tag, which is the name the Starlark surface shows.
-- [ ] `writ` consumes the set it registers. Measured 2026-08-30: one of eight formats works, the value is
-  never validated ([#754](https://github.com/NobleFactor/devlore-cli/issues/754)), and `--store` is read
-  nowhere at all ([#753](https://github.com/NobleFactor/devlore-cli/issues/753)) while `readback` folds runs
-  from the default store. A flag registered on a root that no leaf consumes is worse than an absent one.
+- [x] `writ` consumes the set it registers. Measured 2026-08-30 as one of eight formats working, the value
+  never validated, and `--store` read nowhere at all while `readback` folded runs from the default store --
+  a flag registered on a root that no leaf consumes being worse than an absent one. Both were filed and
+  fixed in PR #747: `--output` is validated in a `PersistentPreRunE`
+  ([#754](https://github.com/NobleFactor/devlore-cli/issues/754)), and `--store` resolves the store root
+  with a `PersistentPostRunE` restoring it ([#753](https://github.com/NobleFactor/devlore-cli/issues/753)).
+  **Corrected 2026-09-01:** this box stayed unticked after both issues closed, so the document reported
+  landed work as outstanding. That is the drift the revised process exists to prevent, and it is recorded
+  here rather than quietly ticked.
 - [ ] `writ`'s **renderings** brought into agreement: the 30 stdout call sites routed through the sink -- 22
   `fmt.Print` in `status/report.go`, four dry-run `SerializeGraphs` dumps, and two in `migrate`.
 - [ ] `lore`'s remaining commands brought into agreement; the `fmt.Print` calls triaged.

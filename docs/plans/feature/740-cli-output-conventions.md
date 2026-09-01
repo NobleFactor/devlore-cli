@@ -3,7 +3,7 @@ title: "One output convention, every app"
 issue: https://github.com/NobleFactor/devlore-cli/issues/740
 status: in-progress
 created: 2026-08-28
-updated: 2026-08-30
+updated: 2026-09-01
 ---
 
 # Plan: One output convention, every app
@@ -16,6 +16,40 @@ command out of forty-six uses it. Every other command invents its own flags. The
 to point at the **execution store**, which is where definitions and traces persist, so that has been
 improvised too. This plan adds `--store`, renames `--format` to `--output` / `-o`, adds the `none`
 rendering, and adopts the whole set everywhere.
+
+## Where we are (2026-09-01)
+
+This plan is **thread 1 of four**, worked in order: this epic, then resource management
+(`Epic:ResourceModel`), then the writ lifecycle surface ([#762](https://github.com/NobleFactor/devlore-cli/issues/762)),
+then unified configuration ([#441](https://github.com/NobleFactor/devlore-cli/issues/441), planned at
+[441-unified-configuration.md](441-unified-configuration.md)). Threads 1 and 3 were previously
+entangled -- #762 renames the package this epic's next phase rewrites -- and are now separated. Doing this
+epic first means `status/report.go` is rewritten before #762 moves it; `git mv` still records a clean
+rename, so the cost is small.
+
+**Four items remain**, in the epic's own order:
+
+| # | Item | Phase | Issue |
+| --- | --- | --- | --- |
+| 1 | `writ`'s renderings -- 30 stdout call sites | 3b | none yet |
+| 2 | `lore` -- search table, hand-rolled flags, thirteen `fmt.Print` | 4 | [#741](https://github.com/NobleFactor/devlore-cli/issues/741) covers only the truncation defect |
+| 3 | `star` -- register the set, delete `cmd/star/cli` | 4 / 4b | [#743](https://github.com/NobleFactor/devlore-cli/issues/743) |
+| 4 | Enforcement -- the invariant tests | 5 | none yet |
+
+Three of the four need issues filed before their work can open a branch. The intended slicing: one issue
+for `writ`'s renderings; one for `lore`'s adoption, kept **separate** from #741 so a user-visible defect is
+not buried inside a refactor; and one for both enforcement tests, since they are the same invariant seen
+twice and together they define what "done" means for this epic.
+
+**One correction landed with this update.** `10-command-line-interface.status.md` carried "`writ` consumes
+the set it registers" as unchecked after [#753](https://github.com/NobleFactor/devlore-cli/issues/753) and
+[#754](https://github.com/NobleFactor/devlore-cli/issues/754) had both closed in PR #747 -- the document
+reported landed work as outstanding. Corrected there, and recorded rather than quietly ticked.
+
+**The process this thread is worked under** is
+[noblefactor-ops `development-process.md`](https://github.com/NobleFactor/noblefactor-ops/blob/develop/docs/guides/development-process.md):
+one open worktree at a time, every issue in it resolved before a pull request, issues logged on discovery
+with their resolution site decided at that moment, and every commit updating every document it touches.
 
 ## Goals
 
