@@ -3,7 +3,7 @@ title: "Slots must carry their type"
 issue: https://github.com/NobleFactor/devlore-cli/issues/712
 status: in-progress
 created: 2026-08-28
-updated: 2026-08-30
+updated: 2026-09-01
 ---
 
 # Plan: Slots must carry their type
@@ -165,11 +165,46 @@ Receipts and the recovery stack feed compensation and resume. A float that reloa
 changes a *compensating* call, which is worse than changing a forward one. One shared treatment at every
 `any` seam, not a local patch at `bindingData`.
 
-## Work in progress — state as of 2026-08-30
+## Work in progress — state as of 2026-09-01
 
-**Branch:** `any-slot-types`. **Committed:** `b17067b` (Phase 1: the plan and nine failing tests) and
-`ff33a2f` (the type wrapper, wired at the graph slot seam). No code changes are outstanding; the scratch
-tests and the `test_path_*` litter this section once listed are gone.
+**Branch:** `fix/712-any-slot-types`, in worktree `devlore-cli.712-any-slot-types`. **Committed:**
+`b17067b` (Phase 1: the plan and nine failing tests) and `ff33a2f` (the type wrapper, wired at the graph
+slot seam). No code changes are outstanding; the scratch tests and the `test_path_*` litter this section
+once listed are gone.
+
+**Renamed 2026-09-01** from `feature/any-slot-types`, which named no issue. A plan is now
+`docs/plans/<type>/<issue>-<name>.md` and a branch is `<type>/<issue>-<name>`, so the two share a string
+([#769](https://github.com/NobleFactor/devlore-cli/issues/769)). `develop` was merged at the same time —
+the branch was four behind, and it has already needed one catch-up merge.
+
+### Where this sits among the four threads
+
+This is **thread 2**, resource management, and it is sequenced **after
+[#649](https://github.com/NobleFactor/devlore-cli/issues/649)** — the `ConvertFrom` sweep — rather than
+before it.
+
+Decision 8 makes an uncataloged resource a hard error at save:
+
+```
+op.encodeTypeWrapper: resource "…" is not cataloged
+```
+
+and #649 is precisely the defect that mints such resources: every provider's `ConvertFrom` returns a
+value whose embedded `op.ResourceBase` stays zero, so `URI()` returns `""` — eight sites across `appnet`,
+`git`, `pkg`, `service`, and `file`'s four variants. Landing this plan first would turn a latent defect
+into a save-time failure across every provider, found mid-phase. Landing #649 first makes this error path
+unreachable by construction rather than by each consumer's good manners.
+
+The thread's order is therefore #644 → #645 → #649 → **#712** → #646 → #647.
+
+[#735](https://github.com/NobleFactor/devlore-cli/issues/735) is the same seam seen from the other side —
+a resource-valued slot re-identifying by URI — and belongs to this thread too.
+
+**What does not fold in:** [#734](https://github.com/NobleFactor/devlore-cli/issues/734) is a checksum
+mismatch on a *number* in an any slot, and [#758](https://github.com/NobleFactor/devlore-cli/issues/758)
+and [#661](https://github.com/NobleFactor/devlore-cli/issues/661) are document-format defects. Those
+three remain an `Epic:Serialization` cluster belonging to no thread, which is recorded here rather than
+forced into this one.
 
 ### The tree is red, deliberately and not
 
