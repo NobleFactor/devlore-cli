@@ -23,9 +23,9 @@ This plan is **thread 1 of four**, worked in order: this epic, then resource man
 (`Epic:ResourceModel`), then the writ lifecycle surface ([#762](https://github.com/NobleFactor/devlore-cli/issues/762)),
 then unified configuration ([#441](https://github.com/NobleFactor/devlore-cli/issues/441), planned at
 [441-unified-configuration.md](441-unified-configuration.md)). Threads 1 and 3 were previously
-entangled -- #762 renames the package this epic's next phase rewrites -- and are now separated. Doing this
-epic first means `status/report.go` is rewritten before #762 moves it; `git mv` still records a clean
-rename, so the cost is small.
+entangled -- #762 renames the command this epic's next phase rewrites. The work lands as
+`writ reconcile`: the rename is part of it, not a later step, so this epic's writ phase and #762's phase 2
+are one piece of work rather than two adjacent ones.
 
 **Four items remain**, in the epic's own order:
 
@@ -111,7 +111,7 @@ devlore-test's stream routing all sit outside it: there was nothing to conform t
 | `lore bundle` | `--output, -o <path>` | destination outside the convention |
 | `lore onboard` | `--output <dir>` + `--format` | own `--format`, own destination |
 | `lore list` | `--format table\|manifest\|json` | own `--format`, values differ |
-| `writ status` | `--json` (**bool**) | a boolean, not a format |
+| `writ reconcile` | `--json` (**bool**) | a boolean, not a format |
 | `writ verify` | `--json` (**bool**) | a boolean, not a format |
 | `writ migrate` | `--format json\|yaml\|text` | own `--format`; help text corrupted (#739) |
 | `devlore-test run` | `--output stream=dest` x3, `--receipt-format` | stream routing; a second format flag |
@@ -168,8 +168,8 @@ no command registers an output flag of its own.
 
 ### Requirement 5: No boolean format flags
 
-`--json` is replaced by `--output json`. A boolean cannot express a third format, which is why `writ status`
-and `writ verify` cannot render yaml today.
+`--json` is replaced by `--output json`. A boolean cannot express a third format, which is why
+`writ reconcile` and `writ verify` cannot render yaml today.
 
 ## Implementation Phases
 
@@ -209,7 +209,7 @@ the same. The real figure is **30 call sites**:
 
 | Location | Calls | What it is |
 | --- | --- | --- |
-| `cmd/writ/writ/status/report.go` | 22 `fmt.Print*` | the human status report |
+| `cmd/writ/writ/status/report.go` (`reconcile/` under #762) | 22 `fmt.Print*` | the reconcile report |
 | `cmd/writ/writ/verify/verify.go` | 2 `fmt.Print*` | now removed with `presentReport` |
 | `deploy`, `decommission`, `upgrade`, `secret` | 4 `SerializeGraphs(os.Stdout, ...)` | the dry-run plan dump |
 | `cmd/writ/writ/migrate/session.go` | 1 `os.Stdout` | TUI session output |
@@ -228,18 +228,20 @@ cells. Legible for `list`, useless for `table`. Whether that is acceptable, or w
 case for a sectioned object, is a design question for after the pipeline is wired. Wiring is not blocked on
 it: `-o json`, `-o yaml`, `-o none`, `--jq`, and `--filter` all become correct immediately.
 
-**Measured 2026-08-30, before starting.** `writ status` honors one of eight formats. `-o json` produces
+**Measured 2026-08-30, before starting**, when the command was named `writ status`; #762 renames it to
+`writ reconcile`, which is what it is called throughout below. `writ reconcile` honors one of eight
+formats. `-o json` produces
 JSON; `yaml`, `table`, `list`, `csv`, `value`, `none`, and `template=BODY` all produce the same
 byte-identical human dashboard. `-o none` prints ten lines where its contract is silence, and `-o yaml`
 emits text a parser fails on. The bridge is one bool at `cmd/writ/writ/config.go:160`.
 
 The format value is also never validated (#754), because it never reaches `FormatterByName`:
-`writ status -o bogus` prints the dashboard and exits 0, and so does every writ command but `verify`. That is
+`writ reconcile -o bogus` prints the dashboard and exits 0, and so does every writ command but `verify`. That is
 a second defect, distinct from the wrong renderings -- one does the wrong thing, the other accepts wrong
 input.
 
 `--store` is read nowhere in writ at all (#753), which is the severe face of the same cause. `readback.go`
-reads `TracesDir()` and `GraphsDir()` to fold runs, so `writ status --store <elsewhere>` reports on the
+reads `TracesDir()` and `GraphsDir()` to fold runs, so `writ reconcile --store <elsewhere>` reports on the
 default store as though it had complied -- the wrong data rather than the wrong shape.
 
 The shared cause is a flag registered on a root that no leaf consumes. `root.go:49` registers the whole set,
@@ -362,7 +364,7 @@ set of programs that route through it -- measured, not assumed, in §15.
 | 3a | A relocated store keeps its run index and checksum keying | unit | The store is treated as a dump dir |
 | 4 | A trace in a relocated store still resolves to its definition | unit | `GraphChecksum` ties break |
 | 5 | Every format value round-trips through the pipeline | unit | A formatter is unregistered |
-| 6 | `-o json` and `-o yaml` both work on `writ status` | unit | `--json` boolean returns |
+| 6 | `-o json` and `-o yaml` both work on `writ reconcile` | unit | `--json` boolean returns |
 | 6a | `-o none` emits nothing on stdout, errors still on stderr | unit | `none` renders anyway |
 | 7 | Narration appears on stderr while stdout holds only the result | unit | A `cli.Note` reaches stdout |
 | 8 | No command package writes to `os.Stdout` directly | unit | A direct write is added |
