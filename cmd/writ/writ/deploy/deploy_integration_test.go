@@ -69,7 +69,7 @@ func TestExecute_SingleSource_LinkAndTemplate(t *testing.T) {
 
 	cfg, sourceRoot, targetRoot := fixture(t)
 
-	if err := deploy.Execute(context.Background(), cfg); err != nil {
+	if _, err := deploy.Execute(context.Background(), cfg); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
 
@@ -135,8 +135,12 @@ func TestExecute_DryRun_TouchesNothing(t *testing.T) {
 	cfg, _, targetRoot := fixture(t)
 	cfg.DryRun = true
 
-	if err := deploy.Execute(context.Background(), cfg); err != nil {
+	graphs, err := deploy.Execute(context.Background(), cfg)
+	if err != nil {
 		t.Fatalf("Execute --dry-run: %v", err)
+	}
+	if len(graphs) == 0 {
+		t.Fatal("Execute --dry-run returned no graphs; the plan is the result")
 	}
 
 	targetEntries, err := os.ReadDir(targetRoot)
@@ -164,7 +168,7 @@ func TestExecute_ForeignOccupantRefusedByDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := deploy.Execute(context.Background(), cfg)
+	_, err := deploy.Execute(context.Background(), cfg)
 	if err == nil || !strings.Contains(err.Error(), squatter) || !strings.Contains(err.Error(), "--conflict") {
 		t.Fatalf("Execute over a foreign occupant = %v, want the refusal listing the file and the flag", err)
 	}
@@ -189,7 +193,7 @@ func TestExecute_ConflictReplaceArchivesForeignOccupant(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := deploy.Execute(context.Background(), cfg); err != nil {
+	if _, err := deploy.Execute(context.Background(), cfg); err != nil {
 		t.Fatalf("Execute --conflict=replace: %v", err)
 	}
 
@@ -214,7 +218,7 @@ func TestExecute_ConflictSkipLeavesForeignOccupant(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := deploy.Execute(context.Background(), cfg); err != nil {
+	if _, err := deploy.Execute(context.Background(), cfg); err != nil {
 		t.Fatalf("Execute --conflict=skip: %v", err)
 	}
 
@@ -235,7 +239,7 @@ func TestExecute_RedeployFlowsUnderDefault(t *testing.T) {
 
 	cfg, sourceRoot, targetRoot := fixture(t)
 
-	if err := deploy.Execute(context.Background(), cfg); err != nil {
+	if _, err := deploy.Execute(context.Background(), cfg); err != nil {
 		t.Fatalf("first deploy: %v", err)
 	}
 
@@ -244,7 +248,7 @@ func TestExecute_RedeployFlowsUnderDefault(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := deploy.Execute(context.Background(), cfg); err != nil {
+	if _, err := deploy.Execute(context.Background(), cfg); err != nil {
 		t.Fatalf("redeploy under the default policy: %v", err)
 	}
 

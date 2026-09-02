@@ -70,7 +70,7 @@ func runDeployV2(cmd *cobra.Command, args []string) error {
 
 	// The manifest planner defaults its platform token (via platform.DetectToken) and its registry client;
 	// writ supplies only the flags that are writ's to know.
-	return deploy.Execute(cmd.Context(), &deploy.Config{
+	graphs, err := deploy.Execute(cmd.Context(), &deploy.Config{
 		SourceRoot:      cfg.SourceRoot,
 		TargetRoot:      cfg.TargetRoot,
 		LayerSources:    cfg.LayerSources,
@@ -83,6 +83,15 @@ func runDeployV2(cmd *cobra.Command, args []string) error {
 		DryRun:          cfg.DryRun,
 		Verbose:         cfg.Verbose,
 	})
+	if err != nil {
+		return err
+	}
+
+	// Under --dry-run the plan is the result, and the pipeline renders it like any other.
+	if graphs != nil {
+		return emitResult(cmd, graphs)
+	}
+	return nil
 }
 
 // expandPath expands ~ to $HOME in paths.
@@ -130,12 +139,21 @@ func runDecommission(cmd *cobra.Command, args []string) error {
 
 	cfg := parseDecommissionConfig(cmd, args)
 
-	return decommission.Execute(cmd.Context(), &decommission.Config{
+	graphs, err := decommission.Execute(cmd.Context(), &decommission.Config{
 		Projects: cfg.Projects,
 		Prune:    cfg.Prune,
 		DryRun:   cfg.DryRun,
 		Verbose:  cfg.Verbose,
 	})
+	if err != nil {
+		return err
+	}
+
+	// Under --dry-run the plan is the result, and the pipeline renders it like any other.
+	if graphs != nil {
+		return emitResult(cmd, graphs)
+	}
+	return nil
 }
 
 func newUpgradeCmd() *cobra.Command {
@@ -172,7 +190,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 
 	cfg := parseUpgradeConfig(cmd, args)
 
-	return upgrade.Execute(cmd.Context(), &upgrade.Config{
+	graphs, err := upgrade.Execute(cmd.Context(), &upgrade.Config{
 		Projects: cfg.Projects,
 		Force:    cfg.Force,
 		Segments: cfg.Segments,
@@ -180,6 +198,15 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 		DryRun:   cfg.DryRun,
 		Verbose:  cfg.Verbose,
 	})
+	if err != nil {
+		return err
+	}
+
+	// Under --dry-run the plan is the result, and the pipeline renders it like any other.
+	if graphs != nil {
+		return emitResult(cmd, graphs)
+	}
+	return nil
 }
 
 func newReconcileCmd() *cobra.Command {

@@ -58,7 +58,7 @@ func deployFixture(t *testing.T) (sourceRoot, targetRoot, templateSource string)
 		Segments:   fixtureSegments,
 	}
 
-	if err := deploy.Execute(context.Background(), cfg); err != nil {
+	if _, err := deploy.Execute(context.Background(), cfg); err != nil {
 		t.Fatalf("deploy fixture: %v", err)
 	}
 
@@ -162,7 +162,7 @@ func TestBuildReport_Classifications(t *testing.T) {
 		Projects:   []string{"myproj"},
 		Segments:   fixtureSegments,
 	}
-	if err := deploy.Execute(context.Background(), redeploy); err != nil {
+	if _, err := deploy.Execute(context.Background(), redeploy); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(templateSource, []byte("os={{ .Segments.OS }} v2"), 0o644); err != nil {

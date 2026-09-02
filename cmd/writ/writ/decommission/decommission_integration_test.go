@@ -55,7 +55,7 @@ func deployFixture(t *testing.T) (sourceRoot, targetRoot string) {
 		Segments:   segment.Segments{{Name: "OS", Value: "Darwin"}},
 	}
 
-	if err := deploy.Execute(context.Background(), cfg); err != nil {
+	if _, err := deploy.Execute(context.Background(), cfg); err != nil {
 		t.Fatalf("deploy fixture: %v", err)
 	}
 
@@ -68,7 +68,7 @@ func TestExecute_RemovesDeployedFiles(t *testing.T) {
 
 	sourceRoot, targetRoot := deployFixture(t)
 
-	err := decommission.Execute(context.Background(), &decommission.Config{Projects: []string{"myproj"}})
+	_, err := decommission.Execute(context.Background(), &decommission.Config{Projects: []string{"myproj"}})
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestExecute_PruneRemovesEmptyParents(t *testing.T) {
 
 	_, targetRoot := deployFixture(t)
 
-	err := decommission.Execute(context.Background(),
+	_, err := decommission.Execute(context.Background(),
 		&decommission.Config{Projects: []string{"myproj"}, Prune: true})
 	if err != nil {
 		t.Fatalf("Execute --prune: %v", err)
@@ -129,7 +129,7 @@ func TestExecute_RefusesReplacedLink(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err := decommission.Execute(context.Background(), &decommission.Config{Projects: []string{"myproj"}})
+	_, err := decommission.Execute(context.Background(), &decommission.Config{Projects: []string{"myproj"}})
 	if err == nil || !strings.Contains(err.Error(), "scope") {
 		t.Fatalf("Execute over a replaced link = %v, want a scope failure", err)
 	}
@@ -145,7 +145,7 @@ func TestExecute_RefusesUnknownProject(t *testing.T) {
 
 	deployFixture(t)
 
-	err := decommission.Execute(context.Background(), &decommission.Config{Projects: []string{"nosuch"}})
+	_, err := decommission.Execute(context.Background(), &decommission.Config{Projects: []string{"nosuch"}})
 	if err == nil || !strings.Contains(err.Error(), "no deployed files") {
 		t.Errorf("Execute for an unknown project = %v, want the no-deployed-files refusal", err)
 	}

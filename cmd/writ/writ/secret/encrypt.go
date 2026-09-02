@@ -58,32 +58,33 @@ type EncryptConfig struct {
 //   - `cfg`: the resolved encrypt configuration.
 //
 // Returns:
+//   - `[]*op.Graph`: the plan, under --dry-run; nil when the run executed.
 //   - `error`: non-nil when containment fails, a destination exists, planning fails, or a run fails.
-func ExecuteEncrypt(ctx context.Context, cfg *EncryptConfig) error {
+func ExecuteEncrypt(ctx context.Context, cfg *EncryptConfig) ([]*op.Graph, error) {
 
 	groups, err := assignToLayers(cfg.Files)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if err := refuseExistingDestinations(groups); err != nil {
-		return err
+		return nil, err
 	}
 
 	var graphs []*op.Graph
 	for i := range groups {
 		graph, err := buildLayerGraph(ctx, cfg, &groups[i])
 		if err != nil {
-			return err
+			return nil, err
 		}
 		graphs = append(graphs, graph)
 	}
 
 	if cfg.DryRun {
-		return op.SerializeGraphs(os.Stdout, graphs)
+		return graphs, nil
 	}
 
-	return runAll(ctx, cfg, graphs)
+	return nil, runAll(ctx, cfg, graphs)
 }
 
 // region HELPER FUNCTIONS

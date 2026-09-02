@@ -63,7 +63,7 @@ func TestExecute_SopsChains(t *testing.T) {
 		Segments:   segment.Segments{{Name: "OS", Value: "Darwin"}},
 	}
 
-	if err := deploy.Execute(context.Background(), cfg); err != nil {
+	if _, err := deploy.Execute(context.Background(), cfg); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
 

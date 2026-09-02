@@ -60,7 +60,6 @@ Use --dry-run to preview without making changes.`,
 	cmd.Flags().Bool("link", true, "Create symlink from layer to source (default)")
 	cmd.Flags().Bool("move", false, "Move content to layer directory, delete source")
 	cmd.Flags().String("layer", "personal", "Target layer: personal, team, or base")
-	cmd.Flags().String("format", "json", "Migration-plan format: json (default), yaml, text (for --dry-run)")
 	cmd.Flags().String("system", "", "Override auto-detection with a specific source system")
 	cmd.Flags().Bool("non-interactive", false, "Migrate without interactive prompts")
 	cmd.Flags().Int("tree-depth", 0, "Max directory depth to scan (default: 10, use lower values for smaller context)")
@@ -90,7 +89,6 @@ func runMigrate(cmd *cobra.Command, args []string) error {
 	nonInteractive, _ := cmd.Flags().GetBool("non-interactive") //nolint:errcheck // flag registered above
 	useMove, _ := cmd.Flags().GetBool("move")                   //nolint:errcheck // flag registered above
 	layer, _ := cmd.Flags().GetString("layer")                  //nolint:errcheck // flag registered above
-	format, _ := cmd.Flags().GetString("format")                //nolint:errcheck // flag registered above
 	verbose, _ := cmd.Root().Flags().GetBool("verbose")         //nolint:errcheck // flag registered above
 	treeDepth, _ := cmd.Flags().GetInt("tree-depth")            //nolint:errcheck // flag registered above
 	scriptBudget, _ := cmd.Flags().GetInt("script-budget")      //nolint:errcheck // flag registered above
@@ -134,7 +132,7 @@ func runMigrate(cmd *cobra.Command, args []string) error {
 		SourceRoot:   sourceRoot,
 		Execute:      !dryRun,
 		Verbose:      verbose,
-		Format:       format,
+		Emit:         func(value any) error { return emitResult(cmd, value) },
 		Provider:     provider,
 		RegClient:    regClient,
 		TreeDepth:    treeDepth,
@@ -145,7 +143,7 @@ func runMigrate(cmd *cobra.Command, args []string) error {
 		return runMigrateInteractive(opts, layer, useMove, verbose)
 	}
 
-	return runMigrateBatch(ctx, opts, layer, useMove, verbose, dryRun, format)
+	return runMigrateBatch(ctx, opts, layer, useMove, verbose, dryRun)
 }
 
 // isInteractive returns true if the session should be interactive.
@@ -197,14 +195,15 @@ func runMigrateInteractive(opts migrate.Options, layer string, useMove, verbose 
 }
 
 // runMigrateBatch runs migration without interactive prompts (for CI/automation).
-func runMigrateBatch(ctx context.Context, opts migrate.Options, layer string, useMove, verbose, dryRun bool, format string) error {
+func runMigrateBatch(ctx context.Context, opts migrate.Options, layer string, useMove, verbose, dryRun bool) error {
 	graph, analysis, err := migrate.BuildMigration(ctx, opts)
 	if err != nil {
 		return err
 	}
 
+	// Under --dry-run the plan is the result, and the pipeline renders it like any other.
 	if dryRun {
-		return migrate.FormatMigrationPlan(os.Stdout, graph, analysis, format)
+		return opts.Emit(migrate.NewMigrationView(graph, analysis))
 	}
 
 	// Restructure content to writ conventions; persist the run's trace as the receipt even when the run

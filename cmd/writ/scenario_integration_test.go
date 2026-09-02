@@ -426,6 +426,20 @@ func TestWritDeployScenario_Deploy(t *testing.T) {
 
 	sandbox := newScenarioSandbox(t)
 
+	// The dry run first: its plan is the result, rendered by -o like any other. Before this it was a YAML
+	// dump written regardless of -o, so `-o json` produced YAML and this assertion failed.
+	dryOut, dryErr, err := runWrit(t, sandbox, "deploy", "--dry-run", "-o", "json", "noblefactor", "thenobles")
+	if err != nil {
+		t.Fatalf("writ deploy --dry-run failed: %v\nstderr: %s", err, dryErr)
+	}
+	var plan []any
+	if err := json.Unmarshal([]byte(dryOut), &plan); err != nil {
+		t.Fatalf("deploy --dry-run -o json is not a JSON array of graphs: %v\n%s", err, dryOut)
+	}
+	if len(plan) == 0 {
+		t.Fatalf("deploy --dry-run -o json rendered an empty plan:\n%s", dryOut)
+	}
+
 	stdout, stderr, err := runWrit(t, sandbox, "deploy", "noblefactor", "thenobles")
 	if err != nil {
 		t.Fatalf("writ deploy failed: %v\nstdout: %s\nstderr: %s", err, stdout, stderr)

@@ -44,7 +44,7 @@ func fixture(t *testing.T) (graphPath, tracePath string) {
 		t.Fatal(err)
 	}
 
-	if err := deploy.Execute(context.Background(), &deploy.Config{
+	if _, err := deploy.Execute(context.Background(), &deploy.Config{
 		SourceRoot: sourceRoot,
 		TargetRoot: targetRoot,
 		Projects:   []string{"myproj"},

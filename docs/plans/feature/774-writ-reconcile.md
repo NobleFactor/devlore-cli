@@ -50,7 +50,7 @@ The report is one JSON document: `entries[]` (the delta, eight states, each nami
 | `-o` validation | ✅ | `PersistentPreRunE`, #754 |
 | `--store` read | ✅ | resolved in `PersistentPreRunE`, #753 |
 | `--jq` / `--filter` reaching the pipeline | ✅ | phase 2: `emitResult` builds the pipeline from the bound options |
-| `--dry-run` | ❌ unverified | four `SerializeGraphs(os.Stdout, …)` dumps are the dry-run output, unrouted |
+| `--dry-run` | ✅ | phase 3: the plan is the result; `Execute` returns it and the pipeline renders it |
 
 The 30 stdout call sites, from 740's measurement:
 
@@ -127,11 +127,26 @@ construction: `presentText`'s first statement was `fmt.Println("Layers:")`, and 
 exactly that string. It was written and the wiring changed in one pass, so red was argued rather than
 observed. Recorded so the claim is the right size.
 
-### Phase 3: Dry-run dumps and migrate (status: not started)
+### Phase 3: Dry-run dumps and migrate (status: complete)
 
-- [ ] `SerializeGraphs(os.Stdout, …)` × 4 → the graph is the result under `--dry-run`
-- [ ] `migrate --format` retired; `FormatMigrationPlan` returns a value
-- [ ] `migrate/session.go`'s write classified and routed
+- [x] `SerializeGraphs(os.Stdout, …)` × 4 → the graph is the result under `--dry-run`. Each `Execute`
+      returns `([]*op.Graph, error)` — the plan under `--dry-run`, nil otherwise — following
+      `verify.Execute`, and the command hands a non-nil plan to `emitResult`. No new helper: `Graph` has
+      its own `MarshalJSON`/`MarshalYAML`, so the value's document form is `SerializeGraphs`'s, as a JSON
+      array or YAML sequence rather than a multi-document stream. 28 test call sites now discard the plan
+      they never asserted on; two dry-run tests assert it comes back.
+- [x] `migrate --format` retired; `FormatMigrationPlan` and its eleven text helpers deleted;
+      `NewMigrationView` builds the value the pipeline renders. `Options.Format` was read by nothing and
+      goes with it.
+- [x] `migrate/session.go`'s write is a result — the session's analysis and graph at completion — and
+      is emitted through an `Options.Emit` hook the command supplies, since the session has no writer.
+- [x] Test: `TestWritDeployScenario_Deploy` runs `deploy --dry-run -o json` against the real binary and
+      requires a non-empty JSON array of graphs — red before, when `-o json` yielded YAML.
+
+**Found on the way, logged where each belongs.** `manage-environments.md` teaches `writ inspect --format`,
+a command that does not exist — [#777](https://github.com/NobleFactor/devlore-cli/issues/777), not this
+work. Two `lore` guides teach `--format` — recorded in [775-lore-adoption.md](775-lore-adoption.md)'s
+file list, resolved there.
 
 ### Phase 4: The globals proved (status: not started)
 

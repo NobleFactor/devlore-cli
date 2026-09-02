@@ -126,6 +126,8 @@ the release note.
 | --- | --- | --- |
 | `cmd/lore/commands.go` | Modify | `runSearch`, the flag sets, the thirteen calls |
 | `cmd/lore/` root | Modify | `AddOutputFlags` |
+| `docs/guides/lore/deploy-packages.md` | Modify | teaches `lore list --format json` and `lore inspect kubectl --format yaml` (:112, :172) |
+| `docs/guides/lore/registry.md` | Modify | teaches `lore inspect kubectl --format yaml` (:41) |
 
 ## Related Documents
 

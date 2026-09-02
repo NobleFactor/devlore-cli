@@ -64,9 +64,18 @@ graph and trace persist to the execution store with receipts recorded.`,
 // runSecretEncrypt implements the encrypt command on the secret package.
 func runSecretEncrypt(cmd *cobra.Command, args []string) error {
 
-	return secret.ExecuteEncrypt(cmd.Context(), &secret.EncryptConfig{
+	graphs, err := secret.ExecuteEncrypt(cmd.Context(), &secret.EncryptConfig{
 		Files:   args,
 		DryRun:  viper.GetBool("writ.dry-run"),
 		Verbose: viper.GetBool("writ.verbose"),
 	})
+	if err != nil {
+		return err
+	}
+
+	// Under --dry-run the plan is the result, and the pipeline renders it like any other.
+	if graphs != nil {
+		return emitResult(cmd, graphs)
+	}
+	return nil
 }
