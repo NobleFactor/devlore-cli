@@ -188,8 +188,6 @@ func newOnboardTestCommand(t *testing.T, args ...string) *cobra.Command {
 
 	cmd := &cobra.Command{Use: "onboard"}
 	cmd.Flags().String("from", "", "")
-	cmd.Flags().String("output", "", "")
-	cmd.Flags().String("format", "plain", "")
 	cmd.Flags().Bool("verbose", false, "")
 	cmd.Flags().Bool("explain", false, "")
 	cmd.Flags().Int("max-fetches", 5, "")
@@ -203,7 +201,8 @@ func newOnboardTestCommand(t *testing.T, args ...string) *cobra.Command {
 
 func TestParseLoreOnboardConfig_DefaultsOutputDirToWorkingDirectory(t *testing.T) {
 
-	cfg := parseLoreOnboardConfig(newOnboardTestCommand(t, "--from", "https://example.test/wiki"))
+	cmd := newOnboardTestCommand(t, "--from", "https://example.test/wiki")
+	cfg := parseLoreOnboardConfig(cmd, cmd.Flags().Args())
 
 	if cfg.OutputDir != "." {
 		t.Errorf("OutputDir = %q, want %q", cfg.OutputDir, ".")
@@ -217,23 +216,19 @@ func TestParseLoreOnboardConfig_CarriesEveryFlag(t *testing.T) {
 
 	cmd := newOnboardTestCommand(t,
 		"--from", "setup.sh",
-		"--output", "/tmp/out",
-		"--format", "yaml",
 		"--verbose",
 		"--explain",
 		"--max-fetches", "9",
+		"/tmp/out", // the destination is positional, never a flag
 	)
 
-	cfg := parseLoreOnboardConfig(cmd)
+	cfg := parseLoreOnboardConfig(cmd, cmd.Flags().Args())
 
 	if cfg.Source != "setup.sh" {
 		t.Errorf("Source = %q, want %q", cfg.Source, "setup.sh")
 	}
 	if cfg.OutputDir != "/tmp/out" {
 		t.Errorf("OutputDir = %q, want %q", cfg.OutputDir, "/tmp/out")
-	}
-	if cfg.Format != "yaml" {
-		t.Errorf("Format = %q, want %q", cfg.Format, "yaml")
 	}
 	if !cfg.Verbose {
 		t.Error("Verbose = false, want true")

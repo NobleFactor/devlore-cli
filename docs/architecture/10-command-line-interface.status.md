@@ -54,7 +54,11 @@ and two of four programs landed 2026-08-30. `devlore-test` and `writ` register t
   `SerializeGraphs` dumps are returned as the plan and rendered by `-o` (phase 3). `migrate`'s own
   `--format` is retired and its session emits through the command's pipeline (phase 3). Two in `verify`
   went earlier with `presentReport`.
-- [ ] `lore`'s remaining commands brought into agreement; the `fmt.Print` calls triaged.
+- [x] `lore`'s remaining commands brought into agreement, under #775 on 2026-09-01: the root registers the
+  set; `runSearch` renders through the shared table, which is where #741's byte-count cut went away;
+  `bundle` and `onboard` take their destination as a positional operand and `onboard`'s dead `--format` is
+  gone; `onboard` emits its result; the thirteen `fmt.Print` are four rows of a result and nine lines of
+  narration. Zero stdout writes remain.
 - [ ] `star` registers the common set and `cmd/star/cli` is deleted, which duplicates eighteen exported names
   from `cmd/internal/cli` ([#743](https://github.com/NobleFactor/devlore-cli/issues/743)).
 - [ ] The enforcement tests written — no direct `os.Stdout` write from a command package, and no command

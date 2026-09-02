@@ -629,7 +629,7 @@ func prepareScriptEnv(
 
 	thread := &starlark.Thread{
 		Name:  action.PhaseName,
-		Print: func(_ *starlark.Thread, msg string) { fmt.Printf("  [print] %s\n", msg) },
+		Print: func(_ *starlark.Thread, msg string) { cli.Note("  [print] %s", msg) },
 	}
 
 	return thread, runtime.Predeclared(), packageContext

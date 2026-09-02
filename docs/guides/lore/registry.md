@@ -38,7 +38,7 @@ View full details before installing:
 
 ```bash
 lore inspect docker
-lore inspect kubectl --format yaml
+lore inspect kubectl -o yaml
 ```
 
 Shows:
