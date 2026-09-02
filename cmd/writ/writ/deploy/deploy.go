@@ -84,8 +84,9 @@ type Config struct {
 //   - `cfg`: the resolved deploy configuration.
 //
 // Returns:
-//   - `error`: non-nil when pinning or planning fails, or when one or more scopes fail to execute.
-func Execute(ctx context.Context, cfg *Config) (err error) {
+//   - `graphs`: the plan, under --dry-run; nil when the run executed (or there was nothing to do).
+//   - `err`: non-nil when pinning or planning fails, or when one or more scopes fail to execute.
+func Execute(ctx context.Context, cfg *Config) (graphs []*op.Graph, err error) {
 
 	pin := &PinInfo{}
 
@@ -93,19 +94,19 @@ func Execute(ctx context.Context, cfg *Config) (err error) {
 		var cleanup func()
 		pin, cleanup, err = pinLayers(cfg)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		defer cleanup()
 	}
 
 	build, err := BuildGraphs(ctx, cfg, pin)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if len(build.Graphs) == 0 {
 		cli.Note("No files to deploy")
-		return nil
+		return nil, nil
 	}
 
 	if cfg.Verbose {
@@ -116,17 +117,17 @@ func Execute(ctx context.Context, cfg *Config) (err error) {
 	}
 
 	if cfg.DryRun {
-		return op.SerializeGraphs(os.Stdout, build.Graphs)
+		return build.Graphs, nil
 	}
 
 	sortGraphsByScope(build.Graphs)
 
 	runPolicy, err := preflightConflicts(ctx, cfg, build.Graphs)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	return runAll(ctx, cfg, build.Graphs, runPolicy)
+	return nil, runAll(ctx, cfg, build.Graphs, runPolicy)
 }
 
 // runAll executes every graph under the run policy, collecting per-scope failures.

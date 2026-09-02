@@ -26,7 +26,7 @@ Registration remains what it always was — a symlink under `XDG_DATA_HOME/devlo
    fresh-user path proven on ubuntu, macos, and windows by every scenario run.
 3. `docs/guides/writ/repositories.md` rewritten onto reality: `writ repo` registration
    (the config-set fiction removed), the corrected `Home/<project>[.<Segment>]` structure
-   (was upside-down `<project>/Home/`), `writ status` in place of the retired
+   (was upside-down `<project>/Home/`), `writ reconcile` in place of the retired
    `writ inspect`, and the fictional "Configuration storage" section replaced by the
    layers-directory truth.
 

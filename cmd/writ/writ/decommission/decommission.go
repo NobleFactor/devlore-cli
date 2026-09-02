@@ -15,7 +15,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"sort"
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
@@ -59,31 +58,32 @@ type Config struct {
 //   - `cfg`: the resolved decommission configuration.
 //
 // Returns:
-//   - `error`: non-nil when the fold fails, nothing is deployed for the selection, planning fails, or one or
+//   - `graphs`: the plan, under --dry-run; nil when the run executed (or there was nothing to do).
+//   - `err`: non-nil when the fold fails, nothing is deployed for the selection, planning fails, or one or
 //     more scopes fail to execute.
-func Execute(ctx context.Context, cfg *Config) (err error) {
+func Execute(ctx context.Context, cfg *Config) (graphs []*op.Graph, err error) {
 
 	inventory, err := readback.Fold(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	selected := selectEntries(inventory, cfg.Projects)
 	if len(selected) == 0 {
-		return fmt.Errorf(
+		return nil, fmt.Errorf(
 			"no deployed files found for projects %v; cannot decommission without deployment history", cfg.Projects)
 	}
 
-	graphs, err := buildScopeGraphs(ctx, cfg, selected)
+	graphs, err = buildScopeGraphs(ctx, cfg, selected)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if cfg.DryRun {
-		return op.SerializeGraphs(os.Stdout, graphs)
+		return graphs, nil
 	}
 
-	return runAll(ctx, cfg, graphs)
+	return nil, runAll(ctx, cfg, graphs)
 }
 
 // buildScopeGraphs groups the entries by scope and assembles one removal graph per scope, in removal

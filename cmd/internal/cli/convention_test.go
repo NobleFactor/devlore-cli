@@ -111,7 +111,7 @@ func TestAddOutputFlags_SubcommandParsesTheShortForm(t *testing.T) {
 
 // TestAddOutputFlags_ResolvesTheStoreAndRestoresIt pins #753.
 //
-// `--store` used to populate the options struct and stop there, so `writ status --store <elsewhere>` folded
+// `--store` used to populate the options struct and stop there, so `writ reconcile --store <elsewhere>` folded
 // runs from the DEFAULT store and reported the result as compliance. Binding the set now resolves it, and
 // undoes the resolution when the command tree finishes -- without which the first command passing --store
 // would silently relocate every command after it in the same process.
@@ -149,7 +149,7 @@ func TestAddOutputFlags_ResolvesTheStoreAndRestoresIt(t *testing.T) {
 // TestAddOutputFlags_RejectsAnUnknownFormat pins #754.
 //
 // The format string is checked in exactly one place, [result.FormatterByName], reached from
-// [BuildPipeline]. A command that renders itself never got there, so `writ status -o bogus` printed its
+// [BuildPipeline]. A command that renders itself never got there, so `writ reconcile -o bogus` printed its
 // report and exited 0 -- a typo honored as a request for the default. Binding the set now validates.
 func TestAddOutputFlags_RejectsAnUnknownFormat(t *testing.T) {
 
@@ -257,7 +257,7 @@ func TestStoreRoot_DefaultsToTheStatePath(t *testing.T) {
 //
 // `--store` names a store, not a directory to drop files in. A relocation that moves the trace but leaves
 // the run index behind splits the store in two: the trace sits under the new root while the index recording
-// it sits under the old one, and `writ status` reads the index.
+// it sits under the old one, and `writ reconcile` reads the index.
 //
 // The state home and the store root are deliberately different directories, so anything that consults the
 // state home instead of the store root lands in the wrong place and is caught rather than coinciding.

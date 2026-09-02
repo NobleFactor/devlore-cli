@@ -920,3 +920,9 @@ From the comparison, the concrete refinements layered onto star's proven registr
 - **Schema versioning** — when (not whether) to add the Kubernetes-style migration hook.
 - **Star unification sequencing** — the shape is defined ("Star unification and the two announcement paths"); *when*
   to execute the fold remains open.
+- **Instantiation from cobra/viper** (asked 2026-09-01) — *Should we instantiate a config system with flags that it
+  can pull from cobra/viper?* Source 5 above is "the parsed pflag set, read once", which leaves open *whose* flag
+  set: does devconfig bind flags itself, or is a `Config` constructed by pulling the values cobra has already
+  parsed and viper has already bound — `viper.GetBool("writ.verbose")` is how `parseReconcileConfig` reads its
+  settings today. The second keeps one flag registration per command and makes the cli layer a snapshot taken at
+  construction; the first is what "retires the viper globals" most literally means. Tracked under #441.

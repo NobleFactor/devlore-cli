@@ -117,9 +117,9 @@ const outputUsage = "Output rendering. json is the default and the native format
 // registering the set and honoring it cannot come apart:
 //
 //   - `--output` is validated. A command that never reaches [BuildPipeline] used to accept any string,
-//     because [result.FormatterByName] is the only place the value is checked -- `writ status -o bogus`
+//     because [result.FormatterByName] is the only place the value is checked -- `writ reconcile -o bogus`
 //     printed its report and exited 0 (#754).
-//   - `--store` is resolved. It used to be read by nothing outside `devlore-test`, so `writ status --store
+//   - `--store` is resolved. It used to be read by nothing outside `devlore-test`, so `writ reconcile --store
 //     <elsewhere>` folded runs from the DEFAULT store and reported the result as compliance (#753).
 //
 // Both were one defect wearing two faces: a flag registered on a root that no leaf consumed. Cobra

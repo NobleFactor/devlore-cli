@@ -16,7 +16,7 @@ The execution store persists two document kinds, each carrying its own integrity
 2. **Authenticity** (tier 2): prove who published the document, for sharing and verification.
 
 Drift detection and reconciliation read from these documents: one graph accumulates a stack of traces —
-one per execution — and `writ status` classifies live state against the latest trace's recorded content
+one per execution — and `writ reconcile` classifies live state against the latest trace's recorded content
 identity ([5.1](5.1-reconciliation.md)).
 
 ## Tier 1: Checksum (Integrity)

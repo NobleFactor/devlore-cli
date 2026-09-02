@@ -660,12 +660,13 @@ Invariants 1 and 2 are the ones that prevent regression, because both are mechan
 
 ## 15. Per-app conformance
 
-Current state, 2026-08-30. Two of the four in-scope programs register the common set on their root.
+Current state, 2026-09-01. Two of the four in-scope programs register the common set on their root, and one
+of those two consumes it everywhere.
 
 | App | Root registers the set | Remaining deviations |
 | --- | --- | --- |
 | `devlore-test` | **yes** | none |
-| `writ` | **yes** | `status`'s 22 `fmt.Print` calls; four dry-run dumps; `migrate`'s `--format` |
+| `writ` | **yes** | none — #774 routed all 30 stdout sites through the sink |
 | `lore` | no | hand-rolled flags on three commands; 13 `fmt.Print`; `runSearch` (#741) |
 | `star` | no | a **second `cli` package** of its own -- see below |
 | `devlore-docs` | not in scope | — |

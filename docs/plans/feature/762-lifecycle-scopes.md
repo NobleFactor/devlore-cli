@@ -3,7 +3,7 @@ title: "The writ lifecycle surface: reconcile, scopes, and the vocabulary settle
 issue: https://github.com/NobleFactor/devlore-cli/issues/762
 status: in-progress
 created: 2026-08-31
-updated: 2026-08-31
+updated: 2026-09-01
 ---
 
 # Plan: The writ lifecycle surface
@@ -219,18 +219,24 @@ Documents first: the code changes cite them, and three of them currently describ
 - [x] `5.3-recovery-site.md` — the `RootReaderWriter` test mode that no longer exists
 - [x] `schema/devlore-config.json` and `schema/defaults/writ.yaml` — `writ.scopes` added, `writ.segments`
       reshaped to a map, `vars` reduced to template variables
-- [ ] `4.4-root-path-triad.md` — §4 "Mode Switch" tabulates three types with zero tree occurrences. OPEN:
-      rewrite, or delete and renumber?
-- [ ] `10-command-line-interface.md` §15 — the conformance table still says `writ status`
-- [ ] `10-command-line-interface.md` §1 is titled "Scope and principles"; "scope" now names an execution
-      context. Two meanings, one document.
+- [x] `4.4-root-path-triad.md` — §4 "Mode Switch" deleted and the rest renumbered (#767)
+- [x] `10-command-line-interface.md` §15 — the conformance table says `writ reconcile` (#767)
+- [x] `10-command-line-interface.md` §1 retitled "What this governs", so "scope" has one meaning (#767)
 
-### Phase 2: The rename
+*The three boxes above were completed by #767 and stayed unticked until 2026-09-01 — recorded rather than
+quietly corrected, since stale status is the drift the revised process exists to prevent.*
 
-- [ ] `writ status` → `writ reconcile`; `git mv cmd/writ/writ/status cmd/writ/writ/reconcile`, `status.go` →
+### Phase 2: The rename — landed under #774 (status: complete)
+
+This phase and thread 1's `writ` item are one piece of work, done in
+[774-writ-reconcile.md](774-writ-reconcile.md) phase 1.
+
+- [x] `writ status` → `writ reconcile`; `git mv cmd/writ/writ/status cmd/writ/writ/reconcile`, `status.go` →
       `reconcile.go`, so history follows. No alias.
-- [ ] `status.Report` → `reconcile.Report`, and the rest of the package surface.
-- [ ] Scenario tests and the eight plan documents that name `writ status`.
+- [x] `status.Report` → `reconcile.Report`, and the rest of the package surface — `ReconcileConfig`,
+      `parseReconcileConfig`, `newReconcileCmd`, `runReconcile`.
+- [x] Scenario tests, and every document that named `writ status` as live: seven architecture and guide
+      documents and nine plans changed outright; the two that *record* the step-47 rename carry a note.
 
 ### Phase 3: The vocabulary sweep
 

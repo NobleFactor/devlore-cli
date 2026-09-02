@@ -13,7 +13,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/decommission"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/deploy"
-	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/status"
+	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/reconcile"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/upgrade"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/verify"
 	"github.com/spf13/cobra"
@@ -70,7 +70,7 @@ func runDeployV2(cmd *cobra.Command, args []string) error {
 
 	// The manifest planner defaults its platform token (via platform.DetectToken) and its registry client;
 	// writ supplies only the flags that are writ's to know.
-	return deploy.Execute(cmd.Context(), &deploy.Config{
+	graphs, err := deploy.Execute(cmd.Context(), &deploy.Config{
 		SourceRoot:      cfg.SourceRoot,
 		TargetRoot:      cfg.TargetRoot,
 		LayerSources:    cfg.LayerSources,
@@ -83,6 +83,15 @@ func runDeployV2(cmd *cobra.Command, args []string) error {
 		DryRun:          cfg.DryRun,
 		Verbose:         cfg.Verbose,
 	})
+	if err != nil {
+		return err
+	}
+
+	// Under --dry-run the plan is the result, and the pipeline renders it like any other.
+	if graphs != nil {
+		return emitResult(cmd, graphs)
+	}
+	return nil
 }
 
 // expandPath expands ~ to $HOME in paths.
@@ -130,12 +139,21 @@ func runDecommission(cmd *cobra.Command, args []string) error {
 
 	cfg := parseDecommissionConfig(cmd, args)
 
-	return decommission.Execute(cmd.Context(), &decommission.Config{
+	graphs, err := decommission.Execute(cmd.Context(), &decommission.Config{
 		Projects: cfg.Projects,
 		Prune:    cfg.Prune,
 		DryRun:   cfg.DryRun,
 		Verbose:  cfg.Verbose,
 	})
+	if err != nil {
+		return err
+	}
+
+	// Under --dry-run the plan is the result, and the pipeline renders it like any other.
+	if graphs != nil {
+		return emitResult(cmd, graphs)
+	}
+	return nil
 }
 
 func newUpgradeCmd() *cobra.Command {
@@ -172,7 +190,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 
 	cfg := parseUpgradeConfig(cmd, args)
 
-	return upgrade.Execute(cmd.Context(), &upgrade.Config{
+	graphs, err := upgrade.Execute(cmd.Context(), &upgrade.Config{
 		Projects: cfg.Projects,
 		Force:    cfg.Force,
 		Segments: cfg.Segments,
@@ -180,11 +198,20 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 		DryRun:   cfg.DryRun,
 		Verbose:  cfg.Verbose,
 	})
+	if err != nil {
+		return err
+	}
+
+	// Under --dry-run the plan is the result, and the pipeline renders it like any other.
+	if graphs != nil {
+		return emitResult(cmd, graphs)
+	}
+	return nil
 }
 
-func newStatusCmd() *cobra.Command {
+func newReconcileCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "status [<project>...]",
+		Use:   "reconcile [<project>...]",
 		Short: "Report deployed state: what should be present, from where, and what's missing or different",
 		Long: `Report deployed state: what should be present, where it should have come from, and
 what's missing or different.
@@ -192,41 +219,48 @@ what's missing or different.
 The report is derived from the store (the run index plus the persisted graphs and
 traces) — never from a directory scan — and has four sections: the registered layer
 tree, the deployed inventory classified against the live filesystem, the package
-operations writ's runs performed, and store health. Status is report-only; each
-finding names the lifecycle command that repairs it.
+operations writ's runs performed, and store health. Reconcile produces a report; each
+finding names the lifecycle command that repairs it. The report is one JSON document,
+rendered by --output like every other result; --jq '.entries' selects the delta alone.
 
-Status indicators:
-  ✓ Linked            — Symlink present and resolving to its source
-  ✓ Copied            — Copied file present (encrypted content is not compared)
-  ✗ Missing           — Deployed target is gone            → writ deploy
-  ⚠ Conflict          — Something else occupies the target
-  ? Orphan            — Target's source no longer exists   → writ decommission
-  ↑ Stale             — Source changed since the run       → writ upgrade
-  M Modified          — Target edited out-of-band          → writ upgrade --force
-  M Modified-or-stale — Differs, but the run predates recorded content
-                        identity: attribution indeterminate → writ upgrade`,
-		Example: `  writ status                    # Report everything writ has deployed
-  writ status noblefactor        # Report one project
-  writ status -o json            # Machine-readable report
-  writ status -o table           # Aligned columns`,
-		RunE: runStatus,
+Entry states:
+  linked             Symlink present and resolving to its source
+  copied             Copied file present (encrypted content is not compared)
+  missing            Deployed target is gone                     → writ deploy
+  conflict           Something else occupies the target
+  orphan             Target's source no longer exists            → writ decommission
+  stale              Source changed since the run                → writ upgrade
+  modified           Target edited out-of-band                   → writ upgrade --force
+  modified-or-stale  Differs, but the run predates recorded content
+                     identity: attribution indeterminate         → writ upgrade`,
+		Example: `  writ reconcile                 # Report everything writ has deployed
+  writ reconcile noblefactor     # Report one project
+  writ reconcile -o json         # Machine-readable report
+  writ reconcile -o table        # Aligned columns`,
+		RunE: runReconcile,
 	}
 
 	return cmd
 }
 
-// runStatus implements the status command on the status package (phase-8 step 47 slice 3).
-func runStatus(cmd *cobra.Command, args []string) error {
+// runReconcile implements the reconcile command on the reconcile package.
+func runReconcile(cmd *cobra.Command, args []string) error {
 
-	cfg := parseStatusConfig(args)
+	cfg := parseReconcileConfig(args)
 
-	return status.Execute(cmd.Context(), &status.Config{
+	report, err := reconcile.BuildReport(cmd.Context(), &reconcile.Config{
 		Projects: cfg.Projects,
-		JSON:     cfg.JSONOutput,
 		Verbose:  cfg.Verbose,
 		Segments: cfg.Segments,
 		Vars:     cfg.TemplateData,
 	})
+	if err != nil {
+		return err
+	}
+
+	// The report is the result. Rendering is the pipeline's, so every --output value, --jq and --filter
+	// apply to it exactly as they do to any other command's result.
+	return emitResult(cmd, report)
 }
 
 func newVerifyCmd() *cobra.Command {

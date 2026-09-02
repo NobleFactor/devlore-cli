@@ -55,7 +55,7 @@ func deployFixture(t *testing.T) (targetRoot, templateSource string) {
 		Segments:   fixtureSegments,
 	}
 
-	if err := deploy.Execute(context.Background(), cfg); err != nil {
+	if _, err := deploy.Execute(context.Background(), cfg); err != nil {
 		t.Fatalf("deploy fixture: %v", err)
 	}
 
@@ -78,7 +78,7 @@ func TestExecute_UpToDateDoesNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := upgrade.Execute(context.Background(), upgradeConfig()); err != nil {
+	if _, err := upgrade.Execute(context.Background(), upgradeConfig()); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
 
@@ -102,7 +102,7 @@ func TestExecute_MissingTargetRegeneratesFreely(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := upgrade.Execute(context.Background(), upgradeConfig()); err != nil {
+	if _, err := upgrade.Execute(context.Background(), upgradeConfig()); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
 
@@ -126,7 +126,7 @@ func TestExecute_StaleSourceRegeneratesFreely(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := upgrade.Execute(context.Background(), upgradeConfig()); err != nil {
+	if _, err := upgrade.Execute(context.Background(), upgradeConfig()); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
 
@@ -152,7 +152,7 @@ func TestExecute_ModifiedTargetIsForceGated(t *testing.T) {
 	}
 
 	// Without --force: the local edit survives.
-	if err := upgrade.Execute(context.Background(), upgradeConfig()); err != nil {
+	if _, err := upgrade.Execute(context.Background(), upgradeConfig()); err != nil {
 		t.Fatalf("Execute (no force): %v", err)
 	}
 	content, err := os.ReadFile(rendered)
@@ -163,7 +163,7 @@ func TestExecute_ModifiedTargetIsForceGated(t *testing.T) {
 	// With --force: regenerated from the current source.
 	cfg := upgradeConfig()
 	cfg.Force = true
-	if err := upgrade.Execute(context.Background(), cfg); err != nil {
+	if _, err := upgrade.Execute(context.Background(), cfg); err != nil {
 		t.Fatalf("Execute --force: %v", err)
 	}
 	content, err = os.ReadFile(rendered)
@@ -185,7 +185,7 @@ func TestExecute_SymlinksAreNeverTouched(t *testing.T) {
 
 	cfg := upgradeConfig()
 	cfg.Force = true
-	if err := upgrade.Execute(context.Background(), cfg); err != nil {
+	if _, err := upgrade.Execute(context.Background(), cfg); err != nil {
 		t.Fatalf("Execute --force: %v", err)
 	}
 

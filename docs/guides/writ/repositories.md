@@ -119,5 +119,5 @@ layer wins.
 To see what is deployed, where it came from, and whether it has drifted:
 
 ```bash
-writ status
+writ reconcile
 ```

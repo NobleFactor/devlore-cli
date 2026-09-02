@@ -40,7 +40,7 @@ ${XDG_STATE_HOME:-~/.local/state}/devlore/
 
 A graph persists once — re-running the same plan reuses it. Each run appends a timestamped
 trace under the graph's subdirectory and repoints `latest.yaml`. The run index is how
-`writ status` finds everything; a missing index is a hard error, never a silent rescan.
+`writ reconcile` finds everything; a missing index is a hard error, never a silent rescan.
 
 ## What a Trace Records
 
@@ -49,12 +49,12 @@ trace under the graph's subdirectory and repoints `latest.yaml`. The run index i
 - The as-deployed content identity of each file the run produced — what drift
   classification compares against
 
-## Auditing and Drift: `writ status`
+## Auditing and Drift: `writ reconcile`
 
 ```bash
-writ status                    # Report everything writ has deployed
-writ status noblefactor        # Report one project
-writ status --json             # Machine-readable report
+writ reconcile                    # Report everything writ has deployed
+writ reconcile noblefactor        # Report one project
+writ reconcile -o json            # Machine-readable report
 ```
 
 Status is report-only and store-derived. Each entry classifies the live filesystem against
@@ -111,7 +111,7 @@ load is refused. Re-run the deployment to persist a fresh graph and trace.
 Signing is best-effort: with no resolvable key, documents persist unsigned and
 `writ verify` reports the fact. Under the default `report` policy this never fails a run.
 
-### "run index" errors from `writ status`
+### "run index" errors from `writ reconcile`
 
 Status refuses to report from silence. If the index is missing or incomplete, its store
 health section names what is missing; re-running the affected deployments regenerates the

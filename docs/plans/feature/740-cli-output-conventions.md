@@ -31,15 +31,15 @@ are one piece of work rather than two adjacent ones.
 
 | # | Item | Phase | Issue |
 | --- | --- | --- | --- |
-| 1 | `writ`'s renderings -- 30 stdout call sites | 3b | none yet |
-| 2 | `lore` -- search table, hand-rolled flags, thirteen `fmt.Print` | 4 | [#741](https://github.com/NobleFactor/devlore-cli/issues/741) covers only the truncation defect |
+| 1 | `writ reconcile` -- the rename and the 30 stdout call sites, one piece of work | 3b | **landed** -- [#774](https://github.com/NobleFactor/devlore-cli/issues/774), [774-writ-reconcile.md](774-writ-reconcile.md) |
+| 2 | `lore` -- search table, hand-rolled flags, thirteen `fmt.Print` | 4 | [#775](https://github.com/NobleFactor/devlore-cli/issues/775) -- [775-lore-adoption.md](775-lore-adoption.md); [#741](https://github.com/NobleFactor/devlore-cli/issues/741) closes there only if verified |
 | 3 | `star` -- register the set, delete `cmd/star/cli` | 4 / 4b | [#743](https://github.com/NobleFactor/devlore-cli/issues/743) |
-| 4 | Enforcement -- the invariant tests | 5 | none yet |
+| 4 | Enforcement -- the invariant tests | 5 | [#776](https://github.com/NobleFactor/devlore-cli/issues/776) -- [776-output-enforcement.md](776-output-enforcement.md) |
 
-Three of the four need issues filed before their work can open a branch. The intended slicing: one issue
-for `writ`'s renderings; one for `lore`'s adoption, kept **separate** from #741 so a user-visible defect is
-not buried inside a refactor; and one for both enforcement tests, since they are the same invariant seen
-twice and together they define what "done" means for this epic.
+All four now have issues and plans. `lore`'s is kept **separate** from #741 so a user-visible defect is
+not buried inside a refactor; enforcement is one issue for both tests, since they are the same invariant
+seen twice and together they define what "done" means for this epic -- which is why it is sequenced
+last, red until the other three land.
 
 **One correction landed with this update.** `10-command-line-interface.status.md` carried "`writ` consumes
 the set it registers" as unchecked after [#753](https://github.com/NobleFactor/devlore-cli/issues/753) and

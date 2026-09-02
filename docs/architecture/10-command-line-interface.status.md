@@ -49,8 +49,11 @@ and two of four programs landed 2026-08-30. `devlore-test` and `writ` register t
   **Corrected 2026-09-01:** this box stayed unticked after both issues closed, so the document reported
   landed work as outstanding. That is the drift the revised process exists to prevent, and it is recorded
   here rather than quietly ticked.
-- [ ] `writ`'s **renderings** brought into agreement: the 30 stdout call sites routed through the sink -- 22
-  `fmt.Print` in `status/report.go`, four dry-run `SerializeGraphs` dumps, and two in `migrate`.
+- [x] `writ`'s **renderings** brought into agreement: all 30 stdout call sites, under #774 on 2026-09-01. The
+  22 `fmt.Print` in `reconcile/report.go` are deleted (phase 2: the report is the result). The four dry-run
+  `SerializeGraphs` dumps are returned as the plan and rendered by `-o` (phase 3). `migrate`'s own
+  `--format` is retired and its session emits through the command's pipeline (phase 3). Two in `verify`
+  went earlier with `presentReport`.
 - [ ] `lore`'s remaining commands brought into agreement; the `fmt.Print` calls triaged.
 - [ ] `star` registers the common set and `cmd/star/cli` is deleted, which duplicates eighteen exported names
   from `cmd/internal/cli` ([#743](https://github.com/NobleFactor/devlore-cli/issues/743)).
