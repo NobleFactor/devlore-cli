@@ -31,7 +31,7 @@ are one piece of work rather than two adjacent ones.
 
 | # | Item | Phase | Issue |
 | --- | --- | --- | --- |
-| 1 | `writ reconcile` -- the rename and the 30 stdout call sites, one piece of work | 3b | [#774](https://github.com/NobleFactor/devlore-cli/issues/774) -- [774-writ-reconcile.md](774-writ-reconcile.md) |
+| 1 | `writ reconcile` -- the rename and the 30 stdout call sites, one piece of work | 3b | **landed** -- [#774](https://github.com/NobleFactor/devlore-cli/issues/774), [774-writ-reconcile.md](774-writ-reconcile.md) |
 | 2 | `lore` -- search table, hand-rolled flags, thirteen `fmt.Print` | 4 | [#775](https://github.com/NobleFactor/devlore-cli/issues/775) -- [775-lore-adoption.md](775-lore-adoption.md); [#741](https://github.com/NobleFactor/devlore-cli/issues/741) closes there only if verified |
 | 3 | `star` -- register the set, delete `cmd/star/cli` | 4 / 4b | [#743](https://github.com/NobleFactor/devlore-cli/issues/743) |
 | 4 | Enforcement -- the invariant tests | 5 | [#776](https://github.com/NobleFactor/devlore-cli/issues/776) -- [776-output-enforcement.md](776-output-enforcement.md) |

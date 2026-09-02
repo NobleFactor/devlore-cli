@@ -1,7 +1,7 @@
 ---
 title: "writ reconcile: the command is renamed, and its renderings go through the sink"
 issue: https://github.com/NobleFactor/devlore-cli/issues/774
-status: draft
+status: complete
 created: 2026-09-01
 updated: 2026-09-01
 ---
@@ -148,11 +148,18 @@ a command that does not exist — [#777](https://github.com/NobleFactor/devlore-
 work. Two `lore` guides teach `--format` — recorded in [775-lore-adoption.md](775-lore-adoption.md)'s
 file list, resolved there.
 
-### Phase 4: The globals proved (status: not started)
+### Phase 4: The globals proved (status: complete)
 
-- [ ] One test per global, observing its effect rather than its registration
-- [ ] `10-command-line-interface.status.md` and 740's status updated — the writ row goes green
-- [ ] `docs/cli` regenerated
+- [x] One test per global, observing its effect rather than its registration — all in the scenario
+      suite, against the real binary: `-o` (phase 2, eight formats), `--dry-run` (phase 3, the plan as a
+      JSON array), `--jq '.entries'` (the delta as a JSON array), `--filter` (a malformed expression is
+      refused and named — were the flag ignored it would print the report and exit 0, the #754 shape),
+      `--store` (an empty store is refused for its missing run index rather than reporting on the default
+      as though it had complied, the #753 shape).
+- [x] `10-command-line-interface.status.md` ticks writ's renderings box (phase 3); 740's "Where we are"
+      table marks this item landed.
+- [x] `docs/cli` regenerated: `reconcile.md` present, `status.md` gone, no `--format` on `migrate.md`.
+      Gitignored here and published from `develop` by `docs-publish.yaml`, so nothing to commit.
 
 **Files**:
 
@@ -179,6 +186,37 @@ file list, resolved there.
 **Not covered:** the S4 rendering question below. `-o table` on a sectioned object will render one row
 of four cells, which is correct per §7 and useless to a human. Whether the presenters need a case for
 that shape is a design question, and it is left open rather than answered in passing.
+
+## Acceptance criteria
+
+The canonical checklist. The pull request carries a copy and links here; **every box is checked before
+merge**, and a box that cannot be checked from this branch says what checks it.
+
+**Goals**
+
+- [x] `writ status` does not exist and has no alias — `TestReconcile_StatusIsGone` executes the root with
+      `status` and requires "unknown command"
+- [x] Every stdout byte in `cmd/writ` goes through the sink — the only `os.Stdout` left is
+      `migrate_cmd.go`'s `.Stat()`, a TTY check, not a write; 30 of 30 sites are gone
+- [x] Every global is consumed, not merely registered — five scenario assertions, each by observed effect
+
+**Test rows**
+
+- [x] 1 — `writ status` does not exist: `TestReconcile_StatusIsGone` (unit)
+- [x] 2 — each of eight `-o` values renders on `writ reconcile`: `TestReport_EveryFormatRenders` (unit,
+      8 subtests) and the scenario loop
+- [x] 3 — `--jq '.entries'` returns the delta alone: scenario
+- [x] 4 — `--store <dir>` reads that store: scenario — an empty store is refused for its missing run index
+- [x] 5 — `--dry-run` yields the plan, rendered by `-o`: scenario `deploy --dry-run -o json` is a JSON
+      array, plus two unit tests that the plan comes back from `Execute`
+- [x] 6 — no `fmt.Print*` in `cmd/writ/writ/reconcile`: 0 in all four files. The tree-wide test is
+      [#776](https://github.com/NobleFactor/devlore-cli/issues/776)'s first invariant by design; a
+      package-local copy would be redundant with it
+- [ ] 7 — the scenario suite passes on all five platforms: darwin-arm64 locally; **the other four are CI
+      on the pull request**, and this box is checked there when `scenario (…)` is green on every leg
+
+**Gates**, all on every phase: `make build`, `make vet`, `make test`, `make test-scenario`, `gofmt -l`
+empty, `Test-GuideFrontmatter.sh`.
 
 ## Migration Path
 

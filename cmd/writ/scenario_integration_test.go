@@ -493,6 +493,36 @@ func TestWritDeployScenario_Deploy(t *testing.T) {
 		}
 	}
 
+	// The other three globals, each by its effect rather than its registration. A flag on a root that no
+	// leaf consumes looks like compliance (#753, #754); these fail if the flag never reaches the pipeline.
+	jqOut, jqErr, err := runWrit(t, sandbox, "reconcile", "--jq", ".entries")
+	if err != nil {
+		t.Fatalf("writ reconcile --jq .entries failed: %v\nstderr: %s", err, jqErr)
+	}
+	var delta []any
+	if err := json.Unmarshal([]byte(jqOut), &delta); err != nil {
+		t.Fatalf("--jq .entries did not select the delta as a JSON array: %v\n%s", err, jqOut)
+	}
+	if len(delta) == 0 {
+		t.Fatalf("--jq .entries selected nothing:\n%s", jqOut)
+	}
+
+	// A malformed field expression must be refused. Were --filter ignored, this would print the report
+	// and exit 0 -- a typo honored as a request for the default, the same defect as #754.
+	if _, filterErr, err := runWrit(t, sandbox, "reconcile", "--filter", "no-equals-sign"); err == nil {
+		t.Fatal("writ reconcile --filter no-equals-sign succeeded; --filter never reached the parser")
+	} else if !strings.Contains(filterErr, "no-equals-sign") {
+		t.Fatalf("--filter refusal does not name the expression:\n%s", filterErr)
+	}
+
+	// --store must be read: pointed at a store that was never written, reconcile refuses rather than
+	// reporting on the default store as though it had complied (#753).
+	if _, storeErr, err := runWrit(t, sandbox, "reconcile", "--store", t.TempDir()); err == nil {
+		t.Fatal("writ reconcile --store <empty> succeeded; it reported on the default store instead")
+	} else if !strings.Contains(strings.ToLower(storeErr), "index") {
+		t.Fatalf("--store <empty> refusal does not name the missing run index:\n%s", storeErr)
+	}
+
 	// The reconcile report, machine-readable: every classified entry is healthy.
 	reconcileOut, reconcileErr, err := runWrit(t, sandbox, "reconcile", "-o", "json")
 	if err != nil {
