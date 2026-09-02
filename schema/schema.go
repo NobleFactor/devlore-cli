@@ -30,6 +30,11 @@ var LoreDefaultConfig []byte
 //go:embed defaults/writ.yaml
 var WritDefaultConfig []byte
 
+// StarDefaultConfig is the default star-specific configuration.
+//
+//go:embed defaults/star.yaml
+var StarDefaultConfig []byte
+
 // TestDefaultConfig is the default devlore-test-specific configuration.
 // Installed to ~/.config/devlore/config.d/devlore-test.yaml
 //

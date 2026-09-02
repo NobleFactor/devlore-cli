@@ -317,8 +317,8 @@ the four findings below are defects the rules exposed on their first contact wit
 - [x] Convert `lore`'s `runSearch` (`commands.go:525-556`) first: it is the only real table in the tree, and
       converting it is a bug fix as much as a refactor (see the byte-truncation defect it carries). Landed in
       #779 ([775-lore-adoption.md](775-lore-adoption.md)); #741's byte-count cut went with it.
-- [ ] `star` registers the common set, and `cmd/star/cli` is deleted. The copy is gone -- #743 phase 2; it
-      was dead, nothing imported it -- and the set lands with the root in #743 phase 3
+- [x] `star` registers the common set, and `cmd/star/cli` is deleted. The copy went in #743 phase 2 -- it
+      was dead, nothing imported it -- and the root moved onto `cli.NewRootCmd` in phase 3
       ([743-star-adoption.md](743-star-adoption.md)).
 - [x] `lore`'s `bundle`, `onboard`, and `list` drop their hand-rolled flags. `list` is a stub returning
       "not yet implemented", so it adapts at no cost; its `--format manifest` is a domain rendering and does
@@ -335,16 +335,16 @@ set of programs that route through it -- measured, not assumed, in §15.
       directly. It has `AddOutputFlags` and therefore #753 and #754, and lacks #755's help wrapping for no
       reason anyone chose: at `COLUMNS=70` its longest flag line is 389 columns where `writ` and `lore` are
       at 70. This holds whether or not `devlore-test` ever ships.
-- [ ] `star` uses `cmd/internal/cli` and `cmd/star/cli` is deleted -- the same task as #743, restated here
+- [x] `star` uses `cmd/internal/cli` and `cmd/star/cli` is deleted -- the same task as #743, restated here
       because the duplication's cost is now demonstrated rather than argued: a defect fixed in the shared
       package is fixed once per package, and star got neither of this branch's three fixes. The deletion
-      landed in #743 phase 2; the root moves in phase 3.
+      landed in #743 phase 2 and the root moved in phase 3.
 - [x] `lore` registers the common set on its root rather than on `inspect` alone, which is what makes a
       program-wide fix program-wide. Landed in #779.
-- [ ] The shared root's commands -- `config`, `man`, `self`, `version` -- are one set on the four programs,
+- [x] The shared root's commands -- `config`, `man`, `self`, `version` -- are one set on the four programs,
       a program's additions attach beneath, and no usage text follows any error. Ruled 2026-09-02 in
       [743-star-adoption.md](743-star-adoption.md) and recorded in the design (§2, §9, §12, decisions 7-9);
-      lands with #743 phase 3.
+      landed with #743 phase 3.
 
 ### Phase 5: Enforce it
 

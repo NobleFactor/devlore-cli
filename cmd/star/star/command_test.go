@@ -5,6 +5,7 @@ package star
 
 import (
 	"fmt"
+	"reflect"
 	"testing"
 
 	"go.starlark.net/starlark"
@@ -78,7 +79,7 @@ func TestCommand_Run(t *testing.T) {
 				RunFunc:   runnable,
 			}
 
-			err := cmd.Run(tt.args)
+			_, err := cmd.Run(tt.args)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Command.Run() error = %v, wantErr %v", err, tt.wantErr)
 			}
@@ -110,7 +111,7 @@ func TestCommand_RunWithDryRun(t *testing.T) {
 		RunFunc:   runnable,
 	}
 
-	if err := cmd.Run(map[string]string{}); err != nil {
+	if _, err := cmd.Run(map[string]string{}); err != nil {
 		t.Errorf("Command.Run() unexpected error: %v", err)
 	}
 }
@@ -156,7 +157,7 @@ func TestCommand_RunWithExtension(t *testing.T) {
 		RunFunc:   runnable,
 	}
 
-	if err := cmd.Run(map[string]string{}); err != nil {
+	if _, err := cmd.Run(map[string]string{}); err != nil {
 		t.Errorf("Command.Run() unexpected error: %v", err)
 	}
 }
@@ -214,4 +215,61 @@ func (c *testCallable) CallInternal(_ *starlark.Thread, args starlark.Tuple, _ [
 		ctx = args[1]
 	}
 	return c.fn(cmd, ctx)
+}
+
+// TestCommand_RunReturnsTheScriptsResult pins the result channel: what run() returns is the command's
+// result, converted to the JSON shape the output pipeline renders, and None is no result.
+func TestCommand_RunReturnsTheScriptsResult(t *testing.T) {
+
+	tests := []struct {
+		name  string
+		value starlark.Value
+		want  any
+	}{
+		{name: "None is no result", value: starlark.None, want: nil},
+		{name: "a string", value: starlark.String("ok"), want: "ok"},
+		{name: "an int", value: starlark.MakeInt(7), want: int64(7)},
+		{name: "a list", value: starlark.NewList([]starlark.Value{starlark.MakeInt(1), starlark.String("b")}), want: []any{int64(1), "b"}},
+		{name: "a dict", value: dictOf(t, "name", starlark.String("x"), "ok", starlark.True), want: map[string]any{"name": "x", "ok": true}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cmd := &Command{
+				Name:      "test-cmd",
+				Extension: &Extension{},
+				RunFunc:   &testCallable{fn: func(_, _ starlark.Value) (starlark.Value, error) { return tt.value, nil }},
+			}
+			got, err := cmd.Run(map[string]string{})
+			if err != nil {
+				t.Fatalf("Command.Run() error = %v", err)
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("Command.Run() = %#v, want %#v", got, tt.want)
+			}
+		})
+	}
+
+	t.Run("a function has no JSON shape", func(t *testing.T) {
+		cmd := &Command{
+			Name:      "test-cmd",
+			Extension: &Extension{},
+			RunFunc:   &testCallable{fn: func(_, _ starlark.Value) (starlark.Value, error) { return &testCallable{}, nil }},
+		}
+		if _, err := cmd.Run(map[string]string{}); err == nil {
+			t.Error("Command.Run() accepted a callable as a result")
+		}
+	})
+}
+
+// dictOf builds a dict from alternating string keys and values.
+func dictOf(t *testing.T, pairs ...any) *starlark.Dict {
+	t.Helper()
+	d := starlark.NewDict(len(pairs) / 2)
+	for i := 0; i < len(pairs); i += 2 {
+		if err := d.SetKey(starlark.String(pairs[i].(string)), pairs[i+1].(starlark.Value)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return d
 }

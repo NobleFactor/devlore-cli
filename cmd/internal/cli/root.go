@@ -20,15 +20,22 @@ import (
 	"github.com/NobleFactor/devlore-cli/schema"
 )
 
-// RootConfig configures a root CLI command for lore or writ.
+// RootConfig configures a root CLI command for one of the four programs: devlore-test, lore, star, writ.
 type RootConfig struct {
-	Name          string // Command name ("lore" or "writ")
+	Name          string // Command name ("lore", "star", "writ", ...)
 	Short         string // One-line description
 	Long          string // Multi-line description
 	DefaultConfig []byte // Schema default config (e.g., schema.LoreDefaultConfig)
 	Version       string // Semantic version, set via ldflags
 	Commit        string // Git commit hash, set via ldflags
 	BuildDate     string // Build timestamp, set via ldflags
+
+	// What a program installs beyond the binary, its man pages, its completions and its config rides here
+	// rather than on a `self` of the program's own: `self` is one command on every program, and a
+	// program's additions attach to it (10-command-line-interface.md §2, ruled 2026-09-02). star's
+	// extensions are the one user today.
+	PostInstallHooks   []func(string) []string // Run after install with the prefix; return installed paths relative to it
+	PostUninstallHooks []func(string) error    // Run after uninstall with the prefix
 }
 
 // NewRootCmd creates a root cobra command with all shared flags, metadata
@@ -47,6 +54,11 @@ func NewRootCmd(cfg RootConfig) *cobra.Command {
 		Short:             cfg.Short,
 		Long:              cfg.Long,
 		DisableAutoGenTag: true,
+		// No usage text on an error, ever (10-command-line-interface.md §9, ruled 2026-09-02). Cobra
+		// funnels every error through one exit and by default follows each with the usage block; that
+		// block is not context-aware, so it is noise after a failed command and noise after a bad flag
+		// alike. Set here once; cobra honors the root's setting for every command beneath it.
+		SilenceUsage: true,
 		CompletionOptions: cobra.CompletionOptions{
 			HiddenDefaultCmd: true,
 		},
@@ -117,10 +129,12 @@ func NewRootCmd(cfg RootConfig) *cobra.Command {
 	rootCmd.AddCommand(NewManCmd(rootCmd, manHeader))
 	rootCmd.AddCommand(NewConfigCmd(configInfo))
 	rootCmd.AddCommand(NewSelfCmd(rootCmd, SelfInstallInfo{
-		Name:       cfg.Name,
-		Version:    cfg.Version,
-		ManHeader:  manHeader,
-		ConfigInfo: &configInfo,
+		Name:               cfg.Name,
+		Version:            cfg.Version,
+		ManHeader:          manHeader,
+		ConfigInfo:         &configInfo,
+		PostInstallHooks:   cfg.PostInstallHooks,
+		PostUninstallHooks: cfg.PostUninstallHooks,
 	}))
 
 	return rootCmd

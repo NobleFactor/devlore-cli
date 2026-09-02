@@ -8,8 +8,10 @@ package main
 import (
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -18,10 +20,8 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/iox"
-	"github.com/NobleFactor/devlore-cli/pkg/sink"
-	"github.com/NobleFactor/devlore-cli/pkg/status"
+	"github.com/NobleFactor/devlore-cli/schema"
 	"github.com/spf13/cobra"
-	"github.com/spf13/cobra/doc"
 
 	_ "github.com/NobleFactor/devlore-cli/cmd/star/inventory"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/inventory"
@@ -157,14 +157,33 @@ func main() {
 //   - `error`: the command execution error, or nil on success.
 func run() (err error) {
 
-	var silent bool
+	rootCmd, runtime := newRootCmd()
+	defer iox.Close(&err, runtime)
 
-	rootCmd := &cobra.Command{
-		Use:   "star",
+	return rootCmd.Execute()
+}
+
+// newRootCmd builds the star command tree on the shared root.
+//
+// [cli.NewRootCmd] supplies the persistent flags every program carries, `--dry-run` and `--silent` among
+// them, and the `config`, `man`, `self` and `version` commands. star's own steps at dispatch time wrap the
+// shared pre-run rather than replace it: the shared one builds the narrator and the configuration; then
+// star copies `--dry-run` into [starruntime.DryRun], refreshes the application's flag map from parsed
+// argv, and points the runtime environment's status at the one narrator, so `--silent` gates cli.Note and
+// the starlark ui.note() path alike.
+//
+// The Application is built after every persistent flag is registered, because it walks the root's flag
+// surface once; the values arrive at dispatch through Refresh. Extension commands load last, so an
+// extension whose command group shares a name with a shared command -- `config` -- attaches beneath it.
+//
+// Returns:
+//   - `*cobra.Command`: the root, with every command attached.
+//   - `*starruntime.Application`: the session the commands run in; the caller closes it.
+func newRootCmd() (*cobra.Command, *starruntime.Application) {
+
+	rootCmd := cli.NewRootCmd(cli.RootConfig{
+		Name:  "star",
 		Short: "Starlark-powered operations tool",
-		// A failing command verdict (a ui.fail in a .star script, a lint gate saying no) is not a
-		// usage mistake — suppress the usage block on RunE errors (ruling 2026-08-04).
-		SilenceUsage: true,
 		Long: `star is the Starlark-powered operations tool for NobleFactor projects.
 
 Commands are defined as extensions in the star/extensions/ directory.
@@ -176,51 +195,50 @@ Generate shell completions with:
   star completion bash > /etc/bash_completion.d/star
   star completion zsh > "${fpath[1]}/_star"
   star completion fish > ~/.config/fish/completions/star.fish`,
-	}
+		DefaultConfig:      schema.StarDefaultConfig,
+		Version:            version,
+		Commit:             commit,
+		BuildDate:          buildDate,
+		PostInstallHooks:   []func(string) []string{installStarExtensions},
+		PostUninstallHooks: []func(string) error{uninstallStarExtensions},
+	})
 
-	// Global flags — declared BEFORE building the Application so that rootCmd has the persistent flag surface in place
-	// when application.NewApplication walks cmd.Flags(). (Cobra hasn't parsed argv yet; user-supplied values land via
-	// Refresh in PersistentPreRunE below.)
-
-	rootCmd.PersistentFlags().BoolVar(&starruntime.DryRun, "dry-run", false, "Preview changes without executing side effects")
-	rootCmd.PersistentFlags().BoolVar(&silent, "silent", false, "Suppress all status messages")
-
-	// Build the session: star.NewApplication owns the underlying op.RuntimeEnvironment via its starlarkbridge.Runtime.
-	// Defer Close once.
+	// The common set, on the root: every command of star accepts every flag, and a fix in
+	// cmd/internal/cli reaches all of them at once (10-command-line-interface.md §4, §15).
+	cli.AddOutputFlags(rootCmd, &outputOptions)
 
 	runtime := starruntime.NewApplication(rootCmd)
-	defer iox.Close(&err, runtime)
 
-	// Refresh Application.Flags from cobra's parsed argv at command-dispatch time.
-
-	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, _ []string) error {
+	sharedPreRun := rootCmd.PersistentPreRunE
+	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+		if err := sharedPreRun(cmd, args); err != nil {
+			return err
+		}
+		starruntime.DryRun = assert.Must(cmd.Flags().GetBool("dry-run"))
 		runtime.Refresh(cmd)
+		runtime.Environment().Status = cli.UI()
 		return nil
 	}
 
-	cobra.OnInitialize(func() {
+	rootCmd.AddCommand(newKeyCmd())
+	rootCmd.AddCommand(newDocsCmd())
 
-		// Construct the canonical status.UI from the parsed --silent flag and install the single instance on
-		// both narration seams: the cli package-global behind cli.Note, cli.Warn and their siblings, and the
-		// runtime environment's Status backing the starlark ui.note() / ui.warn()
-		// paths through pkg/op/provider/ui.Provider's passthrough. One instance, one silent gate, every
-		// emission consistent on stderr.
-		narratorSink := sink.Stderr()
-		if silent {
-			narratorSink = sink.Discard()
-		}
-		narrator := status.NewNarrator("star", narratorSink)
-		cli.SetUI(narrator)
-		runtime.Environment().Status = narrator
-	})
+	// An extension that fails to load costs its commands, not the program: the rest of the tree still
+	// runs. The narrator does not exist yet -- the shared pre-run builds it at dispatch -- so this goes to
+	// stderr directly.
+	if err := loadStarlarkCommands(rootCmd, runtime); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to load Starlark commands: %v\n", err) //nolint:errcheck // diagnose-ignored-error: a warning that cannot be written has nowhere else to go
+	}
 
-	// Version surfaces — the same two every devlore command carries, rather than star's own spelling.
+	return rootCmd, runtime
+}
 
-	versionInfo := cli.VersionInfo{Version: version, Commit: commit, BuildDate: buildDate}
-	cli.AddVersionFlag(rootCmd, versionInfo)
-	rootCmd.AddCommand(cli.NewVersionCmd(versionInfo))
-
-	// Key management commands.
+// newKeyCmd builds the `key` group: signing-key management, every leaf a stub until the key ceremony
+// (ADR-040) is built.
+//
+// Returns:
+//   - `*cobra.Command`: the `key` command with `generate`, `list` and `rotate`.
+func newKeyCmd() *cobra.Command {
 
 	keyCmd := &cobra.Command{
 		Use:   "key",
@@ -253,101 +271,32 @@ Generate shell completions with:
 		},
 	})
 
-	rootCmd.AddCommand(keyCmd)
+	return keyCmd
+}
 
-	// Documentation commands
+// newDocsCmd builds the `docs` group. It carries star's own documentation only: the shared `man` command
+// is the one route to man pages on every program, and `make docs` generates the markdown reference for
+// the whole suite (10-command-line-interface.md §12, ruled 2026-09-02).
+//
+// Returns:
+//   - `*cobra.Command`: the `docs` command with `starlark`.
+func newDocsCmd() *cobra.Command {
 
 	docsCmd := &cobra.Command{
 		Use:   "docs",
-		Short: "Generate documentation",
+		Short: "star's own documentation",
 	}
-
-	docsCmd.AddCommand(&cobra.Command{
-		Use:   "man <output-dir>",
-		Short: "Generate man pages",
-		Long: `Generate man pages for star and all subcommands.
-
-The man pages are written to the specified output directory.
-Install them to your man path (e.g., /usr/local/share/man/man1/).`,
-		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			outDir := args[0]
-			//nolint:gosec // G301: extension directories are shared content (0o755 by design).
-			if err := os.MkdirAll(outDir, 0o755); err != nil {
-				return fmt.Errorf("creating output directory: %w", err)
-			}
-			header := &doc.GenManHeader{
-				Title:   "STAR",
-				Section: "1",
-				Source:  "Noble Factor",
-				Manual:  "Star Operations Manual",
-			}
-			if err := doc.GenManTree(rootCmd, header, outDir); err != nil {
-				return fmt.Errorf("generating man pages: %w", err)
-			}
-			fmt.Printf("Man pages written to %s\n", outDir)
-			return nil
-		},
-	})
-
-	docsCmd.AddCommand(&cobra.Command{
-		Use:   "markdown <output-dir>",
-		Short: "Generate markdown documentation",
-		Long:  `Generate markdown documentation for star and all subcommands.`,
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			outDir := args[0]
-			//nolint:gosec // G301: extension directories are shared content (0o755 by design).
-			if err := os.MkdirAll(outDir, 0o755); err != nil {
-				return fmt.Errorf("creating output directory: %w", err)
-			}
-			if err := doc.GenMarkdownTree(rootCmd, outDir); err != nil {
-				return fmt.Errorf("generating markdown: %w", err)
-			}
-			fmt.Printf("Markdown docs written to %s\n", outDir)
-			return nil
-		},
-	})
 
 	docsCmd.AddCommand(&cobra.Command{
 		Use:   "starlark",
 		Short: "Show how to write Starlark operations",
-		Long:  `Show documentation for writing Starlark operations.`,
+		Args:  cobra.NoArgs,
 		Run: func(cmd *cobra.Command, args []string) {
 			fmt.Print(starlarkDocs)
 		},
 	})
 
-	rootCmd.AddCommand(docsCmd)
-
-	// CLI status output is wired in cobra.OnInitialize above via cli.SetUI(status.NewNarrator(...));
-	// cli.Note, cli.Warn, cli.Error, cli.Success and cli.Failure read that UI.
-
-	// Self commands (install, upgrade, etc.)
-
-	rootCmd.AddCommand(cli.NewSelfCmd(rootCmd, cli.SelfInstallInfo{
-		Name:    "star",
-		Version: version,
-		ManHeader: cli.ManHeader{
-			Title:   "STAR",
-			Section: "1",
-			Source:  "Noble Factor",
-			Manual:  "Star Operations Manual",
-		},
-		PostInstallHooks:   []func(string) []string{installStarExtensions},
-		PostUninstallHooks: []func(string) error{uninstallStarExtensions},
-	}))
-
-	// Load Starlark commands from extensions.
-
-	if err = loadStarlarkCommands(rootCmd, runtime); err != nil {
-		_, err = fmt.Fprintf(os.Stderr, "Warning: failed to load Starlark commands: %v\n", err)
-		if err != nil {
-			return
-		}
-	}
-
-	return rootCmd.Execute()
+	return docsCmd
 }
 
 // =============================================================================
@@ -429,16 +378,30 @@ func loadStarlarkCommands(rootCmd *cobra.Command, runtime *starruntime.Applicati
 		return err
 	}
 
-	// register each Starlark command with cobra.
-	for _, cmd := range runtime.Commands() {
-		registerStarlarkCommand(rootCmd, cmd)
+	// Register each Starlark command with cobra, in name order: a group's leaf (`setup`) must exist before
+	// its children (`setup.check`) attach beneath it, and a map walk would decide that by chance.
+	commands := runtime.Commands()
+	for _, name := range slices.Sorted(maps.Keys(commands)) {
+		if err := registerStarlarkCommand(rootCmd, commands[name]); err != nil {
+			return fmt.Errorf("extension %s, command %s: %w", commands[name].Extension.Name, name, err)
+		}
 	}
 
 	return nil
 }
 
 // registerStarlarkCommand creates a cobra command from a Starlark command.
-func registerStarlarkCommand(rootCmd *cobra.Command, cmd *starruntime.Command) {
+//
+// The script's return value is the command's result and goes to stdout through the shared pipeline;
+// a script that returns None emits nothing.
+//
+// Parameters:
+//   - `rootCmd`: the root the command's dotted path hangs from.
+//   - `cmd`: the Starlark command.
+//
+// Returns:
+//   - `error`: non-nil when the command declares a flag the common set owns.
+func registerStarlarkCommand(rootCmd *cobra.Command, cmd *starruntime.Command) error {
 	// Parse command name (e.g., "registry.index-knowledge" -> registry subcommand with index-knowledge)
 	parts := strings.Split(cmd.Name, ".")
 	parent := findOrCreateParent(rootCmd, parts)
@@ -448,20 +411,26 @@ func registerStarlarkCommand(rootCmd *cobra.Command, cmd *starruntime.Command) {
 		Use:   useLineFor(parts[len(parts)-1], cmd.Args),
 		Short: cmd.Help,
 		RunE: func(c *cobra.Command, args []string) error {
-			return cmd.Run(collectFlagValues(c, cmd.Flags), args...)
+			result, err := cmd.Run(collectFlagValues(c, cmd.Flags), args...)
+			if err != nil {
+				return err
+			}
+			if result == nil {
+				return nil
+			}
+			return emitResult(c, result)
 		},
 	}
 
-	// Set positional arg validation.
-	if len(cmd.Args) > 0 {
-		cobraCmd.Args = cobra.ArbitraryArgs
-	} else {
-		cobraCmd.Args = cobra.NoArgs
+	cobraCmd.Args = argsValidatorFor(cmd.Args)
+
+	if err := defineFlags(cobraCmd, cmd.Flags); err != nil {
+		return err
 	}
 
-	defineFlags(cobraCmd, cmd.Flags)
-
 	parent.AddCommand(cobraCmd)
+
+	return nil
 }
 
 // findOrCreateParent walks the dotted command path, creating intermediate cobra commands as needed.
@@ -509,14 +478,50 @@ func useLineFor(leafName string, args []starruntime.Arg) string {
 
 	useLine := leafName
 	for _, arg := range args {
-		if arg.Variadic {
+		switch {
+		case arg.Variadic:
 			useLine += fmt.Sprintf(" [%s ...]", arg.Name)
-		} else {
+		case arg.Default != "":
 			useLine += fmt.Sprintf(" [%s]", arg.Name)
+		default:
+			useLine += fmt.Sprintf(" <%s>", arg.Name)
 		}
 	}
 
 	return useLine
+}
+
+// argsValidatorFor derives cobra's positional validation from the arg specs: an arg with no default is
+// required, an arg with one is optional, and a variadic arg absorbs the rest. A missing required operand
+// is then a usage error at parse time, not a script failure after the runtime has been built.
+//
+// Parameters:
+//   - `args`: the command's positional arg specs, in declaration order.
+//
+// Returns:
+//   - `cobra.PositionalArgs`: the validator.
+func argsValidatorFor(args []starruntime.Arg) cobra.PositionalArgs {
+
+	if len(args) == 0 {
+		return cobra.NoArgs
+	}
+
+	required := 0
+	variadic := false
+	for _, arg := range args {
+		if arg.Variadic {
+			variadic = true
+			continue
+		}
+		if arg.Default == "" {
+			required++
+		}
+	}
+	if variadic {
+		return cobra.MinimumNArgs(required)
+	}
+
+	return cobra.RangeArgs(required, len(args))
 }
 
 // collectFlagValues reads the parsed flag values as strings (Command.Run converts to native
@@ -559,9 +564,12 @@ func collectFlagValues(c *cobra.Command, flags []starruntime.Flag) map[string]st
 // Parameters:
 //   - `cobraCmd`: the leaf cobra command.
 //   - `flags`: the command's flag specs.
-func defineFlags(cobraCmd *cobra.Command, flags []starruntime.Flag) {
+func defineFlags(cobraCmd *cobra.Command, flags []starruntime.Flag) error {
 
 	for _, flag := range flags {
+		if slices.Contains(reservedFlagNames, flag.Name) {
+			return fmt.Errorf("flag --%s is the common set's; a destination is a positional operand and a rendering is --output (10-command-line-interface.md §4)", flag.Name)
+		}
 		switch flag.Type {
 		case "bool":
 			cobraCmd.Flags().Bool(flag.Name, flag.Default == "true", flag.Help)
@@ -577,4 +585,12 @@ func defineFlags(cobraCmd *cobra.Command, flags []starruntime.Flag) {
 			assert.NoError(fmt.Sprintf("MarkFlagRequired(%q)", flag.Name), err)
 		}
 	}
+
+	return nil
 }
+
+// reservedFlagNames are the names an extension command may not bind: the four the common set puts on
+// every command, and the two the convention bans outright (10-command-line-interface.md §4, §14). Cobra
+// would let a leaf shadow an inherited flag silently, which is how `generate -o json` came to mean a
+// directory.
+var reservedFlagNames = []string{"filter", "format", "jq", "json", "output", "store"}

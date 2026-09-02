@@ -8,11 +8,10 @@ commands:
   - name: devlore.actions.generate
     help: Generate Starlark plan receivers and execution graph actions from a resource provider
     implementation: commands/generate.star
-    flags:
+    args:
       - name: source
-        type: string
-        default: ""
-        help: Path to the Go package containing the provider struct
+        help: The provider's Go package; the generated files land inside it, under gen/ and at its root
+    flags:
       - name: package
         type: string
         default: ""
@@ -25,18 +24,6 @@ commands:
         type: string
         default: ""
         help: "Comma-separated templates (default: auto-detected from provider announcements)"
-      - name: output
-        type: string
-        default: ""
-        help: Output directory for generated files (default stdout)
-      - name: write
-        type: bool
-        default: "false"
-        help: Write files to output directory instead of stdout
-      - name: gen
-        type: bool
-        default: "false"
-        help: Enable gen/ subpackage mode with type graph walking and struct converters
       - name: extra-attrs
         type: string
         default: ""
@@ -50,7 +37,3 @@ commands:
         type: string
         required: true
         help: Path to devlore-cli repository
-      - name: format
-        type: string
-        default: "markdown"
-        help: "Output format: markdown, json, or yaml"

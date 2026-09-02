@@ -59,12 +59,13 @@ and three of four programs landed by 2026-09-01. `devlore-test`, `lore` and `wri
   `bundle` and `onboard` take their destination as a positional operand and `onboard`'s dead `--format` is
   gone; `onboard` emits its result; the thirteen `fmt.Print` are four rows of a result and nine lines of
   narration. Zero stdout writes remain.
-- [ ] `star` registers the common set and `cmd/star/cli` is deleted
+- [x] `star` registers the common set and `cmd/star/cli` is deleted
   ([#743](https://github.com/NobleFactor/devlore-cli/issues/743)). The deletion landed in phase 2 -- the copy
-  duplicated eighteen exported names and nothing imported it; the common set lands with the root in phase 3.
-- [ ] The shared root's commands are one set on the four programs with a program's additions attached
+  duplicated eighteen exported names and nothing imported it -- and the root moved onto `NewRootCmd` in
+  phase 3, taking the three Starlark extension commands that bound `--output` and `--format` with it.
+- [x] The shared root's commands are one set on the four programs with a program's additions attached
   beneath, `man` is the one route to man pages, and no usage text follows any error -- ruled 2026-09-02
-  (§2, §9, §12; decisions 7-9). Lands with #743 phase 3, where `star` is the last program to join.
+  (§2, §9, §12; decisions 7-9). Landed with #743 phase 3, where `star` was the last program to join.
 - [ ] The enforcement tests written — no direct `os.Stdout` write from a command package, and no command
   registering its own output flag. Both are red today.
 

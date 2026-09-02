@@ -700,7 +700,7 @@ two of those three consume it everywhere.
 | `devlore-test` | **yes** | none |
 | `writ` | **yes** | none — #774 routed all 30 stdout sites through the sink |
 | `lore` | **yes** | none — #775 routed every stdout site through the sink and fixed #741 |
-| `star` | no | a bare root; the dead second `cli` package is gone (#743 phase 2) -- see below |
+| `star` | **yes** | seven narration sites and `docs starlark`, #743 phase 4 |
 | `devlore-docs` | not in scope | — |
 
 **How `writ` got to "none", recorded because the shape of the defect recurs.** Measured 2026-08-30,
@@ -758,9 +758,9 @@ Measured 2026-08-31, after the fixes for
 | App | Help wraps (`NewRootCmd`) | `--output` validated, `--store` resolved (`AddOutputFlags`) |
 | --- | --- | --- |
 | `writ` | yes | yes -- registered on the root, so every command |
-| `lore` | yes | **`inspect` only** -- the one command that registers the set |
+| `lore` | yes | yes -- registered on the root since #779, so every command |
 | `devlore-test` | **no** | yes -- registered on the root |
-| `star` | **no** | **no** |
+| `star` | **yes** | **yes** |
 
     COLUMNS=70, longest flag line
       writ           70
@@ -772,13 +772,14 @@ Three different causes, each already tracked:
 
 - `devlore-test` builds its root directly rather than through [NewRootCmd], so it inherits `AddOutputFlags`
   and not the help wrapping. Nothing prevents it from using the shared constructor; it simply does not.
-- `star` builds a bare `cobra.Command` and binds no output flags at all, so nothing from the shared package
-  reaches it. The duplicate `cmd/star/cli` was the visible symptom and is gone
-  ([#743](https://github.com/NobleFactor/devlore-cli/issues/743) phase 2); the root moving onto [NewRootCmd]
-  is the cure (phase 3).
-- `lore` calls [AddOutputFlags] on its `inspect` command rather than its root
-  (`cmd/lore/lore/commands.go:838`), so every other lore command does not have the flags at all -- the
-  "1 of 46 commands" measurement, still true.
+- `star` built a bare `cobra.Command` and bound no output flags at all, so nothing from the shared package
+  reached it. The duplicate `cmd/star/cli` was the visible symptom and went first
+  ([#743](https://github.com/NobleFactor/devlore-cli/issues/743) phase 2); the root moved onto [NewRootCmd]
+  in phase 3, which also found three Starlark extension commands binding `--output` and `--format` of
+  their own -- the loader now refuses a reserved name.
+- `lore` called [AddOutputFlags] on its `inspect` command rather than its root, so every other lore
+  command did not have the flags at all -- the "1 of 46 commands" measurement. #779 moved the call to
+  the root.
 
 The lesson generalizes past these three fixes: **a repair in `cmd/internal/cli` reaches exactly the programs
 that route through `cmd/internal/cli`.** Registration on a root is what turns one fix into a program-wide
