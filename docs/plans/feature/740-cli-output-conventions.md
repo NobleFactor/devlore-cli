@@ -314,14 +314,16 @@ the four findings below are defects the rules exposed on their first contact wit
       Written as "promote star's `renderTable`"; it is really star's tabwriter approach plus the delimited
       formatter's column inference. star's version carried its own reflection, which would have been a third
       implementation of column selection -- so `cmd/star/cli` stays deletable whole rather than half salvaged.
-- [ ] Convert `lore`'s `runSearch` (`commands.go:525-556`) first: it is the only real table in the tree, and
-      converting it is a bug fix as much as a refactor (see the byte-truncation defect it carries).
-- [ ] `star` registers the common set, and `cmd/star/cli` is deleted -- it duplicates eighteen
-      exported names from `cmd/internal/cli` and now contradicts it (#743).
-- [ ] `lore`'s `bundle`, `onboard`, and `list` drop their hand-rolled flags. `list` is a stub returning
+- [x] Convert `lore`'s `runSearch` (`commands.go:525-556`) first: it is the only real table in the tree, and
+      converting it is a bug fix as much as a refactor (see the byte-truncation defect it carries). Landed in
+      #779 ([775-lore-adoption.md](775-lore-adoption.md)); #741's byte-count cut went with it.
+- [ ] `star` registers the common set, and `cmd/star/cli` is deleted. The copy is gone -- #743 phase 2; it
+      was dead, nothing imported it -- and the set lands with the root in #743 phase 3
+      ([743-star-adoption.md](743-star-adoption.md)).
+- [x] `lore`'s `bundle`, `onboard`, and `list` drop their hand-rolled flags. `list` is a stub returning
       "not yet implemented", so it adapts at no cost; its `--format manifest` is a domain rendering and does
-      not join the shared set.
-- [ ] The thirteen `fmt.Print` calls are triaged: narration to `cli.*`, results to the sink.
+      not join the shared set. Landed in #779: `bundle` and `onboard` take a positional destination.
+- [x] The thirteen `fmt.Print` calls are triaged: narration to `cli.*`, results to the sink. Landed in #779.
 
 ### Phase 4b: Every in-scope program uses the shared infrastructure
 
@@ -335,9 +337,14 @@ set of programs that route through it -- measured, not assumed, in §15.
       at 70. This holds whether or not `devlore-test` ever ships.
 - [ ] `star` uses `cmd/internal/cli` and `cmd/star/cli` is deleted -- the same task as #743, restated here
       because the duplication's cost is now demonstrated rather than argued: a defect fixed in the shared
-      package is fixed once per package, and star got neither of this branch's three fixes.
-- [ ] `lore` registers the common set on its root rather than on `inspect` alone, which is what makes a
-      program-wide fix program-wide.
+      package is fixed once per package, and star got neither of this branch's three fixes. The deletion
+      landed in #743 phase 2; the root moves in phase 3.
+- [x] `lore` registers the common set on its root rather than on `inspect` alone, which is what makes a
+      program-wide fix program-wide. Landed in #779.
+- [ ] The shared root's commands -- `config`, `man`, `self`, `version` -- are one set on the four programs,
+      a program's additions attach beneath, and no usage text follows any error. Ruled 2026-09-02 in
+      [743-star-adoption.md](743-star-adoption.md) and recorded in the design (§2, §9, §12, decisions 7-9);
+      lands with #743 phase 3.
 
 ### Phase 5: Enforce it
 
