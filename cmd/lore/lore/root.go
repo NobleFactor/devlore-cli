@@ -49,6 +49,10 @@ What took someone hours to figure out, you get in minutes.`,
 
 	rootCmd.PersistentFlags().String("registry", "", "Registry path")
 
+	// The common set, on the root: every command of lore accepts every flag, and a fix in
+	// cmd/internal/cli reaches all of them at once (10-command-line-interface.md §4, §15).
+	cli.AddOutputFlags(rootCmd, &outputOptions)
+
 	rootCmd.AddCommand(newDeployCmd())
 	rootCmd.AddCommand(newUpgradeCmd())
 	rootCmd.AddCommand(newDecommissionCmd())

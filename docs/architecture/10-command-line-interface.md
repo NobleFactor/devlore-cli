@@ -158,6 +158,15 @@ take the name for something else. See §4.1.
 destination: a user typing `-o json` must never be silently creating a file named `json`. See Design
 decisions.
 
+**A destination is a positional operand, never a flag.** Ruled 2026-09-01. A command that writes a file
+or fills a directory names the place as an operand — `lore bundle @<manifest> <output>`,
+`lore onboard --from <source> [<dir>]` — the way `cp`, `aws s3 cp`, `gsutil cp`, `kubectl cp`, `tar` and `zip`
+do. The surveyed tools reach for a flag only when the output is optional *and* a file, and that flag is
+`-o` (`docker save`, `pandoc`), which this convention has already given to the rendering. So there is no
+destination flag to name: `--dest`, `--to` and `--target` were each weighed and declined, the last because
+`--target` is the name `writ` retires for `--scope`. An optional destination is an optional trailing
+positional with a stated default, as `onboard`'s directory defaults to `.`.
+
 **No boolean format flags.** `--json` is not a flag; `--output json` is. A boolean cannot express a third
 format, which is why two `writ` commands cannot emit YAML today.
 
@@ -660,14 +669,14 @@ Invariants 1 and 2 are the ones that prevent regression, because both are mechan
 
 ## 15. Per-app conformance
 
-Current state, 2026-09-01. Two of the four in-scope programs register the common set on their root, and one
-of those two consumes it everywhere.
+Current state, 2026-09-01. Three of the four in-scope programs register the common set on their root, and
+two of those three consume it everywhere.
 
 | App | Root registers the set | Remaining deviations |
 | --- | --- | --- |
 | `devlore-test` | **yes** | none |
 | `writ` | **yes** | none — #774 routed all 30 stdout sites through the sink |
-| `lore` | no | hand-rolled flags on three commands; 13 `fmt.Print`; `runSearch` (#741) |
+| `lore` | **yes** | none — #775 routed every stdout site through the sink and fixed #741 |
 | `star` | no | a **second `cli` package** of its own -- see below |
 | `devlore-docs` | not in scope | — |
 

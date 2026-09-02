@@ -152,9 +152,10 @@ func resolvePackages(cfg *loreDeployConfig) ([]resolvedPackage, error) {
 
 	targetPlatform := detectPlatform()
 
-	fmt.Println("\nResolving packages...")
-	fmt.Printf("%-30s %-10s %-8s %s\n", "PACKAGE", "SOURCE", "CONF", "STATUS")
-	fmt.Printf("%s\n", strings.Repeat("-", 70))
+	// Narration: progress during a mutating command whose result is its exit, so every line is stderr.
+	cli.Note("Resolving packages...")
+	cli.Note("%-30s %-10s %-8s %s", "PACKAGE", "SOURCE", "CONF", "STATUS")
+	cli.Note("%s", strings.Repeat("-", 70))
 
 	var resolved []resolvedPackage
 	for _, req := range cfg.Packages {
@@ -174,7 +175,7 @@ func resolvePackages(cfg *loreDeployConfig) ([]resolvedPackage, error) {
 			featStr = " [" + strings.Join(req.Features, ", ") + "]"
 		}
 
-		fmt.Printf("%-30s %-10s %-8s %s%s\n", pkg.Name, pkg.Source, confidence, status, featStr)
+		cli.Note("%-30s %-10s %-8s %s%s", pkg.Name, pkg.Source, confidence, status, featStr)
 
 		resolved = append(resolved, resolvedPackage{
 			pkg:        pkg,
@@ -216,9 +217,9 @@ func filterLowConfidence(resolved []resolvedPackage, cfg *loreDeployConfig) ([]r
 	}
 
 	// Prompt user
-	fmt.Printf("\n⚠️  Some packages have LOW confidence (not verified to exist).\n")
-	fmt.Printf("Use --force to proceed or --known-only to skip them.\n")
-	fmt.Printf("\nProceed anyway? [y/N]: ")
+	cli.Warn("Some packages have LOW confidence (not verified to exist).")
+	cli.Warn("Use --force to proceed or --known-only to skip them.")
+	cli.Note("Proceed anyway? [y/N]")
 
 	var response string
 	//nolint:errcheck // diagnose-ignored-error: failed read cancels; see docs/architecture/2.8-eventing-infrastructure.md
@@ -235,7 +236,7 @@ func executeDeployments(ctx context.Context, resolved []resolvedPackage, cfg *lo
 		ctx = context.Background()
 	}
 
-	fmt.Println("\nDeploying packages...")
+	cli.Note("Deploying packages...")
 
 	wd, err := os.Getwd()
 	if err != nil {
@@ -350,14 +351,14 @@ configuration changes, or audit compliance.`,
 
 func newBundleCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "bundle @<manifest> -o <output>",
+		Use:   "bundle @<manifest> <output>",
 		Short: "Create self-extracting deployment bundles for air-gapped environments",
+		Args:  cobra.ExactArgs(2),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("bundle: not yet implemented")
 		},
 	}
 
-	cmd.Flags().StringP("output", "o", "", "Output bundle path")
 	cmd.Flags().String("platform", "", "Target platform (e.g., linux/fedora)")
 	cmd.Flags().StringArray("include-repo", nil, "Include repository in bundle")
 
@@ -521,40 +522,42 @@ func runSearch(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Print results
-	fmt.Printf("\n%-30s %-10s %-8s %-10s %s\n", "PACKAGE", "SOURCE", "CONF", "VERSION", "DESCRIPTION")
-	fmt.Printf("%-30s %-10s %-8s %-10s %s\n",
-		strings.Repeat("-", 30), strings.Repeat("-", 10), strings.Repeat("-", 8), strings.Repeat("-", 10),
-		strings.Repeat("-", 30))
+	// The results are the result. The shared table aligns by rune and truncates nothing, which is where
+	// #741's byte-count cut goes away; `installed` is a column rather than an asterisk glued to the name.
+	return emitResult(cmd, searchRows(results))
+}
 
+// searchRow is one search result as the pipeline renders it: field names are the JSON the user sees.
+type searchRow struct {
+	Name        string `json:"name"`
+	Source      string `json:"source"`
+	Confidence  string `json:"confidence"`
+	Version     string `json:"version"`
+	Description string `json:"description"`
+	Installed   bool   `json:"installed"`
+}
+
+// searchRows projects the registry's results onto the rows the pipeline renders.
+//
+// Parameters:
+//   - `results`: the registry's search results, in its order.
+//
+// Returns:
+//   - `[]searchRow`: one row per result, descriptions intact.
+func searchRows(results []lorepackage.SearchResultItem) []searchRow {
+
+	rows := make([]searchRow, 0, len(results))
 	for _, r := range results {
-		// Format confidence with color indicator
-		confStr := r.Confidence.String()
-		sourceStr := string(r.Source)
-
-		// Truncate description if too long
-		desc := r.Description
-		if len(desc) > 50 {
-			desc = desc[:47] + "..."
-		}
-
-		version := r.Version
-		if version == "" {
-			version = "-"
-		}
-
-		// Add installed indicator
-		name := r.Name
-		if r.Installed {
-			name += " *"
-		}
-
-		fmt.Printf("%-30s %-10s %-8s %-10s %s\n", name, sourceStr, confStr, version, desc)
+		rows = append(rows, searchRow{
+			Name:        r.Name,
+			Source:      string(r.Source),
+			Confidence:  r.Confidence.String(),
+			Version:     r.Version,
+			Description: r.Description,
+			Installed:   r.Installed,
+		})
 	}
-
-	fmt.Printf("\n* = installed\n")
-
-	return nil
+	return rows
 }
 
 func newListCmd() *cobra.Command {
@@ -565,8 +568,6 @@ func newListCmd() *cobra.Command {
 			return fmt.Errorf("list: not yet implemented")
 		},
 	}
-
-	cmd.Flags().String("format", "table", "Output format (table, manifest, json)")
 
 	return cmd
 }
@@ -596,7 +597,7 @@ func newUpdateCmd() *cobra.Command {
 
 func newOnboardCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "onboard --from <source>",
+		Use:   "onboard --from <source> [<dir>]",
 		Short: "Parse wiki or script and generate packages-manifest.yaml and config",
 		Long: `Parse an onboarding wiki page or setup script and generate both a
 packages-manifest.yaml file and a config/ directory with configuration files.
@@ -609,17 +610,17 @@ then 'writ adopt --from-receipt' to bring the generated config into your
 environment repository.`,
 		Example: `  lore onboard --from https://wiki.acme.com/backend-setup
   lore onboard --from ~/scripts/setup.sh
+  lore onboard --from ~/scripts/setup.sh ./packages   # write the manifest there
 
   # Full workflow:
   lore onboard --from https://wiki.acme.com/setup
   lore deploy @packages-manifest.yaml
   writ adopt --from-receipt`,
+		Args: cobra.MaximumNArgs(1),
 		RunE: runOnboard,
 	}
 
 	cmd.Flags().String("from", "", "Source URL or file path")
-	cmd.Flags().String("output", "", "Output directory path (default: current directory)")
-	cmd.Flags().String("format", "plain", "Manifest format (plain, yaml)")
 	cmd.Flags().Bool("verbose", false, "Show AI reasoning")
 	cmd.Flags().Bool("explain", false, "Show detailed reasoning for each confidence decision")
 	cmd.Flags().Int("max-fetches", 5, "Maximum additional URLs to fetch")
@@ -629,10 +630,10 @@ environment repository.`,
 	return cmd
 }
 
-func runOnboard(cmd *cobra.Command, _ []string) error {
+func runOnboard(cmd *cobra.Command, args []string) error {
 
 	ctx := cmd.Context()
-	cfg := parseLoreOnboardConfig(cmd)
+	cfg := parseLoreOnboardConfig(cmd, args)
 
 	aiProvider, err := newOnboardProvider()
 	if err != nil {
@@ -649,7 +650,6 @@ func runOnboard(cmd *cobra.Command, _ []string) error {
 	result, err := onboard.Run(ctx, onboard.Options{
 		Source:     cfg.Source,
 		OutputDir:  cfg.OutputDir,
-		Format:     cfg.Format,
 		Verbose:    cfg.Verbose,
 		Explain:    cfg.Explain,
 		Provider:   aiProvider,
@@ -662,33 +662,38 @@ func runOnboard(cmd *cobra.Command, _ []string) error {
 
 	reportOnboardResult(result)
 
-	return writeOnboardManifest(cfg.OutputDir, result)
+	if err := writeOnboardManifest(cfg.OutputDir, result); err != nil {
+		return err
+	}
+
+	// The manifest on disk is the side effect; the discovery is the result, and the pipeline renders it.
+	return emitResult(cmd, result)
 }
 
-// parseLoreOnboardConfig reads the onboard flags into a configuration value.
+// parseLoreOnboardConfig reads the onboard flags and operand into a configuration value.
 //
 // Parameters:
 //   - `cmd`: the command whose flags [newOnboardCmd] registered.
+//   - `args`: the positional operands; the first, if present, is the output directory.
 //
 // Returns:
-//   - `*loreOnboardConfig`: the flag values, with `OutputDir` defaulted to the working directory.
-func parseLoreOnboardConfig(cmd *cobra.Command) *loreOnboardConfig {
+//   - `*loreOnboardConfig`: the values, with `OutputDir` defaulted to the working directory.
+func parseLoreOnboardConfig(cmd *cobra.Command, args []string) *loreOnboardConfig {
 
 	source, _ := cmd.Flags().GetString("from")         //nolint:errcheck // flag registered by AddCommand
-	outputDir, _ := cmd.Flags().GetString("output")    //nolint:errcheck // flag registered by AddCommand
-	format, _ := cmd.Flags().GetString("format")       //nolint:errcheck // flag registered by AddCommand
 	verbose, _ := cmd.Flags().GetBool("verbose")       //nolint:errcheck // flag registered by AddCommand
 	explain, _ := cmd.Flags().GetBool("explain")       //nolint:errcheck // flag registered by AddCommand
 	maxFetches, _ := cmd.Flags().GetInt("max-fetches") //nolint:errcheck // flag registered by AddCommand
 
-	if outputDir == "" {
-		outputDir = "."
+	// A destination is a positional operand, never a flag (10-command-line-interface.md §4).
+	outputDir := "."
+	if len(args) > 0 {
+		outputDir = args[0]
 	}
 
 	return &loreOnboardConfig{
 		Source:     source,
 		OutputDir:  outputDir,
-		Format:     format,
 		Verbose:    verbose,
 		Explain:    explain,
 		MaxFetches: maxFetches,
@@ -699,7 +704,6 @@ func parseLoreOnboardConfig(cmd *cobra.Command) *loreOnboardConfig {
 type loreOnboardConfig struct {
 	Source     string
 	OutputDir  string
-	Format     string
 	Verbose    bool
 	Explain    bool
 	MaxFetches int
@@ -815,8 +819,6 @@ func writeOnboardManifest(outputDir string, result *onboard.Result) error {
 }
 
 func newInspectCmd() *cobra.Command {
-	var opts cli.SinkOptions
-
 	cmd := &cobra.Command{
 		Use:   "inspect <package>",
 		Short: "Show detailed information about a package",
@@ -827,15 +829,13 @@ dependencies, and deployment history for a package.
 
 Output is JSON by default for scripting. Use --output for alternatives.`,
 		Example: `  lore inspect docker
-  lore inspect kubectl --format yaml
-  lore inspect docker --format '{{.ReceiverName}}\t{{.Version}}'`,
+  lore inspect kubectl -o yaml
+  lore inspect docker -o 'template={{.receiver_name}}\t{{.version}}'`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("inspect: not yet implemented")
 		},
 	}
-
-	cli.AddOutputFlags(cmd, &opts)
 
 	return cmd
 }
