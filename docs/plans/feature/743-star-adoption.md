@@ -1,7 +1,7 @@
 ---
 title: "star: the root becomes the shared one, the dead cli package goes, and ten stdout sites are classified"
 issue: https://github.com/NobleFactor/devlore-cli/issues/743
-status: in-progress
+status: draft
 created: 2026-09-01
 updated: 2026-09-01
 ---
