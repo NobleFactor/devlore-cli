@@ -39,7 +39,7 @@ What the survey found, against what #743 was filed with:
 
 | Component | Status | Notes |
 | --- | --- | --- |
-| `cmd/star/cli` | ❌ present, **dead** | `main.go` imports `cmd/internal/cli`; nothing imports the copy |
+| `cmd/star/cli` | ✅ deleted, phase 2 | it was dead: `main.go` imports `cmd/internal/cli`, nothing imported the copy |
 | `renderTable` promoted to `pkg/result` | ✅ **already done** | #740 phase 4 built `TableFormatter` from it; #743's third acceptance box is already earned |
 | `star`'s root | ❌ bare `cobra.Command` | `main.go:162`; binds its own `--dry-run` and `--silent`; builds the narrator in `cobra.OnInitialize` |
 | `star`'s `version`, `self`, `config`, `docs` | ⚠️ present, **collide** | `version` and `self` registered by `main.go` itself (`:221`, `:328`); `config` is two Starlark extensions, `ConfigShow` and `ConfigSync`; `docs man` and `docs markdown` duplicate the shared `man` and `make docs` |
@@ -152,10 +152,11 @@ page in the shared directory — which is its own worktree.
 - [x] `make star-lkg` in the worktree before any edit — `build/star.lkg`, 2026-09-02, from `1aaba0fd`
 - [x] `star self install` from the fresh build; it loads the tree's extensions where the July build could not
 
-### Phase 2: `cmd/star/cli` goes (status: not started)
+### Phase 2: `cmd/star/cli` goes (status: complete)
 
-- [ ] `git rm -r cmd/star/cli`; the `main.go` comments that name it corrected
-- [ ] #743's acceptance box "renderTable lives in pkg/result" ticked with a pointer to #740 phase 4
+- [x] `git rm -r cmd/star/cli`; the two `main.go` comments that named it corrected; the three architecture
+      documents that described the copy as live now say it was dead and is gone
+- [x] #743's acceptance box "renderTable lives in pkg/result" ticked with a pointer to #740 phase 4
 
 ### Phase 3: The root (status: not started)
 
@@ -234,12 +235,12 @@ merge**, and a box that cannot be checked from this branch says what checks it.
 
 **Goals** — the four from #743, and the four the survey, the charter and the rulings added
 
-- [ ] `cmd/star/cli` no longer exists
+- [x] `cmd/star/cli` no longer exists — phase 2
 - [ ] `star` registers the common set through `cmd/internal/cli.AddOutputFlags` — by way of
       `cli.NewRootCmd`; `TestRoot_EverySubcommandAcceptsTheCommonSet` walks the tree
 - [x] `renderTable` lives in `pkg/result` as the suite's one table formatter — done in #740 phase 4 as
       `TableFormatter`; ticked here with that pointer, no work in this branch
-- [ ] No exported name is defined in two CLI packages — follows from the deletion
+- [x] No exported name is defined in two CLI packages — follows from the deletion, phase 2
 - [ ] No `star` command writes to stdout directly — the ten sites, `grep` clean
 - [ ] `star`'s `version`, `self`, `config` and `man` are the shared commands; `config` carries `show` and
       `sync` beneath, `docs` carries `starlark` alone — the shared route on all four programs (ruled
@@ -250,7 +251,7 @@ merge**, and a box that cannot be checked from this branch says what checks it.
 
 **Test rows**
 
-- [ ] 1 — `cmd/star/cli` does not exist: `make build`
+- [x] 1 — `cmd/star/cli` does not exist: `make build` green with the directory gone, phase 2
 - [ ] 2 — every subcommand accepts the common set: `TestRoot_EverySubcommandAcceptsTheCommonSet` (unit)
 - [ ] 3 — no command registers its own output flag: the same test, on local flags (unit)
 - [ ] 4 — `--dry-run` reaches `starruntime.DryRun` (unit)

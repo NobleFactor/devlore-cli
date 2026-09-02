@@ -201,8 +201,8 @@ Generate shell completions with:
 	cobra.OnInitialize(func() {
 
 		// Construct the canonical status.UI from the parsed --silent flag and install the single instance on
-		// both narration seams: the shared cli package-global backing cmd/star/cli's Note/Warn/etc. forwarding
-		// wrappers (output.go), and the runtime environment's Status backing the starlark ui.note() / ui.warn()
+		// both narration seams: the cli package-global behind cli.Note, cli.Warn and their siblings, and the
+		// runtime environment's Status backing the starlark ui.note() / ui.warn()
 		// paths through pkg/op/provider/ui.Provider's passthrough. One instance, one silent gate, every
 		// emission consistent on stderr.
 		narratorSink := sink.Stderr()
@@ -320,8 +320,8 @@ Install them to your man path (e.g., /usr/local/share/man/man1/).`,
 
 	rootCmd.AddCommand(docsCmd)
 
-	// CLI status output is wired in cobra.OnInitialize above via cli.SetUI(status.NewNarrator(...)). cmd/star/cli's
-	// local Note/Warn/Error/Success/Failure functions forward to that shared UI.
+	// CLI status output is wired in cobra.OnInitialize above via cli.SetUI(status.NewNarrator(...));
+	// cli.Note, cli.Warn, cli.Error, cli.Success and cli.Failure read that UI.
 
 	// Self commands (install, upgrade, etc.)
 
