@@ -700,7 +700,7 @@ two of those three consume it everywhere.
 | `devlore-test` | **yes** | none |
 | `writ` | **yes** | none — #774 routed all 30 stdout sites through the sink |
 | `lore` | **yes** | none — #775 routed every stdout site through the sink and fixed #741 |
-| `star` | **yes** | seven narration sites and `docs starlark`, #743 phase 4 |
+| `star` | **yes** | none — #743 routed the last eight sites: two Starlark `print` handlers narrate, `docs starlark` is a result, and three unimplemented `key` leaves fail instead of printing a note |
 | `devlore-docs` | not in scope | — |
 
 **How `writ` got to "none", recorded because the shape of the defect recurs.** Measured 2026-08-30,

@@ -233,8 +233,9 @@ Generate shell completions with:
 	return rootCmd, runtime
 }
 
-// newKeyCmd builds the `key` group: signing-key management, every leaf a stub until the key ceremony
-// (ADR-040) is built.
+// newKeyCmd builds the `key` group: signing-key management, every leaf unimplemented until the key
+// ceremony (ADR-040) is built. An unimplemented leaf fails and says so; it does not print a note and exit 0,
+// because a stub that reports success is a lie a script cannot detect.
 //
 // Returns:
 //   - `*cobra.Command`: the `key` command with `generate`, `list` and `rotate`.
@@ -248,26 +249,27 @@ func newKeyCmd() *cobra.Command {
 	keyCmd.AddCommand(&cobra.Command{
 		Use:   "generate",
 		Short: "Generate a new signing key",
-		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Println("Key generation not yet implemented")
-			fmt.Println("See ADR-040 for the key ceremony protocol")
+		Args:  cobra.NoArgs,
+		RunE: func(*cobra.Command, []string) error {
+			return errNotImplemented("key generation", "the key ceremony protocol is ADR-040")
 		},
 	})
 
 	keyCmd.AddCommand(&cobra.Command{
 		Use:   "list",
 		Short: "List managed signing keys",
-		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Println("Key listing not yet implemented")
+		Args:  cobra.NoArgs,
+		RunE: func(*cobra.Command, []string) error {
+			return errNotImplemented("key listing", "the key ceremony protocol is ADR-040")
 		},
 	})
 
 	keyCmd.AddCommand(&cobra.Command{
 		Use:   "rotate",
 		Short: "Rotate a signing key with ceremony",
-		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Println("Key rotation not yet implemented")
-			fmt.Println("This operation requires hardware key presence")
+		Args:  cobra.NoArgs,
+		RunE: func(*cobra.Command, []string) error {
+			return errNotImplemented("key rotation", "it requires hardware key presence, and the ceremony is ADR-040")
 		},
 	})
 
@@ -287,16 +289,32 @@ func newDocsCmd() *cobra.Command {
 		Short: "star's own documentation",
 	}
 
+	// The guide is the command's result and goes through the pipeline like any other: under the json
+	// default it is one quoted string, and `-o value` reads it as prose. Whether a prose result should
+	// default to value is #740's open question, logged there; this site holds the invariant either way.
 	docsCmd.AddCommand(&cobra.Command{
 		Use:   "starlark",
 		Short: "Show how to write Starlark operations",
 		Args:  cobra.NoArgs,
-		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Print(starlarkDocs)
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return emitResult(cmd, starlarkDocs)
 		},
 	})
 
 	return docsCmd
+}
+
+// errNotImplemented is the error an unimplemented command returns: it names the operation and points at
+// where the design lives, so the failure is a fact on stderr and exit 1, never a note and exit 0.
+//
+// Parameters:
+//   - `operation`: what was asked for, in words.
+//   - `pointer`: where the reader goes next.
+//
+// Returns:
+//   - `error`: the failure.
+func errNotImplemented(operation, pointer string) error {
+	return fmt.Errorf("%s is not implemented; %s", operation, pointer)
 }
 
 // =============================================================================

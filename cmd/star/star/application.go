@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
 	"github.com/NobleFactor/devlore-cli/cmd/star/config"
 	"github.com/NobleFactor/devlore-cli/cmd/star/provider/commands"
 	"github.com/NobleFactor/devlore-cli/pkg/application"
@@ -402,7 +403,7 @@ func (r *Application) loadCommand(ext *Extension, cmd *Command) error {
 
 	thread := &starlark.Thread{
 		Name:  cmd.Name,
-		Print: func(_ *starlark.Thread, msg string) { fmt.Println(msg) },
+		Print: func(_ *starlark.Thread, msg string) { cli.Note("  [print] %s", msg) },
 		Load: func(thread *starlark.Thread, module string) (starlark.StringDict, error) {
 			var modulePath string
 			if ext.FS != nil {

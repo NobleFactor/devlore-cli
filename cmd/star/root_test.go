@@ -325,3 +325,44 @@ func snapshot(t *testing.T, pkg string) map[string]string {
 	}
 	return files
 }
+
+// TestRoot_DocsStarlarkIsAResult pins the last stdout site: the authoring guide is a result and reaches
+// stdout through the pipeline, so `-o value` prints the prose and the json default quotes it.
+func TestRoot_DocsStarlarkIsAResult(t *testing.T) {
+
+	root, runtime := newRootCmd()
+	defer closeQuietly(t, runtime)
+
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&out)
+	root.SetArgs([]string{"docs", "starlark", "-o", "value"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("star docs starlark -o value: %v", err)
+	}
+	if !strings.Contains(out.String(), "WRITING STARLARK OPERATIONS") {
+		t.Errorf("the guide did not reach the result stream:\n%.200s", out.String())
+	}
+}
+
+// TestRoot_UnimplementedKeyCommandsFail pins that an unimplemented command fails and says so, rather than
+// printing a note to stdout and exiting 0.
+func TestRoot_UnimplementedKeyCommandsFail(t *testing.T) {
+
+	for _, leaf := range []string{"generate", "list", "rotate"} {
+		root, runtime := newRootCmd()
+		var out bytes.Buffer
+		root.SetOut(&out)
+		root.SetErr(&out)
+		root.SetArgs([]string{"key", leaf})
+		err := root.Execute()
+		closeQuietly(t, runtime)
+		if err == nil {
+			t.Errorf("star key %s reported success while unimplemented", leaf)
+			continue
+		}
+		if !strings.Contains(err.Error(), "not implemented") {
+			t.Errorf("star key %s: %v; expected it to say it is not implemented", leaf, err)
+		}
+	}
+}

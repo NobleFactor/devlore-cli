@@ -130,7 +130,7 @@ then `star`'s own steps. Each collision, and its resolution:
 
 | Site | Classification |
 | --- | --- |
-| `main.go:234-235, 243, 251-252` — the `key` stubs, "not yet implemented" | narration → `cli.Note` |
+| `main.go:234-235, 243, 251-252` — the `key` stubs, "not yet implemented" | **corrected in phase 4:** not narration — a stub that prints a note and exits 0 reports a success it did not deliver, which the repository's checklist forbids. Each leaf now fails with an error naming ADR-040 |
 | `main.go:288, 307` — "Man pages written to", "Markdown docs written to" | narration; the commands go with the `man` ruling, and the sites with them |
 | `star/command.go:56`, `star/application.go:400` — Starlark `print` | narration → `cli.Note`, as `lore`'s |
 | `main.go:317` — `fmt.Print(starlarkDocs)`, the `docs starlark` text | **a result, and the exception case** — see below |
@@ -238,10 +238,15 @@ logged as its own issue.
       `make regenerate` no diff, `make test`, `make install` -- every gate a step of the script that commits
 - [x] the design documents and the 740 plan record star as on the shared root
 
-### Phase 4: The remaining sites (status: not started)
+### Phase 4: The remaining sites (status: complete)
 
-- [ ] Seven narration sites to `cli.*` (the two under `docs man` and `docs markdown` went with the commands)
-- [ ] `docs starlark` through `emitResult`; the default-rendering question logged on #740
+- [x] The two Starlark `print` handlers narrate through `cli.Note`, as lore's does; `--silent` gates them
+- [x] The five `key` stub lines: the three leaves fail with an error naming ADR-040 rather than printing a
+      note and exiting 0 — a correction to this plan's classification, per the checklist's rule that no
+      stub reports success
+- [x] `docs starlark` through `emitResult`; the default-rendering question logged on #740 by the commit's
+      script
+- [x] `grep` clean: no `fmt.Print` or `os.Stdout` in `cmd/star` outside tests
 
 ### Phase 5: Ambient, not non-hermetic (status: not started)
 
@@ -303,7 +308,7 @@ CI's knowledge-extract workflow passes neither flag and is unchanged.
 | `cmd/internal/cli/root_test.go` | Create | no usage text on any error, on the shared root |
 | `cmd/star/main.go` | Modify | the root; the wrapper; `version`, `self`, `docs man`, `docs markdown` registrations go; reserved names refused; results emitted; name-ordered registration; the sites |
 | `cmd/star/output.go` | Create | `emitResult`, `outputOptions` |
-| `cmd/star/root_test.go` | Create | the root, wrapper, `config`, `docs`, `self`, usage and reserved-name tests |
+| `cmd/star/root_test.go` | Create | the root, wrapper, `config`, `docs`, `self`, usage, reserved-name, result and stub tests |
 | `cmd/star/star/command.go` | Modify | `Run` returns the script's result; the Starlark print handler |
 | `cmd/star/star/result.go` | Create | a Starlark value to the JSON-shaped Go value the pipeline renders |
 | `cmd/star/star/application.go` | Modify | the nested-invocation seam; the Starlark print handler |
@@ -329,7 +334,7 @@ merge**, and a box that cannot be checked from this branch says what checks it.
 - [x] `renderTable` lives in `pkg/result` as the suite's one table formatter — done in #740 phase 4 as
       `TableFormatter`; ticked here with that pointer, no work in this branch
 - [x] No exported name is defined in two CLI packages — follows from the deletion, phase 2
-- [ ] No `star` command writes to stdout directly — the ten sites, `grep` clean
+- [x] No `star` command writes to stdout directly — the ten sites, `grep` clean — phase 4
 - [x] `star`'s `version`, `self`, `config` and `man` are the shared commands; `config` carries `show` and
       `sync` beneath, `docs` carries `starlark` alone — the shared route on all four programs (ruled
       2026-09-02) — phase 3
@@ -356,7 +361,7 @@ merge**, and a box that cannot be checked from this branch says what checks it.
 - [x] 10 — reserved flag names refused, others accepted (unit)
 - [x] 11 — a script's return value is the result (unit)
 - [x] 12 — `generate <package>` reproduces the committed files; `--dry-run` writes nothing (`make regenerate`, unit)
-- [ ] 13 — no `fmt.Print`/`os.Stdout` in `cmd/star` non-test (grep)
+- [x] 13 — no `fmt.Print`/`os.Stdout` in `cmd/star` non-test (grep) — phase 4
 - [x] 14 — LKG removed, `star` builds from source, `make regenerate` no diff (build)
 - [x] 15 — the installed `star` runs a command end to end (smoke)
 - [ ] 16 — the suite passes on **all five platforms**: darwin-arm64 locally; **checked here when every

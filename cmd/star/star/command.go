@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strconv"
 
+	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
+
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 )
@@ -66,7 +68,7 @@ type Flag struct {
 func (c *Command) Run(flags map[string]string, positional ...string) (any, error) {
 	thread := &starlark.Thread{
 		Name:  c.Name,
-		Print: func(_ *starlark.Thread, msg string) { fmt.Println(msg) },
+		Print: func(_ *starlark.Thread, msg string) { cli.Note("  [print] %s", msg) },
 	}
 
 	argsDict, err := c.buildArgsDict(flags, positional)
