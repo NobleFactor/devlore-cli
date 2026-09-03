@@ -1,9 +1,9 @@
 ---
-title: "Enforcement: two tests that fail when a command leaves the output convention"
+title: "Enforcement: the tests that fail when a command leaves the output convention, the shared commands they catch, and the last program onto the shared root"
 issue: https://github.com/NobleFactor/devlore-cli/issues/776
-status: draft
+status: chartered
 created: 2026-09-01
-updated: 2026-09-01
+updated: 2026-09-03
 ---
 
 # Plan: Enforce the output convention
@@ -17,91 +17,174 @@ silently. These tests are what "done" means for the epic.
 
 This is the last item of thread 1 ([#740](https://github.com/NobleFactor/devlore-cli/issues/740),
 [740-cli-output-conventions.md](740-cli-output-conventions.md)), after
-[774-writ-reconcile.md](774-writ-reconcile.md), [775-lore-adoption.md](775-lore-adoption.md), and `star`
-([743-star-adoption.md](743-star-adoption.md)). It is last because it is red until they
-land, and it certifies them rather than preceding them.
+[774-writ-reconcile.md](774-writ-reconcile.md), [775-lore-adoption.md](775-lore-adoption.md), and
+[743-star-adoption.md](743-star-adoption.md). All three landed before this plan was chartered — #774 on
+2026-08-31, #775 on 2026-09-01, #743 on 2026-09-03 — so the sequencing story changed: two of the three
+tests arrive green, and the first arrives **red on the shared package itself**. `cmd/internal/cli`'s own
+`config` and `man` commands, which every program now carries, print their results and their narration
+with `fmt.Print`. The convention's enforcer found the convention's home first.
 
 ## Goals
 
-1. **Three invariants have a test each**, and each test has been shown to fail.
-2. **The generated CLI reference documents one flag set** across every command of every program.
-3. **The epic closes** on these tests being green, not on a belief that the work is done.
+1. **Three invariants have a test each**, and each has been shown to fail — on the tree where it is red,
+   and on a fixture where it is not.
+2. **The shared commands keep the convention** they now put on every program: `config get`, `config list`,
+   `config path`, `config schema` and `config validate` emit results through the pipeline, and `man`
+   narrates.
+3. **The generated CLI reference documents one flag set** across every command of every program.
+4. **The epic's convention box closes** on these tests being green, not on a belief that the work is done.
+   #740 itself stays open for its remaining members (#757, #782, #759, #742).
 
 ## Current State
 
+Measured 2026-09-03 on develop at `4c8c62e8`, the four programs on the shared root:
+
 | Invariant | Test | Status |
 | --- | --- | --- |
-| No command package writes to `os.Stdout` directly | none | red — writ has 30 sites until #774 |
-| No command registers its own output flag | none | red — lore has three until #775 |
-| Every root calling `AddOutputFlags` has every leaf reaching `BuildPipeline` | none | red — `star` until #743 |
+| No command package writes to `os.Stdout` directly | none | **red** — 13 writes remain, all in `cmd/internal/cli`: 9 in `config.go`, 3 in `man.go`, 1 prompt in `selfinstall.go` |
+| No command registers its own output flag | none | green — the four roots inherit the set and no leaf binds one; lore and star already pin this by hand in their own root tests |
+| Every root registers the set through `AddOutputFlags`, and nothing builds a pipeline of its own | none | green — four roots call it; zero `result.NewPipeline` or `FormatterByName` calls outside `cmd/internal/cli` |
 
-The third invariant exists because the first two miss a case: #753 and #754 were a root that registered
-the flags and leaves that ignored them. `writ` registered nothing of its own, and the `os.Stdout` check
-finds a command that prints but not one that silently discards the flags it inherited. A flag registered
-on a root that no leaf consumes is worse than an absent one, because it looks like compliance.
+Two more `os.Stdout` mentions are not writes and the test must not count them: `root.go` asks the
+terminal's width through `os.Stdout.Fd()` to wrap help, and `writ migrate` asks whether stdout is a
+terminal. Two are terminal handoffs, not writes of a result: `config edit` gives the editor the terminal,
+and `man` gives the pager the terminal. The convention has no clause for those yet; this plan proposes one.
+
+`cmd/devlore-docs`, `cmd/devlore-index` and `cmd/devlore-inventory` print too, and are outside the walk:
+§2 of the design lists them as not yet in scope. When one joins, it joins the walk.
+
+## Rulings
+
+- [x] **2026-09-03, the interaction model — the plan of record for every interactive command, onboarding
+      and migration first.** Two kinds of child, two rules. A child run for its output — `git`,
+      `shellcheck`, anything a provider executes — is captured, always, and never sees the terminal; a
+      graph never needs a TTY. A child launched for the user to drive — `$EDITOR` under `config edit`,
+      `man` under `man`, and no other — gets the three descriptors through **one seam**,
+      `cli.RunInteractive`, which refuses without a terminal and names the alternative (`config path`; the
+      page as a result on stdout). Invariant 1's walk allows `os.Stdout` in that one function and nowhere
+      else. And the interactive commands themselves work the way an agent's terminal does: interactive
+      only when a TTY is present, through `internal/console`; each decision is **one question with a
+      short menu and a default**, asked once, never asking what a flag already settled; every answer is
+      recorded into the artifact the command produces — the manifest, the migration plan — so the
+      interactive run and `--unattended` or `--from <answers>` produce the same artifact and the artifact
+      is the record; progress narrates on stderr and the artifact is the result on stdout; stop anywhere
+      and resume from the recorded answers; no editor or pager is ever opened by the flow — it shows the
+      diff or the draft and asks. Recorded in §10 of the design by this plan's Phase 1.
+
+- [x] **2026-09-03, the shared root owns the common set.** Four roots each remembered to call
+      `cli.AddOutputFlags`, each with a variable of its own and an `emitResult` of its own around it; the
+      shared `config` command, built inside `NewRootCmd`, saw none of them. Ruled: `NewRootCmd` registers
+      the common set itself and owns the one `SinkOptions`, the way it owns `--dry-run`; `cli.Emit(cmd,
+      value)` is the one render path, for the shared commands and the programs alike; the programs drop
+      their call, their variable and their `emitResult`. `AddOutputFlags` becomes `addOutputFlags`, called
+      once from `NewRootCmd`, so no program can forget it or call it twice. **#757 folds into this
+      worktree** so that is true of all four: `devlore-test` moves onto the shared root here.
 
 ## Requirements
 
-### Requirement 1: No direct `os.Stdout` from a command package
+### Requirement 1: No direct write to `os.Stdout` from an in-scope command package
 
-A test that walks every `cmd/*` package and fails on `fmt.Print*`, `os.Stdout.Write`, or
-`fmt.Fprint*(os.Stdout, …)`. The allowlist is empty; a legitimate exception is a bug in the convention,
-not in the test.
+A test over the source of `cmd/internal/cli` and the four programs' packages — `cmd/devlore-test`,
+`cmd/lore`, `cmd/star`, `cmd/writ`, test files excluded — that fails on `fmt.Print*`, `fmt.Fprint*` with
+`os.Stdout` as its writer, `os.Stdout.Write*`, and `println`. It parses Go, so a comment or a doc string
+naming `os.Stdout` does not count, and `os.Stdout.Fd()` or `os.Stdout.Stat()` does not either. The one
+shape it lets through is the interactive handoff above, pending the ruling. The allowlist is otherwise
+empty: a legitimate exception is a bug in the convention, not in the test.
 
 ### Requirement 2: No command registers its own output flag
 
-A test that walks every registered `cobra.Command` and fails when a command defines `--output`, `-o`,
-`--format`, `--json`, `--jq`, `--filter`, or `--store` on itself rather than inheriting it from the root.
+A checker over a `cobra.Command` tree that fails when any command defines `output`, `o`, `format`,
+`json`, `jq`, `filter` or `store` on itself rather than inheriting it from the root, and fails when a
+subcommand does not inherit the four the root registers. Exported from `cmd/internal/cli` so each program
+calls it from its own root test — star's root is `package main` and cannot be imported, so the checker
+goes to the roots rather than the roots to a central test. Lore's and star's hand-written walks become
+calls to it; writ and devlore-test gain the root test they lack.
 
-### Requirement 3: Every leaf consumes what its root registers
+### Requirement 3: Every root registers the set through `AddOutputFlags`, and nothing renders beside it
 
-A test that, for every root calling `AddOutputFlags`, walks its leaves and fails when a leaf's `RunE`
-never reaches `BuildPipeline`. Greppable as "every root calling `AddOutputFlags` has every leaf reaching
-`BuildPipeline`". This is the one that would have caught #753 and #754.
+The invariant as first written — every leaf reaches `BuildPipeline` — flags every command that has no
+result: `self install`, `config set`, `key generate`. What #753 and #754 actually were is a root that
+registered the flags and nothing that honored them: `--output` never validated, `--store` never resolved.
+Both are now done at the root by `AddOutputFlags` itself. So the invariant worth holding is two checks:
+the root test asserts that the four flags on the root are the ones `AddOutputFlags` binds, by their usage
+text; and a source test asserts that nothing outside `cmd/internal/cli` calls `result.NewPipeline`,
+`result.FormatterByName` or constructs a formatter — the only way to a rendering is `BuildPipeline`.
 
 ### Requirement 4: Each test is shown to fail
 
-Each test is authored against the current tree, where it is red by construction, **or** — for a test
-written after its defect is gone — is shown red by re-introducing the defect once before it is trusted.
-A test that has only ever passed has not been shown to be a test.
+A test written after its defect is gone is shown red on a fixture before it is trusted: the source walks
+run over a `testdata/` file that violates them, and the tree checkers run over a synthetic tree that
+does. Invariant 1 needs no fixture to be shown red — it is red on the shared package today, and the
+commit that adds it records the thirteen sites it reports.
 
-### Requirement 5: The generated docs agree
+### Requirement 5: The shared commands keep the convention
 
-`docs/cli` is regenerated and a test confirms every command documents the same flags. `docs/cli` is
-gitignored here but published — `docs-publish.yaml` regenerates it on every push to `develop` — so the
-generated surface is what users actually read.
+`config get` prints values, `config list` prints `key=value` lines, `config path` prints a path,
+`config schema` prints JSON, `config validate` prints verdicts, and `man` prints its install notes; the
+`self install` confirmation prompt goes to stdout. Under the convention: results — the value, the list,
+the path, the schema, the validation report — go through the pipeline via `cli.Emit`, so `-o json`
+works on every one; verdicts and notes narrate through `cli.Note` and `cli.Success`; the prompt is
+narration and goes to stderr. This is the work invariant 1 turns up, and it is done here rather than
+filed, because a test left red on the package that enforces it is not a test anyone trusts.
+
+### Requirement 6: `devlore-test` is on the shared root (#757)
+
+`devlore-test` builds its own `cobra.Command`: its own `--config`, `--verbose` and `--silent`, its own
+pre-run building the narrator, its own `initConfig` that is `initRootConfig` under another name, its own
+`version`, `man`, `config` and `self` wiring, and `AddOutputFlags` with a variable its `run` command
+reads. Every line of that is what `NewRootCmd` does, which is why #755's help wrapping never reached it.
+It moves the way star did: `cli.NewRootCmd(RootConfig{Name: "devlore-test", DefaultConfig:
+schema.TestDefaultConfig, ...})`; `run` renders through `cli.Emit` and stops resolving `--store` itself,
+since the root's pre-run does; `initConfig`, the static `SilenceUsage` and the hand wiring go. One thing
+the shared root must learn first: it derives the environment prefix as the upper-cased name, which for
+`devlore-test` is `DEVLORE-TEST` — not a shell variable. `devlore-test` passes `DEVLORE_TEST` by hand
+today. `NewRootCmd` maps `-` to `_` in the prefix, for every program.
+
+### Requirement 7: The generated docs agree
+
+`docs/cli` is generated by `devlore-docs` from the command trees, and is gitignored here but published
+on every push to `develop`. The pages follow the trees, so the flag-set agreement is proven on the trees
+by the root tests, once per program; the commit's script runs `make docs` to prove generation still
+succeeds. No test reads the generated pages.
 
 ## Implementation Phases
 
-### Phase 1: The three tests, red (status: not started)
+### Phase 1: The checkers, red where they can be (status: not started)
 
-- [ ] `no_direct_stdout_test.go` — walks `cmd/*`, fails on any direct write
-- [ ] `no_own_output_flag_test.go` — walks every command, fails on a self-registered output flag
-- [ ] `every_leaf_consumes_test.go` — walks every root with `AddOutputFlags`, fails on a leaf that
-      never reaches `BuildPipeline`
-- [ ] All three committed **red**, with the failing output in the commit message, so the record shows
-      they can fail
+- [ ] `cmd/internal/cli/invariants.go` — `CheckNoOwnOutputFlag(root)`, `CheckSharedSetOnRoot(root)`; and
+      the source walks `noDirectStdout(dir)`, `noPrivatePipeline(dir)`
+- [ ] `cmd/internal/cli/invariants_test.go` — each checker shown red on a fixture under `testdata/`, and
+      invariant 1's walk over the real tree committed **red**, its thirteen sites in the commit message
+- [ ] `cli.RunInteractive` — the one seam, TTY-gated, naming the alternative; `config edit` and `man` call
+      it; the walk allows `os.Stdout` there alone
+- [ ] §10 of the design carries the interaction model as ruled: the two kinds of child, the one seam, and
+      the six behaviors an interactive command has
 
-### Phase 2: Green as the work lands (status: not started)
+### Phase 2: The shared commands keep the convention (status: not started)
 
-- [ ] Test 1 goes green when #774 lands
-- [ ] Test 2 goes green when #775 lands
-- [ ] Test 3 goes green when #743 lands
-- [ ] Each transition recorded in this plan with the commit that caused it
+- [ ] `AddOutputFlags` records the options it binds; `cli.Emit(cmd, value)` renders through them
+- [ ] `config get`, `list`, `path`, `schema`, `validate` emit results; `man` and the prompt narrate
+- [ ] invariant 1's walk goes green; the transition recorded here with the commit
 
-### Phase 3: The generated docs (status: not started)
+### Phase 3: The shared root owns the common set, and every root is the shared root (status: not started)
 
-- [ ] `docs/cli` regenerated
-- [ ] A test that every command's generated page lists the same flag set
-- [ ] `10-command-line-interface.status.md` — the enforcement box ticked; the epic's last box
-- [ ] `740-cli-output-conventions.md` — `status: complete`
+- [ ] `NewRootCmd` registers the common set and owns the `SinkOptions`; `cli.Emit`; `addOutputFlags`
+      unexported; the environment prefix maps `-` to `_`
+- [ ] lore, star and writ drop their `AddOutputFlags` call, their `outputOptions` and their `emitResult`;
+      their commands call `cli.Emit`
+- [ ] `devlore-test` onto `cli.NewRootCmd` (#757): `run` through `cli.Emit`; `initConfig`, the static
+      `SilenceUsage` and the hand wiring go; its help wraps at `COLUMNS=70` like the other three
+- [ ] lore's and star's hand-written walks call the checkers; writ and devlore-test gain root tests
+      calling them
+- [ ] `TestNewRootCmd_NoUsageTextOnError` already pins the shared root; no change
 
-**Files**:
+### Phase 4: Close the convention box (status: not started)
 
-- `cmd/internal/cli/no_direct_stdout_test.go` - Create
-- `cmd/internal/cli/no_own_output_flag_test.go` - Create
-- `cmd/internal/cli/every_leaf_consumes_test.go` - Create
-- `cmd/internal/cli/docs_agree_test.go` - Create
+- [ ] `make docs` runs in the commit's script and succeeds
+- [ ] `10-command-line-interface.status.md` — the enforcement box ticked, the epic's last convention box
+- [ ] `740-cli-output-conventions.md` — its Phase 3 writ boxes, landed by #774 and still unticked,
+      ticked with the pointer; Phase 5 ticked; `status: complete`
+- [ ] `10-command-line-interface.md` §14's invariant table names the tests that enforce each row
 
 ## Test Plan
 
@@ -109,44 +192,86 @@ This plan **is** a test plan. The rows are the requirements restated with their 
 
 | # | What it proves | Level | Fails when |
 | --- | --- | --- | --- |
-| 1 | No command package writes to `os.Stdout` directly | unit | a `fmt.Print` is added to any `cmd/*` package |
-| 2 | No command registers its own output flag | unit | a command calls `Flags().String("output", …)` |
-| 3 | Every leaf under an `AddOutputFlags` root reaches `BuildPipeline` | unit | a root gains the flags and a leaf's `RunE` never uses them |
-| 4 | Every generated CLI page lists the same flag set | unit | a program's root skips the set |
-
-**Every row is written red first.** That is the point of this plan, and it is the reason it is sequenced
-last: on the current tree all three are red, and they turn green one at a time as #774, #775 and #743
-land — which makes each of those PRs' "done" observable rather than asserted.
+| 1 | No in-scope command package writes to `os.Stdout` directly | source walk | a `fmt.Print` is added to any in-scope package |
+| 2 | No command registers its own output flag; every subcommand inherits the four | tree walk, per root | a command calls `Flags().String("output", …)` |
+| 3 | The root's four flags are the shared root's; nothing builds a pipeline beside it | tree walk + source walk | a root hand-rolls the set, or a package calls `result.NewPipeline` |
+| 4 | `devlore-test`'s help wraps at `COLUMNS=70`, and its `run` renders through `-o` | unit | the root is hand-built again |
+| 5 | Each checker is red on its fixture | unit | a checker stops checking |
+| 6 | `config get/list/path/schema/validate` render through `-o`; `man` narrates | unit | a shared command prints again |
+| 7 | `make docs` generates every page | build | a root breaks generation |
 
 **Not covered:** whether the convention itself is right. These tests enforce the convention as written
 in `10-command-line-interface.md`; a change to the convention changes the tests, not the other way
-around.
+around. And a leaf that has a result and never emits it: undecidable statically, and what the per-command
+tests of each program are for.
 
 ## Migration Path
 
-None. Tests only, plus regenerated documentation.
+`config get`, `config list`, `config path` and `config schema` gain `-o`; their default rendering becomes
+json, per the convention, where today they print plain text. `config validate`'s verdict moves to stderr
+and its exit code carries the answer. The `self install` prompt moves to stderr. `devlore-test`'s help
+wraps, and `DEVLORE_TEST_*` environment variables keep working. Nothing else changes for a user.
 
 ## Files to Create/Modify
 
 | File | Action | Purpose |
 | --- | --- | --- |
-| `cmd/internal/cli/no_direct_stdout_test.go` | Create | invariant 1 |
-| `cmd/internal/cli/no_own_output_flag_test.go` | Create | invariant 2 |
-| `cmd/internal/cli/every_leaf_consumes_test.go` | Create | invariant 3 |
-| `cmd/internal/cli/docs_agree_test.go` | Create | the generated docs |
+| `cmd/internal/cli/invariants.go` | Create | the checkers and the source walks |
+| `cmd/internal/cli/invariants_test.go` | Create | fixtures red; the real tree |
+| `cmd/internal/cli/testdata/` | Create | one violating file per source walk |
+| `cmd/internal/cli/output.go`, `root.go` | Modify | the root owns the set and the options; `Emit`; `addOutputFlags`; the env prefix |
+| `cmd/lore/lore/root.go`, `output.go`; `cmd/star/main.go`, `output.go`; `cmd/writ/writ/root.go`, its `emitResult` | Modify, Delete | the call, the variable and `emitResult` go; `cli.Emit` |
+| `cmd/devlore-test/devloretest/root.go`, `commands.go` | Modify | onto `NewRootCmd`; `run` through `cli.Emit` (#757) |
+| `cmd/internal/cli/config.go`, `man.go`, `selfinstall.go` | Modify | the thirteen sites |
+| `cmd/lore/lore/root_test.go`, `cmd/star/root_test.go` | Modify | call the checkers |
+| `cmd/writ/writ/root_test.go`, `cmd/devlore-test/devloretest/root_test.go` | Create | the root tests |
+| `cmd/internal/cli/interactive.go` | Create | `RunInteractive`, the one seam |
+| `docs/architecture/10-command-line-interface.md` | Modify | §10 the interaction model; §14 names the tests |
 | `docs/architecture/10-command-line-interface.status.md` | Modify | the last box |
-| `docs/plans/feature/740-cli-output-conventions.md` | Modify | `status: complete` |
+| `docs/plans/feature/740-cli-output-conventions.md` | Modify | stale boxes; `status: complete` |
+
+## Acceptance criteria
+
+The canonical checklist; the pull request carries a copy and links here. **Every box is checked before
+merge**, and a box that cannot be checked from this branch says what checks it.
+
+**Goals**
+
+- [ ] Three invariants have a test each, and each was shown red — invariant 1 on the tree, the others on
+      fixtures — with the red output in the commit that added it
+- [ ] The shared commands keep the convention: `config get/list/path/schema/validate` through `-o`, `man`
+      and the prompt on stderr
+- [ ] Every in-scope root is `cli.NewRootCmd`, which registers the common set once; no program calls
+      `AddOutputFlags`, which no longer exists by that name; every root has a root test calling the
+      checkers (#757 closes here)
+- [ ] `make docs` succeeds; the status doc's enforcement box and the 740 plan are closed
+
+**Test rows**
+
+- [ ] 1 — no direct stdout write in an in-scope package (source walk)
+- [ ] 2 — no own output flag, every subcommand inherits the four, per root (tree walk)
+- [ ] 3 — the root's set is the shared root's; no private pipeline (tree walk, source walk)
+- [ ] 4 — `devlore-test` wraps help at `COLUMNS=70` and renders through `-o` (unit)
+- [ ] 5 — each checker red on its fixture (unit)
+- [ ] 6 — the shared `config` subcommands render through `-o`; `man` narrates (unit)
+- [ ] 7 — `make docs` generates every page (build, in the commit's script)
+- [ ] 8 — the suite passes on **all five platforms**: darwin-arm64 locally; **checked here when every
+      `test (…)` leg is green**
 
 ## Related Documents
 
-- [740-cli-output-conventions.md](740-cli-output-conventions.md) — thread 1, the epic's plan; this closes it
-- [774-writ-reconcile.md](774-writ-reconcile.md) — turns test 1 green
-- [775-lore-adoption.md](775-lore-adoption.md) — turns test 2 green
+- [740-cli-output-conventions.md](740-cli-output-conventions.md) — thread 1, the epic's plan; this closes its convention box
+- [774-writ-reconcile.md](774-writ-reconcile.md), [775-lore-adoption.md](775-lore-adoption.md),
+  [743-star-adoption.md](743-star-adoption.md) — the adoption work these tests certify
 - [10-command-line-interface.md](../../architecture/10-command-line-interface.md) — the convention enforced
 - Issue [#776](https://github.com/NobleFactor/devlore-cli/issues/776)
-- [743-star-adoption.md](743-star-adoption.md) — turns test 3 green
+- Issue [#757](https://github.com/NobleFactor/devlore-cli/issues/757) — `devlore-test` onto the shared root; folded here, closes with this PR
 
 ## Open Questions
 
-- [ ] Are the three tests one file or three? Three keeps each invariant's failure legible on its own;
-      one keeps the walk over `cmd/*` in one place. Decided when the first is written.
+- [ ] A `!` prefix, so a user mid-onboarding or mid-migration can run a shell command and have its output
+      land in the flow — the way an agent's terminal does it. Raised 2026-09-03; to be talked through, not
+      part of this plan.
+- [ ] `config validate` today prints "Config x is valid" and exits 0, or prints warnings; under the
+      convention the verdict is the exit code and the warnings are narration — is there a result at all?
+      Proposed: a report `{path, valid, warnings[]}` as the result, so `-o json` serves a script.
