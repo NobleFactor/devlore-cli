@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
 	"github.com/NobleFactor/devlore-cli/cmd/star/config"
 	"github.com/NobleFactor/devlore-cli/cmd/star/provider/commands"
 	"github.com/NobleFactor/devlore-cli/pkg/application"
@@ -288,7 +289,12 @@ func (r *Application) RunCommand(name string, flags map[string]string, positiona
 	if !ok {
 		return fmt.Errorf("command %q not found", name)
 	}
-	return cmd.Run(flags, positional...)
+
+	// A command a script invokes is a nested invocation: its result is not the outer command's, and the
+	// contract carries none back to the calling script. Whether it should is open
+	// (743-star-adoption.md, Open Questions).
+	_, err := cmd.Run(flags, positional...)
+	return err
 }
 
 // Actions
@@ -397,7 +403,7 @@ func (r *Application) loadCommand(ext *Extension, cmd *Command) error {
 
 	thread := &starlark.Thread{
 		Name:  cmd.Name,
-		Print: func(_ *starlark.Thread, msg string) { fmt.Println(msg) },
+		Print: func(_ *starlark.Thread, msg string) { cli.Note("  [print] %s", msg) },
 		Load: func(thread *starlark.Thread, module string) (starlark.StringDict, error) {
 			var modulePath string
 			if ext.FS != nil {

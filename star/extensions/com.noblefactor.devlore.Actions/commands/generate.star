@@ -1478,8 +1478,7 @@ def emit_file(command, template_name, descriptor, filename, label, method_count,
         file.write_text(out_path, code, mode = 0o644)
         succeed("Wrote " + out_path)
     else:
-        note("--- " + filename + " ---")
-        note(code)
+        note("would write " + output_dir + "/" + filename)
 
 # =============================================================================
 # Entry Point
@@ -1493,9 +1492,7 @@ def run(command, ctx):
     # -------------------------------------------------------------------------
     path = ctx.args.get("source", "").rstrip("/")
     if not path:
-        fail("--source is required")
-
-    gen_mode = ctx.args.get("gen", False)
+        fail("the provider's package is required: star devlore actions generate <source>")
 
     # All providers use the same struct name
     struct_name = "Provider"
@@ -1520,10 +1517,8 @@ def run(command, ctx):
         # type (e.g., Resource → gen/resource.gen.go, Function → gen/function.gen.go). The
         # template is parameterized by struct_name + constructor_name; same template, multiple
         # outputs. The Makefile rule for the package must list every output as a grouped target.
-        if not gen_mode:
-            fail("--gen is required")
-        output_dir = ctx.args.get("output", "")
-        write_files = ctx.args.get("write", False)
+        output_dir = path
+        write_files = not ctx.dry_run
         provider = path.split("/")[-1]
         provider_import = compute_provider_import(path)
         for struct_name, constructor_name, source_types in resources:
@@ -1595,15 +1590,12 @@ def run(command, ctx):
     # -------------------------------------------------------------------------
     # Parse common flags
     # -------------------------------------------------------------------------
-    output_dir = ctx.args.get("output", "")
-    write_files = ctx.args.get("write", False)
+    output_dir = path
+    write_files = not ctx.dry_run
 
     # -------------------------------------------------------------------------
     # Dispatch to gen/ mode
     # -------------------------------------------------------------------------
-    if not gen_mode:
-        fail("--gen is required")
-
     emit_provider_receiver(command, path, provider, struct_short, struct_name, surfaces, placement,
                       all_method_names, all_descriptors,
                       output_dir, write_files)

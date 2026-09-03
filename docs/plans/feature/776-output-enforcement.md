@@ -18,7 +18,7 @@ silently. These tests are what "done" means for the epic.
 This is the last item of thread 1 ([#740](https://github.com/NobleFactor/devlore-cli/issues/740),
 [740-cli-output-conventions.md](740-cli-output-conventions.md)), after
 [774-writ-reconcile.md](774-writ-reconcile.md), [775-lore-adoption.md](775-lore-adoption.md), and `star`
-([#743](https://github.com/NobleFactor/devlore-cli/issues/743)). It is last because it is red until they
+([743-star-adoption.md](743-star-adoption.md)). It is last because it is red until they
 land, and it certifies them rather than preceding them.
 
 ## Goals
@@ -144,7 +144,7 @@ None. Tests only, plus regenerated documentation.
 - [775-lore-adoption.md](775-lore-adoption.md) — turns test 2 green
 - [10-command-line-interface.md](../../architecture/10-command-line-interface.md) — the convention enforced
 - Issue [#776](https://github.com/NobleFactor/devlore-cli/issues/776)
-- Issue [#743](https://github.com/NobleFactor/devlore-cli/issues/743) — turns test 3 green
+- [743-star-adoption.md](743-star-adoption.md) — turns test 3 green
 
 ## Open Questions
 

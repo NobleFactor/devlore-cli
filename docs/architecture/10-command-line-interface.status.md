@@ -4,8 +4,8 @@
 **Epic:** [#740](https://github.com/NobleFactor/devlore-cli/issues/740)
 **Plan:** [740-cli-output-conventions.md](../plans/feature/740-cli-output-conventions.md)
 **State:** Specified 2026-08-28 against `aws`, `az`, `docker`, `gcloud`, and `kubectl`; the formatter layer
-and two of four programs landed 2026-08-30. `devlore-test` and `writ` register the common set; `lore` and
-`star` do not yet.
+and three of four programs landed by 2026-09-01. `devlore-test`, `lore` and `writ` register the common set;
+`star` does not yet ([#743](https://github.com/NobleFactor/devlore-cli/issues/743), phase 3).
 
 ## Completion
 
@@ -59,8 +59,13 @@ and two of four programs landed 2026-08-30. `devlore-test` and `writ` register t
   `bundle` and `onboard` take their destination as a positional operand and `onboard`'s dead `--format` is
   gone; `onboard` emits its result; the thirteen `fmt.Print` are four rows of a result and nine lines of
   narration. Zero stdout writes remain.
-- [ ] `star` registers the common set and `cmd/star/cli` is deleted, which duplicates eighteen exported names
-  from `cmd/internal/cli` ([#743](https://github.com/NobleFactor/devlore-cli/issues/743)).
+- [x] `star` registers the common set and `cmd/star/cli` is deleted
+  ([#743](https://github.com/NobleFactor/devlore-cli/issues/743)). The deletion landed in phase 2 -- the copy
+  duplicated eighteen exported names and nothing imported it -- and the root moved onto `NewRootCmd` in
+  phase 3, taking the three Starlark extension commands that bound `--output` and `--format` with it.
+- [x] The shared root's commands are one set on the four programs with a program's additions attached
+  beneath, `man` is the one route to man pages, and no usage text follows any error -- ruled 2026-09-02
+  (§2, §9, §12; decisions 7-9). Landed with #743 phase 3, where `star` was the last program to join.
 - [ ] The enforcement tests written — no direct `os.Stdout` write from a command package, and no command
   registering its own output flag. Both are red today.
 

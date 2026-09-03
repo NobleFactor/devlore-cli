@@ -3,7 +3,7 @@ title: "Thread 4 — Unified configuration: the design is settled, the tree does
 issue: https://github.com/NobleFactor/devlore-cli/issues/441
 status: draft
 created: 2026-09-01
-updated: 2026-09-01
+updated: 2026-09-02
 ---
 
 # Plan: Thread 4 — Unified configuration
@@ -46,6 +46,7 @@ Taken from [`configuration.status.md`](../../architecture/configuration.status.m
 | Unify `cmd/star/config` onto `devconfig` | Not started |
 | Retire `cmd/internal/config` and the package-global `viper` reads | Not started |
 | `Config`'s own starlark face (boundary / star-unification) | Not started |
+| `config` command surface — one set on the four programs (ruled 2026-09-02) | Landed for `lore`, `writ`, `devlore-test` on the shared root; `star` joins in #743 with `show` and `sync` beneath |
 
 ## Observations
 
@@ -88,6 +89,24 @@ Go-typed section definition and not before. Until then the release note is the o
 
 This is a **cross-thread dependency, not a reordering argument**: #762 ships with a release note either way.
 
+### The command surface was ruled before the fold
+
+Chartering #743 on 2026-09-02 forced the question, because `star` moving onto the shared root would have carried two
+commands named `config`: the shared one and the group its `ConfigShow` and `ConfigSync` extensions create. Ruled:
+**one set on all four programs** — `edit`, `get`, `list`, `path`, `schema`, `set`, `unset`, `validate` — with
+`star`'s `show` and `sync` attached beneath. The spec records it under
+["The command surface"](../../architecture/configuration.md#the-command-surface--one-set-on-four-programs).
+
+What the ruling does **not** do is make the subcommands agree on what they read. `star config get` reads the XDG
+tree; `star config show` reads the `star.yaml` hierarchy. That is this thread's fold — "Unify `cmd/star/config` onto
+`devconfig`" in the table above — and until it lands, `star`'s `config` is one command over two sources. The
+command surface is uniform first; the model beneath it becomes uniform here.
+
+The same day, [#780](https://github.com/NobleFactor/devlore-cli/issues/780) made `self install` uniform across the
+four programs: each produces its own default config, man pages and completions, and its manifest claims only what
+it wrote. The seeded default config is the file the "Builtin as runtime floor" question demotes to overrides once
+the floor is constructed at runtime.
+
 ### The thread has no schedule
 
 `Epic:UnifiedConfiguration` (#441) holds ten open issues and appears in none of the other three threads' work.
@@ -124,6 +143,8 @@ refine, return to schema.
 - [x] Status transcribed from `configuration.status.md` and the unbuilt boxes named
 - [x] The unknown-key finding recorded, with the kv exemption that qualifies it
 - [x] The #762 dependency stated as a cross-reference rather than a reordering
+- [x] The `config` command-surface ruling of 2026-09-02 recorded in the spec and here, with the two-source
+      state of `star`'s `config` named as this thread's fold
 - [ ] `phase-8/configuration.md` reviewed for drift against the current design, and its `status: draft`
       reconciled with what has landed since 2026-07-16
 - [ ] The case study re-verified against the current design — it predates every change since
@@ -157,6 +178,10 @@ Row 2 exists because row 1's fix is the natural place to over-apply the rule.
 - [`441-unified-configuration.case-study.yaml`](441-unified-configuration.case-study.yaml) — the
   full-tree serialization target
 - [`762-lifecycle-scopes.md`](762-lifecycle-scopes.md) — Thread 3, whose migration note depends on this thread
+- [`743-star-adoption.md`](743-star-adoption.md) — Thread 1; where the command-surface ruling was forced, and
+  where `star`'s `config` gains the shared set beside `show` and `sync`
+- Issue [#780](https://github.com/NobleFactor/devlore-cli/issues/780) — `self install` uniform across the four
+  programs; produces the default config this thread's floor demotes
 - Issue [#441](https://github.com/NobleFactor/devlore-cli/issues/441) — Epic: Unified configuration
 - Issues #455, #456, #335, #336, #337, #280, #385, #694, #763 — the epic's open members
 
@@ -171,3 +196,5 @@ Row 2 exists because row 1's fix is the natural place to over-apply the rule.
 - [ ] Does the unknown-key report fail the load, or accumulate and report at the end? The design says "detected
       here and reported" without saying whether one typo stops the process. A loud error at startup argues for
       failing; a user with three typos argues for accumulating.
+- [ ] Do `show` and `sync` join the shared `config` set on all four programs, or stay `star`'s? Asked
+      2026-09-02 and recorded in the spec's Open questions.

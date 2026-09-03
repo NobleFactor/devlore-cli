@@ -276,7 +276,7 @@ func (rt *Runtime) applyDenials(predeclared starlark.StringDict) {
 
 // admits reports whether `method` belongs on this runtime's module surface.
 //
-// A non-hermetic runtime admits everything: `star` is a scripting tool, where effects are the point. A hermetic
+// An ambient runtime admits everything: `star` is a scripting tool, where effects are the point. A hermetic
 // runtime -- the one graph planning uses -- admits only methods claiming [op.ClaimDeterministic], because a
 // method whose result is not a function of its declared inputs makes the planned graph depend on the machine
 // that planned it ([2.4-hermeticity-guarantees.md]).
@@ -486,7 +486,7 @@ func (rt *Runtime) reportSelection() {
 		announcedTotal += entry.admitted + entry.refused
 	}
 
-	kind := "scripting runtime (non-hermetic)"
+	kind := "scripting runtime (ambient)"
 	if rt.hermetic {
 		kind = "planning runtime (hermetic)"
 	}

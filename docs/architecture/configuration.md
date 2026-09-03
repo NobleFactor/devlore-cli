@@ -847,6 +847,26 @@ star main()             discovery              devconfig registry       star Con
        │                     │                        │                       │ ["lint.copyright"] │
 ```
 
+## The command surface — one set on four programs
+
+> **Ruled 2026-09-02.** `devlore-test`, `lore`, `star` and `writ` carry the same `config` command — `edit`, `get`,
+> `list`, `path`, `schema`, `set`, `unset`, `validate` — the shared root's. A program with commands of its own under
+> that name attaches them beneath it. There is never a second command named `config`.
+
+- **The set is `cmd/internal/cli.NewConfigCmd`**, registered by `cli.NewRootCmd`, so every program on the shared root
+  carries it by construction. `lore`, `writ` and `devlore-test` are there; `star` joins in
+  [743-star-adoption.md](../plans/feature/743-star-adoption.md).
+- **`star` attaches two beneath it.** `config show` renders the merged view of its extension config; `config sync`
+  pushes that config into tool files such as `.golangci.yaml`. Both are Starlark extension commands (`ConfigShow`,
+  `ConfigSync`), and extension loading attaches to an existing command of the same name rather than adding one.
+- **Today the two halves read different sources.** `star config get` reads the XDG tree —
+  `~/.config/devlore/config.yaml` and `config.d/star.yaml` — while `star config show` reads the `star.yaml`
+  hierarchy. That split is what ["Star unification"](#star-unification-and-the-two-announcement-paths) folds: after
+  it, every subcommand reads the one resolved `Config`.
+- **Default config is produced by `self install`**, per program, alongside its man pages and completions; #780 makes
+  the four programs uniform on that dimension. The seeded file is what the runtime floor demotes to overrides — the
+  "Builtin as runtime floor" question below.
+
 ## Prior art
 
 This design is an explicit synthesis. The specifics, because they earned their place:
@@ -911,6 +931,9 @@ From the comparison, the concrete refinements layered onto star's proven registr
   `RegistryConfig`) being moved to `pkg/devconfig` and reshaped into the registry.
 - **`cmd/star/config`** — the extension-config system being **unified onto** `devconfig` rather than bolted alongside
   it; "provider as extension" makes the config-participant abstraction the same for both.
+- **`cmd/internal/cli/config.go`** — the shared `config` command, the one command surface on all four programs
+  (ruled 2026-09-02, [above](#the-command-surface--one-set-on-four-programs)); it reads and writes the XDG files
+  today and the resolved `Config` after the fold.
 
 ## Open questions
 
@@ -926,3 +949,6 @@ From the comparison, the concrete refinements layered onto star's proven registr
   parsed and viper has already bound — `viper.GetBool("writ.verbose")` is how `parseReconcileConfig` reads its
   settings today. The second keeps one flag registration per command and makes the cli layer a snapshot taken at
   construction; the first is what "retires the viper globals" most literally means. Tracked under #441.
+- **`show` and `sync` for all four?** (asked 2026-09-02) — `star`'s two extension commands are star's alone today.
+  `show`, the resolved view, is what every program's users ask for; whether it joins the shared set, and whether
+  `sync` stays star's, is open. Tracked under #441.

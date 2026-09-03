@@ -23,7 +23,7 @@ the code question to the classification design that owns it.
 
 ## Goals
 
-1. **An accurate claim** — pure over its arguments, non-hermetic when the template calls `Env`
+1. **An accurate claim** — pure over its arguments, ambient when the template calls `Env`
 2. **A named limit** — record that this is the first method whose purity depends on argument *content*, which no
    static classification can decide
 3. **A ruling, in the right place** — the code question is ruled and owned by #683
@@ -47,7 +47,7 @@ classification can promise, and it belongs in the design record as such — not 
 
 | # | Step | ✓ |
 | --- | --- | --- |
-| 1 | Correct the catalog row — pure over its arguments; non-hermetic when the template calls `Env` | ☐ |
+| 1 | Correct the catalog row — pure over its arguments; ambient when the template calls `Env` | ☐ |
 | 2 | Correct `3.5.7-template-provider.md`'s summary to match | ☐ |
 | 3 | Record the data-dependent-purity limit in `3.6` §3, citing `template.render_text` as the case | ☐ |
 | 4 | **`Env` is ruled** — it consults **declared runtime variables**, the way `make` does, not the ambient process environment. Tracked as [#683](https://github.com/NobleFactor/devlore-cli/issues/683) against `op.VariableResolver`; dispatch-time resolution is unchanged, only the source | ☐ |

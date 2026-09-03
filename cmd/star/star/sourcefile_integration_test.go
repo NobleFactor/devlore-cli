@@ -232,7 +232,7 @@ var MaxRetries = 3
 		t.Fatalf("command 'test source-file' not found, available: %v", keys(r.Commands()))
 	}
 
-	if err := cmd.Run(map[string]string{}); err != nil {
+	if _, err := cmd.Run(map[string]string{}); err != nil {
 		t.Fatalf("Starlark test failed: %v", err)
 	}
 }
