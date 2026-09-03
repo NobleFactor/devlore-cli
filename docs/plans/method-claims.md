@@ -153,7 +153,7 @@ The user selects modules; **the framework filters their methods** by the kind of
 | Runtime | Admits |
 | --- | --- |
 | hermetic (graph planning) | methods claiming `deterministic` |
-| non-hermetic (scripting, `star`) | everything |
+| ambient (scripting, `star`) | everything |
 
 `file` is the proof that this cannot be a provider-level property: a hermetic runtime wants `file.join` and not
 `file.write_text`, and no single bit on the `file` provider can say so.
@@ -270,7 +270,7 @@ module surface at all, so no provider is `RoleModule|RoleRoot` and that branch r
 comment claims. The filter covers it anyway, against the day one appears.
 
 Proved by `TestNewRuntime_Hermetic_AdmitsOnlyClaimingMethods` (a fixture with one claiming and one silent method:
-non-hermetic admits both, hermetic admits one) and `TestNewRuntime_Hermetic_ProviderWithNothingAdmitted_Fails`.
+ambient admits both, hermetic admits one) and `TestNewRuntime_Hermetic_ProviderWithNothingAdmitted_Fails`.
 `make test` green, 103 packages.
 
 **Steps 14–15 landed 2026-08-26.** 43 claims across ten providers: `deterministic` on `regex` (8), `plan`'s

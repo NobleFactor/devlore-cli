@@ -362,7 +362,7 @@ func (e *GraphExecutor) ResumeUnwind(ctx context.Context) error {
 // here but absent from the planning report was reached through `plan.<provider>.<method>` rather than the module
 // surface, which is the normal path for anything effectful.
 //
-// The execution runtime is non-hermetic by design: `flow.subgraph` bodies and `function.call` evaluate Starlark
+// The execution runtime is ambient by design: `flow.subgraph` bodies and `function.call` evaluate Starlark
 // while the graph runs, where effects are the point.
 //
 // TODO(#507): this belongs on the diagnostics stream, not on the narrator. Per
@@ -400,7 +400,7 @@ func (e *GraphExecutor) reportGraphReach() {
 
 	sort.Strings(reach)
 
-	e.environment.Status.Note(fmt.Sprintf("executing graph (non-hermetic): %d nodes over %d providers",
+	e.environment.Status.Note(fmt.Sprintf("executing graph (ambient): %d nodes over %d providers",
 		len(nodes),
 		len(byProvider)))
 	e.environment.Status.Note("  reaches   " + strings.Join(reach, " "))

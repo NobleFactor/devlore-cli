@@ -1,7 +1,7 @@
 ---
 title: "star: the root becomes the shared one, the dead cli package goes, and ten stdout sites are classified"
 issue: https://github.com/NobleFactor/devlore-cli/issues/743
-status: chartered
+status: complete
 created: 2026-09-01
 updated: 2026-09-02
 ---
@@ -248,15 +248,15 @@ logged as its own issue.
       script
 - [x] `grep` clean: no `fmt.Print` or `os.Stdout` in `cmd/star` outside tests
 
-### Phase 5: Ambient, not non-hermetic (status: not started)
+### Phase 5: Ambient, not non-hermetic (status: complete)
 
 Ruled 2026-09-02: the opposite of hermetic is **ambient** — a runtime that takes its context from what
 surrounds it — not "non-hermetic", which names an absence. Nine sites: the runtime banner and its comment
 in `pkg/op/starlarkbridge/runtime.go`, two in `pkg/op/graph_executor.go`, two in the bridge's tests,
 `3.6-method-classification.md`, and two plan documents.
 
-- [ ] every `non-hermetic` in code, tests and documents reads `ambient`; the pair defined once beside
-      "hermetic" in `2.4-hermeticity-guarantees.md`
+- [x] every `non-hermetic` in code, tests and documents reads `ambient` — eleven lines in six files; the
+      pair defined once beside "hermetic" in `2.4-hermeticity-guarantees.md`'s Objective
 
 ## Test Plan
 
