@@ -273,7 +273,9 @@ func TestRoot_GenerateDryRunWritesNothing(t *testing.T) {
 	defer closeQuietly(t, runtime)
 	t.Cleanup(func() { starruntime.DryRun = false })
 
-	pkg := filepath.Join("pkg", "op", "provider", "json")
+	// The operand is a Go package path, slash-separated on every platform; the generator writes it into
+	// the package clause. Only the files are read through the platform's separator.
+	pkg := "pkg/op/provider/json"
 	before := snapshot(t, pkg)
 
 	var out bytes.Buffer
@@ -308,11 +310,12 @@ func findPath(root *cobra.Command, names ...string) *cobra.Command {
 func snapshot(t *testing.T, pkg string) map[string]string {
 	t.Helper()
 	files := map[string]string{}
-	matches, err := filepath.Glob(filepath.Join(pkg, "gen", "*.go"))
+	dir := filepath.FromSlash(pkg)
+	matches, err := filepath.Glob(filepath.Join(dir, "gen", "*.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	matches = append(matches, filepath.Join(pkg, "action_names.gen.go"))
+	matches = append(matches, filepath.Join(dir, "action_names.gen.go"))
 	for _, name := range matches {
 		content, err := os.ReadFile(name)
 		if err != nil {

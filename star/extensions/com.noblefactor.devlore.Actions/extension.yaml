@@ -10,7 +10,7 @@ commands:
     implementation: commands/generate.star
     args:
       - name: source
-        help: The provider's Go package; the generated files land inside it, under gen/ and at its root
+        help: The provider's Go package, slash-separated as Go writes it; the generated files land inside it, under gen/ and at its root
     flags:
       - name: package
         type: string

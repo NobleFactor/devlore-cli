@@ -38,8 +38,10 @@ func goValue(value starlark.Value) (any, error) {
 		return float64(v), nil
 	case starlark.String:
 		return string(v), nil
-	case *starlark.List, starlark.Tuple:
-		return goSlice(v.(starlark.Iterable))
+	case *starlark.List:
+		return goSlice(v)
+	case starlark.Tuple:
+		return goSlice(v)
 	case *starlark.Dict:
 		return goMap(v.Items())
 	case *starlarkstruct.Struct:
