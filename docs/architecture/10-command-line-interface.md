@@ -563,6 +563,31 @@ paragraph above -- an exit-code-2 error names the flag or the subcommand, and th
 - Color and progress indicators only when stderr is a TTY, and never in the result stream.
 - `--silent` suppresses narration. It never suppresses the result, and never changes the exit code.
 
+**The interaction model (ruled 2026-09-03).** Two kinds of child process, two rules. A child run for its
+output -- `git`, `shellcheck`, anything a provider executes -- is captured, always, and never sees the
+terminal; executing a graph never needs a TTY, and the only thing a graph may do with the terminal is a
+prompt under the rule above. A child launched for the user to drive -- `$EDITOR` under `config edit`,
+`man` under `man`, and no other -- receives the three standard streams through one seam,
+[RunInteractive], which refuses when stdin or stdout is not a terminal and names what to do instead. The
+enforcement walk (§14) allows `os.Stdout` in that function and nowhere else.
+
+An interactive command -- onboarding and migration first -- works the way an agent's terminal does:
+
+1. It is interactive only when a TTY is present, through `internal/console`; without one, `--unattended`
+   runs on defaults, `--from <answers>` replays a recorded set, and anything still undecided fails naming
+   the flag.
+2. Each decision is one question with a short menu and a default, asked once, and never about something a
+   flag already settled.
+3. Every answer is recorded into the artifact the command produces -- the manifest, the migration plan --
+   so the interactive run and the unattended run produce the same artifact, and the artifact is the record.
+4. Progress narrates on stderr; the artifact is the result on stdout, so `-o` and `--store` behave the same
+   in both modes.
+5. Stop anywhere and resume: the recorded answers so far are the checkpoint.
+6. The flow never opens an editor or a pager; it shows the diff or the draft and asks.
+
+A `!` prefix, so the user can run a shell command mid-flow and have its output land in the flow, is an
+open question, raised 2026-09-03 and not yet designed.
+
 ## 11. Configuration precedence
 
 Highest to lowest: **flags**, then environment variables, then project configuration, then user, then system.

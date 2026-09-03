@@ -91,14 +91,20 @@ naming `os.Stdout` does not count, and `os.Stdout.Fd()` or `os.Stdout.Stat()` do
 shape it lets through is the interactive handoff above, pending the ruling. The allowlist is otherwise
 empty: a legitimate exception is a bug in the convention, not in the test.
 
-### Requirement 2: No command registers its own output flag
+### Requirement 2: No command shadows an inherited flag, and none binds a reserved name
 
-A checker over a `cobra.Command` tree that fails when any command defines `output`, `o`, `format`,
-`json`, `jq`, `filter` or `store` on itself rather than inheriting it from the root, and fails when a
-subcommand does not inherit the four the root registers. Exported from `cmd/internal/cli` so each program
-calls it from its own root test — star's root is `package main` and cannot be imported, so the checker
-goes to the roots rather than the roots to a central test. Lore's and star's hand-written walks become
-calls to it; writ and devlore-test gain the root test they lack.
+**Ruled 2026-09-03, on the way to writing the checker.** Cobra treats a subcommand redefining an
+ancestor's persistent flag by long name as an override and says nothing; redefining its shorthand
+panics the first time that command runs. Neither is protection: one is a bug nobody hits knowingly, the
+other is a bug somebody has not hit yet. The protection is a test that walks every command of every
+program before anything ships and refuses both shapes for every flag. So the checker fails when a
+subcommand defines any long name or shorthand that an ancestor's persistent flags already carry, not
+only the reserved six; it fails when a command binds one of `output`, `o`, `format`, `json`, `jq`,
+`filter` or `store` on itself regardless; and it fails when a subcommand does not inherit the four the
+root registers. Exported from `cmd/internal/cli` so each program calls it from its own root test —
+star's root is `package main` and cannot be imported, so the checker goes to the roots rather than the
+roots to a central test. Lore's and star's hand-written walks become calls to it; writ and devlore-test
+gain the root test they lack.
 
 ### Requirement 3: Every root registers the set through `AddOutputFlags`, and nothing renders beside it
 
@@ -149,16 +155,20 @@ succeeds. No test reads the generated pages.
 
 ## Implementation Phases
 
-### Phase 1: The checkers, red where they can be (status: not started)
+### Phase 1: The checkers, red where they can be (status: complete)
 
-- [ ] `cmd/internal/cli/invariants.go` — `CheckNoOwnOutputFlag(root)`, `CheckSharedSetOnRoot(root)`; and
-      the source walks `noDirectStdout(dir)`, `noPrivatePipeline(dir)`
-- [ ] `cmd/internal/cli/invariants_test.go` — each checker shown red on a fixture under `testdata/`, and
-      invariant 1's walk over the real tree committed **red**, its thirteen sites in the commit message
-- [ ] `cli.RunInteractive` — the one seam, TTY-gated, naming the alternative; `config edit` and `man` call
-      it; the walk allows `os.Stdout` there alone
-- [ ] §10 of the design carries the interaction model as ruled: the two kinds of child, the one seam, and
-      the six behaviors an interactive command has
+- [x] `cmd/internal/cli/invariants.go` — `CheckNoOwnOutputFlag(root)`, which also refuses any shadow of an
+      inherited flag by name or shorthand (ruled while writing it), `CheckSharedSetOnRoot(root)`; and
+      the source walks `NoDirectStdout(dirs...)`, `NoPrivatePipeline(dirs...)`, exported so a program's own
+      test can call them; `ReservedOutputFlagNames` moved here from star, which now imports it
+- [x] `cmd/internal/cli/invariants_test.go` — each checker shown red on a fixture under `testdata/` (six
+      writes and two reads; one private import; a synthetic tree; a hand-rolled root), and invariant 1's
+      walk over the real tree committed **red**, its thirteen sites in the commit message
+- [x] `cli.RunInteractive` — the one seam, TTY-gated, naming the alternative; `config edit` and `man` call
+      it; the walk allows `os.Stdout` there alone; refusal and handoff both tested with an injected
+      terminal check
+- [x] §10 of the design carries the interaction model as ruled: the two kinds of child, the one seam, and
+      the six behaviors an interactive command has; the `!` prefix noted as open
 
 ### Phase 2: The shared commands keep the convention (status: not started)
 
@@ -193,7 +203,7 @@ This plan **is** a test plan. The rows are the requirements restated with their 
 | # | What it proves | Level | Fails when |
 | --- | --- | --- | --- |
 | 1 | No in-scope command package writes to `os.Stdout` directly | source walk | a `fmt.Print` is added to any in-scope package |
-| 2 | No command registers its own output flag; every subcommand inherits the four | tree walk, per root | a command calls `Flags().String("output", …)` |
+| 2 | No command shadows an inherited flag by name or shorthand, none binds a reserved name, and every subcommand inherits the four | tree walk, per root | a command calls `Flags().String("output", …)`, or redefines `--verbose` |
 | 3 | The root's four flags are the shared root's; nothing builds a pipeline beside it | tree walk + source walk | a root hand-rolls the set, or a package calls `result.NewPipeline` |
 | 4 | `devlore-test`'s help wraps at `COLUMNS=70`, and its `run` renders through `-o` | unit | the root is hand-built again |
 | 5 | Each checker is red on its fixture | unit | a checker stops checking |
@@ -249,7 +259,7 @@ merge**, and a box that cannot be checked from this branch says what checks it.
 **Test rows**
 
 - [ ] 1 — no direct stdout write in an in-scope package (source walk)
-- [ ] 2 — no own output flag, every subcommand inherits the four, per root (tree walk)
+- [ ] 2 — no shadowed inherited flag, no reserved name, every subcommand inherits the four, per root (tree walk)
 - [ ] 3 — the root's set is the shared root's; no private pipeline (tree walk, source walk)
 - [ ] 4 — `devlore-test` wraps help at `COLUMNS=70` and renders through `-o` (unit)
 - [ ] 5 — each checker red on its fixture (unit)

@@ -585,7 +585,7 @@ func collectFlagValues(c *cobra.Command, flags []starruntime.Flag) map[string]st
 func defineFlags(cobraCmd *cobra.Command, flags []starruntime.Flag) error {
 
 	for _, flag := range flags {
-		if slices.Contains(reservedFlagNames, flag.Name) {
+		if slices.Contains(cli.ReservedOutputFlagNames, flag.Name) {
 			return fmt.Errorf("flag --%s is the common set's; a destination is a positional operand and a rendering is --output (10-command-line-interface.md §4)", flag.Name)
 		}
 		switch flag.Type {
@@ -606,9 +606,3 @@ func defineFlags(cobraCmd *cobra.Command, flags []starruntime.Flag) error {
 
 	return nil
 }
-
-// reservedFlagNames are the names an extension command may not bind: the four the common set puts on
-// every command, and the two the convention bans outright (10-command-line-interface.md §4, §14). Cobra
-// would let a leaf shadow an inherited flag silently, which is how `generate -o json` came to mean a
-// directory.
-var reservedFlagNames = []string{"filter", "format", "jq", "json", "output", "store"}

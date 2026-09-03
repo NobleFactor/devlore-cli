@@ -351,11 +351,8 @@ func configEdit(configRoot fsroot.Dir, path fsroot.Path, defaultConfig []byte) e
 	}
 
 	cmd := exec.CommandContext(context.Background(), editor, path.Abs()) //nolint:gosec // G204: editor from EDITOR/VISUAL env var
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
 
-	return cmd.Run()
+	return RunInteractive(cmd, "run `config path` and open the file in your own editor")
 }
 
 // configValidate validates the config against the schema.

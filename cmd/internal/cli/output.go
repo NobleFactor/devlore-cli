@@ -174,14 +174,19 @@ func AddOutputFlags(cmd *cobra.Command, opts *SinkOptions) {
 		return nil
 	}
 
-	cmd.PersistentFlags().StringVarP(&opts.Format, "output", "o", "json",
-		outputUsage)
-	cmd.PersistentFlags().StringArrayVar(&opts.Filters, "filter", nil,
-		`Filter expression: field=value (repeatable, AND logic)`)
-	cmd.PersistentFlags().StringVar(&opts.JQ, "jq", "",
-		`jq expression applied after --filter; see github.com/itchyny/gojq`)
-	cmd.PersistentFlags().StringVar(&opts.Store, "store", "",
-		`Execution store root, holding definitions and traces (default: the XDG state path)`)
+	cmd.PersistentFlags().StringVarP(&opts.Format, "output", "o", "json", commonSetUsage["output"])
+	cmd.PersistentFlags().StringArrayVar(&opts.Filters, "filter", nil, commonSetUsage["filter"])
+	cmd.PersistentFlags().StringVar(&opts.JQ, "jq", "", commonSetUsage["jq"])
+	cmd.PersistentFlags().StringVar(&opts.Store, "store", "", commonSetUsage["store"])
+}
+
+// commonSetUsage is the usage text of each flag of the common set, as the shared root binds it. Held
+// here so [CheckSharedSetOnRoot] can tell the shared set from a hand-rolled one carrying the same names.
+var commonSetUsage = map[string]string{
+	"filter": `Filter expression: field=value (repeatable, AND logic)`,
+	"jq":     `jq expression applied after --filter; see github.com/itchyny/gojq`,
+	"output": outputUsage,
+	"store":  `Execution store root, holding definitions and traces (default: the XDG state path)`,
 }
 
 // BuildPipeline composes a [result.Pipeline] from the populated [SinkOptions] writing through w.
