@@ -9,4 +9,4 @@
 packages:
   # PowerShell 7. pkg/op/provider/powershell shells out to pwsh, pkg/platform's Windows manager
   # detection expects it, and it is what sshd's DefaultShell is set to on our Windows hosts.
-  - pwsh
+  - name: pwsh

@@ -31,42 +31,46 @@ my-environment/              # Your environment repo (wherever you keep it)
 
 Each package is either a simple name or a single-key map with options:
 
+Every entry is a mapping with a `name`, and optionally a `with` array:
+
 ```yaml
 packages:
   # Simple packages
-  - gh
-  - jq
-  - ripgrep
+  - name: gh
+  - name: jq
+  - name: ripgrep
 
   # Packages with features
-  - neovim:
-      with: [lsp, treesitter]
-  - docker:
-      with: [rootless, compose]
+  - name: neovim
+    with: [lsp, treesitter]
+  - name: docker
+    with: [rootless, compose]
 ```
 
 ### Simple packages
 
-For packages without options, use a plain string:
+For packages without options, give the name alone:
 
 ```yaml
 packages:
-  - gh
-  - jq
-  - ripgrep
+  - name: gh
+  - name: jq
+  - name: ripgrep
 ```
+
+A bare string is not accepted. `name` is always spelled out, so that an entry
+gaining features later is an added line rather than a changed shape.
 
 ### Packages with features
 
-To enable optional features, use a single-key map where the key is the package
-name and the value contains a `with` array:
+To enable optional features, add a `with` array alongside the name:
 
 ```yaml
 packages:
-  - neovim:
-      with: [lsp, treesitter]
-  - docker:
-      with: [rootless, compose, buildx]
+  - name: neovim
+    with: [lsp, treesitter]
+  - name: docker
+    with: [rootless, compose, buildx]
 ```
 
 Features are passed to lore as `--with` flags. Available features for each
@@ -155,11 +159,11 @@ The manifest can also be written as JSON:
 ```json
 {
   "packages": [
-    "gh",
-    "jq",
-    "ripgrep",
-    {"neovim": {"with": ["lsp", "treesitter"]}},
-    {"docker": {"with": ["rootless", "compose"]}}
+    {"name": "gh"},
+    {"name": "jq"},
+    {"name": "ripgrep"},
+    {"name": "neovim", "with": ["lsp", "treesitter"]},
+    {"name": "docker", "with": ["rootless", "compose"]}
   ]
 }
 ```
