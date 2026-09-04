@@ -17,7 +17,7 @@ commands:
         type: string
         default: "all"
         help: "Domain: all, migration, onboarding"
-      - name: model
+      - name: base-model
         type: string
         default: "qwen3:8b"
-        help: Base model for Modelfile
+        help: Base model for the Modelfile (--model is the root's, and names the provider's model)

@@ -84,6 +84,12 @@ func NewRootCmd(cfg RootConfig) *cobra.Command {
 
 	wrapHelp(rootCmd)
 
+	// The common set, on the root: every command of every program accepts every flag, and the shared
+	// commands render through the same options as the program's own (§4, §8; ruled 2026-09-03).
+	output := &SinkOptions{}
+	addOutputFlags(rootCmd, output)
+	registerRootOptions(rootCmd, output)
+
 	// Standard flags
 	rootCmd.PersistentFlags().String("config", "", "Config file (default: ~/.config/devlore/config.yaml)")
 	rootCmd.PersistentFlags().Bool("dry-run", false, "Show what would be done without making changes")
@@ -150,9 +156,11 @@ func NewRootCmd(cfg RootConfig) *cobra.Command {
 // Returns:
 //   - error: configuration, config file read, or flag binding failure
 func initRootConfig(cmd *cobra.Command, name string) error {
+	// A program name may carry a hyphen -- devlore-test -- and a shell variable may not, so the
+	// environment prefix is the name upper-cased with `-` as `_`: DEVLORE_TEST_VERBOSE.
 	if err := InitViper(ViperConfig{
 		Name:            name,
-		EnvPrefix:       strings.ToUpper(name),
+		EnvPrefix:       strings.ReplaceAll(strings.ToUpper(name), "-", "_"),
 		UseSharedConfig: true,
 	}); err != nil {
 		return err

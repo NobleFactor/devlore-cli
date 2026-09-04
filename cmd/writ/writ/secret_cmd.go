@@ -7,6 +7,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/secret"
 )
 
@@ -75,7 +76,7 @@ func runSecretEncrypt(cmd *cobra.Command, args []string) error {
 
 	// Under --dry-run the plan is the result, and the pipeline renders it like any other.
 	if graphs != nil {
-		return emitResult(cmd, graphs)
+		return cli.Emit(cmd, graphs)
 	}
 	return nil
 }

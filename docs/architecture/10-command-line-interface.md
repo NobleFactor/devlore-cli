@@ -784,7 +784,7 @@ Measured 2026-08-31, after the fixes for
 | --- | --- | --- |
 | `writ` | yes | yes -- registered on the root, so every command |
 | `lore` | yes | yes -- registered on the root since #779, so every command |
-| `devlore-test` | **no** | yes -- registered on the root |
+| `devlore-test` | **yes** | **yes** -- on the shared root since #757 |
 | `star` | **yes** | **yes** |
 
     COLUMNS=70, longest flag line
@@ -795,8 +795,9 @@ Measured 2026-08-31, after the fixes for
 
 Three different causes, each already tracked:
 
-- `devlore-test` builds its root directly rather than through [NewRootCmd], so it inherits `AddOutputFlags`
-  and not the help wrapping. Nothing prevents it from using the shared constructor; it simply does not.
+- `devlore-test` built its root directly rather than through [NewRootCmd], so it had the common set
+  and not the help wrapping. #757 moved it onto the shared constructor, the last of the four, and its
+  `run` lost a local `--dry-run` that had been shadowing the root's.
 - `star` built a bare `cobra.Command` and bound no output flags at all, so nothing from the shared package
   reached it. The duplicate `cmd/star/cli` was the visible symptom and went first
   ([#743](https://github.com/NobleFactor/devlore-cli/issues/743) phase 2); the root moved onto [NewRootCmd]

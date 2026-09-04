@@ -150,14 +150,10 @@ func TestCheckSharedSetOnRoot_IsRedOnAHandRolledRoot(t *testing.T) {
 	}
 }
 
-// sharedRoot builds a root the way every program does today: the shared constructor, then the common set
-// on it. Phase 3 of 776-output-enforcement.md moves the second step inside the first, and this helper
-// collapses to NewRootCmd.
+// sharedRoot builds a root the way every program does: the shared constructor, which carries the common
+// set by construction.
 func sharedRoot(name string) *cobra.Command {
-	root := NewRootCmd(RootConfig{Name: name, Short: "a probe"})
-	var opts SinkOptions
-	AddOutputFlags(root, &opts)
-	return root
+	return NewRootCmd(RootConfig{Name: name, Short: "a probe"})
 }
 
 // TestRunInteractive_RefusesWithoutATerminal pins the seam's refusal: no terminal, no launch, and the

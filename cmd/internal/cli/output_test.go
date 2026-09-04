@@ -84,7 +84,7 @@ func TestAddOutputFlagsBindsTheCommonSet(t *testing.T) {
 
 	cmd := &cobra.Command{Use: "test"}
 	var opts SinkOptions
-	AddOutputFlags(cmd, &opts)
+	addOutputFlags(cmd, &opts)
 
 	for _, name := range []string{"filter", "jq", "output", "store"} {
 		if cmd.PersistentFlags().Lookup(name) == nil {
@@ -97,7 +97,7 @@ func TestAddOutputFlagsOutputDefaultsToJSON(t *testing.T) {
 
 	cmd := &cobra.Command{Use: "test"}
 	var opts SinkOptions
-	AddOutputFlags(cmd, &opts)
+	addOutputFlags(cmd, &opts)
 
 	flag := cmd.PersistentFlags().Lookup("output")
 	if flag == nil {

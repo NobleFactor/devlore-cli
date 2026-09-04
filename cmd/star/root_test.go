@@ -17,37 +17,26 @@ import (
 	starruntime "github.com/NobleFactor/devlore-cli/cmd/star/star"
 )
 
-// TestRoot_EverySubcommandAcceptsTheCommonSet pins the root registration: every command of star accepts
-// every flag of the common set, because the set is on the root and inherited, and no command registers an
-// output flag of its own on top of it.
+// TestRoot_KeepsTheOutputConvention pins the root registration through the shared checkers: every command
+// inherits the common set from the root, none shadows an inherited flag or binds a reserved name, and the
+// set on the root is the shared root's (10-command-line-interface.md §4, §14).
 //
 // Before #743 star built a bare cobra.Command and bound no output flags at all, so `star lint go -o json`
-// was an unknown flag on every command.
-func TestRoot_EverySubcommandAcceptsTheCommonSet(t *testing.T) {
+// was an unknown flag on every command; and three extension commands bound --output and --format of their
+// own, which the loader now refuses.
+func TestRoot_KeepsTheOutputConvention(t *testing.T) {
 
 	root, runtime := newRootCmd()
 	defer closeQuietly(t, runtime)
 	if len(root.Commands()) == 0 {
 		t.Fatal("the root has no subcommands; nothing to check")
 	}
-
-	var walk func(cmd *cobra.Command)
-	walk = func(cmd *cobra.Command) {
-		for _, sub := range cmd.Commands() {
-			for _, name := range []string{"output", "filter", "jq", "store"} {
-				if sub.InheritedFlags().Lookup(name) == nil {
-					t.Errorf("%s does not inherit --%s from the root", sub.CommandPath(), name)
-				}
-			}
-			for _, name := range []string{"output", "format", "json"} {
-				if sub.LocalFlags().Lookup(name) != nil {
-					t.Errorf("%s registers its own --%s; the common set owns that name", sub.CommandPath(), name)
-				}
-			}
-			walk(sub)
-		}
+	if v := cli.CheckNoOwnOutputFlag(root); len(v) > 0 {
+		t.Errorf("%d violations:\n%s", len(v), strings.Join(v, "\n"))
 	}
-	walk(root)
+	if v := cli.CheckSharedSetOnRoot(root); len(v) > 0 {
+		t.Errorf("the root's set is not the shared root's:\n%s", strings.Join(v, "\n"))
+	}
 }
 
 // TestRoot_ConfigIsTheSharedSetPlusShowAndSync pins the 2026-09-02 ruling: one command named `config`,
@@ -236,6 +225,19 @@ func TestRegisterStarlarkCommand_RefusesReservedFlagNames(t *testing.T) {
 	}
 	if err := registerStarlarkCommand(root, cmd); err != nil {
 		t.Errorf("--source is not reserved, yet it was refused: %v", err)
+	}
+
+	// A name the root carries is refused too: three extensions shadowed --model, --dry-run and --config
+	// before the convention refused every shadow.
+	shadowing := &cobra.Command{Use: "star"}
+	shadowing.PersistentFlags().Bool("verbose", false, "the root's")
+	cmd = &starruntime.Command{
+		Name:      "probe.leaf",
+		Extension: &starruntime.Extension{Name: "probe"},
+		Flags:     []starruntime.Flag{{Name: "verbose", Type: "bool"}},
+	}
+	if err := registerStarlarkCommand(shadowing, cmd); err == nil || !strings.Contains(err.Error(), "shadows") {
+		t.Errorf("a flag shadowing the root's --verbose was accepted: %v", err)
 	}
 }
 

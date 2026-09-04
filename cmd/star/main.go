@@ -203,10 +203,6 @@ Generate shell completions with:
 		PostUninstallHooks: []func(string) error{uninstallStarExtensions},
 	})
 
-	// The common set, on the root: every command of star accepts every flag, and a fix in
-	// cmd/internal/cli reaches all of them at once (10-command-line-interface.md §4, §15).
-	cli.AddOutputFlags(rootCmd, &outputOptions)
-
 	runtime := starruntime.NewApplication(rootCmd)
 
 	sharedPreRun := rootCmd.PersistentPreRunE
@@ -297,7 +293,7 @@ func newDocsCmd() *cobra.Command {
 		Short: "Show how to write Starlark operations",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return emitResult(cmd, starlarkDocs)
+			return cli.Emit(cmd, starlarkDocs)
 		},
 	})
 
@@ -436,13 +432,13 @@ func registerStarlarkCommand(rootCmd *cobra.Command, cmd *starruntime.Command) e
 			if result == nil {
 				return nil
 			}
-			return emitResult(c, result)
+			return cli.Emit(c, result)
 		},
 	}
 
 	cobraCmd.Args = argsValidatorFor(cmd.Args)
 
-	if err := defineFlags(cobraCmd, cmd.Flags); err != nil {
+	if err := defineFlags(rootCmd, cobraCmd, cmd.Flags); err != nil {
 		return err
 	}
 
@@ -577,16 +573,25 @@ func collectFlagValues(c *cobra.Command, flags []starruntime.Flag) map[string]st
 	return flagValues
 }
 
-// defineFlags registers the command's flags on the cobra command with proper cobra types.
+// defineFlags binds an extension command's declared flags on its cobra command, refusing a name the
+// common set owns and a name the root already carries -- cobra would let the leaf shadow the root's
+// flag silently, and the convention refuses every shadow (10-command-line-interface.md §4).
 //
 // Parameters:
-//   - `cobraCmd`: the leaf cobra command.
-//   - `flags`: the command's flag specs.
-func defineFlags(cobraCmd *cobra.Command, flags []starruntime.Flag) error {
+//   - `rootCmd`: the root, for its persistent flags.
+//   - `cobraCmd`: the leaf receiving the flags.
+//   - `flags`: the extension's declarations.
+//
+// Returns:
+//   - `error`: a reserved or shadowing name.
+func defineFlags(rootCmd, cobraCmd *cobra.Command, flags []starruntime.Flag) error {
 
 	for _, flag := range flags {
 		if slices.Contains(cli.ReservedOutputFlagNames, flag.Name) {
 			return fmt.Errorf("flag --%s is the common set's; a destination is a positional operand and a rendering is --output (10-command-line-interface.md §4)", flag.Name)
+		}
+		if rootCmd.PersistentFlags().Lookup(flag.Name) != nil {
+			return fmt.Errorf("flag --%s shadows the root's --%s; read the root's, or name this one for what it is (10-command-line-interface.md §4)", flag.Name, flag.Name)
 		}
 		switch flag.Type {
 		case "bool":

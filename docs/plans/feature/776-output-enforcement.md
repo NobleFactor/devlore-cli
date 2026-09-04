@@ -41,9 +41,9 @@ Measured 2026-09-03 on develop at `4c8c62e8`, the four programs on the shared ro
 
 | Invariant | Test | Status |
 | --- | --- | --- |
-| No command package writes to `os.Stdout` directly | none | **red** — 13 writes remain, all in `cmd/internal/cli`: 9 in `config.go`, 3 in `man.go`, 1 prompt in `selfinstall.go` |
-| No command registers its own output flag | none | green — the four roots inherit the set and no leaf binds one; lore and star already pin this by hand in their own root tests |
-| Every root registers the set through `AddOutputFlags`, and nothing builds a pipeline of its own | none | green — four roots call it; zero `result.NewPipeline` or `FormatterByName` calls outside `cmd/internal/cli` |
+| No command package writes to `os.Stdout` directly | `TestNoDirectStdout_InScope` | **red at phase 1** — 13 writes in `cmd/internal/cli`: 9 in `config.go`, 3 in `man.go`, 1 prompt in `selfinstall.go`; **green at phase 2** |
+| No command shadows an inherited flag, none binds a reserved name | `CheckNoOwnOutputFlag`, from each program's root test | green after phase 2 — four shadows found and resolved on the way |
+| Every root is the shared root, and nothing builds a pipeline of its own | `CheckSharedSetOnRoot`, `TestNoPrivatePipeline_InScope` | green — `NewRootCmd` registers the set once; zero `pkg/result` importers outside `cmd/internal/cli` |
 
 Two more `os.Stdout` mentions are not writes and the test must not count them: `root.go` asks the
 terminal's width through `os.Stdout.Fd()` to wrap help, and `writ migrate` asks whether stdout is a
@@ -170,25 +170,34 @@ succeeds. No test reads the generated pages.
 - [x] §10 of the design carries the interaction model as ruled: the two kinds of child, the one seam, and
       the six behaviors an interactive command has; the `!` prefix noted as open
 
-### Phase 2: The shared commands keep the convention (status: not started)
+### Phase 2: The shared root owns the common set, every root is the shared root, and the shared commands keep the convention (status: complete)
 
-- [ ] `AddOutputFlags` records the options it binds; `cli.Emit(cmd, value)` renders through them
-- [ ] `config get`, `list`, `path`, `schema`, `validate` emit results; `man` and the prompt narrate
-- [ ] invariant 1's walk goes green; the transition recorded here with the commit
+Two phases as chartered, landed as one commit: `cli.Emit` needs the root to own the options, and a second
+`AddOutputFlags` on a root that already carries the set panics on the redefined flags, so the root's move
+and the programs' move could not be separated.
 
-### Phase 3: The shared root owns the common set, and every root is the shared root (status: not started)
+- [x] `NewRootCmd` registers the common set and owns the `SinkOptions`, per root, so a test may build
+      several; `cli.Emit`; `addOutputFlags` unexported; the environment prefix maps `-` to `_`
+- [x] lore, star and writ drop their `AddOutputFlags` call, their `outputOptions` and their `emitResult`;
+      their commands call `cli.Emit`; lore's and star's `output.go` deleted
+- [x] `devlore-test` onto `cli.NewRootCmd` (#757): `run` through `cli.Emit`, its `--store` resolution
+      and its local `--dry-run` gone because the root's pre-run and the root's flag do that; `initConfig`,
+      the static `SilenceUsage` and the hand wiring go; its help wraps at `COLUMNS=70` like the other three
+- [x] `config get`, `list`, `path`, `schema`, `validate` emit results; `man` and the prompt narrate;
+      `config validate`'s result is a report `{path, present, valid, warnings}`
+- [x] invariant 1's walk went green in this commit; the transition recorded here
+- [x] lore's and star's hand-written walks call the checkers; writ and devlore-test gain root tests
+      calling them; `TestNewRootCmd_NoUsageTextOnError` already pins the shared root
 
-- [ ] `NewRootCmd` registers the common set and owns the `SinkOptions`; `cli.Emit`; `addOutputFlags`
-      unexported; the environment prefix maps `-` to `_`
-- [ ] lore, star and writ drop their `AddOutputFlags` call, their `outputOptions` and their `emitResult`;
-      their commands call `cli.Emit`
-- [ ] `devlore-test` onto `cli.NewRootCmd` (#757): `run` through `cli.Emit`; `initConfig`, the static
-      `SilenceUsage` and the hand wiring go; its help wraps at `COLUMNS=70` like the other three
-- [ ] lore's and star's hand-written walks call the checkers; writ and devlore-test gain root tests
-      calling them
-- [ ] `TestNewRootCmd_NoUsageTextOnError` already pins the shared root; no change
+**The broadened checker found four shadows on its first run over the real tree**, every one the shape the
+ruling names: `lore onboard --verbose` shadowed the root's `--verbose` with the same meaning and now reads
+the root's; `star devlore test run --dry-run` the same, and its script reads `ctx.dry_run`; `star devlore
+model build --model` shadowed the root's `--model` with a different meaning and is `--base-model`;
+`star lint go --config` shadowed the root's `--config` with a different meaning and is
+`--golangci-config`. Star's loader now refuses any flag that shadows a root flag, so an extension cannot
+reintroduce one.
 
-### Phase 4: Close the convention box (status: not started)
+### Phase 3: Close the convention box (status: not started)
 
 - [ ] `make docs` runs in the commit's script and succeeds
 - [ ] `10-command-line-interface.status.md` — the enforcement box ticked, the epic's last convention box
@@ -247,23 +256,23 @@ merge**, and a box that cannot be checked from this branch says what checks it.
 
 **Goals**
 
-- [ ] Three invariants have a test each, and each was shown red — invariant 1 on the tree, the others on
-      fixtures — with the red output in the commit that added it
-- [ ] The shared commands keep the convention: `config get/list/path/schema/validate` through `-o`, `man`
-      and the prompt on stderr
-- [ ] Every in-scope root is `cli.NewRootCmd`, which registers the common set once; no program calls
+- [x] Three invariants have a test each, and each was shown red — invariant 1 on the tree, the others on
+      fixtures — with the red output in the commit that added it — phase 1
+- [x] The shared commands keep the convention: `config get/list/path/schema/validate` through `-o`, `man`
+      and the prompt on stderr — phase 2
+- [x] Every in-scope root is `cli.NewRootCmd`, which registers the common set once; no program calls
       `AddOutputFlags`, which no longer exists by that name; every root has a root test calling the
-      checkers (#757 closes here)
+      checkers (#757 closes here) — phase 2
 - [ ] `make docs` succeeds; the status doc's enforcement box and the 740 plan are closed
 
 **Test rows**
 
-- [ ] 1 — no direct stdout write in an in-scope package (source walk)
-- [ ] 2 — no shadowed inherited flag, no reserved name, every subcommand inherits the four, per root (tree walk)
-- [ ] 3 — the root's set is the shared root's; no private pipeline (tree walk, source walk)
-- [ ] 4 — `devlore-test` wraps help at `COLUMNS=70` and renders through `-o` (unit)
-- [ ] 5 — each checker red on its fixture (unit)
-- [ ] 6 — the shared `config` subcommands render through `-o`; `man` narrates (unit)
+- [x] 1 — no direct stdout write in an in-scope package (source walk) — red at phase 1, green at phase 2
+- [x] 2 — no shadowed inherited flag, no reserved name, every subcommand inherits the four, per root (tree walk)
+- [x] 3 — the root's set is the shared root's; no private pipeline (tree walk, source walk)
+- [x] 4 — `devlore-test` wraps help at `COLUMNS=70` and renders through `-o` (unit)
+- [x] 5 — each checker red on its fixture (unit)
+- [x] 6 — the shared `config` subcommands render through `-o`; `man` narrates (unit)
 - [ ] 7 — `make docs` generates every page (build, in the commit's script)
 - [ ] 8 — the suite passes on **all five platforms**: darwin-arm64 locally; **checked here when every
       `test (…)` leg is green**
@@ -276,6 +285,7 @@ merge**, and a box that cannot be checked from this branch says what checks it.
 - [10-command-line-interface.md](../../architecture/10-command-line-interface.md) — the convention enforced
 - Issue [#776](https://github.com/NobleFactor/devlore-cli/issues/776)
 - Issue [#757](https://github.com/NobleFactor/devlore-cli/issues/757) — `devlore-test` onto the shared root; folded here, closes with this PR
+- An issue to file: `scripts/Get-EpicReport` gains `--by`, `--view` and `--output`, the thread status document (chore, resolved in this worktree)
 
 ## Open Questions
 

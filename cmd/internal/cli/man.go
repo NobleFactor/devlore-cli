@@ -168,9 +168,9 @@ func installManPages(rootCmd *cobra.Command, header *doc.GenManHeader, manRoot f
 		return fmt.Errorf("failed to generate man pages: %w", err)
 	}
 
-	fmt.Printf("Man pages installed to %s\n", manRoot.Name())
-	fmt.Println("Ensure this path is in your MANPATH:")
-	fmt.Printf("  export MANPATH=\"%s:$MANPATH\"\n", filepath.Dir(manRoot.Name()))
+	Success("Man pages installed to %s", manRoot.Name())
+	Note("Ensure this path is in your MANPATH:")
+	Note("  export MANPATH=\"%s:$MANPATH\"", filepath.Dir(manRoot.Name()))
 
 	return nil
 }
