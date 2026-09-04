@@ -25,7 +25,7 @@ var (
 // A claim asserts a kind — "claims are true when made" needs a kind to be true about — and an interface
 // asserts none, which is why an authored string bound to one is refused by default. A scheme with a kind
 // axis resolves that by naming the claim that deliberately asserts nothing: `file` designates
-// `*file.AnyKind`, whose assertion is existence alone and which resolves to the observed kind at activation.
+// `file.AnyKind`, whose assertion is existence alone and which resolves to the observed kind at activation.
 //
 // **The designation lives on the interface, once.** Not per parameter: two methods taking the same slot
 // type must claim the same way, or the same authored path would mean different intent depending on which

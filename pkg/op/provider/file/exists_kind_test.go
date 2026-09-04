@@ -32,26 +32,26 @@ func TestExists_IsKindHonest(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	regularAt := func(path string) *Regular {
-		base, err := buildCandidateAs(environment, path, reflect.TypeFor[*Regular]())
+	regularAt := func(path string) *regular {
+		base, err := buildCandidateAs(environment, path, reflect.TypeFor[Regular]())
 		if err != nil {
 			t.Fatalf("candidate %s: %v", path, err)
 		}
-		return &Regular{resource: *base}
+		return &regular{resource: *base}
 	}
-	directoryAt := func(path string) *Directory {
-		base, err := buildCandidateAs(environment, path, reflect.TypeFor[*Directory]())
+	directoryAt := func(path string) *directory {
+		base, err := buildCandidateAs(environment, path, reflect.TypeFor[Directory]())
 		if err != nil {
 			t.Fatalf("candidate %s: %v", path, err)
 		}
-		return &Directory{resource: *base}
+		return &directory{resource: *base}
 	}
-	linkAt := func(path string) *SymbolicLink {
-		base, err := buildCandidateAs(environment, path, reflect.TypeFor[*SymbolicLink]())
+	linkAt := func(path string) *symbolicLink {
+		base, err := buildCandidateAs(environment, path, reflect.TypeFor[SymbolicLink]())
 		if err != nil {
 			t.Fatalf("candidate %s: %v", path, err)
 		}
-		return &SymbolicLink{resource: *base}
+		return &symbolicLink{resource: *base}
 	}
 
 	cases := []struct {

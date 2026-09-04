@@ -15,7 +15,7 @@ import (
 //
 // The embedded [op.ReceiptBase] carries the affected [file.Resource] (the decrypted destination file) and the opaque
 // [op.ReceiptBase.TransactionID] minted at [op.ReceiptBase.Commit] time. The destination path is read through the
-// resource's [file.Resource.SourcePath] during compensation; no per-receipt path field is needed.
+// resource's [file.Resource.Path()] during compensation; no per-receipt path field is needed.
 //
 // Receipt has no provider-specific fields, so it inherits [op.ReceiptBase.MarshalJSON] and
 // [op.ReceiptBase.MarshalYAML] unchanged. Only [Receipt.RestoreEncoded] is overridden, since rehydration requires the
@@ -59,8 +59,8 @@ func (r *Receipt) RestoreEncoded(
 	catalog := runtimeEnvironment.ResourceCatalog
 	got, ok := catalog.Lookup(catalog.Current(base.ResourceURI))
 	assert.True("encryption.Receipt: resource "+base.ResourceURI+" in catalog", ok)
-	resource, ok := got.(*file.Regular)
-	assert.True("encryption.Receipt: catalog entry is *file.Regular", ok)
+	resource, ok := got.(file.Regular)
+	assert.True("encryption.Receipt: catalog entry is file.Regular", ok)
 
 	r.ReceiptBase = op.NewReceiptBase(resource)
 	assert.NoError("encryption.Receipt: restore base", r.Restore(base))

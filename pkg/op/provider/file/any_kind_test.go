@@ -74,11 +74,11 @@ func TestAny_ContentIdentityDelegatesToTheObservedKind(t *testing.T) {
 
 	unasserted := anyKindAt(t, environment, "regular.txt")
 
-	kindedBase, err := buildCandidateAs(environment, "regular.txt", reflect.TypeFor[*Regular]())
+	kindedBase, err := buildCandidateAs(environment, "regular.txt", reflect.TypeFor[Regular]())
 	if err != nil {
 		t.Fatalf("candidate: %v", err)
 	}
-	kinded := &Regular{resource: *kindedBase}
+	kinded := &regular{resource: *kindedBase}
 
 	unassertedDigest, err := unasserted.Digest()
 	if err != nil {
@@ -123,18 +123,18 @@ func TestAny_ContentIdentityOnAMissingPathErrors(t *testing.T) {
 
 // region HELPER FUNCTIONS
 
-// anyKindAt builds an UNLINKED [*AnyKind] for `rel` — no interning, so a test may probe several kinds
+// anyKindAt builds an UNLINKED [*anyKind] for `rel` — no interning, so a test may probe several kinds
 // at several paths under one environment without tripping the catalog's cross-kind claim rule.
-func anyKindAt(t *testing.T, environment *op.RuntimeEnvironment, rel string) *AnyKind {
+func anyKindAt(t *testing.T, environment *op.RuntimeEnvironment, rel string) *anyKind {
 
 	t.Helper()
 
-	base, err := buildCandidateAs(environment, rel, reflect.TypeFor[*AnyKind]())
+	base, err := buildCandidateAs(environment, rel, reflect.TypeFor[AnyKind]())
 	if err != nil {
 		t.Fatalf("candidate %s: %v", rel, err)
 	}
 
-	return &AnyKind{resource: *base}
+	return &anyKind{resource: *base}
 }
 
 // endregion
@@ -169,8 +169,8 @@ func TestAny_ResolvesToTheObservedKindAtTheTransition(t *testing.T) {
 	if !ok {
 		t.Fatal("the entry vanished from the ledger")
 	}
-	if _, isRegular := entry.(*Regular); !isRegular {
-		t.Fatalf("ledger holds %T, want *Regular — the claim must become what the disk holds", entry)
+	if _, isRegular := entry.(Regular); !isRegular {
+		t.Fatalf("ledger holds %T, want Regular — the claim must become what the disk holds", entry)
 	}
 	if entry.ID() != id {
 		t.Errorf("resolved entry ID = %q, want %q — one identity throughout", entry.ID(), id)
@@ -201,8 +201,8 @@ func TestAny_AnUnmetClaimStaysUnasserted(t *testing.T) {
 	}
 
 	entry, _ := environment.ResourceCatalog.Lookup(id)
-	if _, stillAny := entry.(*AnyKind); !stillAny {
-		t.Errorf("ledger holds %T, want *AnyKind — an unmet claim has nothing to become", entry)
+	if _, stillAny := entry.(AnyKind); !stillAny {
+		t.Errorf("ledger holds %T, want AnyKind — an unmet claim has nothing to become", entry)
 	}
 	if got := environment.ResourceCatalog.State(id); got != op.Gone {
 		t.Errorf("state = %v, want Gone", got)

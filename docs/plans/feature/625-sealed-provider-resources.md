@@ -17,18 +17,18 @@ This plan is **thread 2 of four**, worked after the CLI output conventions
 ([#762](https://github.com/NobleFactor/devlore-cli/issues/762)) and unified configuration
 ([#441](https://github.com/NobleFactor/devlore-cli/issues/441)).
 
-**Six of ten phases have landed.** Phases 1-6 are complete: the framework repairs and `service`, the
-generator inspecting the implementation, `git` and `appnet`, `json` and `yaml`, `mem` and `function`, and
-`pkg`. Part 1 is done; every provider but `file` is sealed.
+**Seven of ten phases have landed.** Phases 1-7 are complete: the framework repairs and `service`, the
+generator inspecting the implementation, `git` and `appnet`, `json` and `yaml`, `mem` and `function`, `pkg`,
+and `file`. Parts 1 and 2 are done: every announced resource type is an interface, and the rule holds with no
+exceptions. What remains is closure.
 
 | Phase | Subject | Issue |
 | --- | --- | --- |
-| 7 | `file`'s four variants, discriminated by `kind()` (sized 2026-09-04) | [#645](https://github.com/NobleFactor/devlore-cli/issues/645) |
 | 8 | sweep `ConvertFrom` / `CanConvertFrom` | [#649](https://github.com/NobleFactor/devlore-cli/issues/649) |
 | 9 | the rule becomes structurally enforceable | [#646](https://github.com/NobleFactor/devlore-cli/issues/646) |
 | 10 | closure — the design record states the contract | [#647](https://github.com/NobleFactor/devlore-cli/issues/647) |
 
-Every remaining phase already has an issue. **#645 is in progress** (sized 2026-09-04).
+Every remaining phase already has an issue. **#649 is next.**
 
 ### The thread's other open work
 
@@ -575,7 +575,7 @@ Steps, each a commit only if it needs to be one:
 
 ### Part 2 — `file`
 
-#### Phase 7 — `file`'s four variants become interfaces — status: in-progress
+#### Phase 7 — `file`'s four variants become interfaces — status: complete
 
 `AnyKind`, `Regular`, `Directory`, `SymbolicLink` each become a sealed interface over an unexported
 struct — `anyKind`, `regular`, `directory`, `symbolicLink` — discriminated by `kind() <Interface>` per
@@ -639,6 +639,34 @@ Steps, each a commit only if it needs to be one:
    `starcode` (one).
 4. `make generate`; the four fragments stay byte-identical (ruling 4).
 5. Tests follow, the kind-resolution and planner tests read against the interface types; `make check`.
+
+**Landed 2026-09-04 (#645).** One commit after the sizing. Where the transformation and the sizing disagreed:
+
+- **The sizing was wrong on the field.** `SourcePath` is read outside the package — eight sites in `encryption`,
+  three in `archive` — and two more test files in `plan` held `*file.Regular`. The survey's filters hid them
+  (an enumeration error, the capped-grep kind). All became `Path()`, which the base interface already had, under
+  the consumer-edit ruling. `archive` also called `IsDir()` on a `Directory` after `Exists()`; a `Directory`'s
+  `Exists` is kind-honest, so the second check was unreachable and the two folded into one refusal.
+- **The framework change landed in `convert.go`, not the catalog.** The plan-time interconvertibility probes
+  (`sourceSideAdvertises`, `targetSideAdvertises`) inspect a type's method set, and an interface type has none
+  of the struct's converter methods, so binding a `file.Directory` output to a `string` slot was refused at
+  validation — three tests caught it. `probeTypeFor` resolves a registered sealed interface to
+  `*implementation` before probing. This is the third framework path an interface-typed resource breaks, after
+  #641's two; it had not bitten earlier because no graph binds a `service` or `pkg` output to a string slot.
+- **Kind resolution and supersession needed no change.** The catalog reaches the resolver by interface
+  assertion. `internEntry`'s probe for an unasserted entry asserts `AnyKind`, the interface, and the any-kind
+  tests assert the ledger holds `Regular` and `AnyKind` by interface — the re-pinning the plan asked for.
+- **Registrations.** Four implementations and five mints, in `resource.go`'s `init`; the base's mint moved
+  there from `planspace.go` to sit beside them. The plan-path normalizers register the interfaces, because the
+  parameter type is what the planner looks up.
+- **Constructors return an explicit nil on error.** The earlier phases return a typed nil through
+  `return discoverResource(...)` — logged as [#807](https://github.com/NobleFactor/devlore-cli/issues/807).
+  The cross-kind collision error now prints the struct names via `%T` — logged as
+  [#808](https://github.com/NobleFactor/devlore-cli/issues/808), for #649's sweep.
+- **Tests** reach struct-only members (`MismatchesKind`, `Equal`, `ReachabilityURI`) through a generic
+  `concrete[S]` helper; two test helpers were renamed to make room for the unexported `discoverDirectory` and
+  `discoverSymbolicLink`.
+- **Generated files** are byte-identical to develop for `file`, `encryption`, `archive`, and `starcode`.
 
 ### Closure
 

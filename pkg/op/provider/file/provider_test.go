@@ -116,7 +116,7 @@ func assertOwnerOnlyAndReadable(t *testing.T, path string) {
 //
 // The directory is the caller's because a provider's root confines it: a source in some other temp tree is a
 // cross-tree read, which is exactly what a confined root refuses.
-func testFileResource(t *testing.T, dir string, content []byte) *Regular {
+func testFileResource(t *testing.T, dir string, content []byte) Regular {
 
 	t.Helper()
 	f, err := os.CreateTemp(dir, "file-*")
@@ -135,15 +135,15 @@ func testFileResource(t *testing.T, dir string, content []byte) *Regular {
 	return fileResource
 }
 
-// mustRegular mints an unlinked *Regular for `path` — the read-method fixture.
+// mustRegular mints an unlinked Regular for `path` — the read-method fixture.
 //
 // The catalog is not part of the assertion surface in these tests.
-func mustRegular(t *testing.T, runtimeEnvironment *op.RuntimeEnvironment, path string) *Regular {
+func mustRegular(t *testing.T, runtimeEnvironment *op.RuntimeEnvironment, path string) Regular {
 
 	t.Helper()
 
 	// A catalog-free session anchored at the same directory: the nil catalog is what leaves the returned
-	// *Regular unlinked, and the constructor defaults one.
+	// Regular unlinked, and the constructor defaults one.
 	unlinked := testEnvironment(t, runtimeEnvironment.Root().Name())
 	unlinked.ResourceCatalog = nil
 
@@ -359,7 +359,7 @@ func TestCompensateLink_NewSymlink_RemovesOnCompensate(t *testing.T) {
 	}
 
 	// Receipt with no recovery path — symlink didn't exist before.
-	resource := &SymbolicLink{resource: resource{SourcePath: fsroot.NewPath("", linkPath)}}
+	resource := &symbolicLink{resource: resource{SourcePath: fsroot.NewPath("", linkPath)}}
 	state := NewReceipt(NewReceiptSpec(resource, MutationCreateFile))
 
 	p := testProvider(t, tmp)
@@ -391,7 +391,7 @@ func TestCompensateLink_ExistedBefore_RestoresFromRecovery(t *testing.T) {
 	}
 
 	// entry preserves true identity (linkPath); TransactionID is the recovery key.
-	resource := &Regular{resource: resource{SourcePath: fsroot.NewPath("", linkPath)}}
+	resource := &regular{resource: resource{SourcePath: fsroot.NewPath("", linkPath)}}
 	state := NewReceipt(NewReceiptSpec(resource, MutationUpdateFile).WithRecovery(recoveryID, op.Digest{}))
 
 	p := testProvider(t, tmp)
@@ -485,7 +485,7 @@ func TestCompensateCopy_NewFile_RemovesOnCompensate(t *testing.T) {
 	}
 
 	// Receipt with no recovery path = file didn't exist before, just remove it.
-	resource := &Regular{resource: resource{SourcePath: fsroot.NewPath("", path)}}
+	resource := &regular{resource: resource{SourcePath: fsroot.NewPath("", path)}}
 	state := NewReceipt(NewReceiptSpec(resource, MutationCreateFile))
 
 	p := testProvider(t, tmp)
@@ -515,7 +515,7 @@ func TestCompensateCopy_Overwrite_RestoresOriginal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resource := &Regular{resource: resource{SourcePath: fsroot.NewPath("", path)}}
+	resource := &regular{resource: resource{SourcePath: fsroot.NewPath("", path)}}
 	state := NewReceipt(NewReceiptSpec(resource, MutationUpdateFile).WithRecovery(recoveryID, op.Digest{}))
 
 	p := testProvider(t, tmp)
@@ -615,8 +615,8 @@ func TestCompensateBackup_RestoresOriginal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	product := &Regular{resource: resource{SourcePath: fsroot.NewPath("", backupPath)}}
-	source := &Regular{resource: resource{SourcePath: fsroot.NewPath("", originalPath)}}
+	product := &regular{resource: resource{SourcePath: fsroot.NewPath("", backupPath)}}
+	source := &regular{resource: resource{SourcePath: fsroot.NewPath("", originalPath)}}
 	state := NewReceipt(NewReceiptSpec(product, MutationCreateFile).WithSource(source))
 
 	p := testProvider(t, tmp)
@@ -658,8 +658,8 @@ func TestCompensateBackup_ChecksumMismatch_ReturnsError(t *testing.T) {
 	h := sha256.Sum256([]byte("original content"))
 	wrongDigest := op.Digest{Algorithm: "sha256", Bytes: h[:]}
 
-	product := &Regular{resource: resource{SourcePath: fsroot.NewPath("", backupPath)}}
-	source := &Regular{resource: resource{SourcePath: fsroot.NewPath("", originalPath)}}
+	product := &regular{resource: resource{SourcePath: fsroot.NewPath("", backupPath)}}
+	source := &regular{resource: resource{SourcePath: fsroot.NewPath("", originalPath)}}
 	state := NewReceipt(NewReceiptSpec(product, MutationUpdateFile).
 		WithSource(source).WithRecovery(recoveryID, wrongDigest))
 
@@ -753,12 +753,12 @@ func TestClaimedLink_OverARegularFile_IsAMismatchNotAnAbsence(t *testing.T) {
 	if claim.Exists() {
 		t.Error("a link claim over a regular file must not verify")
 	}
-	if !claim.MismatchesKind() {
+	if !concrete[*symbolicLink](t, claim).MismatchesKind() {
 		t.Error("MismatchesKind() = false; something IS there, and it is not a link")
 	}
 
 	absent := mustDiscoverSymbolicLink(t, p, filepath.Join(tmp, "nothing-here"))
-	if absent.MismatchesKind() {
+	if concrete[*symbolicLink](t, absent).MismatchesKind() {
 		t.Error("MismatchesKind() = true over an empty path; absence is not a mismatch")
 	}
 }
@@ -948,8 +948,8 @@ func TestCompensateMove_ChecksumMismatch_ReturnsError(t *testing.T) {
 	h := sha256.Sum256([]byte("original"))
 	wrongDigest := op.Digest{Algorithm: "sha256", Bytes: h[:]}
 
-	product := &Regular{resource: resource{SourcePath: fsroot.NewPath("", dst)}}
-	source := &Regular{resource: resource{SourcePath: fsroot.NewPath("", src)}}
+	product := &regular{resource: resource{SourcePath: fsroot.NewPath("", dst)}}
+	source := &regular{resource: resource{SourcePath: fsroot.NewPath("", src)}}
 	state := NewReceipt(NewReceiptSpec(product, MutationUpdateFile).
 		WithSource(source).WithRecovery(recoveryID, wrongDigest))
 
@@ -1439,8 +1439,8 @@ func TestMkdir_CreatesDirectory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Mkdir() error = %v", err)
 	}
-	if product.SourcePath.Abs() != path {
-		t.Errorf("product.SourcePath.Abs() = %q, want %q", product.SourcePath.Abs(), path)
+	if product.Path().Abs() != path {
+		t.Errorf("product.Path().Abs() = %q, want %q", product.Path().Abs(), path)
 	}
 
 	info, err := os.Stat(path)
@@ -2572,7 +2572,7 @@ func TestWriteText_RejectsUnresolvableUser(t *testing.T) {
 
 // mustDiscoverRegular discovers the typed Remove target for a direct provider call, failing the test on a
 // construction error.
-func mustDiscoverRegular(t *testing.T, p Provider, path string) *Regular {
+func mustDiscoverRegular(t *testing.T, p Provider, path string) Regular {
 
 	t.Helper()
 
@@ -2585,7 +2585,7 @@ func mustDiscoverRegular(t *testing.T, p Provider, path string) *Regular {
 
 // mustDiscoverDirectory discovers the typed RemoveAll target for a direct provider call, failing the test
 // on a construction error.
-func mustDiscoverDirectory(t *testing.T, p Provider, path string) *Directory {
+func mustDiscoverDirectory(t *testing.T, p Provider, path string) Directory {
 
 	t.Helper()
 
@@ -2598,7 +2598,7 @@ func mustDiscoverDirectory(t *testing.T, p Provider, path string) *Directory {
 
 // mustDiscoverSymbolicLink discovers the typed Unlink target for a direct provider call, failing the test
 // on a construction error.
-func mustDiscoverSymbolicLink(t *testing.T, p Provider, path string) *SymbolicLink {
+func mustDiscoverSymbolicLink(t *testing.T, p Provider, path string) SymbolicLink {
 
 	t.Helper()
 
@@ -2607,4 +2607,20 @@ func mustDiscoverSymbolicLink(t *testing.T, p Provider, path string) *SymbolicLi
 		t.Fatalf("DiscoverSymbolicLink(%s): %v", path, err)
 	}
 	return target
+}
+
+// concrete reaches the struct behind a sealed variant, for the assertions that read members the interfaces do not
+// expose (MismatchesKind, SourcePath).
+//
+// [op.Resource] declares neither, so neither sealed interface does; before sealing they were reachable only because
+// the exported structs leaked the base's whole surface. Every caller is in this package, so a white-box test
+// asserting to the implementation is the honest way to reach them rather than widening the exported contract.
+func concrete[S Resource](t *testing.T, r Resource) S {
+	t.Helper()
+	c, ok := r.(S)
+	if !ok {
+		var want S
+		t.Fatalf("resource is %T, want %T", r, want)
+	}
+	return c
 }

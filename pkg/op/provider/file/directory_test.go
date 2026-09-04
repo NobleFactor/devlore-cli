@@ -34,8 +34,8 @@ func mkTreeLink(t *testing.T, target, link string) {
 	}
 }
 
-// discoverDirectory mints a *Directory for `path` in a fresh catalog-backed environment rooted at `root`.
-func discoverDirectory(t *testing.T, root, path string) *Directory {
+// discoverDirectory mints a Directory for `path` in a fresh catalog-backed environment rooted at `root`.
+func discoveredDirectory(t *testing.T, root, path string) Directory {
 	t.Helper()
 	p := testProvider(t, root)
 	directory, err := DiscoverDirectory(p.RuntimeEnvironment(), path)
@@ -48,7 +48,7 @@ func discoverDirectory(t *testing.T, root, path string) *Directory {
 // digestOf returns the Merkle root of `path` under a fresh environment rooted at `root`.
 func digestOf(t *testing.T, root, path string) op.Digest {
 	t.Helper()
-	digest, err := discoverDirectory(t, root, path).Digest()
+	digest, err := discoveredDirectory(t, root, path).Digest()
 	if err != nil {
 		t.Fatalf("Directory.Digest(%s): %v", path, err)
 	}
@@ -203,7 +203,7 @@ func TestDirectoryDigest_KindMismatch(t *testing.T) {
 	path := filepath.Join(root, "actually-a-file")
 	mkTreeFile(t, path, "not a directory")
 
-	_, err := discoverDirectory(t, root, path).Digest()
+	_, err := discoveredDirectory(t, root, path).Digest()
 	if !errors.Is(err, errKindMismatch) {
 		t.Errorf("Digest over a regular file = %v; want the kind mismatch", err)
 	}
@@ -219,7 +219,7 @@ func TestDirectoryEtag_StatTupleAndKindMismatch(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	directory := discoverDirectory(t, root, tree)
+	directory := discoveredDirectory(t, root, tree)
 	first, err := directory.Etag()
 	if err != nil || first == "" {
 		t.Fatalf("Etag = %q (err %v); want a non-empty token", first, err)
@@ -231,7 +231,7 @@ func TestDirectoryEtag_StatTupleAndKindMismatch(t *testing.T) {
 
 	filePath := filepath.Join(root, "plain.txt")
 	mkTreeFile(t, filePath, "plain")
-	_, err = discoverDirectory(t, root, filePath).Etag()
+	_, err = discoveredDirectory(t, root, filePath).Etag()
 	if !errors.Is(err, errKindMismatch) {
 		t.Errorf("Etag over a regular file = %v; want the kind mismatch", err)
 	}
