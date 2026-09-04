@@ -4,6 +4,7 @@
 package cli
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -164,7 +165,7 @@ func TestRunInteractive_RefusesWithoutATerminal(t *testing.T) {
 	isTerminal = func(*os.File) bool { return false }
 	t.Cleanup(func() { isTerminal = previous })
 
-	err := RunInteractive(exec.Command("vi"), "run `probe config path` and open the file yourself")
+	err := RunInteractive(exec.CommandContext(context.Background(), "vi"), "run `probe config path` and open the file yourself")
 	if err == nil {
 		t.Fatal("RunInteractive launched an editor with no terminal")
 	}
@@ -181,9 +182,9 @@ func TestRunInteractive_HandsOverWithATerminal(t *testing.T) {
 	isTerminal = func(*os.File) bool { return true }
 	t.Cleanup(func() { isTerminal = previous })
 
-	child := exec.Command("true")
+	child := exec.CommandContext(context.Background(), "true")
 	if runtime.GOOS == "windows" {
-		child = exec.Command("cmd", "/c", "exit", "0")
+		child = exec.CommandContext(context.Background(), "cmd", "/c", "exit", "0")
 	}
 	if err := RunInteractive(child, "irrelevant"); err != nil {
 		t.Fatalf("the handoff failed: %v", err)

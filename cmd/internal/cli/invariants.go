@@ -53,36 +53,68 @@ func CheckNoOwnOutputFlag(root *cobra.Command) []string {
 	var walk func(cmd *cobra.Command, inherited *pflag.FlagSet)
 	walk = func(cmd *cobra.Command, inherited *pflag.FlagSet) {
 		for _, sub := range cmd.Commands() {
-			own := ownFlags(sub)
-			own.VisitAll(func(local *pflag.Flag) {
-				reportShadow(&violations, sub, local, inherited)
-			})
-			for _, name := range ReservedOutputFlagNames {
-				if local := own.Lookup(name); local != nil && inherited.Lookup(name) != local {
-					violations = append(violations, fmt.Sprintf("%s binds --%s itself; the common set owns that name", sub.CommandPath(), name))
-				}
-			}
-			if local := own.ShorthandLookup("o"); local != nil && inherited.ShorthandLookup("o") == nil {
-				violations = append(violations, fmt.Sprintf("%s binds -o itself, as --%s; -o is --output", sub.CommandPath(), local.Name))
-			}
-			for _, name := range CommonSetFlagNames {
-				if inherited.Lookup(name) == nil {
-					violations = append(violations, fmt.Sprintf("%s does not inherit --%s from the root", sub.CommandPath(), name))
-				}
-			}
-			next := pflag.NewFlagSet(sub.CommandPath(), pflag.ContinueOnError)
-			next.AddFlagSet(inherited)
-			sub.PersistentFlags().VisitAll(func(flag *pflag.Flag) {
-				if next.Lookup(flag.Name) == nil && (flag.Shorthand == "" || next.ShorthandLookup(flag.Shorthand) == nil) {
-					next.AddFlag(flag)
-				}
-			})
-			walk(sub, next)
+			violations = append(violations, checkCommandFlags(sub, inherited)...)
+			walk(sub, inheritedBelow(sub, inherited))
 		}
 	}
 	walk(root, root.PersistentFlags())
 
 	return violations
+}
+
+// checkCommandFlags reports one command's violations against the flags it inherits: shadows, reserved
+// names, a private -o where no -o is inherited, and any of the four it does not inherit.
+//
+// Parameters:
+//   - `cmd`: the command.
+//   - `inherited`: every persistent flag its ancestors carry.
+//
+// Returns:
+//   - `[]string`: one line per violation.
+func checkCommandFlags(cmd *cobra.Command, inherited *pflag.FlagSet) []string {
+
+	var violations []string
+	own := ownFlags(cmd)
+	own.VisitAll(func(local *pflag.Flag) {
+		reportShadow(&violations, cmd, local, inherited)
+	})
+	for _, name := range ReservedOutputFlagNames {
+		if local := own.Lookup(name); local != nil && inherited.Lookup(name) != local {
+			violations = append(violations, fmt.Sprintf("%s binds --%s itself; the common set owns that name", cmd.CommandPath(), name))
+		}
+	}
+	if local := own.ShorthandLookup("o"); local != nil && inherited.ShorthandLookup("o") == nil {
+		violations = append(violations, fmt.Sprintf("%s binds -o itself, as --%s; -o is --output", cmd.CommandPath(), local.Name))
+	}
+	for _, name := range CommonSetFlagNames {
+		if inherited.Lookup(name) == nil {
+			violations = append(violations, fmt.Sprintf("%s does not inherit --%s from the root", cmd.CommandPath(), name))
+		}
+	}
+
+	return violations
+}
+
+// inheritedBelow is the flag set a command's children inherit: what it inherits, plus its own persistent
+// flags where they do not collide.
+//
+// Parameters:
+//   - `cmd`: the command.
+//   - `inherited`: what it inherits itself.
+//
+// Returns:
+//   - `*pflag.FlagSet`: the set its children see.
+func inheritedBelow(cmd *cobra.Command, inherited *pflag.FlagSet) *pflag.FlagSet {
+
+	next := pflag.NewFlagSet(cmd.CommandPath(), pflag.ContinueOnError)
+	next.AddFlagSet(inherited)
+	cmd.PersistentFlags().VisitAll(func(flag *pflag.Flag) {
+		if next.Lookup(flag.Name) == nil && (flag.Shorthand == "" || next.ShorthandLookup(flag.Shorthand) == nil) {
+			next.AddFlag(flag)
+		}
+	})
+
+	return next
 }
 
 // ownFlags returns the flags a command defines itself, local and persistent, read from the raw sets so
@@ -235,22 +267,7 @@ func stdoutWrite(node ast.Node) string {
 
 	switch n := node.(type) {
 	case *ast.CallExpr:
-		switch fun := n.Fun.(type) {
-		case *ast.Ident:
-			if fun.Name == "print" || fun.Name == "println" {
-				return fun.Name + "() writes to stdout"
-			}
-		case *ast.SelectorExpr:
-			if isIdent(fun.X, "fmt") && strings.HasPrefix(fun.Sel.Name, "Print") {
-				return "fmt." + fun.Sel.Name + " writes to stdout"
-			}
-			if isIdent(fun.X, "fmt") && strings.HasPrefix(fun.Sel.Name, "Fprint") && len(n.Args) > 0 && isOSStdout(n.Args[0]) {
-				return "fmt." + fun.Sel.Name + "(os.Stdout, ...) writes to stdout"
-			}
-			if isOSStdout(fun.X) && strings.HasPrefix(fun.Sel.Name, "Write") {
-				return "os.Stdout." + fun.Sel.Name + " writes to stdout"
-			}
-		}
+		return callWrite(n)
 	case *ast.AssignStmt:
 		for _, rhs := range n.Rhs {
 			if isOSStdout(rhs) {
@@ -260,6 +277,35 @@ func stdoutWrite(node ast.Node) string {
 	case *ast.KeyValueExpr:
 		if isOSStdout(n.Value) {
 			return "os.Stdout is handed to something else; only RunInteractive may do that"
+		}
+	}
+
+	return ""
+}
+
+// callWrite classifies a call: a print builtin, a fmt.Print*, a fmt.Fprint* aimed at os.Stdout, or a
+// method on os.Stdout that writes.
+//
+// Parameters:
+//   - `call`: the call expression.
+//
+// Returns:
+//   - `string`: what was written and how, or "".
+func callWrite(call *ast.CallExpr) string {
+
+	switch fun := call.Fun.(type) {
+	case *ast.Ident:
+		if fun.Name == "print" || fun.Name == "println" {
+			return fun.Name + "() writes to stdout"
+		}
+	case *ast.SelectorExpr:
+		switch {
+		case isIdent(fun.X, "fmt") && strings.HasPrefix(fun.Sel.Name, "Print"):
+			return "fmt." + fun.Sel.Name + " writes to stdout"
+		case isIdent(fun.X, "fmt") && strings.HasPrefix(fun.Sel.Name, "Fprint") && len(call.Args) > 0 && isOSStdout(call.Args[0]):
+			return "fmt." + fun.Sel.Name + "(os.Stdout, ...) writes to stdout"
+		case isOSStdout(fun.X) && strings.HasPrefix(fun.Sel.Name, "Write"):
+			return "os.Stdout." + fun.Sel.Name + " writes to stdout"
 		}
 	}
 
