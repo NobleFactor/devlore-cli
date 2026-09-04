@@ -519,6 +519,8 @@ anticipated — because phase 4's groundwork had already moved the content-addre
 
 #### Phase 6 — `pkg` — status: in-progress
 
+Also resolved in this worktree: [#796](https://github.com/NobleFactor/devlore-cli/issues/796) -- the five checked-in package manifests, found on the Windows test.
+
 **Sized 2026-09-04 (#644), before transforming anything.** The "seven external files, the widest surface"
 was wrong in the way phase 5's "six exported fields" turned out to be: the surface is wide inside the
 package and almost nothing outside it touches the struct.

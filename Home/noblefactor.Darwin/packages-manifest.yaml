@@ -8,8 +8,8 @@ packages:
   # release, so it will never advance. Without this the multi-line recipes are split into one shell
   # per line and die as `syntax error: unexpected end of file`. ci.yaml installs it on every macOS
   # leg for the same reason.
-  - make
+  - name: make
 
   # Compilers and build tools the platform expects for anything cgo-adjacent. The registry carries
   # a lore package for it.
-  - xcode-clt
+  - name: xcode-clt

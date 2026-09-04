@@ -23,19 +23,19 @@
 
 packages:
   # Version control, and the only external command the codebase calls directly (7 call sites).
-  - git
+  - name: git
 
   # The toolchain. go.mod requires 1.27.
-  - go
+  - name: go
 
   # Linting. golangci-lint runs from `make lint-all` against a pinned version; shellcheck and shfmt
   # are what `star lint shell` invokes, the latter as `shfmt -d -i 4 -ci`.
-  - golangci-lint
-  - shellcheck
-  - shfmt
+  - name: golangci-lint
+  - name: shellcheck
+  - name: shfmt
 
   # The pull-request workflow: release.yaml, lkg-tag.yaml, and every PR script.
-  - gh
+  - name: gh
 
   # JSON handling in docs-publish.yaml.
-  - jq
+  - name: jq
