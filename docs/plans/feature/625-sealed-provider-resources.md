@@ -3,7 +3,7 @@ title: "Sealed provider resources: every announced resource type is an interface
 issue: https://github.com/NobleFactor/devlore-cli/issues/625
 status: in-progress
 created: 2026-08-23
-updated: 2026-09-01
+updated: 2026-09-04
 ---
 
 # Plan: Sealed provider resources — every announced resource type is an interface
@@ -22,7 +22,7 @@ generator inspecting the implementation, `git` and `appnet`, `json` and `yaml`, 
 
 | Phase | Subject | Issue |
 | --- | --- | --- |
-| 6 | `pkg` — the widest consumer surface | [#644](https://github.com/NobleFactor/devlore-cli/issues/644) |
+| 6 | `pkg` — the widest footprint, all of it in-package (sized 2026-09-04) | [#644](https://github.com/NobleFactor/devlore-cli/issues/644) |
 | 7 | `file`'s four variants, discriminated by `kind()` | [#645](https://github.com/NobleFactor/devlore-cli/issues/645) |
 | 8 | sweep `ConvertFrom` / `CanConvertFrom` | [#649](https://github.com/NobleFactor/devlore-cli/issues/649) |
 | 9 | the rule becomes structurally enforceable | [#646](https://github.com/NobleFactor/devlore-cli/issues/646) |
@@ -340,7 +340,7 @@ failing. This is the load-bearing detail of part 2.
 | 1 | 3 | #642 | `git`, `appnet` |
 | 1 | 4 | #643 | `json`, `yaml` |
 | 1 | 5 | #662 | `mem` and `function` — coupled by a cross-package embed |
-| 1 | 6 | #644 | `pkg` — the widest footprint |
+| 1 | 6 | #644 | `pkg` — the widest footprint, in-package |
 | 2 | 7 | #645 | `file`'s four variants, discriminated by `kind()` |
 | — | 8 | #649 | sweep `ConvertFrom` / `CanConvertFrom` — dead once every provider is sealed |
 | — | 9 | #646 | the rule becomes structurally enforceable |
@@ -349,7 +349,8 @@ failing. This is the load-bearing detail of part 2.
 Supersedes #626–#630, which were filed against the original phase shape and are closed as superseded.
 
 Phases are grouped by risk, not by footprint. The `Unpacker` four share one failure mode and are proved
-together; `pkg` is alone because it has the widest consumer surface (7 files) and the open question about
+together; `pkg` is alone because it has the widest footprint — 46 field reads, every one in-package, as the
+phase-6 sizing found; the "7 files" it was filed with were importers of its action-name constants — and the open question about
 exported behavioral fields.
 
 ## Phases
@@ -516,11 +517,42 @@ anticipated — because phase 4's groundwork had already moved the content-addre
    cyclomatic-complexity ceiling breach in `ConvertTo`, three receiver-naming inconsistencies, and three
    misspellings. The first phase where that ran before the push rather than after CI.
 
-#### Phase 6 — `pkg` — status: pending
+#### Phase 6 — `pkg` — status: in-progress
 
-Seven external files, the widest surface. Answers the plan's standing question: a resource whose exported
-behavioral fields consumers read must expose them as interface methods, or those consumers change. Size
-it before transforming it.
+**Sized 2026-09-04 (#644), before transforming anything.** The "seven external files, the widest surface"
+was wrong in the way phase 5's "six exported fields" turned out to be: the surface is wide inside the
+package and almost nothing outside it touches the struct.
+
+- **The struct.** `op.ResourceBase` plus three exported fields, `Name`, `Type`, `Version`. Identity is the
+  purl, location-keyed, so all three are identity-bearing or requested state: they become interface
+  methods `Name()`, `Type()`, `Version()` on a sealed `Resource` over an unexported `resource`, the shape
+  every earlier phase set.
+- **Outside the package**, two non-generated files import it, lore's `builder.go` and writ's
+  `deploy/report.go`, and both use the action-name constants `pkg.Install`, `pkg.Remove`, `pkg.Upgrade`.
+  Not one reads a field. Every mention of `pkg.Resource` elsewhere is a doc comment in `pkg/platform`.
+  The generated tests read `Name()` and `Type()` of action and receiver metadata, not of the resource.
+  **No consumer changes.**
+- **Inside the package**, 20 field reads in code and 26 in tests. The code sites are `helpers.go`, which
+  builds a purl from the three fields; `provider.go`'s query paths, which read `Name` and `Type`; and one
+  **write**: after an install the provider replaces `Type` with the manager's resolved purl type
+  (`provider.go:393`, `resource.Type = resolvedType`). That is the one thing sealing has to keep honest.
+  The write stays in-package on the struct, reached through the same `.(*resource)` assertion the other
+  providers use to reach their struct, and gets a method with a name that says it is a resolution, not a
+  free setter.
+- **Method signatures.** `Install`, `Remove`, `Upgrade` take `[]*Resource`; `Installed`, `NotInstalled`,
+  `Observe`, `VersionGTE` take `*Resource`; `NewReceipt` takes one. All become the interface, and the
+  generated files regenerate from the implementation, as phase 2 arranged.
+- **Tests.** In-package, so they may construct `&resource{}` directly where a test needs a specific
+  shape, and go through `NewResource`/`DiscoverResource` where it needs a catalog entry.
+
+Steps, each a commit only if it needs to be one:
+
+1. `resource.go`: the interface, the struct, `sealedResource`, the three accessors, the resolution method,
+   the two constructors returning the interface, the `init` registration pair, the interface guards.
+2. `provider.go`, `helpers.go`, `receipt.go`, `observation.go`: the interface in every signature; field
+   reads become accessor calls; the write becomes the resolution method.
+3. `make generate` regenerates the gen files; the four fragments stay byte-identical (ruling 4).
+4. Tests follow; `make check`.
 
 ### Part 2 — `file`
 
