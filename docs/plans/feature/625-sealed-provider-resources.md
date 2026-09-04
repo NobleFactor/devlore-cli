@@ -23,12 +23,12 @@ generator inspecting the implementation, `git` and `appnet`, `json` and `yaml`, 
 
 | Phase | Subject | Issue |
 | --- | --- | --- |
-| 7 | `file`'s four variants, discriminated by `kind()` | [#645](https://github.com/NobleFactor/devlore-cli/issues/645) |
+| 7 | `file`'s four variants, discriminated by `kind()` (sized 2026-09-04) | [#645](https://github.com/NobleFactor/devlore-cli/issues/645) |
 | 8 | sweep `ConvertFrom` / `CanConvertFrom` | [#649](https://github.com/NobleFactor/devlore-cli/issues/649) |
 | 9 | the rule becomes structurally enforceable | [#646](https://github.com/NobleFactor/devlore-cli/issues/646) |
 | 10 | closure — the design record states the contract | [#647](https://github.com/NobleFactor/devlore-cli/issues/647) |
 
-Every remaining phase already has an issue. **#645 is next.**
+Every remaining phase already has an issue. **#645 is in progress** (sized 2026-09-04).
 
 ### The thread's other open work
 
@@ -575,7 +575,7 @@ Steps, each a commit only if it needs to be one:
 
 ### Part 2 — `file`
 
-#### Phase 7 — `file`'s four variants become interfaces — status: pending
+#### Phase 7 — `file`'s four variants become interfaces — status: in-progress
 
 `AnyKind`, `Regular`, `Directory`, `SymbolicLink` each become a sealed interface over an unexported
 struct — `anyKind`, `regular`, `directory`, `symbolicLink` — discriminated by `kind() <Interface>` per
@@ -594,6 +594,51 @@ activation (`op.KindResolver`) and the supersession rules from #616 must be re-p
 types rather than concrete ones — this is where a silent regression would hide.
 
 At the end of this phase the rule holds with no exceptions, and the feature's goal is met.
+
+**Sized 2026-09-04 (#645), before transforming anything.** Read against develop at 1fc3ea9c, after phase 6.
+
+- **The shape today.** `file.Resource` is already sealed, from #616's first phase: `op.Resource` plus
+  `Path()` plus the unexported marker. The four variants are exported structs that each embed the one
+  unexported base, `resource` in `resource_base.go`, and add no fields of their own. The base carries the
+  package's one exported field, `SourcePath`, read nowhere outside the package. So there are no
+  behavioral fields to promote; the work is the four type declarations and everything that names them.
+- **Constructors.** `NewRegular`/`DiscoverRegular`, `NewDirectory`/`DiscoverDirectory`, and
+  `NewSymbolicLink`/`DiscoverSymbolicLink` return the struct pointer; each returns its variant interface.
+  `DiscoverAnyKind` already returns `Resource` and is untouched.
+- **Registration.** One mint exists today, `Resource → *AnyKind` in `planspace.go`. The phase adds the four
+  implementation registrations and the four interface→struct mints the plan names. The kind resolver on
+  any-kind is reached in the catalog by an interface assertion, and `Supersede` takes `op.Resource` values,
+  so the concrete-type change is invisible to both; the re-pinning the plan warns about lives in
+  `kind_resolution_test.go` and `planner_test.go`, which model the any-kind shape "without the filesystem"
+  and are read against the interface forms.
+- **Outside the package**, the pointer type is held in three consumer packages and one test: `encryption`
+  (`DecryptSopsFile` and `EncryptFile` take and return `*file.Regular`; two compensations and `receipt.go`
+  assert it), `archive` (`Extract` takes `source *file.Regular`), `starcode` (a tree-walk reducer asserts
+  `entry.(*file.Directory)`), and `encryption/provider_test.go`. Everything else naming a variant outside
+  the package is a doc comment, in five files. **Ruled 2026-09-04 (USER): this worktree edits those
+  sites.** A pointer type becomes the interface of the same name; the change is mechanical; the phase cannot
+  compile without it, and splitting it off would leave the tree red between two PRs.
+- **Inside the package**, the pointer forms appear roughly 140 times in code and 34 in tests, many in
+  error strings that keep their text. The methods outside the interfaces — `BindRoot`, `IsDir`,
+  `MismatchesKind`, `String`, `Equal`, `ConvertTo`, the unmarshalers — stay on the base struct; in-package
+  callers reach them through the struct, tests through a `concrete` helper as `pkg` and `service` do.
+  `BindRoot` is reached by the executor through `op.RootBinder`, an interface assertion, so it is unaffected.
+- **Generated files.** The four announcements name `provider.AnyKind`, `provider.Regular`,
+  `provider.Directory`, `provider.SymbolicLink`, the names the interfaces keep. Expected byte-identical, as
+  `pkg`'s were.
+- **The discriminator** is `kind() Regular` and its three siblings on the unexported structs, per ruling 6;
+  the base's `sealedResource()` stays where it is. #645's body still uses the pre-rename `Any`/`any`; the
+  names settled above govern.
+
+Steps, each a commit only if it needs to be one:
+
+1. `regular.go`, `directory.go`, `symbolic_link.go`, `any_kind.go`: the interface, the unexported struct,
+   `kind()`, the constructors returning the interface; `planspace.go`: the registrations.
+2. In-package readers to the interfaces; the `concrete` helper in the tests.
+3. The consumer sites, under the ruling: `encryption` (five sites and the test), `archive` (one),
+   `starcode` (one).
+4. `make generate`; the four fragments stay byte-identical (ruling 4).
+5. Tests follow, the kind-resolution and planner tests read against the interface types; `make check`.
 
 ### Closure
 
