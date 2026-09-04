@@ -1,7 +1,7 @@
 ---
 title: "Enforcement: the tests that fail when a command leaves the output convention, the shared commands they catch, and the last program onto the shared root"
 issue: https://github.com/NobleFactor/devlore-cli/issues/776
-status: chartered
+status: complete
 created: 2026-09-01
 updated: 2026-09-03
 ---
@@ -197,13 +197,17 @@ model build --model` shadowed the root's `--model` with a different meaning and 
 `--golangci-config`. Star's loader now refuses any flag that shadows a root flag, so an extension cannot
 reintroduce one.
 
-### Phase 3: Close the convention box (status: not started)
+### Phase 3: Close the convention box (status: complete)
 
-- [ ] `make docs` runs in the commit's script and succeeds
-- [ ] `10-command-line-interface.status.md` — the enforcement box ticked, the epic's last convention box
-- [ ] `740-cli-output-conventions.md` — its Phase 3 writ boxes, landed by #774 and still unticked,
-      ticked with the pointer; Phase 5 ticked; `status: complete`
-- [ ] `10-command-line-interface.md` §14's invariant table names the tests that enforce each row
+- [x] `make docs` runs in the commit's script and succeeds
+- [x] `10-command-line-interface.status.md` — the enforcement box ticked, the epic's last convention box
+- [x] `740-cli-output-conventions.md` — its Phase 3 writ boxes, landed by #774 and still unticked,
+      ticked with the pointer; its goals and Phase 5 ticked; `status: complete`
+- [x] `10-command-line-interface.md` §14's invariant table names the tests that enforce each row
+
+**Found on the way:** `devlore-docs` generates pages for `lore` and `writ` only, so `make docs` says
+nothing about `star` or `devlore-test`. The flag-set agreement is proven on all four trees by the root
+tests regardless; the generator's coverage is its own issue, filed from here.
 
 ## Test Plan
 
@@ -263,7 +267,7 @@ merge**, and a box that cannot be checked from this branch says what checks it.
 - [x] Every in-scope root is `cli.NewRootCmd`, which registers the common set once; no program calls
       `AddOutputFlags`, which no longer exists by that name; every root has a root test calling the
       checkers (#757 closes here) — phase 2
-- [ ] `make docs` succeeds; the status doc's enforcement box and the 740 plan are closed
+- [x] `make docs` succeeds; the status doc's enforcement box and the 740 plan are closed — phase 3
 
 **Test rows**
 
@@ -273,7 +277,7 @@ merge**, and a box that cannot be checked from this branch says what checks it.
 - [x] 4 — `devlore-test` wraps help at `COLUMNS=70` and renders through `-o` (unit)
 - [x] 5 — each checker red on its fixture (unit)
 - [x] 6 — the shared `config` subcommands render through `-o`; `man` narrates (unit)
-- [ ] 7 — `make docs` generates every page (build, in the commit's script)
+- [x] 7 — `make docs` generates every page it knows, lore's and writ's (build, in the commit's script)
 - [ ] 8 — the suite passes on **all five platforms**: darwin-arm64 locally; **checked here when every
       `test (…)` leg is green**
 
@@ -285,6 +289,7 @@ merge**, and a box that cannot be checked from this branch says what checks it.
 - [10-command-line-interface.md](../../architecture/10-command-line-interface.md) — the convention enforced
 - Issue [#776](https://github.com/NobleFactor/devlore-cli/issues/776)
 - Issue [#757](https://github.com/NobleFactor/devlore-cli/issues/757) — `devlore-test` onto the shared root; folded here, closes with this PR
+- Issue [#787](https://github.com/NobleFactor/devlore-cli/issues/787) — `devlore-docs` generates pages for `lore` and `writ` only; `star` and `devlore-test` have no reference (own worktree)
 - Issue [#786](https://github.com/NobleFactor/devlore-cli/issues/786) — `scripts/Get-EpicReport` gains `--by`, `--view` and `--output`, the thread status document (chore, resolved in this worktree)
 
 ## Open Questions

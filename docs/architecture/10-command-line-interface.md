@@ -706,14 +706,17 @@ Each rule below is greppable, and each has a test. These are the reason the docu
 
 | # | Invariant | Enforced by |
 | --- | --- | --- |
-| 1 | No command package writes to `os.Stdout` directly | a test over `cmd/**` |
-| 2 | No command registers `--output`, `--store`, or `--json` itself | a test over cobra flag registration |
-| 3 | All four in-scope roots register the full common set | a test over the command tree |
+| 1 | No in-scope command package writes to `os.Stdout` directly; the one seam is [RunInteractive] | `TestNoDirectStdout_InScope`, a source walk over `cmd/internal/cli` and the four programs |
+| 2 | No command registers `--output`, `--store`, or `--json` itself, and no command shadows any flag it inherits, by name or shorthand | [CheckNoOwnOutputFlag], called from every program's root test |
+| 3 | All four in-scope roots are the shared root, which registers the common set once; nothing outside `cmd/internal/cli` builds a rendering | [CheckSharedSetOnRoot] from every root test; `TestNoPrivatePipeline_InScope`, a source walk for `pkg/result` importers |
 | 4 | `--store` relocates both subdirectories and the run index together | a store round-trip test |
 | 5 | Narration is absent from stdout under every format | a test capturing both streams |
 | 6 | Help strings read as published prose; they ship unreviewed | `make docs` and read it, in the flag-changing work |
 
-Invariants 1 and 2 are the ones that prevent regression, because both are mechanical and both are red today.
+Invariants 1 to 3 are the ones that prevent regression, because all three are mechanical. Invariants 1 and 2
+were red when this was written; they went green with #774, #775 and #743, and invariant 1 went red once more
+on the shared package's own `config` and `man` commands before #776 closed it. Each checker was shown red on
+a fixture before it was trusted.
 
 ## 15. Per-app conformance
 

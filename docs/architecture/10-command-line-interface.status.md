@@ -66,8 +66,12 @@ and three of four programs landed by 2026-09-01. `devlore-test`, `lore` and `wri
 - [x] The shared root's commands are one set on the four programs with a program's additions attached
   beneath, `man` is the one route to man pages, and no usage text follows any error -- ruled 2026-09-02
   (§2, §9, §12; decisions 7-9). Landed with #743 phase 3, where `star` was the last program to join.
-- [ ] The enforcement tests written — no direct `os.Stdout` write from a command package, and no command
-  registering its own output flag. Both are red today.
+- [x] The enforcement tests written ([#776](https://github.com/NobleFactor/devlore-cli/issues/776)): no
+  direct `os.Stdout` write from an in-scope command package (`TestNoDirectStdout_InScope`), no command
+  registering its own output flag or shadowing an inherited one (`CheckNoOwnOutputFlag`, from every root
+  test), every root the shared root and no private rendering (`CheckSharedSetOnRoot`,
+  `TestNoPrivatePipeline_InScope`). Each shown red on a fixture; the first was red on the shared package's
+  own thirteen writes at phase 1 and green at phase 2. The epic's convention box is closed.
 
 ## Document discrepancies
 
