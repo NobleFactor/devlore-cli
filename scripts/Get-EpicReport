@@ -3,7 +3,13 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright Noble Factor. All rights reserved.
 
-# Get-EpicReport - render the epic / feature / task tree as markdown
+# Get-EpicReport - render the epic / feature / task tree, or the thread status table, as markdown or json
+#
+# --by epic (the default) sections the report by epic, every epic or the one --epic names; --by thread sections
+# it by the four threads in execution order. --view tree (the default) is the hierarchy with a table of tasks
+# under each feature; --view table is one status table per section -- ID, Issue, Title, Status, Comment --
+# in the same order. The two are orthogonal. --output markdown is what a person reads and the default;
+# --output json is the rows every view is built from, one object per issue.
 #
 # GitHub is the index. Five kinds across three tiers: `epic` -> `feature` -> {`task` | `bug`}, plus `chore`
 # for maintenance work on the repo itself (adopted by #574). A task implements part of a feature; a bug
@@ -20,7 +26,7 @@
 # cannot place is invisible to every other view. Only open issues are audited -- closed ones predate the
 # scheme and cannot be reclassified.
 
-source "Declare-BashScript" "$0" "audit,debt,epic:,limit:,state:,help" "h" "$@"
+source "Declare-BashScript" "$0" "audit,by:,debt,epic:,limit:,output:,state:,view:,help" "h" "$@"
 require_nix
 
 command -v gh >/dev/null 2>&1 || error $EX_UNAVAILABLE "The 'gh' command is required but not found. Please install the GitHub CLI."
@@ -30,13 +36,17 @@ command -v jq >/dev/null 2>&1 || error $EX_UNAVAILABLE "The 'jq' command is requ
 # Arguments
 ###########
 
-declare -r synopsis="Get-EpicReport [--state open|closed|all] [--epic <Name>] [--audit|--debt] [--limit <n>]"
+declare -r synopsis="Get-EpicReport [--by epic|thread] [--view tree|table] [--output markdown|json] [--epic <Name>] [--state open|closed|all] [--audit|--debt] [--limit <n>]"
 
 audit_only=false
 debt_only=false
 epic=""
 limit=500
 state=open
+by=epic
+state_given=false
+output=markdown
+view=tree
 
 # shellcheck disable=SC2154 # script_arguments is assigned by Declare-BashScript, which shellcheck cannot resolve from PATH
 eval set -- "$script_arguments"
@@ -61,6 +71,19 @@ while :; do
             ;;
         --state)
             state="$2"
+            state_given=true
+            shift 2
+            ;;
+        --by)
+            by="$2"
+            shift 2
+            ;;
+        --output)
+            output="$2"
+            shift 2
+            ;;
+        --view)
+            view="$2"
             shift 2
             ;;
         -h | --help)
@@ -87,8 +110,38 @@ esac
 
 [[ "$audit_only" == "true" && "$debt_only" == "true" ]] &&
     error $EX_USAGE "--audit and --debt are mutually exclusive."
+case "$by" in
+    epic | thread) ;;
+    *)
+        error $EX_USAGE "--by must be epic or thread (got '$by')."
+        ;;
+esac
 
-readonly audit_only debt_only epic limit state
+case "$view" in
+    tree | table) ;;
+    *)
+        error $EX_USAGE "--view must be tree or table (got '$view')."
+        ;;
+esac
+
+# The reduced set of the output convention (10-command-line-interface.md §7): markdown is what a person reads
+# and the default; json is the rows the views are built from, one object per issue, for any other tool.
+case "$output" in
+    markdown | json) ;;
+    *)
+        error $EX_USAGE "--output must be markdown or json (got '$output')."
+        ;;
+esac
+
+# --by thread reports status, and status includes what has closed: the state defaults to all unless given.
+[[ "$by" == "thread" && "$state_given" == "false" ]] && state=all
+
+# The four threads, in the order they are executed -- docs/plans/chore/768-revised-process-setup.md,
+# Requirement 2, "Thread order, stated once". Each is an epic, named by its Epic:<Name> label.
+thread_epics='[]'
+[[ "$by" == "thread" ]] && thread_epics='["CommandLine", "ResourceModel", "WritDeployment", "UnifiedConfiguration"]'
+
+readonly audit_only by debt_only epic limit output state thread_epics view
 
 ###########
 # Variables
@@ -103,14 +156,15 @@ declare -r exempt='[65]'
 # Main
 ###########
 
-note "state=${state} epic=${epic:-<all>} audit-only=${audit_only} debt-only=${debt_only}"
+note "by=${by} view=${view} output=${output} state=${state} epic=${epic:-<all>} audit-only=${audit_only} debt-only=${debt_only}"
 
 gh issue list \
     --state "$state" \
     --limit "$limit" \
     --json number,title,state,labels,body,url |
     jq -r --arg epicFilter "$epic" --arg state "$state" --arg auditOnly "$audit_only" \
-        --arg debtOnly "$debt_only" --argjson exempt "$exempt" '
+        --arg debtOnly "$debt_only" --arg view "$view" --arg output "$output" --argjson threads "$thread_epics" \
+        --argjson exempt "$exempt" '
     def names: [.labels[].name];
     def tagged($l): (names | index($l)) != null;
     def kinds: (names | map(select(. == "epic" or . == "feature" or . == "task" or . == "bug" or . == "chore")));
@@ -151,6 +205,27 @@ gh issue list \
         (if (epicTags | length) == 0 then "no Epic:<Name> label" else empty end),
         (if (epicTags | length) > 1 then "multiple epics: \(epicTags | join(", "))" else empty end) ] end;
 
+    # The table rendering: one row per issue, in the order of the tree, with a running ID. The kind, the parent
+    # feature, the triage attributes and any classification fault travel in the Comment column, so the
+    # table stands on its own as a status document.
+    def kindOf:
+      if tagged("epic") then "epic" elif tagged("feature") then "feature" elif isBug then "bug"
+      elif tagged("task") then "task" elif tagged("chore") then "chore" else "unclassified" end;
+    def cell: gsub("\\|"; "\\\\|") | gsub("\n"; " ");
+    def comment($placement):
+      [ kindOf, $placement, (if tagged("WIP") then "WIP" else empty end),
+        (severity | ltrimstr("Severity:") | select(. != "") | "severity " + .),
+        (priority | ltrimstr("Priority:") | select(. != "") | "priority " + .),
+        (if .state == "OPEN" then (faults | join("; ") | select(. != "")) else empty end) ]
+      | map(select(. != "")) | join("; ");
+    def row($placement):
+      { issue: .number, url: .url, title: (.title | cell), kind: kindOf, state: .state, done: (.state == "CLOSED"),
+        placement: $placement, severity: (severity | ltrimstr("Severity:")), priority: (priority | ltrimstr("Priority:")),
+        wip: tagged("WIP"), faults: (if .state == "OPEN" then faults else [] end), comment: comment($placement) };
+    def table:
+      ( "| ID | Issue | Title | Status | Comment |", "|---|---|---|---|---|",
+        ( to_entries[] | "| \(.key + 1) | [#\(.value.issue)](\(.value.url)) | \(.value.title) | \(if .value.done then "✅" else "" end) | \(.value.comment) |" ) );
+
     . as $all
     # Only open work can be reclassified; closed issues predate the scheme and are left as history.
     | [ $all[] | select(.state == "OPEN") | select((.number | IN($exempt[])) | not)
@@ -158,10 +233,29 @@ gh issue list \
     | [ $all[] | select(.state == "OPEN") | select(.number | IN($exempt[])) ] as $exempted
     | [ $all[] | select(.state == "OPEN") | select(isBug) ] as $bugs
     | [ $bugs[] | select(awaitingTriage) ] as $untriaged
-    | (
-        "# Epic report\n",
+    | if $output == "json" then
+        ( ( if ($threads | length) > 0
+            then [ $threads | to_entries[] as $th | $all[] | select(tagged("epic") and epicTag == "Epic:" + $th.value) | . + {thread: ($th.key + 1)} ]
+            else ( [ $all[] | select(tagged("epic")) | select($epicFilter == "" or epicTag == "Epic:" + $epicFilter) ] | sort_by(.number) ) end )
+          | [ .[] as $e
+              | ($e | epicTag) as $tag
+              | [ $all[] | select(tagged("feature") and epicTag == $tag) | select(tagged("epic") | not) ] as $features
+              | [ $all[] | select(isChild            and epicTag == $tag) ] as $tasks
+              | ([ $features[].number ]) as $featureNumbers
+              | ( ($e | row("")),
+                  ( $features | sort_by(.number) | .[] as $f
+                    | ( ($f | row("")),
+                        ( [ $tasks[] | select(parentFeature == $f.number) ] | sort_by(.number) | .[] | row("feature #\($f.number)") | . + {feature: $f.number} ) ) ),
+                  ( [ $tasks[] | select(parentFeature == null or (parentFeature as $p | $featureNumbers | index($p) | not)) ]
+                    | sort_by(.number) | .[] | row("unfiled, no parent feature") ) )
+              | . + {epic: $e.number} + (if ($e | has("thread")) then {thread: $e.thread} else {} end) ]
+          | tojson )
+      else (
+        (if $view == "table" then (if ($threads | length) > 0 then "# Thread status\n" else "# Epic status\n" end) else "# Epic report\n" end),
         "State filter: **\($state)**.",
-        "\n## Classification audit\n",
+        (if $view == "table" then empty else
+        "\n## Classification audit\n" end),
+        (if $view == "table" then empty else (
         ( if ($bad | length) == 0 then
             "All open issues carry exactly one kind label and exactly one epic."
           else
@@ -175,7 +269,8 @@ gh issue list \
         ( if ($untriaged | length) == 0 then empty
           else ( "\n**\($untriaged | length) bug(s) awaiting triage** — no feature, so no epic. Not a fault; this is the queue.\n",
                  ( $untriaged | sort_by(.number) | .[] | "- \(line)" ) )
-          end ),
+          end )
+        ) end),
         ( if $debtOnly == "true" then
             ( "\n## Bug debt\n",
               ( if ($bugs | length) == 0 then "No open bugs."
@@ -192,7 +287,29 @@ gh issue list \
                               + ( parentFeature | if . == null then " · _no feature_" else " · feature #\(.)" end )
                               + ( priority | if . == "" then " · _no priority_" else " · **" + . + "**" end ) ) ) ) )
                 end ) )
-          elif $auditOnly == "true" then empty else
+          elif $auditOnly == "true" then empty
+          elif $view == "table" then
+          ( ( if ($threads | length) > 0
+              then [ $threads | to_entries[] as $th | $all[] | select(tagged("epic") and epicTag == "Epic:" + $th.value) | . + {thread: ($th.key + 1)} ]
+              else ( [ $all[] | select(tagged("epic")) | select($epicFilter == "" or epicTag == "Epic:" + $epicFilter) ] | sort_by(.number) ) end )
+            | if length == 0 then "\nNo epics matched."
+              else
+                ( .[] as $e
+                  | ($e | epicTag) as $tag
+                  | [ $all[] | select(tagged("feature") and epicTag == $tag) | select(tagged("epic") | not) ] as $features
+                  | [ $all[] | select(isChild            and epicTag == $tag) ] as $tasks
+                  | ([ $features[].number ]) as $featureNumbers
+                  | ( [ ($e | row("")),
+                        ( $features | sort_by(.number) | .[] as $f
+                          | ( ($f | row("")),
+                              ( [ $tasks[] | select(parentFeature == $f.number) ] | sort_by(.number) | .[] | row("feature #\($f.number)") ) ) ),
+                        ( [ $tasks[] | select(parentFeature == null or (parentFeature as $p | $featureNumbers | index($p) | not)) ]
+                          | sort_by(.number) | .[] | row("unfiled, no parent feature") ) ] ) as $rows
+                  | ( ( if ($e | has("thread")) then "\n## Thread \($e.thread) — \($e.title) [#\($e.number)](\($e.url))\n"
+                        else "\n## \($e.title) [#\($e.number)](\($e.url))\n" end ),
+                      ( $rows | table ) ) )
+              end )
+          else
           ( [ $all[] | select(tagged("epic")) ]
             | map(select($epicFilter == "" or epicTag == "Epic:" + $epicFilter))
             | sort_by(.number)
@@ -229,5 +346,5 @@ gh issue list \
                       ) ) )
               end )
         end )
-      )
+      ) end
     '

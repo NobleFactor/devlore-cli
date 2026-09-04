@@ -175,7 +175,7 @@ def run(command, ctx):
     """Generate Modelfile from knowledge domain."""
     target = _resolve_target(ctx)
     domain = ctx.args.get("domain", "all")
-    model = ctx.args.get("model", DEFAULT_MODEL)
+    model = ctx.args.get("base-model", DEFAULT_MODEL)
 
     # Determine which domains to build
     if domain == "all":

@@ -225,7 +225,7 @@ HOST_COPIES := lore writ
 
 ## TARGETS
 
-.PHONY: all help help-short help-full build install clean test test-race cover vet vet-all lint lint-all build-all shell-lint complexity verify-ldflags check dev docs dist dist-all star star-lkg generate regenerate inventory help
+.PHONY: all help help-short help-full build install clean test test-race cover vet vet-all lint lint-all build-all shell-lint complexity verify-ldflags check dev docs dist dist-all star star-lkg generate regenerate inventory help print-golangci-lint-version
 
 ##@ Help
 
@@ -398,8 +398,13 @@ build-all: generate ## Compile every package under every supported GOOS (no bina
 
 # golangci-lint is pinned because its embedded go/types decides what staticcheck can infer, so an
 # unpinned local binary and a pinned CI binary disagree about the same source. #669 was exactly that:
-# v2.13.1 found four real SA4023 defects that CI's v2.12.2 did not. Both sides now name this version.
-GOLANGCI_LINT_VERSION ?= v2.13.1
+# v2.13.1 found four real SA4023 defects that CI's v2.12.2 did not. This variable is the one place the
+# version is written: CI reads it through `make print-golangci-lint-version`, so a bump is one line.
+# v2.13.2 since 2026-09-04 -- the developer machine runs it and the whole tree is clean on it.
+GOLANGCI_LINT_VERSION ?= v2.13.2
+
+print-golangci-lint-version: ## Print the pinned golangci-lint version, for CI to install the same one
+	@echo $(GOLANGCI_LINT_VERSION)
 
 golangci-lint-pinned: ## Verify the pinned golangci-lint is the one on PATH
 	installed="$$(golangci-lint version --short 2>/dev/null || echo none)"

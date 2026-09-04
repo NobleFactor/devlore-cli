@@ -89,7 +89,7 @@ func runDeployV2(cmd *cobra.Command, args []string) error {
 
 	// Under --dry-run the plan is the result, and the pipeline renders it like any other.
 	if graphs != nil {
-		return emitResult(cmd, graphs)
+		return cli.Emit(cmd, graphs)
 	}
 	return nil
 }
@@ -151,7 +151,7 @@ func runDecommission(cmd *cobra.Command, args []string) error {
 
 	// Under --dry-run the plan is the result, and the pipeline renders it like any other.
 	if graphs != nil {
-		return emitResult(cmd, graphs)
+		return cli.Emit(cmd, graphs)
 	}
 	return nil
 }
@@ -204,7 +204,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 
 	// Under --dry-run the plan is the result, and the pipeline renders it like any other.
 	if graphs != nil {
-		return emitResult(cmd, graphs)
+		return cli.Emit(cmd, graphs)
 	}
 	return nil
 }
@@ -260,7 +260,7 @@ func runReconcile(cmd *cobra.Command, args []string) error {
 
 	// The report is the result. Rendering is the pipeline's, so every --output value, --jq and --filter
 	// apply to it exactly as they do to any other command's result.
-	return emitResult(cmd, report)
+	return cli.Emit(cmd, report)
 }
 
 func newVerifyCmd() *cobra.Command {
@@ -311,34 +311,11 @@ func runVerify(cmd *cobra.Command, args []string) error {
 
 	// The reports are the result and are emitted whether or not the policy rejected: a rejection is the
 	// answer to the question, not a reason to withhold it.
-	if emitErr := emitResult(cmd, reports); emitErr != nil {
+	if emitErr := cli.Emit(cmd, reports); emitErr != nil {
 		return emitErr
 	}
 
 	return err
-}
-
-// outputOptions holds the common set's values for every writ command.
-//
-// Bound once on the root by [NewRootCmd]; read by [emitResult] wherever a command has a result to render.
-var outputOptions cli.SinkOptions
-
-// emitResult renders a command's result to stdout through the shared pipeline.
-//
-// Parameters:
-//   - `cmd`: the running command, for its output writer.
-//   - `value`: the result to render.
-//
-// Returns:
-//   - `error`: non-nil when the pipeline cannot be built or the value cannot be rendered.
-func emitResult(cmd *cobra.Command, value any) error {
-
-	pipeline, err := cli.BuildPipeline(outputOptions, cmd.OutOrStdout())
-	if err != nil {
-		return err
-	}
-
-	return pipeline.Emit(value)
 }
 
 // getConfiguredRepo returns the path for a layer, or empty string if it doesn't exist.

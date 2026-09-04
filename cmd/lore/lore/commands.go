@@ -524,7 +524,7 @@ func runSearch(cmd *cobra.Command, args []string) error {
 
 	// The results are the result. The shared table aligns by rune and truncates nothing, which is where
 	// #741's byte-count cut goes away; `installed` is a column rather than an asterisk glued to the name.
-	return emitResult(cmd, searchRows(results))
+	return cli.Emit(cmd, searchRows(results))
 }
 
 // searchRow is one search result as the pipeline renders it: field names are the JSON the user sees.
@@ -621,7 +621,6 @@ environment repository.`,
 	}
 
 	cmd.Flags().String("from", "", "Source URL or file path")
-	cmd.Flags().Bool("verbose", false, "Show AI reasoning")
 	cmd.Flags().Bool("explain", false, "Show detailed reasoning for each confidence decision")
 	cmd.Flags().Int("max-fetches", 5, "Maximum additional URLs to fetch")
 	//nolint:errcheck // diagnose-ignored-error: registered above; see docs/architecture/2.8-eventing-infrastructure.md
@@ -667,7 +666,7 @@ func runOnboard(cmd *cobra.Command, args []string) error {
 	}
 
 	// The manifest on disk is the side effect; the discovery is the result, and the pipeline renders it.
-	return emitResult(cmd, result)
+	return cli.Emit(cmd, result)
 }
 
 // parseLoreOnboardConfig reads the onboard flags and operand into a configuration value.
@@ -681,7 +680,7 @@ func runOnboard(cmd *cobra.Command, args []string) error {
 func parseLoreOnboardConfig(cmd *cobra.Command, args []string) *loreOnboardConfig {
 
 	source, _ := cmd.Flags().GetString("from")         //nolint:errcheck // flag registered by AddCommand
-	verbose, _ := cmd.Flags().GetBool("verbose")       //nolint:errcheck // flag registered by AddCommand
+	verbose, _ := cmd.Flags().GetBool("verbose")       //nolint:errcheck // the root's --verbose, inherited
 	explain, _ := cmd.Flags().GetBool("explain")       //nolint:errcheck // flag registered by AddCommand
 	maxFetches, _ := cmd.Flags().GetInt("max-fetches") //nolint:errcheck // flag registered by AddCommand
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Noble Factor. All rights reserved.
 
-package lore
+package writ
 
 import (
 	"strings"
@@ -13,9 +13,6 @@ import (
 // TestRoot_KeepsTheOutputConvention pins the root registration through the shared checkers: every command
 // inherits the common set from the root, none shadows an inherited flag or binds a reserved name, and the
 // set on the root is the shared root's (10-command-line-interface.md §4, §14).
-//
-// Before #775 the set lived on `inspect` alone, so `lore search -o json` was an unknown flag while
-// `lore inspect -o json` was not -- the convention was learnable on one command out of fourteen.
 func TestRoot_KeepsTheOutputConvention(t *testing.T) {
 
 	root := NewRootCmd()

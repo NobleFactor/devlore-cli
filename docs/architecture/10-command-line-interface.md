@@ -563,6 +563,31 @@ paragraph above -- an exit-code-2 error names the flag or the subcommand, and th
 - Color and progress indicators only when stderr is a TTY, and never in the result stream.
 - `--silent` suppresses narration. It never suppresses the result, and never changes the exit code.
 
+**The interaction model (ruled 2026-09-03).** Two kinds of child process, two rules. A child run for its
+output -- `git`, `shellcheck`, anything a provider executes -- is captured, always, and never sees the
+terminal; executing a graph never needs a TTY, and the only thing a graph may do with the terminal is a
+prompt under the rule above. A child launched for the user to drive -- `$EDITOR` under `config edit`,
+`man` under `man`, and no other -- receives the three standard streams through one seam,
+[RunInteractive], which refuses when stdin or stdout is not a terminal and names what to do instead. The
+enforcement walk (§14) allows `os.Stdout` in that function and nowhere else.
+
+An interactive command -- onboarding and migration first -- works the way an agent's terminal does:
+
+1. It is interactive only when a TTY is present, through `internal/console`; without one, `--unattended`
+   runs on defaults, `--from <answers>` replays a recorded set, and anything still undecided fails naming
+   the flag.
+2. Each decision is one question with a short menu and a default, asked once, and never about something a
+   flag already settled.
+3. Every answer is recorded into the artifact the command produces -- the manifest, the migration plan --
+   so the interactive run and the unattended run produce the same artifact, and the artifact is the record.
+4. Progress narrates on stderr; the artifact is the result on stdout, so `-o` and `--store` behave the same
+   in both modes.
+5. Stop anywhere and resume: the recorded answers so far are the checkpoint.
+6. The flow never opens an editor or a pager; it shows the diff or the draft and asks.
+
+A `!` prefix, so the user can run a shell command mid-flow and have its output land in the flow, is an
+open question, raised 2026-09-03 and not yet designed.
+
 ## 11. Configuration precedence
 
 Highest to lowest: **flags**, then environment variables, then project configuration, then user, then system.
@@ -681,14 +706,17 @@ Each rule below is greppable, and each has a test. These are the reason the docu
 
 | # | Invariant | Enforced by |
 | --- | --- | --- |
-| 1 | No command package writes to `os.Stdout` directly | a test over `cmd/**` |
-| 2 | No command registers `--output`, `--store`, or `--json` itself | a test over cobra flag registration |
-| 3 | All four in-scope roots register the full common set | a test over the command tree |
+| 1 | No in-scope command package writes to `os.Stdout` directly; the one seam is [RunInteractive] | `TestNoDirectStdout_InScope`, a source walk over `cmd/internal/cli` and the four programs |
+| 2 | No command registers `--output`, `--store`, or `--json` itself, and no command shadows any flag it inherits, by name or shorthand | [CheckNoOwnOutputFlag], called from every program's root test |
+| 3 | All four in-scope roots are the shared root, which registers the common set once; nothing outside `cmd/internal/cli` builds a rendering | [CheckSharedSetOnRoot] from every root test; `TestNoPrivatePipeline_InScope`, a source walk for `pkg/result` importers |
 | 4 | `--store` relocates both subdirectories and the run index together | a store round-trip test |
 | 5 | Narration is absent from stdout under every format | a test capturing both streams |
 | 6 | Help strings read as published prose; they ship unreviewed | `make docs` and read it, in the flag-changing work |
 
-Invariants 1 and 2 are the ones that prevent regression, because both are mechanical and both are red today.
+Invariants 1 to 3 are the ones that prevent regression, because all three are mechanical. Invariants 1 and 2
+were red when this was written; they went green with #774, #775 and #743, and invariant 1 went red once more
+on the shared package's own `config` and `man` commands before #776 closed it. Each checker was shown red on
+a fixture before it was trusted.
 
 ## 15. Per-app conformance
 
@@ -759,7 +787,7 @@ Measured 2026-08-31, after the fixes for
 | --- | --- | --- |
 | `writ` | yes | yes -- registered on the root, so every command |
 | `lore` | yes | yes -- registered on the root since #779, so every command |
-| `devlore-test` | **no** | yes -- registered on the root |
+| `devlore-test` | **yes** | **yes** -- on the shared root since #757 |
 | `star` | **yes** | **yes** |
 
     COLUMNS=70, longest flag line
@@ -770,8 +798,9 @@ Measured 2026-08-31, after the fixes for
 
 Three different causes, each already tracked:
 
-- `devlore-test` builds its root directly rather than through [NewRootCmd], so it inherits `AddOutputFlags`
-  and not the help wrapping. Nothing prevents it from using the shared constructor; it simply does not.
+- `devlore-test` built its root directly rather than through [NewRootCmd], so it had the common set
+  and not the help wrapping. #757 moved it onto the shared constructor, the last of the four, and its
+  `run` lost a local `--dry-run` that had been shadowing the root's.
 - `star` built a bare `cobra.Command` and bound no output flags at all, so nothing from the shared package
   reached it. The duplicate `cmd/star/cli` was the visible symptom and went first
   ([#743](https://github.com/NobleFactor/devlore-cli/issues/743) phase 2); the root moved onto [NewRootCmd]

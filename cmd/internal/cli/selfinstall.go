@@ -185,7 +185,7 @@ Example:
 			if !force {
 				Note("This will remove %s from %s.", info.Name, prefix)
 				Note("Modified files will be preserved.")
-				fmt.Print("Continue? [y/N] ")
+				Print("Continue? [y/N] ")
 				reader := bufio.NewReader(os.Stdin)
 				answer, err := reader.ReadString('\n')
 				if err != nil {

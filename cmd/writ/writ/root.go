@@ -45,9 +45,6 @@ Declare your environment once — writ deploys it everywhere you work.`,
 
 	rootCmd.PersistentFlags().String("target", "Home", "Target to operate on")
 
-	// The common set binds once, on the root: every subcommand accepts every flag.
-	cli.AddOutputFlags(rootCmd, &outputOptions)
-
 	rootCmd.AddCommand(newDeployCmd())
 	rootCmd.AddCommand(newDecommissionCmd())
 	rootCmd.AddCommand(newReconcileCmd())

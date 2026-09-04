@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 
 	"github.com/spf13/cobra"
 
@@ -104,7 +105,7 @@ const outputUsage = "Output rendering. json is the default and the native format
 	"value          raw, tab-separated, no header; when cut or awk consumes it\n" +
 	"yaml           the same content as json; when reading a large result by eye"
 
-// AddOutputFlags binds the common set -- --filter, --jq, --output/-o, and --store -- to opts.
+// addOutputFlags binds the common set -- --filter, --jq, --output/-o, and --store -- to opts.
 //
 // Bound to PersistentFlags, so one call on a program's root command covers every subcommand. All four
 // in-scope programs register the whole set: a user who learns `-o yaml` on one types it on the next without
@@ -134,7 +135,7 @@ const outputUsage = "Output rendering. json is the default and the native format
 // Parameters:
 //   - `cmd`: the command to bind to, normally a program's root.
 //   - `opts`: the struct the flag values populate.
-func AddOutputFlags(cmd *cobra.Command, opts *SinkOptions) {
+func addOutputFlags(cmd *cobra.Command, opts *SinkOptions) {
 
 	previous := cmd.PersistentPreRunE
 	cmd.PersistentPreRunE = func(c *cobra.Command, args []string) error {
@@ -174,14 +175,19 @@ func AddOutputFlags(cmd *cobra.Command, opts *SinkOptions) {
 		return nil
 	}
 
-	cmd.PersistentFlags().StringVarP(&opts.Format, "output", "o", "json",
-		outputUsage)
-	cmd.PersistentFlags().StringArrayVar(&opts.Filters, "filter", nil,
-		`Filter expression: field=value (repeatable, AND logic)`)
-	cmd.PersistentFlags().StringVar(&opts.JQ, "jq", "",
-		`jq expression applied after --filter; see github.com/itchyny/gojq`)
-	cmd.PersistentFlags().StringVar(&opts.Store, "store", "",
-		`Execution store root, holding definitions and traces (default: the XDG state path)`)
+	cmd.PersistentFlags().StringVarP(&opts.Format, "output", "o", "json", commonSetUsage["output"])
+	cmd.PersistentFlags().StringArrayVar(&opts.Filters, "filter", nil, commonSetUsage["filter"])
+	cmd.PersistentFlags().StringVar(&opts.JQ, "jq", "", commonSetUsage["jq"])
+	cmd.PersistentFlags().StringVar(&opts.Store, "store", "", commonSetUsage["store"])
+}
+
+// commonSetUsage is the usage text of each flag of the common set, as the shared root binds it. Held
+// here so [CheckSharedSetOnRoot] can tell the shared set from a hand-rolled one carrying the same names.
+var commonSetUsage = map[string]string{
+	"filter": `Filter expression: field=value (repeatable, AND logic)`,
+	"jq":     `jq expression applied after --filter; see github.com/itchyny/gojq`,
+	"output": outputUsage,
+	"store":  `Execution store root, holding definitions and traces (default: the XDG state path)`,
 }
 
 // BuildPipeline composes a [result.Pipeline] from the populated [SinkOptions] writing through w.
@@ -274,4 +280,51 @@ func Success(format string, args ...any) {
 // Print emits raw text via the installed narrator.
 func Print(format string, args ...any) {
 	narrator.Print(fmt.Sprintf(format, args...))
+}
+
+// rootOptions holds, per root built by [NewRootCmd], the options its common set binds. One process runs one
+// command tree, but a test builds several roots, so the record is per root rather than per package.
+var (
+	rootOptions   = map[*cobra.Command]*SinkOptions{}
+	rootOptionsMu sync.Mutex
+)
+
+// registerRootOptions records the options a root's common set binds, for [Emit] to find.
+//
+// Parameters:
+//   - `root`: the root command.
+//   - `opts`: the options its flags write into.
+func registerRootOptions(root *cobra.Command, opts *SinkOptions) {
+	rootOptionsMu.Lock()
+	defer rootOptionsMu.Unlock()
+	rootOptions[root] = opts
+}
+
+// Emit renders a command's result to stdout through the shared pipeline, with the options the command's
+// root binds: `--output` selects the rendering, `--filter` and `--jq` narrow it. It is the one render path
+// for every program on the shared root and for the shared commands alike (10-command-line-interface.md §8;
+// ruled 2026-09-03).
+//
+// Parameters:
+//   - `cmd`: the running command; its root's options and its output writer are used.
+//   - `value`: the result.
+//
+// Returns:
+//   - `error`: the root was not built by [NewRootCmd], the pipeline cannot be built, or the value cannot
+//     be rendered.
+func Emit(cmd *cobra.Command, value any) error {
+
+	rootOptionsMu.Lock()
+	opts, ok := rootOptions[cmd.Root()]
+	rootOptionsMu.Unlock()
+	if !ok {
+		return fmt.Errorf("%s: the root was not built by cli.NewRootCmd, so it carries no common set to render with", cmd.CommandPath())
+	}
+
+	pipeline, err := BuildPipeline(*opts, cmd.OutOrStdout())
+	if err != nil {
+		return err
+	}
+
+	return pipeline.Emit(value)
 }

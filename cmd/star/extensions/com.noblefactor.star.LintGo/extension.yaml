@@ -14,10 +14,10 @@ commands:
         default: "./..."
         variadic: true
     flags:
-      - name: config
+      - name: golangci-config
         type: string
         default: ""
-        help: Path to golangci-lint config file
+        help: Path to the golangci-lint config file (--config is the root's, and names devlore's)
       - name: skip_mod_tidy
         type: bool
         default: "false"

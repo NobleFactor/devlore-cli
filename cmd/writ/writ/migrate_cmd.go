@@ -132,7 +132,7 @@ func runMigrate(cmd *cobra.Command, args []string) error {
 		SourceRoot:   sourceRoot,
 		Execute:      !dryRun,
 		Verbose:      verbose,
-		Emit:         func(value any) error { return emitResult(cmd, value) },
+		Emit:         func(value any) error { return cli.Emit(cmd, value) },
 		Provider:     provider,
 		RegClient:    regClient,
 		TreeDepth:    treeDepth,

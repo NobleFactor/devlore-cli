@@ -101,14 +101,16 @@ Examples:
 				return err
 			}
 
+			// The result is the keys asked for and their values; `-o value` prints the values alone.
+			values := make(map[string]any, len(args))
 			for _, key := range args {
 				value, exists := getNestedValue(config, key)
 				if !exists {
 					return ExitWith(ExitDataErr, fmt.Errorf("key not found: %s", key))
 				}
-				fmt.Println(formatValue(value))
+				values[key] = value
 			}
-			return nil
+			return Emit(cmd, values)
 		},
 	}
 
@@ -218,11 +220,12 @@ func newConfigListCmd(_ ConfigInfo) *cobra.Command {
 
 			if len(config) == 0 {
 				Note("No configuration set")
-				return nil
 			}
 
-			printFlattened("", config)
-			return nil
+			// The result is every setting by its dotted key; `-o value` prints the values, `-o list` one per line.
+			flat := map[string]any{}
+			flatten("", config, flat)
+			return Emit(cmd, flat)
 		},
 	}
 }
@@ -253,7 +256,7 @@ func newConfigValidateCmd(info ConfigInfo) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfgPath := SharedConfigPath()
-			return configValidate(cfgPath, info.Schema)
+			return configValidate(cmd, cfgPath, info.Schema)
 		},
 	}
 }
@@ -264,7 +267,7 @@ func newConfigSchemaCmd(info ConfigInfo) *cobra.Command {
 		Short: "Output the embedded JSON schema",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return configSchema(info.Schema)
+			return configSchema(cmd, info.Schema)
 		},
 	}
 }
@@ -275,7 +278,7 @@ func newConfigPathCmd(_ ConfigInfo) *cobra.Command {
 		Short: "Show configuration file location",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return configPath(SharedConfigPath())
+			return configPath(cmd, SharedConfigPath())
 		},
 	}
 }
@@ -351,23 +354,28 @@ func configEdit(configRoot fsroot.Dir, path fsroot.Path, defaultConfig []byte) e
 	}
 
 	cmd := exec.CommandContext(context.Background(), editor, path.Abs()) //nolint:gosec // G204: editor from EDITOR/VISUAL env var
-	cmd.Stdin = os.Stdin
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
 
-	return cmd.Run()
+	return RunInteractive(cmd, "run `config path` and open the file in your own editor")
 }
 
-// configValidate validates the config against the schema.
-func configValidate(path string, schemaBytes []byte) error {
+// configReport is `config validate`'s result: the file, whether it passed, and what was warned about.
+type configReport struct {
+	Path     string   `json:"path"`
+	Present  bool     `json:"present"`
+	Valid    bool     `json:"valid"`
+	Warnings []string `json:"warnings"`
+}
+
+// configValidate validates the config against the schema. The report is the result; the verdict narrates.
+func configValidate(cmd *cobra.Command, path string, schemaBytes []byte) error {
 	config, err := loadConfig(path)
 	if err != nil {
 		return err
 	}
 
 	if len(config) == 0 {
-		fmt.Println("No config file (using defaults)")
-		return nil
+		Note("No config file (using defaults)")
+		return Emit(cmd, configReport{Path: path, Present: false, Valid: true, Warnings: []string{}})
 	}
 
 	// Parse schema
@@ -390,40 +398,36 @@ func configValidate(path string, schemaBytes []byte) error {
 	}
 
 	if len(warnings) > 0 {
-		fmt.Println("Validation warnings:")
+		Warn("Validation warnings:")
 		for _, w := range warnings {
-			fmt.Printf("  %s\n", w)
+			Warn("  %s", w)
 		}
-		return nil
+	} else {
+		Success("Config %s is valid", path)
 	}
 
-	fmt.Printf("Config %s is valid\n", path)
-	return nil
+	if warnings == nil {
+		warnings = []string{}
+	}
+	return Emit(cmd, configReport{Path: path, Present: true, Valid: true, Warnings: warnings})
 }
 
-// configSchema outputs the embedded JSON schema.
-func configSchema(schemaBytes []byte) error {
+// configSchema emits the embedded JSON schema as the result; `-o yaml` reads it as YAML.
+func configSchema(cmd *cobra.Command, schemaBytes []byte) error {
 	var schema interface{}
 	if err := json.Unmarshal(schemaBytes, &schema); err != nil {
 		return fmt.Errorf("failed to parse schema: %w", err)
 	}
 
-	output, err := json.MarshalIndent(schema, "", "  ")
-	if err != nil {
-		return fmt.Errorf("failed to format schema: %w", err)
-	}
-
-	fmt.Println(string(output))
-	return nil
+	return Emit(cmd, schema)
 }
 
-// configPath shows the config file location.
-func configPath(path string) error {
-	fmt.Println(path)
+// configPath emits the config file location as the result; whether the file exists is narration.
+func configPath(cmd *cobra.Command, path string) error {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
-		fmt.Println("# (file does not exist)")
+		Note("%s does not exist yet", path)
 	}
-	return nil
+	return Emit(cmd, path)
 }
 
 // getNestedValue retrieves a value from a nested map using dot notation.
@@ -499,8 +503,8 @@ func deleteNestedValue(m map[string]interface{}, key string) bool {
 	return false
 }
 
-// printFlattened prints a nested map in key=value format.
-func printFlattened(prefix string, m map[string]interface{}) {
+// flatten folds a nested config into dotted keys and their values, for `config list`'s result.
+func flatten(prefix string, m map[string]interface{}, into map[string]any) {
 	for k, v := range m {
 		key := k
 		if prefix != "" {
@@ -508,9 +512,9 @@ func printFlattened(prefix string, m map[string]interface{}) {
 		}
 
 		if nested, ok := v.(map[string]interface{}); ok {
-			printFlattened(key, nested)
+			flatten(key, nested, into)
 		} else {
-			fmt.Printf("%s=%s\n", key, formatValue(v))
+			into[key] = v
 		}
 	}
 }

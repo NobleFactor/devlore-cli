@@ -1,7 +1,7 @@
 ---
 title: "One output convention, every app"
 issue: https://github.com/NobleFactor/devlore-cli/issues/740
-status: in-progress
+status: complete
 created: 2026-08-28
 updated: 2026-09-01
 ---
@@ -56,10 +56,12 @@ with their resolution site decided at that moment, and every commit updating eve
 - [x] `--store` is part of the shared convention, not per-command improvisation.
 - [x] `--output` / `-o` selects the rendering, as in `aws`, `az`, and `kubectl` -- never a destination.
 - [x] `--output none` turns the result off, reachable from config and env where a shell is not.
-- [ ] `devlore-test`, `lore`, `star`, and `writ` each register the full common set on their root, so
-      every command of all four accepts every flag.
-- [ ] No command invents an output flag of its own.
-- [ ] Results go to stdout or a file; narration goes to stderr. Enforced, not merely stated.
+- [x] `devlore-test`, `lore`, `star`, and `writ` each register the full common set on their root, so
+      every command of all four accepts every flag. All four are the shared root since #776, which
+      registers the set once.
+- [x] No command invents an output flag of its own. `CheckNoOwnOutputFlag`, from every root test (#776).
+- [x] Results go to stdout or a file; narration goes to stderr. Enforced, not merely stated:
+      `TestNoDirectStdout_InScope` (#776).
 - [x] A boolean `--json` does not exist anywhere.
 
 ## Current State
@@ -248,17 +250,18 @@ The shared cause is a flag registered on a root that no leaf consumes. `root.go:
 so cobra advertises it everywhere; `commands.go:302` consumes it once. Registration without consumption is
 worse than absence: an absent flag errors, a present one that does nothing lies.
 
-- [ ] `runStatus` calls `BuildPipeline` and emits `*Report`, as `runVerify` already does. `BuildReport`
+- [x] `runStatus` calls `BuildPipeline` and emits `*Report`, as `runVerify` already does. `BuildReport`
       already returns the value, so this deletes `status.Execute`'s branch, `presentJSON`, `presentText`,
       and `JSONOutput` together -- the 22 `fmt.Print` calls go with them.
-- [ ] The four dry-run `SerializeGraphs(os.Stdout, ...)` dumps emit the plan as the command's result.
-- [ ] `migrate`'s own `--format` retires; its `text` rendering is a domain question like `lore list`'s
+- [x] The four dry-run `SerializeGraphs(os.Stdout, ...)` dumps emit the plan as the command's result.
+- [x] `migrate`'s own `--format` retires; its `text` rendering is a domain question like `lore list`'s
       `manifest`, and does not join the shared set.
-- [ ] `migrate/session.go`'s stdout write is classified: narration to stderr, or a result to the pipeline.
-- [ ] `writ` resolves `--store` through `cli.SetStoreRoot` before any command that touches the store,
+- [x] `migrate/session.go`'s stdout write is classified: narration to stderr, or a result to the pipeline.
+- [x] `writ` resolves `--store` through `cli.SetStoreRoot` before any command that touches the store,
       restoring on exit as `devlore-test` does (#753). Every command routed through `readback` is affected,
       not only `status`.
-- [ ] Every writ command validates `--output`, which follows from reaching `BuildPipeline` (#754).
+- [x] Every writ command validates `--output`, which follows from reaching `BuildPipeline` (#754).
+      Every box above landed in #774 (774-writ-reconcile.md); ticked here on 2026-09-03, late.
 
 ### Phase 3c: The format value accepts an argument -- COMPLETE
 
@@ -348,14 +351,21 @@ set of programs that route through it -- measured, not assumed, in §15.
 
 ### Phase 5: Enforce it
 
-- [ ] A test that fails when a command registers an output flag of its own.
-- [ ] A test that fails on a direct `os.Stdout` write from a command package.
-- [ ] A test that fails when a root registers the common set and a leaf command does not consume it.
+- [x] A test that fails when a command registers an output flag of its own: `CheckNoOwnOutputFlag`,
+      called from every program's root test, which also refuses any shadow of an inherited flag (#776).
+- [x] A test that fails on a direct `os.Stdout` write from a command package:
+      `TestNoDirectStdout_InScope` (#776); it was red on the shared package's own `config` and `man`
+      commands first.
+- [x] A test that fails when a root registers the common set and a leaf command does not consume it.
+      Reframed in #776: every root is the shared root, which registers the set once, and nothing outside
+      `cmd/internal/cli` builds a rendering (`CheckSharedSetOnRoot`, `TestNoPrivatePipeline_InScope`).
       Neither invariant above catches #753 or #754: `writ` registers no flags of its own, and the
       `os.Stdout` check finds `status` but not `repo`, which is equally unvalidated while printing nothing
       of its own. Greppable as "every root calling `AddOutputFlags` has every leaf reaching
       `BuildPipeline`".
-- [ ] Regenerate the CLI docs and confirm every command documents the same flags.
+- [x] Regenerate the CLI docs and confirm every command documents the same flags. `make docs` runs in
+      #776's closing commit; the flag set is proven on the trees by the root tests. `devlore-docs`
+      generates pages for `lore` and `writ` only, which is #787, filed from #776.
 - [x] Correct `docs/plans/extract-output-package.md`, which is marked complete while describing an
       `internal/output` package that was never created. Done ahead of the rest of this phase: a completed
       plan describing absent code misleads anyone who reads it for where the code lives, and it holds the

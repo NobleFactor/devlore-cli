@@ -25,7 +25,7 @@ func TestAddOutputFlags_OutputCarriesTheShortForm(t *testing.T) {
 
 	cmd := &cobra.Command{Use: "test"}
 	var opts SinkOptions
-	AddOutputFlags(cmd, &opts)
+	addOutputFlags(cmd, &opts)
 
 	flag := cmd.PersistentFlags().Lookup("output")
 	if flag == nil {
@@ -47,7 +47,7 @@ func TestAddOutputFlags_FormatIsGone(t *testing.T) {
 
 	cmd := &cobra.Command{Use: "test"}
 	var opts SinkOptions
-	AddOutputFlags(cmd, &opts)
+	addOutputFlags(cmd, &opts)
 
 	if cmd.PersistentFlags().Lookup("format") != nil || cmd.Flags().Lookup("format") != nil {
 		t.Error("--format is still bound; it retires by deletion, never by alias")
@@ -62,7 +62,7 @@ func TestAddOutputFlags_AreInheritedBySubcommands(t *testing.T) {
 
 	root := &cobra.Command{Use: "root"}
 	var opts SinkOptions
-	AddOutputFlags(root, &opts)
+	addOutputFlags(root, &opts)
 
 	child := &cobra.Command{Use: "child"}
 	root.AddCommand(child)
@@ -82,7 +82,7 @@ func TestAddOutputFlags_SubcommandParsesTheShortForm(t *testing.T) {
 
 	var opts SinkOptions
 	root := &cobra.Command{Use: "root"}
-	AddOutputFlags(root, &opts)
+	addOutputFlags(root, &opts)
 
 	ran := false
 	root.AddCommand(&cobra.Command{Use: "child", RunE: func(*cobra.Command, []string) error {
@@ -122,7 +122,7 @@ func TestAddOutputFlags_ResolvesTheStoreAndRestoresIt(t *testing.T) {
 
 	var opts SinkOptions
 	root := &cobra.Command{Use: "root"}
-	AddOutputFlags(root, &opts)
+	addOutputFlags(root, &opts)
 
 	var during string
 	root.AddCommand(&cobra.Command{Use: "child", RunE: func(*cobra.Command, []string) error {
@@ -155,7 +155,7 @@ func TestAddOutputFlags_RejectsAnUnknownFormat(t *testing.T) {
 
 	var opts SinkOptions
 	root := &cobra.Command{Use: "root"}
-	AddOutputFlags(root, &opts)
+	addOutputFlags(root, &opts)
 
 	ran := false
 	root.AddCommand(&cobra.Command{Use: "child", RunE: func(*cobra.Command, []string) error {

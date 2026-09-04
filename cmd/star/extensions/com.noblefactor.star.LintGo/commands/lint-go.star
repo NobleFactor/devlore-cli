@@ -23,7 +23,7 @@ def ensure_tool_installed(name):
 def run(command, ctx):
     """Run golangci-lint on Go code."""
     paths = ctx.args.get("path", ["./..."])
-    config = ctx.args.get("config", "")
+    config = ctx.args.get("golangci-config", "")
     skip_mod_tidy = ctx.args.get("skip_mod_tidy", False)
 
     # Check tool is installed
