@@ -289,6 +289,7 @@ merge**, and a box that cannot be checked from this branch says what checks it.
 - [10-command-line-interface.md](../../architecture/10-command-line-interface.md) — the convention enforced
 - Issue [#776](https://github.com/NobleFactor/devlore-cli/issues/776)
 - Issue [#757](https://github.com/NobleFactor/devlore-cli/issues/757) — `devlore-test` onto the shared root; folded here, closes with this PR
+- Issue [#789](https://github.com/NobleFactor/devlore-cli/issues/789) — golangci-lint is pinned in one place, the Makefile, and CI reads it; v2.13.2 (chore, resolved in this worktree)
 - Issue [#787](https://github.com/NobleFactor/devlore-cli/issues/787) — `devlore-docs` generates pages for `lore` and `writ` only; `star` and `devlore-test` have no reference (own worktree)
 - Issue [#786](https://github.com/NobleFactor/devlore-cli/issues/786) — `scripts/Get-EpicReport` gains `--by`, `--view` and `--output`, the thread status document (chore, resolved in this worktree)
 
