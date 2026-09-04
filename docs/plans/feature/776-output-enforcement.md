@@ -285,7 +285,7 @@ merge**, and a box that cannot be checked from this branch says what checks it.
 - [10-command-line-interface.md](../../architecture/10-command-line-interface.md) — the convention enforced
 - Issue [#776](https://github.com/NobleFactor/devlore-cli/issues/776)
 - Issue [#757](https://github.com/NobleFactor/devlore-cli/issues/757) — `devlore-test` onto the shared root; folded here, closes with this PR
-- An issue to file: `scripts/Get-EpicReport` gains `--by`, `--view` and `--output`, the thread status document (chore, resolved in this worktree)
+- Issue [#786](https://github.com/NobleFactor/devlore-cli/issues/786) — `scripts/Get-EpicReport` gains `--by`, `--view` and `--output`, the thread status document (chore, resolved in this worktree)
 
 ## Open Questions
 
