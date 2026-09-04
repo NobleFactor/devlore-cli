@@ -28,11 +28,11 @@ func TestNewResource_NoPrefix(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
-	if r.Name != "jq" {
-		t.Errorf("Name = %q, want %q", r.Name, "jq")
+	if r.Name() != "jq" {
+		t.Errorf("Name = %q, want %q", r.Name(), "jq")
 	}
-	if r.Type != "apt" {
-		t.Errorf("Type = %q, want %q", r.Type, "apt")
+	if r.Type() != "apt" {
+		t.Errorf("Type = %q, want %q", r.Type(), "apt")
 	}
 }
 
@@ -41,11 +41,11 @@ func TestNewResource_WithPrefix(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
-	if r.Name != "jq" {
-		t.Errorf("Name = %q, want %q", r.Name, "jq")
+	if r.Name() != "jq" {
+		t.Errorf("Name = %q, want %q", r.Name(), "jq")
 	}
-	if r.Type != "brew" {
-		t.Errorf("Type = %q, want %q", r.Type, "brew")
+	if r.Type() != "brew" {
+		t.Errorf("Type = %q, want %q", r.Type(), "brew")
 	}
 }
 
@@ -56,7 +56,7 @@ func TestResource_URI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
-	if got := r.ReachabilityURI(); got != "pkg:brew/jq" {
+	if got := concrete(t, r).ReachabilityURI(); got != "pkg:brew/jq" {
 		t.Errorf("ReachabilityURI() = %q, want %q", got, "pkg:brew/jq")
 	}
 }
@@ -64,7 +64,7 @@ func TestResource_URI(t *testing.T) {
 // --- Interface guards ---
 
 func TestResource_ImplementsInterface(t *testing.T) {
-	var _ op.Resource = (*Resource)(nil)
+	var _ op.Resource = (*resource)(nil)
 }
 
 func TestReceipt_ImplementsInterface(t *testing.T) {
@@ -132,11 +132,11 @@ func TestResource_Etag_InstalledReturnsVersion(t *testing.T) {
 
 func TestResource_Etag_NoPlatformErrors(t *testing.T) {
 
-	base, err := op.NewResourceBase(&op.RuntimeEnvironment{}, "pkg:apt/jq", reflect.TypeFor[*Resource]())
+	base, err := op.NewResourceBase(&op.RuntimeEnvironment{}, "pkg:apt/jq", reflect.TypeFor[Resource]())
 	if err != nil {
 		t.Fatalf("NewResourceBase: %v", err)
 	}
-	r := &Resource{ResourceBase: base, Name: "jq", Type: "apt"}
+	r := &resource{ResourceBase: base, name: "jq", typ: "apt"}
 
 	if _, err := r.Etag(); err == nil {
 		t.Error("Etag on no-Platform runtime succeeded; want error")
@@ -153,11 +153,11 @@ func TestResource_Etag_UnknownTypeIsEmpty(t *testing.T) {
 	runtimeEnvironment := &op.RuntimeEnvironment{
 		Platform: &mockPlatform{manager: mgr},
 	}
-	base, err := op.NewResourceBase(runtimeEnvironment, "pkg:brew/jq", reflect.TypeFor[*Resource]())
+	base, err := op.NewResourceBase(runtimeEnvironment, "pkg:brew/jq", reflect.TypeFor[Resource]())
 	if err != nil {
 		t.Fatalf("NewResourceBase: %v", err)
 	}
-	r := &Resource{ResourceBase: base, Name: "jq", Type: "brew"}
+	r := &resource{ResourceBase: base, name: "jq", typ: "brew"}
 
 	// The router routes by purl type; an unknown type reports "" (absent), not an error.
 	etag, err := r.Etag()
@@ -284,13 +284,26 @@ func TestResource_Equal_StrictType(t *testing.T) {
 	}
 
 	//nolint:gocritic // dupArg: reflexivity is the property under test.
-	if !r.Equal(r) {
+	if !concrete(t, r).Equal(r) {
 		t.Error("Equal(self) returned false")
 	}
-	if r.Equal(nil) {
+	if concrete(t, r).Equal(nil) {
 		t.Error("Equal(nil) returned true")
 	}
-	if r.Equal("not a resource") {
+	if concrete(t, r).Equal("not a resource") {
 		t.Error("Equal(non-Resource) returned true")
 	}
+}
+
+// concrete returns the struct behind a sealed Resource for the assertions that read [op.ResourceBase] methods.
+//
+// [op.Resource] declares neither ReachabilityURI nor the marshalers, so the sealed interface does not expose
+// them; a test that needs one reaches the struct, which is in-package and therefore reachable here.
+func concrete(t *testing.T, r Resource) *resource {
+	t.Helper()
+	got, ok := r.(*resource)
+	if !ok {
+		t.Fatalf("Resource is %T, want *resource", r)
+	}
+	return got
 }

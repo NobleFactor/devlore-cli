@@ -6,13 +6,14 @@ package pkg
 import (
 	"fmt"
 
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/platform"
 )
 
 // Provider is a thin veneer over the platform's Composite package-manager router.
 //
-// It carries no convergence policy of its own: each verb projects its [*Resource] slice into a [platform.PURL]
+// It carries no convergence policy of its own: each verb projects its [Resource] slice into a [platform.PURL]
 // slice, calls the router once, and adapts the router's per-package [platform.Receipt] slice into the provider's
 // [*Receipt] compensation state. All convergence and verification live in the platform's leaf drivers.
 type Provider struct {
@@ -50,9 +51,9 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 //   - `error`: non-nil if no packages were specified, no platform is available, or any package failed to install.
 func (p *Provider) Install(
 	activationRecord *op.ActivationRecord,
-	packages []*Resource,
+	packages []Resource,
 	kwargs map[string]any,
-) (result []*Resource, stack *op.RecoveryStack, err error) {
+) (result []Resource, stack *op.RecoveryStack, err error) {
 
 	plat, err := p.verbPlatform(packages)
 	if err != nil {
@@ -100,9 +101,9 @@ func (p *Provider) CompensateInstall(activation *op.ActivationRecord, stack *op.
 //   - `error`: non-nil if no packages were specified, no platform is available, or any package failed to remove.
 func (p *Provider) Remove(
 	activationRecord *op.ActivationRecord,
-	packages []*Resource,
+	packages []Resource,
 	kwargs map[string]any,
-) (result []*Resource, stack *op.RecoveryStack, err error) {
+) (result []Resource, stack *op.RecoveryStack, err error) {
 
 	plat, err := p.verbPlatform(packages)
 	if err != nil {
@@ -148,9 +149,9 @@ func (p *Provider) CompensateRemove(activation *op.ActivationRecord, stack *op.R
 //   - `error`: non-nil if no packages were specified, no platform is available, or any package failed to upgrade.
 func (p *Provider) Upgrade(
 	activationRecord *op.ActivationRecord,
-	packages []*Resource,
+	packages []Resource,
 	kwargs map[string]any,
-) (result []*Resource, stack *op.RecoveryStack, err error) {
+) (result []Resource, stack *op.RecoveryStack, err error) {
 
 	plat, err := p.verbPlatform(packages)
 	if err != nil {
@@ -212,8 +213,8 @@ func (p *Provider) CompensatePackageMutation(activationRecord *op.ActivationReco
 	}
 
 	router := plat.PackageManager()
-	query := platform.PURL{Type: receipt.Manager, Name: resource.Name}
-	restore := platform.PURL{Type: receipt.Manager, Name: resource.Name, Version: receipt.PreviousVersion}
+	query := platform.PURL{Type: receipt.Manager, Name: resource.Name()}
+	restore := platform.PURL{Type: receipt.Manager, Name: resource.Name(), Version: receipt.PreviousVersion}
 
 	switch receipt.Kind() {
 
@@ -260,7 +261,7 @@ func (p *Provider) CompensatePackageMutation(activationRecord *op.ActivationReco
 // Returns:
 //   - `bool`: true when the package is installed.
 //   - `error`: non-nil when no platform is available.
-func (p *Provider) Installed(name *Resource) (bool, error) {
+func (p *Provider) Installed(name Resource) (bool, error) {
 
 	plat, err := p.platform()
 	if err != nil {
@@ -278,7 +279,7 @@ func (p *Provider) Installed(name *Resource) (bool, error) {
 // Returns:
 //   - `bool`: true when the package is not installed.
 //   - `error`: non-nil when no platform is available.
-func (p *Provider) NotInstalled(name *Resource) (bool, error) {
+func (p *Provider) NotInstalled(name Resource) (bool, error) {
 
 	plat, err := p.platform()
 	if err != nil {
@@ -295,13 +296,13 @@ func (p *Provider) NotInstalled(name *Resource) (bool, error) {
 // string; otherwise it carries `Exists=false`.
 //
 // Parameters:
-//   - `resource`: the [*Resource] whose installed state to observe.
+//   - `resource`: the [Resource] whose installed state to observe.
 //
 // Returns:
 //   - `*Observation`: the constructed observation; never nil.
 //   - `error`: always nil — a missing platform or an uninstalled package is a valid observation, not a failure; the
 //     error return keeps the announced fallible-action shape.
-func (p *Provider) Observe(resource *Resource) (*Observation, error) {
+func (p *Provider) Observe(resource Resource) (*Observation, error) {
 
 	runtimeEnvironment := p.RuntimeEnvironment()
 
@@ -340,7 +341,7 @@ func (p *Provider) Update() error {
 // Returns:
 //   - `bool`: true when the installed version is non-empty and >= `version`.
 //   - `error`: non-nil when no platform is available.
-func (p *Provider) VersionGTE(name *Resource, version string) (bool, error) {
+func (p *Provider) VersionGTE(name Resource, version string) (bool, error) {
 
 	plat, err := p.platform()
 	if err != nil {
@@ -377,26 +378,26 @@ func (p *Provider) VersionGTE(name *Resource, version string) (bool, error) {
 //   - `kind`: the [MutationKind] of the verb (install / remove / upgrade).
 //
 // Returns:
-//   - `[]*Resource`: the input resources with Type set to the leaf's purl type.
+//   - `[]Resource`: the input resources with Type set to the leaf's purl type.
 //   - `*op.RecoveryStack`: the stack of committed per-package receipts, in input order.
 //   - `error`: any receipt commit failure.
 func (p *Provider) buildStack(
-	packages []*Resource, receipts []platform.Receipt, kind MutationKind,
-) ([]*Resource, *op.RecoveryStack, error) {
+	packages []Resource, receipts []platform.Receipt, kind MutationKind,
+) ([]Resource, *op.RecoveryStack, error) {
 
-	result := make([]*Resource, len(packages))
+	result := make([]Resource, len(packages))
 	stack := op.NewRecoveryStack()
 
 	for i, resource := range packages {
 
 		resolvedType := receipts[i].Purl.Type
-		resource.Type = resolvedType
+		resolved(resource).resolveType(resolvedType)
 		result[i] = resource
 
 		receipt := NewReceipt(resource, kind, resolvedType, receipts[i].PriorVersion != "", receipts[i].PriorVersion)
 
 		if err := receipt.Commit(nil, resource, receipt, nil); err != nil {
-			return result, stack, fmt.Errorf("pkg: commit receipt %q: %w", resource.Name, err)
+			return result, stack, fmt.Errorf("pkg: commit receipt %q: %w", resource.Name(), err)
 		}
 
 		stack.Push(receipt)
@@ -428,7 +429,7 @@ func (p *Provider) platform() (platform.Platform, error) {
 // Returns:
 //   - `platform.Platform`: the configured platform.
 //   - `error`: non-nil when the slice is empty or no platform is available.
-func (p *Provider) verbPlatform(packages []*Resource) (platform.Platform, error) {
+func (p *Provider) verbPlatform(packages []Resource) (platform.Platform, error) {
 
 	if len(packages) == 0 {
 		return nil, fmt.Errorf("no packages specified")
@@ -443,26 +444,26 @@ func (p *Provider) verbPlatform(packages []*Resource) (platform.Platform, error)
 
 // region HELPER FUNCTIONS
 
-// receiptResource returns the [*Resource] a receipt anchors, reporting false for a nil receipt or a non-pkg resource.
+// receiptResource returns the [Resource] a receipt anchors, reporting false for a nil receipt or a non-pkg resource.
 //
 // Parameters:
 //   - `receipt`: the receipt to unwrap.
 //
 // Returns:
-//   - `*Resource`: the anchoring resource.
-//   - `bool`: true when the receipt is non-nil and anchors a [*Resource].
-func receiptResource(receipt *Receipt) (*Resource, bool) {
+//   - `Resource`: the anchoring resource.
+//   - `bool`: true when the receipt is non-nil and anchors a [Resource].
+func receiptResource(receipt *Receipt) (Resource, bool) {
 
 	if receipt == nil {
 		return nil, false
 	}
 
-	resource, ok := receipt.Resource().(*Resource)
+	resource, ok := receipt.Resource().(Resource)
 
 	return resource, ok
 }
 
-// toQueryPURL projects a [*Resource] into a versionless [platform.PURL] for an installed-state query.
+// toQueryPURL projects a [Resource] into a versionless [platform.PURL] for an installed-state query.
 //
 // Queries report a single package's observed state by identity, so the requested version is omitted.
 //
@@ -472,8 +473,23 @@ func receiptResource(receipt *Receipt) (*Resource, bool) {
 //
 // Returns:
 //   - `platform.PURL`: the versionless query purl.
-func toQueryPURL(plat platform.Platform, resource *Resource) platform.PURL {
-	return platform.PURL{Type: resolveType(plat, resource.Type), Name: resource.Name}
+func toQueryPURL(plat platform.Platform, resource Resource) platform.PURL {
+	return platform.PURL{Type: resolveType(plat, resource.Type()), Name: resource.Name()}
 }
 
 // endregion
+
+// resolved returns the struct behind a sealed Resource, for the one in-package write. The set is closed, so
+// the assertion cannot fail for a value that reached a provider method; a foreign type is a framework bug
+// and is said so.
+//
+// Parameters:
+//   - `r`: the resource, as the interface every method holds.
+//
+// Returns:
+//   - `*resource`: the same value, as the struct.
+func resolved(r Resource) *resource {
+	concrete, ok := r.(*resource)
+	assert.True("pkg.Resource is *pkg.resource", ok)
+	return concrete
+}

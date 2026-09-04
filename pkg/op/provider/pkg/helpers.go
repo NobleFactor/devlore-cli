@@ -33,7 +33,7 @@ func resolveType(plat platform.Platform, prefix string) string {
 	return plat.DefaultPurlType()
 }
 
-// toPURL projects a [*Resource] into a routable [platform.PURL], carrying the requested version.
+// toPURL projects a [Resource] into a routable [platform.PURL], carrying the requested version.
 //
 // Parameters:
 //   - `plat`: the target platform, for type resolution.
@@ -41,15 +41,15 @@ func resolveType(plat platform.Platform, prefix string) string {
 //
 // Returns:
 //   - `platform.PURL`: the purl with the canonical type, name, and requested version.
-func toPURL(plat platform.Platform, resource *Resource) platform.PURL {
+func toPURL(plat platform.Platform, resource Resource) platform.PURL {
 	return platform.PURL{
-		Type:    resolveType(plat, resource.Type),
-		Name:    resource.Name,
-		Version: resource.Version,
+		Type:    resolveType(plat, resource.Type()),
+		Name:    resource.Name(),
+		Version: resource.Version(),
 	}
 }
 
-// toPURLs projects each [*Resource] into a [platform.PURL], preserving input order.
+// toPURLs projects each [Resource] into a [platform.PURL], preserving input order.
 //
 // The router batches the returned slice by purl type and returns one receipt per package in this order, so the
 // caller correlates receipts to resources by index.
@@ -60,7 +60,7 @@ func toPURL(plat platform.Platform, resource *Resource) platform.PURL {
 //
 // Returns:
 //   - `[]platform.PURL`: the projected purls, in input order.
-func toPURLs(plat platform.Platform, resources []*Resource) []platform.PURL {
+func toPURLs(plat platform.Platform, resources []Resource) []platform.PURL {
 
 	purls := make([]platform.PURL, len(resources))
 

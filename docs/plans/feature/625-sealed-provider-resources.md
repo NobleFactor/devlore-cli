@@ -9,7 +9,7 @@ updated: 2026-09-04
 # Plan: Sealed provider resources — every announced resource type is an interface
 
 
-## Where we are (2026-09-01)
+## Where we are (2026-09-04)
 
 This plan is **thread 2 of four**, worked after the CLI output conventions
 ([#740](https://github.com/NobleFactor/devlore-cli/issues/740),
@@ -17,18 +17,18 @@ This plan is **thread 2 of four**, worked after the CLI output conventions
 ([#762](https://github.com/NobleFactor/devlore-cli/issues/762)) and unified configuration
 ([#441](https://github.com/NobleFactor/devlore-cli/issues/441)).
 
-**Five of ten phases have landed.** Phases 1-5 are complete: the framework repairs and `service`, the
-generator inspecting the implementation, `git` and `appnet`, `json` and `yaml`, and `mem` and `function`.
+**Six of ten phases have landed.** Phases 1-6 are complete: the framework repairs and `service`, the
+generator inspecting the implementation, `git` and `appnet`, `json` and `yaml`, `mem` and `function`, and
+`pkg`. Part 1 is done; every provider but `file` is sealed.
 
 | Phase | Subject | Issue |
 | --- | --- | --- |
-| 6 | `pkg` — the widest footprint, all of it in-package (sized 2026-09-04) | [#644](https://github.com/NobleFactor/devlore-cli/issues/644) |
 | 7 | `file`'s four variants, discriminated by `kind()` | [#645](https://github.com/NobleFactor/devlore-cli/issues/645) |
 | 8 | sweep `ConvertFrom` / `CanConvertFrom` | [#649](https://github.com/NobleFactor/devlore-cli/issues/649) |
 | 9 | the rule becomes structurally enforceable | [#646](https://github.com/NobleFactor/devlore-cli/issues/646) |
 | 10 | closure — the design record states the contract | [#647](https://github.com/NobleFactor/devlore-cli/issues/647) |
 
-Every remaining phase already has an issue. **#644 is next.**
+Every remaining phase already has an issue. **#645 is next.**
 
 ### The thread's other open work
 
@@ -517,7 +517,7 @@ anticipated — because phase 4's groundwork had already moved the content-addre
    cyclomatic-complexity ceiling breach in `ConvertTo`, three receiver-naming inconsistencies, and three
    misspellings. The first phase where that ran before the push rather than after CI.
 
-#### Phase 6 — `pkg` — status: in-progress
+#### Phase 6 — `pkg` — status: complete
 
 Also resolved in this worktree: [#796](https://github.com/NobleFactor/devlore-cli/issues/796) -- the five checked-in package manifests, found on the Windows test.
 
@@ -555,6 +555,23 @@ Steps, each a commit only if it needs to be one:
    reads become accessor calls; the write becomes the resolution method.
 3. `make generate` regenerates the gen files; the four fragments stay byte-identical (ruling 4).
 4. Tests follow; `make check`.
+
+**Landed 2026-09-04 (#644).** The sizing held; one commit. What the transformation showed:
+
+- **The generated files did not change by a byte**, and no generator work was needed: the announcement
+  already named `provider.Resource`, which is now the interface, and phase 2's generator reads the
+  implementation for the receiver methods. Ruling 4 cost nothing here.
+- **The write** is `(*resource).resolveType`, reached from `buildStack` through `resolved(r Resource)
+  *resource`, an in-package helper that asserts to the struct and states, via `assert.True`, that a
+  foreign implementation is a framework bug. `receiptResource` asserts the same way. The URI is untouched
+  by the resolution, so the catalog key stays the purl the user asked for.
+- **`DiscoverResource` split**: the exported form returns the interface; an unexported `discoverResource`
+  returns the struct for the three unmarshalers, which copy into a receiver they already hold.
+- **Tests** reach `ReachabilityURI` and `Equal` through a `concrete(t, r)` helper, the pattern phase 1 set
+  in `service`: neither is on [op.Resource], so the sealed interface does not expose them, and widening
+  the contract for a test would be the wrong fix. Everything else the tests read is on the interface.
+- **No consumer changed**, as sized: the tree built and `make check` passed with edits confined to the
+  seven files in `pkg/op/provider/pkg`.
 
 ### Part 2 — `file`
 
