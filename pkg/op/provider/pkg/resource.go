@@ -42,9 +42,9 @@ import (
 //   - `value`: a string package name with an optional manager prefix.
 //
 // Returns:
-//   - `*Resource`: the canonical catalog entry (or the unlinked candidate when no catalog is present).
+//   - `Resource`: the canonical catalog entry (or the unlinked candidate when no catalog is present).
 //   - `error`: if `value` is not a string or the manager prefix is unknown.
-func NewResource(runtimeEnvironment *op.RuntimeEnvironment, producerID string, value any) (*Resource, error) {
+func NewResource(runtimeEnvironment *op.RuntimeEnvironment, producerID string, value any) (Resource, error) {
 
 	candidate, err := buildCandidate(runtimeEnvironment, value)
 	if err != nil {
@@ -63,9 +63,9 @@ func NewResource(runtimeEnvironment *op.RuntimeEnvironment, producerID string, v
 		return nil, err
 	}
 
-	canonical, ok := got.(*Resource)
+	canonical, ok := got.(*resource)
 	if !ok {
-		return nil, fmt.Errorf("pkg.NewResource: catalog entry for %q is %T, want *pkg.Resource", candidate.URI(), got)
+		return nil, fmt.Errorf("pkg.NewResource: catalog entry for %q is %T, want *pkg.resource", candidate.URI(), got)
 	}
 
 	return canonical, nil
@@ -74,7 +74,7 @@ func NewResource(runtimeEnvironment *op.RuntimeEnvironment, producerID string, v
 // DiscoverResource registers a pkg.Resource via [op.ResourceCatalog.Discover] without claiming production.
 //
 // Used by the framework's resource registry adapter for slot coercion (when starlark supplies a string
-// package name and the slot expects a *pkg.Resource), and by callers holding a reference handle without
+// package name and the slot expects a pkg.Resource), and by callers holding a reference handle without
 // claiming production (receipt rehydration is the canonical example).
 //
 // Discover does not stamp a producer, so unlike [NewResource] it takes only `runtimeEnvironment` — no
@@ -87,9 +87,23 @@ func NewResource(runtimeEnvironment *op.RuntimeEnvironment, producerID string, v
 //   - `value`: a string package name with an optional manager prefix.
 //
 // Returns:
-//   - `*Resource`: the canonical catalog entry (or the unlinked candidate when no catalog is present).
+//   - `Resource`: the canonical catalog entry (or the unlinked candidate when no catalog is present).
 //   - `error`: if `value` is not a string or the manager prefix is unknown.
-func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Resource, error) {
+func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (Resource, error) {
+	return discoverResource(runtimeEnvironment, value)
+}
+
+// discoverResource is [DiscoverResource] returning the struct, for the unmarshalers, which rehydrate into a
+// receiver they already hold and need the concrete type to copy into.
+//
+// Parameters:
+//   - `runtimeEnvironment`: the runtime environment; must have `Platform` set.
+//   - `value`: a string package name with an optional `manager:` prefix, or a canonical URI.
+//
+// Returns:
+//   - `*resource`: the canonical catalog entry, or the unlinked candidate when no catalog is present.
+//   - `error`: non-string input, an unknown manager prefix, or a catalog entry of another type.
+func discoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*resource, error) {
 
 	candidate, err := buildCandidate(runtimeEnvironment, value)
 	if err != nil {
@@ -107,15 +121,15 @@ func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Re
 		return nil, err
 	}
 
-	canonical, ok := got.(*Resource)
+	canonical, ok := got.(*resource)
 	if !ok {
-		return nil, fmt.Errorf("pkg.DiscoverResource: catalog entry for %q is %T, want *pkg.Resource", candidate.URI(), got)
+		return nil, fmt.Errorf("pkg.DiscoverResource: catalog entry for %q is %T, want *pkg.resource", candidate.URI(), got)
 	}
 
 	return canonical, nil
 }
 
-// buildCandidate constructs a *Resource from `value` without touching the catalog.
+// buildCandidate constructs a resource from `value` without touching the catalog.
 //
 // Validates that `value` is a string, parses any `manager:` prefix, and resolves the package URL. Shared
 // by [NewResource] and [DiscoverResource].
@@ -125,9 +139,9 @@ func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Re
 //   - `value`: a string package name with an optional `manager:` prefix.
 //
 // Returns:
-//   - `*Resource`: the constructed candidate, not yet interned in the catalog.
+//   - `Resource`: the constructed candidate, not yet interned in the catalog.
 //   - `error`: if `value` is not a string or the manager prefix is unknown.
-func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Resource, error) {
+func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*resource, error) {
 
 	raw, ok := value.(string)
 
@@ -159,31 +173,107 @@ func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Reso
 
 	purl := platform.PURL{Type: purlType, Name: name}
 
-	base, err := op.NewResourceBase(runtimeEnvironment, purl.String(), reflect.TypeFor[*Resource]())
+	base, err := op.NewResourceBase(runtimeEnvironment, purl.String(), reflect.TypeFor[Resource]())
 	if err != nil {
 		return nil, err
 	}
 
-	return &Resource{
+	return &resource{
 		ResourceBase: base,
-		Name:         name,
-		Type:         purlType,
-		Version:      version,
+		name:         name,
+		typ:          purlType,
+		version:      version,
 	}, nil
 }
 
-// Resource identifies a host package by its package-URL (purl) coordinates.
+// Resource is this provider's resource type — the sealed interface over a host package identified by its
+// package-URL (purl) coordinates.
 //
-// `Name` and `Type` together form the versionless purl encoded in the [op.ResourceBase] URI; "git" and
-// "git@2.39.0" intern to the same catalog entry. `Version` is the requested version (the purl `@version`; empty
-// means latest) — mutable state on the Resource, not part of its identity. Runtime-observed state (the installed
-// version reported by the platform's package manager) lives on a separate [*Observation] minted by
-// [Provider.Observe].
-type Resource struct {
+// Sealed by an unexported marker, so the closed set of implementations is the one this package declares and no
+// value reaching a pkg method was built anywhere else. That is the guarantee the resource model rests on:
+// identity is the catalog key, and a hand-built or reflectively-hydrated value carries none.
+//
+// Location-keyed: `Name` and `Type` together form the versionless purl encoded in the [op.ResourceBase] URI, so
+// "git" and "git@2.39.0" intern to the same catalog entry. `Version` is the requested version (the purl
+// `@version`; empty means latest) — mutable state on the Resource, not part of its identity. Runtime-observed
+// state (the installed version the platform's package manager reports) lives on a separate [*Observation]
+// minted by [Provider.Observe], never on the Resource.
+type Resource interface {
+	op.Resource
+
+	// Name returns the package name ("jq", "curl", "VisualStudioCode"). Identity-bearing.
+	Name() string
+
+	// Type returns the purl type — the manager ("brew", "deb", "port", "winget"). Identity-bearing as
+	// requested; after an install the provider resolves it to the manager that actually handled the
+	// package, in-package, so a reader sees the resolved type.
+	Type() string
+
+	// Version returns the requested version (the purl `@version`); empty means latest. Not identity.
+	Version() string
+
+	// sealedResource marks the closed set of Resource implementations: only this package can declare it, so
+	// no type outside can satisfy Resource.
+	sealedResource()
+}
+
+// Interface guard: the unexported struct is the only Resource implementation.
+var _ Resource = (*resource)(nil)
+
+// resource is the concrete package resource — what serializes, and the only thing that implements [Resource].
+//
+// Unexported so that `&pkg.resource{...}` cannot be written anywhere else. The exported constructors are the
+// public contract; the struct behind them need not be.
+type resource struct {
 	op.ResourceBase
-	Name    string // package name ("jq", "curl", "VisualStudioCode")
-	Type    string // purl type / manager ("brew", "deb", "port", "winget")
-	Version string // requested version (purl @version); empty means latest
+
+	name    string // package name ("jq", "curl", "VisualStudioCode")
+	typ     string // purl type / manager ("brew", "deb", "port", "winget")
+	version string // requested version (purl @version); empty means latest
+}
+
+// sealedResource marks resource as the member of the closed [Resource] set.
+func (r *resource) sealedResource() {}
+
+// Name returns the package name.
+//
+// Returns:
+//   - `string`: the package name ("jq").
+func (r *resource) Name() string { return r.name }
+
+// Type returns the purl type, as requested or as resolved after an install.
+//
+// Returns:
+//   - `string`: the manager ("brew", "apt").
+func (r *resource) Type() string { return r.typ }
+
+// Version returns the requested version.
+//
+// Returns:
+//   - `string`: the purl `@version`, or "" for latest.
+func (r *resource) Version() string { return r.version }
+
+// resolveType records which manager actually handled the package after a mutation, replacing the type
+// that was requested. The one write a sealed resource admits, in-package, with a name that says it is a
+// resolution and not a free setter; the URI does not change, because the catalog key is the purl the user
+// asked for.
+//
+// Parameters:
+//   - `purlType`: the leaf manager's purl type, from the receipt.
+func (r *resource) resolveType(purlType string) { r.typ = purlType }
+
+// init wires the two things a sealed resource cannot state from the generated announcement.
+//
+// Both are needed because that announcement lives in a sibling package and can name only exported
+// identifiers. Go initializes an imported package before its importer, so this always runs first.
+func init() {
+
+	// What reflection runs against. The NON-pointer form, matching what the announcement passed while the
+	// resource was a struct — receiver construction promotes it to a pointer itself.
+	op.RegisterResourceImplementation(reflect.TypeFor[Resource](), reflect.TypeFor[resource]())
+
+	// What an authored string claims as: a provider with one implementation designates it (§5.7 rule 6).
+	op.RegisterResourceMint(reflect.TypeFor[Resource](), reflect.TypeFor[*resource]())
 }
 
 // region EXPORTED METHODS
@@ -197,7 +287,7 @@ type Resource struct {
 //
 // Returns:
 //   - `op.AddressingMode`: always [op.AddressingLocation].
-func (r *Resource) Addressing() op.AddressingMode {
+func (r *resource) Addressing() op.AddressingMode {
 	return op.AddressingLocation
 }
 
@@ -216,7 +306,7 @@ func (r *Resource) Addressing() op.AddressingMode {
 // Returns:
 //   - `op.Digest`: sha256 algorithm with 32 raw bytes.
 //   - `error`: any error from [Resource.Etag] (no Platform, no manager for Type).
-func (r *Resource) Digest() (op.Digest, error) {
+func (r *resource) Digest() (op.Digest, error) {
 
 	version, err := r.Etag()
 	if err != nil {
@@ -233,7 +323,7 @@ func (r *Resource) Digest() (op.Digest, error) {
 
 // Equal reports whether r and other identify the same pkg resource.
 //
-// Strict equality: other must be a *pkg.Resource (not merely an [op.Resource] with the same URI). Once the
+// Strict equality: other must be a pkg.Resource (not merely an [op.Resource] with the same URI). Once the
 // type check passes, URI comparison is delegated to [op.ResourceBase.Equal]. A cross-type URI collision is
 // treated as a caller-side construction error, not a case Equal needs to disambiguate.
 //
@@ -241,14 +331,14 @@ func (r *Resource) Digest() (op.Digest, error) {
 //   - `other`: the value to compare against; may be any, including nil or a non-Resource.
 //
 // Returns:
-//   - `bool`: true if `other` is a *pkg.Resource with the same URI as r.
-func (r *Resource) Equal(other any) bool {
+//   - `bool`: true if `other` is a pkg.Resource with the same URI as r.
+func (r *resource) Equal(other any) bool {
 
 	if other == nil {
 		return false
 	}
 
-	if _, ok := other.(*Resource); !ok {
+	if _, ok := other.(*resource); !ok {
 		return false
 	}
 
@@ -268,27 +358,27 @@ func (r *Resource) Equal(other any) bool {
 // Returns:
 //   - `string`: the installed version string, or "" when uninstalled.
 //   - `error`: when Platform is missing.
-func (r *Resource) Etag() (string, error) {
+func (r *resource) Etag() (string, error) {
 
 	runtimeEnvironment := r.RuntimeEnvironment()
 	if runtimeEnvironment == nil || runtimeEnvironment.Platform == nil {
 		return "", fmt.Errorf("pkg.Resource: etag: no Platform in runtime")
 	}
 
-	return runtimeEnvironment.Platform.PackageManager().Version(platform.PURL{Type: r.Type, Name: r.Name}), nil
+	return runtimeEnvironment.Platform.PackageManager().Version(platform.PURL{Type: r.typ, Name: r.name}), nil
 }
 
 // String returns a compact JSON representation of the resource.
 //
 // Returns:
 //   - `string`: the compact JSON encoding of r.
-func (r *Resource) String() string { return r.Format(r) }
+func (r *resource) String() string { return r.Format(r) }
 
 // endregion
 
 // region Behaviors
 
-// CanConvertFrom reports whether `source` can be projected into a [*Resource] via [Resource.ConvertFrom].
+// CanConvertFrom reports whether `source` can be projected into a [Resource] via [Resource.ConvertFrom].
 //
 // Opts the pkg Resource into the framework's [op.TargetConverter] contract — accepted source shape is `string`
 // (interpreted as a package identifier, either a bare name like "jq" or a purl-prefixed form like "brew:jq").
@@ -297,7 +387,7 @@ func (r *Resource) String() string { return r.Format(r) }
 // canonical dispatch-time path remains the registered constructor at [op.Convert] step 6, which receives the
 // full [op.RuntimeEnvironment] and parses any manager prefix via [buildCandidate].
 //
-// Cheap-probe contract: this method is called against a nil-or-zero `*Resource` receiver by
+// Cheap-probe contract: this method is called against a nil-or-zero `Resource` receiver by
 // [op.typesAreInterconvertible] during plan-time bubble-up checks. MUST NOT dereference receiver fields.
 //
 // Parameters:
@@ -305,12 +395,12 @@ func (r *Resource) String() string { return r.Format(r) }
 //
 // Returns:
 //   - `bool`: true when `source` is `string`.
-func (*Resource) CanConvertFrom(source reflect.Type) bool {
+func (*resource) CanConvertFrom(source reflect.Type) bool {
 
 	return source != nil && source.Kind() == reflect.String
 }
 
-// ConvertFrom projects `value` into an env-less unlinked [*Resource].
+// ConvertFrom projects `value` into an env-less unlinked [Resource].
 //
 // Used by [op.Convert] step 7 when the env-aware registered constructor (step 6) is unavailable — env-less
 // library callers, tests, or [op.RuntimeEnvironment.Registry]-missing contexts. The returned Resource carries
@@ -323,16 +413,16 @@ func (*Resource) CanConvertFrom(source reflect.Type) bool {
 //   - `value`: the source value; must be `string`.
 //
 // Returns:
-//   - `any`: the constructed unlinked [*Resource].
+//   - `any`: the constructed unlinked [Resource].
 //   - `error`: non-nil when `value` is not a `string`.
-func (*Resource) ConvertFrom(value any) (any, error) {
+func (*resource) ConvertFrom(value any) (any, error) {
 
 	str, ok := value.(string)
 	if !ok {
 		return nil, fmt.Errorf("pkg.Resource.ConvertFrom: source must be string, got %T", value)
 	}
 
-	return &Resource{Name: str}, nil
+	return &resource{name: str}, nil
 }
 
 // UnmarshalJSON populates the receiver from its JSON document (a bare purl string).
@@ -347,7 +437,7 @@ func (*Resource) ConvertFrom(value any) (any, error) {
 // Returns:
 //   - `error`: non-nil if the RuntimeEnvironment is missing, the JSON does not decode as a string, or resource
 //     construction fails.
-func (r *Resource) UnmarshalJSON(data []byte) error {
+func (r *resource) UnmarshalJSON(data []byte) error {
 
 	if r.RuntimeEnvironment() == nil {
 		return errors.New("pkg.Resource: UnmarshalJSON requires RuntimeEnvironment on receiver")
@@ -358,7 +448,7 @@ func (r *Resource) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	built, err := DiscoverResource(r.RuntimeEnvironment(), uri)
+	built, err := discoverResource(r.RuntimeEnvironment(), uri)
 	if err != nil {
 		return err
 	}
@@ -374,13 +464,13 @@ func (r *Resource) UnmarshalJSON(data []byte) error {
 //
 // Returns:
 //   - `error`: missing RuntimeEnvironment on receiver, or rehydration failure.
-func (r *Resource) UnmarshalText(text []byte) error {
+func (r *resource) UnmarshalText(text []byte) error {
 
 	if r.RuntimeEnvironment() == nil {
 		return errors.New("pkg.Resource: UnmarshalText requires RuntimeEnvironment on receiver")
 	}
 
-	built, err := DiscoverResource(r.RuntimeEnvironment(), string(text))
+	built, err := discoverResource(r.RuntimeEnvironment(), string(text))
 	if err != nil {
 		return err
 	}
@@ -396,7 +486,7 @@ func (r *Resource) UnmarshalText(text []byte) error {
 //
 // Returns:
 //   - `error`: missing RuntimeEnvironment on receiver, decode failure, or rehydration failure.
-func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
+func (r *resource) UnmarshalYAML(unmarshal func(any) error) error {
 
 	if r.RuntimeEnvironment() == nil {
 		return errors.New("pkg.Resource: UnmarshalYAML requires RuntimeEnvironment on receiver")
@@ -407,7 +497,7 @@ func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 		return err
 	}
 
-	built, err := DiscoverResource(r.RuntimeEnvironment(), uri)
+	built, err := discoverResource(r.RuntimeEnvironment(), uri)
 	if err != nil {
 		return err
 	}
