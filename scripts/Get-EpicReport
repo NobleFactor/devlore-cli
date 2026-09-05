@@ -190,11 +190,6 @@ gh issue list \
     # hierarchy but still belongs to its epic, hanging directly from it with no parent feature.
     def isChild: tagged("task") or isBug or tagged("chore");
 
-    # What to say about a child with no parent feature. For a task or a bug that is a fault worth
-    # naming; for a chore it is the design -- under Epic:Process there is no feature tier.
-    def unparented:
-      if tagged("chore") then ""
-      else "unfiled, no parent feature" end;
 
     # A tasks parent feature, stated in its body as **Feature:** #123.
     def parentFeature:
@@ -254,7 +249,7 @@ gh issue list \
                     | ( ($f | row("")),
                         ( [ $tasks[] | select(parentFeature == $f.number) ] | sort_by(.number) | .[] | row("feature #\($f.number)") | . + {feature: $f.number} ) ) ),
                   ( [ $tasks[] | select(parentFeature == null or (parentFeature as $p | $featureNumbers | index($p) | not)) ]
-                    | sort_by(.number) | .[] | row(unparented) ) )
+                    | sort_by(.number) | .[] | row("unfiled, no parent feature") ) )
               | . + {epic: $e.number} + (if ($e | has("thread")) then {thread: $e.thread} else {} end) ]
           | tojson )
       else (
@@ -311,7 +306,7 @@ gh issue list \
                           | ( ($f | row("")),
                               ( [ $tasks[] | select(parentFeature == $f.number) ] | sort_by(.number) | .[] | row("feature #\($f.number)") ) ) ),
                         ( [ $tasks[] | select(parentFeature == null or (parentFeature as $p | $featureNumbers | index($p) | not)) ]
-                          | sort_by(.number) | .[] | row(unparented) ) ] ) as $rows
+                          | sort_by(.number) | .[] | row("unfiled, no parent feature") ) ] ) as $rows
                   | ( ( if ($e | has("thread")) then "\n## Thread \($e.thread) — \($e.title) [#\($e.number)](\($e.url))\n"
                         else "\n## \($e.title) [#\($e.number)](\($e.url))\n" end ),
                       ( $rows | table ) ) )
