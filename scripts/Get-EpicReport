@@ -186,8 +186,9 @@ gh issue list \
         elif . == "Severity:Medium" then 2
         elif . == "Severity:Low" then 3
         else 4 end;
-    # A tier-three issue is a task or a bug; they are peers under a feature. A chore is outside that
-    # hierarchy but still belongs to its epic, hanging directly from it with no parent feature.
+    # A tier-three issue is a task, a bug, or a chore; they are peers under a feature. A chore was
+    # absent here, so a chore never rendered even when it named a parent -- the kind was excluded
+    # outright. One with no parent feature falls through to "unfiled" like any other child.
     def isChild: tagged("task") or isBug or tagged("chore");
 
 
