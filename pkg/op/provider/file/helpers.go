@@ -87,7 +87,7 @@ func applyOwnership(root fsroot.Dir, path, user, group string) error {
 //     embedded via [op.NewResourceBase].
 //   - `value`: an `any` carrying a string filesystem path (or the provider's own emitted identity
 //     specific, `file://` + path, on the rehydration round-trip); other dynamic types are rejected.
-//   - `resourceType`: the concrete variant pointer type (e.g. `reflect.TypeFor[*Regular]()`) minted into the base.
+//   - `resourceType`: the concrete variant pointer type (e.g. `reflect.TypeFor[Regular]()`) minted into the base.
 //
 // Returns:
 //   - `*resource`: the constructed candidate base, ready for embedding. Not interned in the catalog.
@@ -146,23 +146,23 @@ func candidateOfMode(runtimeEnvironment *op.RuntimeEnvironment, abs string, mode
 
 	switch {
 	case mode&os.ModeSymlink != 0:
-		base, err := buildCandidateAs(runtimeEnvironment, abs, reflect.TypeFor[*SymbolicLink]())
+		base, err := buildCandidateAs(runtimeEnvironment, abs, reflect.TypeFor[SymbolicLink]())
 		if err != nil {
 			return nil, err
 		}
-		return &SymbolicLink{resource: *base}, nil
+		return &symbolicLink{resource: *base}, nil
 	case mode.IsDir():
-		base, err := buildCandidateAs(runtimeEnvironment, abs, reflect.TypeFor[*Directory]())
+		base, err := buildCandidateAs(runtimeEnvironment, abs, reflect.TypeFor[Directory]())
 		if err != nil {
 			return nil, err
 		}
-		return &Directory{resource: *base}, nil
+		return &directory{resource: *base}, nil
 	case mode.IsRegular():
-		base, err := buildCandidateAs(runtimeEnvironment, abs, reflect.TypeFor[*Regular]())
+		base, err := buildCandidateAs(runtimeEnvironment, abs, reflect.TypeFor[Regular]())
 		if err != nil {
 			return nil, err
 		}
-		return &Regular{resource: *base}, nil
+		return &regular{resource: *base}, nil
 	default:
 		return nil, fmt.Errorf("file: %s: unsupported entry kind %s (no taxonomy variant)", abs, mode)
 	}
@@ -275,7 +275,7 @@ func internEntry[E Resource](
 		// — the kinded claim asserts more, and it is the one that can fail, so it must be the one
 		// verification judges. Any other mismatch is a genuine cross-kind conflict: two claims asserting
 		// different kinds of the same path is contradictory intent, and the earliest claim reports it.
-		if _, unasserted := got.(*AnyKind); unasserted {
+		if _, unasserted := got.(AnyKind); unasserted {
 			superseded, isKind := runtimeEnvironment.ResourceCatalog.Supersede(got, candidate).(E)
 			if isKind {
 				return superseded, nil

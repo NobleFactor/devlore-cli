@@ -835,6 +835,8 @@ func typesAreInterconvertible(a, b reflect.Type) bool {
 //     `CanConvertTo(target)`; false otherwise.
 func sourceSideAdvertises(source, target reflect.Type) bool {
 
+	source = probeTypeFor(source)
+
 	if source.Implements(sourceConverterType) {
 
 		var probe any
@@ -877,6 +879,8 @@ func sourceSideAdvertises(source, target reflect.Type) bool {
 //     reports `CanConvertFrom(source)`; false otherwise.
 func targetSideAdvertises(source, target reflect.Type) bool {
 
+	target = probeTypeFor(target)
+
 	var probeType reflect.Type
 	if target.Kind() == reflect.Pointer {
 		probeType = target
@@ -901,4 +905,32 @@ func targetSideAdvertises(source, target reflect.Type) bool {
 	}
 
 	return t.CanConvertFrom(source)
+}
+
+// probeTypeFor returns the type a plan-time converter probe runs against.
+//
+// A sealed resource is announced as an interface, and an interface type carries only its declared method set:
+// [SourceConverter] and [TargetConverter] live on the struct behind it, so probing the interface finds nothing
+// and a graph that binds a `file.Directory` output to a `string` slot is refused at validation. Reflection runs
+// against the registered implementation ([RegisterResourceImplementation]), in the pointer form the converter
+// methods are declared on. Anything else — a struct, a pointer, an interface nothing registered — is returned
+// unchanged, which is the shape every probe had before sealing.
+//
+// Parameters:
+//   - `t`: the type as a slot or an output declares it.
+//
+// Returns:
+//   - `reflect.Type`: the type to probe: `*implementation` for a registered sealed interface, otherwise `t`.
+func probeTypeFor(t reflect.Type) reflect.Type {
+
+	if t == nil || t.Kind() != reflect.Interface {
+		return t
+	}
+
+	implementation := resourceImplementationFor(t)
+	if implementation == nil {
+		return t
+	}
+
+	return reflect.PointerTo(implementation)
 }

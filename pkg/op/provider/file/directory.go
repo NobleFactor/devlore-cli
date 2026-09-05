@@ -16,29 +16,55 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-// Directory is the taxonomy variant asserting that its path names a directory (phase-8 step 23).
+// Directory is the sealed interface over a directory: the taxonomy variant asserting that its path names a
+// directory (phase-8 step 23).
 //
 // The kind is declared intent, never stat-assigned (ruling 1): planning is offline, so the assertion is verified at
-// use rather than at construction — [Directory.Digest] and [Directory.Etag] observe the disk with lstat semantics
-// and error with a kind mismatch when the entry is anything else (ruling 5e). Identity is the embedded [resource]
-// (URI + SourcePath); runtime-observed metadata lives on [*Observation], exactly as for the base.
-type Directory struct {
+// use rather than at construction — `Digest` and `Etag` observe the disk with lstat semantics and error with a kind
+// mismatch when the entry is anything else (ruling 5e). Identity is the embedded [resource] (URI + SourcePath);
+// runtime-observed metadata lives on [*Observation], exactly as for the base.
+//
+// `kind() Directory` is the discriminator (ruling 6). Go compares full method signatures, result types included, so
+// a type satisfying Directory cannot satisfy another variant, and a type may declare only one method named `kind`,
+// so no concrete type can be two kinds at once. The variants' exported method sets are otherwise identical,
+// which is why a bare interface would not do: `r.(Directory)` would succeed for a regular file.
+type Directory interface {
+	Resource
+
+	// kind marks the closed set: only this package can declare it, and its result type names the kind.
+	kind() Directory
+}
+
+// Interface guard: the unexported struct is the only Directory implementation.
+var _ Directory = (*directory)(nil)
+
+// directory is the concrete resource behind [Directory] — what serializes, and the only thing that implements it.
+//
+// Unexported so that `&file.directory{...}` cannot be written anywhere else. The exported constructors are the
+// public contract; the struct behind them need not be.
+type directory struct {
 	resource
 }
 
+// kind is [Directory]'s discriminator: its result type is what tells this variant from the other three.
+//
+// Returns:
+//   - `Directory`: the receiver.
+func (r *directory) kind() Directory { return r }
+
 // sealedResource marks Directory as a member of the closed [Resource] set (step 23, slice 4).
-func (*Directory) sealedResource() {}
+func (*directory) sealedResource() {}
 
 // Exists reports whether a DIRECTORY exists at this resource's path — lstat plus kind test (kind-honest
 // activation, ruled 2026-08-22; step 23 ruling 5e).
 //
 // Kinds are lstat-strict: a regular file or a symbolic link at the path is not this resource, so a
-// *Directory claim over one fails verification at the starting line — "claims are true when made" —
+// Directory claim over one fails verification at the starting line — "claims are true when made" —
 // rather than activating kind-blind and failing later at observation or I/O.
 //
 // Returns:
 //   - `bool`: true when the path holds a directory; false on any lstat error or any other kind.
-func (r *Directory) Exists() bool {
+func (r *directory) Exists() bool {
 
 	mode, present := r.observedMode()
 
@@ -53,7 +79,7 @@ func (r *Directory) Exists() bool {
 //
 // Returns:
 //   - `bool`: true when an entry is there and it is not a directory.
-func (r *Directory) MismatchesKind() bool {
+func (r *directory) MismatchesKind() bool {
 
 	mode, present := r.observedMode()
 
@@ -74,17 +100,22 @@ func (r *Directory) MismatchesKind() bool {
 //   - `value`: a string file path or file URI.
 //
 // Returns:
-//   - `*Directory`: the canonical catalog entry (or the unlinked candidate when no catalog is present).
+//   - `Directory`: the canonical catalog entry (or the unlinked candidate when no catalog is present).
 //   - `error`: if `value` is not a string, the input violates RFC 8089 when in file URI form, the catalog's strict
 //     assertions fail, or the URI's existing entry is another kind.
-func NewDirectory(runtimeEnvironment *op.RuntimeEnvironment, producerID string, value any) (*Directory, error) {
+func NewDirectory(runtimeEnvironment *op.RuntimeEnvironment, producerID string, value any) (Directory, error) {
 
-	base, err := buildCandidateAs(runtimeEnvironment, value, reflect.TypeFor[*Directory]())
+	base, err := buildCandidateAs(runtimeEnvironment, value, reflect.TypeFor[Directory]())
 	if err != nil {
 		return nil, err
 	}
 
-	return internEntry(runtimeEnvironment, producerID, true, &Directory{resource: *base})
+	built, err := internEntry(runtimeEnvironment, producerID, true, &directory{resource: *base})
+	if err != nil {
+		return nil, err
+	}
+
+	return built, nil
 }
 
 // DiscoverDirectory registers a [file.Directory] via [op.ResourceCatalog.Discover] without claiming production.
@@ -97,17 +128,37 @@ func NewDirectory(runtimeEnvironment *op.RuntimeEnvironment, producerID string, 
 //   - `value`: a string file path or file URI.
 //
 // Returns:
-//   - `*Directory`: the canonical catalog entry (or the unlinked candidate when no catalog is present).
+//   - `Directory`: the canonical catalog entry (or the unlinked candidate when no catalog is present).
 //   - `error`: if `value` is not a string, the input violates RFC 8089 when in file URI form, the catalog's strict
 //     assertions fail, or the URI's existing entry is another kind.
-func DiscoverDirectory(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Directory, error) {
+func DiscoverDirectory(runtimeEnvironment *op.RuntimeEnvironment, value any) (Directory, error) {
 
-	base, err := buildCandidateAs(runtimeEnvironment, value, reflect.TypeFor[*Directory]())
+	built, err := discoverDirectory(runtimeEnvironment, value)
 	if err != nil {
 		return nil, err
 	}
 
-	return internEntry(runtimeEnvironment, "", false, &Directory{resource: *base})
+	return built, nil
+}
+
+// discoverDirectory is [DiscoverDirectory] returning the struct, for the unmarshalers, which rehydrate into a receiver
+// they already hold and need the concrete type to copy into.
+//
+// Parameters:
+//   - `runtimeEnvironment`: the runtime environment; must have `Root` set.
+//   - `value`: a path string, with or without the `file:` prefix.
+//
+// Returns:
+//   - `*directory`: the canonical catalog entry, or the unlinked candidate when no catalog is present.
+//   - `error`: non-string input, or a catalog entry of another kind that cannot be superseded.
+func discoverDirectory(runtimeEnvironment *op.RuntimeEnvironment, value any) (*directory, error) {
+
+	base, err := buildCandidateAs(runtimeEnvironment, value, reflect.TypeFor[Directory]())
+	if err != nil {
+		return nil, err
+	}
+
+	return internEntry(runtimeEnvironment, "", false, &directory{resource: *base})
 }
 
 // region EXPORTED METHODS
@@ -133,7 +184,7 @@ func DiscoverDirectory(runtimeEnvironment *op.RuntimeEnvironment, value any) (*D
 // Returns:
 //   - `op.Digest`: sha256 algorithm with 32 raw bytes — the Merkle root.
 //   - `error`: an lstat error, a kind mismatch, an unsupported entry kind, or any read error during the walk.
-func (r *Directory) Digest() (op.Digest, error) {
+func (r *directory) Digest() (op.Digest, error) {
 
 	root := r.RuntimeEnvironment().Root()
 
@@ -160,13 +211,13 @@ func (r *Directory) Digest() (op.Digest, error) {
 //
 // Returns:
 //   - `bool`: true if `other` is a *file.Directory with the same URI as `r`.
-func (r *Directory) Equal(other any) bool {
+func (r *directory) Equal(other any) bool {
 
 	if other == nil {
 		return false
 	}
 
-	if _, ok := other.(*Directory); !ok {
+	if _, ok := other.(*directory); !ok {
 		return false
 	}
 
@@ -184,7 +235,7 @@ func (r *Directory) Equal(other any) bool {
 // Returns:
 //   - `string`: lowercase hex sha256 of the packed stat tuple.
 //   - `error`: an lstat error or a kind mismatch.
-func (r *Directory) Etag() (string, error) {
+func (r *directory) Etag() (string, error) {
 
 	root := r.RuntimeEnvironment().Root()
 
@@ -204,7 +255,7 @@ func (r *Directory) Etag() (string, error) {
 //
 // Returns:
 //   - `string`: `file.Directory{uri=<URI>, source_path=<path>}`.
-func (r *Directory) String() string {
+func (r *directory) String() string {
 	return fmt.Sprintf("file.Directory{uri=%s, source_path=%s}", r.URI(), r.SourcePath.Abs())
 }
 
@@ -212,10 +263,10 @@ func (r *Directory) String() string {
 
 // region Behaviors
 
-// CanConvertFrom reports whether `source` can be projected into a [*Directory] via [Directory.ConvertFrom].
+// CanConvertFrom reports whether `source` can be projected into a [Directory] via [Directory.ConvertFrom].
 //
 // The variant's own probe for the framework's [op.TargetConverter] contract — defined directly (not promoted from
-// the embedded base) because the cheap-probe contract calls it against a nil-or-zero `*Directory` receiver, and a
+// the embedded base) because the cheap-probe contract calls it against a nil-or-zero `Directory` receiver, and a
 // promoted method would dereference the nil receiver to reach the embedded base. Today's accepted source shape is
 // `string`, interpreted as a filesystem path under the active fsroot.
 //
@@ -224,12 +275,12 @@ func (r *Directory) String() string {
 //
 // Returns:
 //   - `bool`: true when `source` is `string`.
-func (*Directory) CanConvertFrom(source reflect.Type) bool {
+func (*directory) CanConvertFrom(source reflect.Type) bool {
 
 	return source != nil && source.Kind() == reflect.String
 }
 
-// ConvertFrom projects `value` into a fresh [*Directory].
+// ConvertFrom projects `value` into a fresh [Directory].
 //
 // Mirrors [entry.ConvertFrom]: the returned value carries the path under SourcePath but is NOT catalog-interned
 // at this layer; receiving provider methods intern via their own [NewDirectory]/[DiscoverDirectory] path.
@@ -238,23 +289,23 @@ func (*Directory) CanConvertFrom(source reflect.Type) bool {
 //   - `value`: the source value; must be `string`.
 //
 // Returns:
-//   - `any`: the constructed unlinked [*Directory].
+//   - `any`: the constructed unlinked [Directory].
 //   - `error`: non-nil when `value` is not a `string`.
-func (*Directory) ConvertFrom(value any) (any, error) {
+func (*directory) ConvertFrom(value any) (any, error) {
 
 	str, ok := value.(string)
 	if !ok {
 		return nil, fmt.Errorf("file.Directory.ConvertFrom: source must be string, got %T", value)
 	}
 
-	return &Directory{resource: resource{SourcePath: fsroot.NewPath("", str)}}, nil
+	return &directory{resource: resource{SourcePath: fsroot.NewPath("", str)}}, nil
 }
 
 // UnmarshalJSON populates the receiver from a JSON-encoded string (a file path or file URI).
 //
 // The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.RuntimeEnvironment] before
 // invoking this method; the whole receiver is then overwritten by the reconstructed variant — defined directly so
-// rehydration rebuilds a [*Directory], never a half-filled embedded base.
+// rehydration rebuilds a [Directory], never a half-filled embedded base.
 //
 // Parameters:
 //   - `data`: JSON-encoded string containing the resource's URI or path.
@@ -262,7 +313,7 @@ func (*Directory) ConvertFrom(value any) (any, error) {
 // Returns:
 //   - `error`: non-nil if the RuntimeEnvironment is missing, the JSON does not decode as a string, or resource
 //     construction fails.
-func (r *Directory) UnmarshalJSON(data []byte) error {
+func (r *directory) UnmarshalJSON(data []byte) error {
 
 	if r.RuntimeEnvironment() == nil {
 		return errors.New("file.Directory: UnmarshalJSON requires RuntimeEnvironment on receiver")
@@ -274,7 +325,7 @@ func (r *Directory) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	built, err := DiscoverDirectory(r.RuntimeEnvironment(), uri)
+	built, err := discoverDirectory(r.RuntimeEnvironment(), uri)
 	if err != nil {
 		return err
 	}
@@ -293,13 +344,13 @@ func (r *Directory) UnmarshalJSON(data []byte) error {
 //
 // Returns:
 //   - `error`: non-nil if the RuntimeEnvironment is missing or resource construction fails.
-func (r *Directory) UnmarshalText(text []byte) error {
+func (r *directory) UnmarshalText(text []byte) error {
 
 	if r.RuntimeEnvironment() == nil {
 		return errors.New("file.Directory: UnmarshalText requires RuntimeEnvironment on receiver")
 	}
 
-	built, err := DiscoverDirectory(r.RuntimeEnvironment(), string(text))
+	built, err := discoverDirectory(r.RuntimeEnvironment(), string(text))
 	if err != nil {
 		return err
 	}
@@ -319,7 +370,7 @@ func (r *Directory) UnmarshalText(text []byte) error {
 // Returns:
 //   - `error`: non-nil if the RuntimeEnvironment is missing, the YAML node does not decode as a string, or resource
 //     construction fails.
-func (r *Directory) UnmarshalYAML(unmarshal func(any) error) error {
+func (r *directory) UnmarshalYAML(unmarshal func(any) error) error {
 
 	if r.RuntimeEnvironment() == nil {
 		return errors.New("file.Directory: UnmarshalYAML requires RuntimeEnvironment on receiver")
@@ -331,7 +382,7 @@ func (r *Directory) UnmarshalYAML(unmarshal func(any) error) error {
 		return err
 	}
 
-	built, err := DiscoverDirectory(r.RuntimeEnvironment(), uri)
+	built, err := discoverDirectory(r.RuntimeEnvironment(), uri)
 	if err != nil {
 		return err
 	}

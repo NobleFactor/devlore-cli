@@ -12,8 +12,8 @@ import (
 	"testing"
 )
 
-// discoverSymbolicLink mints a *SymbolicLink for `path` in a fresh catalog-backed environment rooted at `root`.
-func discoverSymbolicLink(t *testing.T, root, path string) *SymbolicLink {
+// discoverSymbolicLink mints a SymbolicLink for `path` in a fresh catalog-backed environment rooted at `root`.
+func discoveredSymbolicLink(t *testing.T, root, path string) SymbolicLink {
 	t.Helper()
 	p := testProvider(t, root)
 	link, err := DiscoverSymbolicLink(p.RuntimeEnvironment(), path)
@@ -31,7 +31,7 @@ func TestSymbolicLinkDigest_LiteralTarget(t *testing.T) {
 	linkPath := filepath.Join(root, "link")
 	mkTreeLink(t, "relative/target.txt", linkPath)
 
-	digest, err := discoverSymbolicLink(t, root, linkPath).Digest()
+	digest, err := discoveredSymbolicLink(t, root, linkPath).Digest()
 	if err != nil {
 		t.Fatalf("Digest: %v", err)
 	}
@@ -46,7 +46,7 @@ func TestSymbolicLinkDigest_LiteralTarget(t *testing.T) {
 	}
 	mkTreeLink(t, "relative/other.txt", linkPath)
 
-	retargeted, err := discoverSymbolicLink(t, root, linkPath).Digest()
+	retargeted, err := discoveredSymbolicLink(t, root, linkPath).Digest()
 	if err != nil {
 		t.Fatalf("Digest after retarget: %v", err)
 	}
@@ -63,7 +63,7 @@ func TestSymbolicLinkDigestAndEtag_DanglingIsLegal(t *testing.T) {
 	linkPath := filepath.Join(root, "dangling")
 	mkTreeLink(t, filepath.Join(root, "never-created"), linkPath)
 
-	link := discoverSymbolicLink(t, root, linkPath)
+	link := discoveredSymbolicLink(t, root, linkPath)
 
 	if _, err := link.Digest(); err != nil {
 		t.Errorf("Digest over a dangling link = %v; want success (the link is the resource)", err)
@@ -92,7 +92,7 @@ func TestSymbolicLinkKindMismatch(t *testing.T) {
 	path := filepath.Join(root, "plain.txt")
 	mkTreeFile(t, path, "not a link")
 
-	link := discoverSymbolicLink(t, root, path)
+	link := discoveredSymbolicLink(t, root, path)
 
 	if _, err := link.Digest(); !errors.Is(err, errKindMismatch) {
 		t.Errorf("Digest over a regular file = %v; want the kind mismatch", err)

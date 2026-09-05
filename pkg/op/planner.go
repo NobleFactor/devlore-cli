@@ -406,7 +406,7 @@ func bindAuthoredValue(invocator PlanInvocator, spec *NodeSpec, actionName strin
 	// mint type (4-resource-management.md §5.7 rule 6, amended 2026-08-23). A claim asserts a kind —
 	// "claims are true when made" needs a kind to be true about — and an interface asserts none, so the
 	// interface names the claim that deliberately asserts nothing on its behalf (`file.Resource` →
-	// `*file.AnyKind`, which resolves to the observed kind at activation). Substituting the mint type HERE,
+	// `file.AnyKind`, which resolves to the observed kind at activation). Substituting the mint type HERE,
 	// ahead of the grammar, the source-constructor lookup, and the conversion, means every downstream
 	// step behaves exactly as it does for an explicitly kinded parameter.
 	//

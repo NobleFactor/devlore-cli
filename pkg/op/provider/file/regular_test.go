@@ -121,10 +121,10 @@ func TestRegularEqual_StrictType(t *testing.T) {
 		t.Fatalf("DiscoverResource: %v", err)
 	}
 
-	if !first.Equal(second) {
+	if !concrete[*regular](t, first).Equal(second) {
 		t.Error("two Regulars over the same URI are unequal")
 	}
-	if first.Equal(base) {
+	if concrete[*regular](t, first).Equal(base) {
 		t.Error("a Regular matched the catch-all base over the same URI (strict typing violated)")
 	}
 	if base.Equal(first) {
@@ -147,9 +147,9 @@ func TestDiscover_CrossKindCollisionErrors(t *testing.T) {
 
 	_, err := DiscoverDirectory(p.RuntimeEnvironment(), path)
 	if err == nil {
-		t.Fatal("DiscoverDirectory over a URI held as *Regular = nil error; want the cross-kind collision")
+		t.Fatal("DiscoverDirectory over a URI held as Regular = nil error; want the cross-kind collision")
 	}
-	if !strings.Contains(err.Error(), "*file.Regular") || !strings.Contains(err.Error(), "*file.Directory") {
+	if !strings.Contains(err.Error(), "file.regular") || !strings.Contains(err.Error(), "file.directory") {
 		t.Errorf("collision error %q does not name both kinds", err)
 	}
 }
@@ -181,35 +181,35 @@ func TestDiscoverRegular_CacheHitReturnsCanonical(t *testing.T) {
 // (the plan-time interconvertibility check calls it that way) — a promoted method would panic here.
 func TestRegularCanConvertFrom_NilReceiverSafe(t *testing.T) {
 
-	var regular *Regular
+	var nilRegular *regular
 
-	if !regular.CanConvertFrom(reflect.TypeFor[string]()) {
+	if !nilRegular.CanConvertFrom(reflect.TypeFor[string]()) {
 		t.Error("CanConvertFrom(string) = false; want true")
 	}
-	if regular.CanConvertFrom(nil) {
+	if nilRegular.CanConvertFrom(nil) {
 		t.Error("CanConvertFrom(nil) = true; want false")
 	}
 }
 
-// TestRegularConvertFrom_Unlinked pins the projection contract: a string projects to an unlinked *Regular carrying
+// TestRegularConvertFrom_Unlinked pins the projection contract: a string projects to an unlinked regular carrying
 // the path.
 func TestRegularConvertFrom_Unlinked(t *testing.T) {
 
-	projected, err := (*Regular)(nil).ConvertFrom("/some/path.txt")
+	projected, err := (*regular)(nil).ConvertFrom("/some/path.txt")
 	if err != nil {
 		t.Fatalf("ConvertFrom: %v", err)
 	}
 
-	regular, ok := projected.(*Regular)
+	got, ok := projected.(*regular)
 	if !ok {
-		t.Fatalf("ConvertFrom returned %T; want *Regular", projected)
+		t.Fatalf("ConvertFrom returned %T; want *regular", projected)
 	}
 	// Abs is OS-native, so the expectation is platform-correct rather than a slash literal.
-	if want := filepath.FromSlash("/some/path.txt"); regular.SourcePath.Abs() != want {
-		t.Errorf("projected path = %q; want %q", regular.SourcePath.Abs(), want)
+	if want := filepath.FromSlash("/some/path.txt"); got.SourcePath.Abs() != want {
+		t.Errorf("projected path = %q; want %q", got.SourcePath.Abs(), want)
 	}
 
-	if _, err := (*Regular)(nil).ConvertFrom(42); err == nil {
+	if _, err := (*regular)(nil).ConvertFrom(42); err == nil {
 		t.Error("ConvertFrom(42) = nil error; want the non-string rejection")
 	}
 }
