@@ -186,8 +186,15 @@ gh issue list \
         elif . == "Severity:Medium" then 2
         elif . == "Severity:Low" then 3
         else 4 end;
-    # A tier-three issue is a task or a bug; they are peers under a feature.
-    def isChild: tagged("task") or isBug;
+    # A tier-three issue is a task or a bug; they are peers under a feature. A chore is outside that
+    # hierarchy but still belongs to its epic, hanging directly from it with no parent feature.
+    def isChild: tagged("task") or isBug or tagged("chore");
+
+    # What to say about a child with no parent feature. For a task or a bug that is a fault worth
+    # naming; for a chore it is the design -- under Epic:Process there is no feature tier.
+    def unparented:
+      if tagged("chore") then ""
+      else "unfiled, no parent feature" end;
 
     # A tasks parent feature, stated in its body as **Feature:** #123.
     def parentFeature:
@@ -247,7 +254,7 @@ gh issue list \
                     | ( ($f | row("")),
                         ( [ $tasks[] | select(parentFeature == $f.number) ] | sort_by(.number) | .[] | row("feature #\($f.number)") | . + {feature: $f.number} ) ) ),
                   ( [ $tasks[] | select(parentFeature == null or (parentFeature as $p | $featureNumbers | index($p) | not)) ]
-                    | sort_by(.number) | .[] | row("unfiled, no parent feature") ) )
+                    | sort_by(.number) | .[] | row(unparented) ) )
               | . + {epic: $e.number} + (if ($e | has("thread")) then {thread: $e.thread} else {} end) ]
           | tojson )
       else (
@@ -304,7 +311,7 @@ gh issue list \
                           | ( ($f | row("")),
                               ( [ $tasks[] | select(parentFeature == $f.number) ] | sort_by(.number) | .[] | row("feature #\($f.number)") ) ) ),
                         ( [ $tasks[] | select(parentFeature == null or (parentFeature as $p | $featureNumbers | index($p) | not)) ]
-                          | sort_by(.number) | .[] | row("unfiled, no parent feature") ) ] ) as $rows
+                          | sort_by(.number) | .[] | row(unparented) ) ] ) as $rows
                   | ( ( if ($e | has("thread")) then "\n## Thread \($e.thread) — \($e.title) [#\($e.number)](\($e.url))\n"
                         else "\n## \($e.title) [#\($e.number)](\($e.url))\n" end ),
                       ( $rows | table ) ) )
