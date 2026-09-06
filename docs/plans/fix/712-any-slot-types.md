@@ -165,7 +165,19 @@ Receipts and the recovery stack feed compensation and resume. A float that reloa
 changes a *compensating* call, which is worse than changing a forward one. One shared treatment at every
 `any` seam, not a local patch at `bindingData`.
 
-## Work in progress — state as of 2026-09-01
+## Work in progress — state as of 2026-09-06
+
+**Resumed 2026-09-06.** `origin/develop` merged at 869ca1bd as `24136bdf` (195 files, no conflicts; the branch is
+7 ahead, 0 behind). The order this plan asked for held: #644, #645, and #649 landed first, so every announced
+resource type is an interface and no `ConvertFrom` can mint an uncataloged resource — Decision 8's hard error at
+save is now unreachable by construction, as intended. #738 closed in thread 1, so the first block below is lifted;
+the accessor question stands. The red set is exactly the one recorded on 2026-09-01: the three executor tests
+failing on `encodeTypeWrapper: $resource … has no catalog to name it`, and three of the nine phase-1 tests (the
+Resource reload, the truthiness guard, the recovery-stack seam). Nothing else in the tree is red. The next step is
+the correction below, unchanged.
+
+### State as of 2026-09-01
+
 
 **Branch:** `fix/712-any-slot-types`, in worktree `devlore-cli.712-any-slot-types`. **Committed:**
 `b17067b` (Phase 1: the plan and nine failing tests) and `ff33a2f` (the type wrapper, wired at the graph
