@@ -24,11 +24,11 @@ exceptions. What remains is closure.
 
 | Phase | Subject | Issue |
 | --- | --- | --- |
-| 8 | sweep `ConvertFrom` / `CanConvertFrom` | [#649](https://github.com/NobleFactor/devlore-cli/issues/649) |
+| 8 | sweep `ConvertFrom` / `CanConvertFrom` (sized 2026-09-05; folds #807, #808) | [#649](https://github.com/NobleFactor/devlore-cli/issues/649) |
 | 9 | the rule becomes structurally enforceable | [#646](https://github.com/NobleFactor/devlore-cli/issues/646) |
 | 10 | closure — the design record states the contract | [#647](https://github.com/NobleFactor/devlore-cli/issues/647) |
 
-Every remaining phase already has an issue. **#649 is next.**
+Every remaining phase already has an issue. **#649 is in progress** (sized 2026-09-05).
 
 ### The thread's other open work
 
@@ -670,7 +670,7 @@ Steps, each a commit only if it needs to be one:
 
 ### Closure
 
-#### Phase 8 — sweep `ConvertFrom` / `CanConvertFrom` — status: pending
+#### Phase 8 — sweep `ConvertFrom` / `CanConvertFrom` — status: in-progress
 
 [#649](https://github.com/NobleFactor/devlore-cli/issues/649), scheduled here rather than per-phase (USER,
 2026-08-25). Sealing is what makes a resource's `TargetConverter` pair unreachable: `op.Convert` step 7
@@ -697,6 +697,43 @@ Two things make this safe rather than merely tidy, and both are evidence rather 
 
 Distinct from [#661](https://github.com/NobleFactor/devlore-cli/issues/661), which is the opposite shape: a
 documented override contract that **zero** implementors honour.
+
+**Sized 2026-09-05 (#649), before removing anything.** Read against develop at f4b3cdb1, after phase 7.
+
+- **The count holds.** Sixteen methods in eight pairs: `appnet/resource.go`, `git/resource.go`,
+  `service/resource.go`, `pkg/resource.go`, and in `file` the base `resource_base.go` plus `regular.go`,
+  `directory.go`, `symbolic_link.go`. `anyKind` never had the pair. Each pair carries a doc comment that opts the
+  type into `op.TargetConverter`; the comments go with the methods.
+- **Two tests assert the methods exist**, both in `file/regular_test.go`: `TestRegularCanConvertFrom_NilReceiverSafe`
+  and `TestRegularConvertFrom_Unlinked`. They test a contract this phase removes by design, so they go, and the
+  contract that replaces it is asserted as strongly: a string does not reach a sealed resource through the target
+  side. `service/forgery_test.go` already pins that for one provider
+  (`TestConvert_EnvlessStringNoLongerReachesConvertFrom`); the phase generalizes it to every sealed resource.
+- **Phase 7 touched the probes.** `probeTypeFor` now resolves a sealed interface to `*implementation` before
+  `targetSideAdvertises` inspects it. After the sweep the implementation has no `TargetConverter` methods, so the
+  probe reports false for every resource, which is the intended answer: the string→resource path is the constructor
+  and the catalog, not conversion. The source side (`ConvertTo`, `probeTypeFor` in `sourceSideAdvertises`) is
+  untouched.
+- **#807 folds in.** Seven constructors return a typed nil on their error path through
+  `return discoverResource(...)`: `json`, `yaml`, `service`, `git`, `mem`, `appnet`, `pkg`. Each becomes the
+  explicit form `file` uses (`built, err := ...; if err != nil { return nil, err }; return built, nil`), with a
+  unit test per provider that `resource == nil` when `err != nil`. `function` and `file` already return an
+  explicit nil.
+- **#808 folds in.** `file/helpers.go:286` reports a cross-kind collision with `%T` of the ledger entry and the
+  candidate, which now prints `*file.regular` and `*file.directory`. It names the kinds by their exported
+  interface names, and `TestDiscover_CrossKindCollisionErrors` asserts those.
+- **Consumers.** No file outside the five packages calls `ConvertFrom` or `CanConvertFrom` on a resource; the
+  framework's own callers reach them only through the `TargetConverter` interface. No consumer changes.
+- **Generated files** do not name the pair; expected byte-identical.
+
+Steps, each a commit only if it needs to be one:
+
+1. The sixteen methods and their opt-in comments removed; the two `regular_test.go` tests removed.
+2. The forgery pin generalized: one test, table-driven over the eight sealed resource interfaces, that a string
+   does not convert to any of them through the target side.
+3. #807: the seven constructors return an explicit nil; a test per provider.
+4. #808: the collision error names the kinds; the test asserts the exported names.
+5. `make generate` (byte-identical); `make check`.
 
 #### Phase 9 — the rule becomes structurally enforceable — status: pending
 
