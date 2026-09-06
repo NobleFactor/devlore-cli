@@ -26,7 +26,7 @@ func writeThenRemove(t *testing.T) string {
 // TestOutputFormats_EveryFormatRenders runs one graph through every value of --output.
 //
 // The point is coverage of the SET, not of any one rendering: a format that is registered but broken, or
-// that silently falls through to another, fails here. `writ status` shipped for months answering `-o yaml`
+// that silently falls through to another, fails here. `writ reconcile` (as `writ status` then) shipped for months answering `-o yaml`
 // with a human dashboard because nothing asserted across the whole set (#754).
 func TestOutputFormats_EveryFormatRenders(t *testing.T) {
 

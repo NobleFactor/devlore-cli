@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strconv"
 
+	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
+
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 )
@@ -49,16 +51,29 @@ type Flag struct {
 	Required bool   `yaml:"required"`
 }
 
-// Run executes the command with the given flag values and optional positional arguments.
-func (c *Command) Run(flags map[string]string, positional ...string) error {
+// Run executes the command with the given flag values and optional positional arguments, and returns
+// what the script returned.
+//
+// A script's return value is the command's result: it reaches stdout through the shared output
+// pipeline, rendered by `--output`, so a script never prints its result itself. None is no result.
+//
+// Parameters:
+//   - `flags`: flag name to string value, as collected from cobra.
+//   - `positional`: the positional arguments, consumed in arg-spec order.
+//
+// Returns:
+//   - `any`: the script's return value as the JSON-shaped Go value the pipeline renders; nil for None.
+//   - `error`: non-nil when the arguments cannot be bound, the script fails, or its return value has
+//     no JSON shape.
+func (c *Command) Run(flags map[string]string, positional ...string) (any, error) {
 	thread := &starlark.Thread{
 		Name:  c.Name,
-		Print: func(_ *starlark.Thread, msg string) { fmt.Println(msg) },
+		Print: func(_ *starlark.Thread, msg string) { cli.Note("  [print] %s", msg) },
 	}
 
 	argsDict, err := c.buildArgsDict(flags, positional)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	ctx := starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
@@ -69,15 +84,16 @@ func (c *Command) Run(flags map[string]string, positional ...string) error {
 	c.setCurrentCommand()
 
 	// Do run(command, ctx).
-	_, err = starlark.Call(thread, c.RunFunc, starlark.Tuple{c, ctx}, nil)
+	value, err := starlark.Call(thread, c.RunFunc, starlark.Tuple{c, ctx}, nil)
 	if err != nil {
 		var evalErr *starlark.EvalError
 		if errors.As(err, &evalErr) {
-			return fmt.Errorf("%s", evalErr.Backtrace())
+			return nil, fmt.Errorf("%s", evalErr.Backtrace())
 		}
-		return err
+		return nil, err
 	}
-	return nil
+
+	return goValue(value)
 }
 
 // buildArgsDict builds the context dict with native starlark types from the flag values and

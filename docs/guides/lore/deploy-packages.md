@@ -109,7 +109,7 @@ List the packages recorded across your deployment receipts:
 
 ```bash
 lore list
-lore list --format json
+lore list -o json
 ```
 
 Reads the pipeline receipts in `~/.local/state/lore/receipts/` and reports each
@@ -169,7 +169,7 @@ View detailed information about a deployed or available package:
 
 ```bash
 lore inspect docker
-lore inspect kubectl --format yaml
+lore inspect kubectl -o yaml
 ```
 
 Shows the resolved manifest, platform support, features, dependencies,

@@ -27,7 +27,7 @@ behavior through a different sequence.
 ## Proven by
 
 The live cutover itself: 75 files deployed from the git-crypt personal layer (secrets
-plaintext end to end), `writ status` 75/75, zero new broken links against the pre-cutover
+plaintext end to end), `writ reconcile` 75/75, zero new broken links against the pre-cutover
 baseline. CI cannot exercise git-crypt (not on runners); the scenario's non-crypt legs
 prove the resequenced path.
 

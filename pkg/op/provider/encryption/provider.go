@@ -54,14 +54,14 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 //   - `mode`: the [os.FileMode] applied to the decrypted file; refused if it grants group or other access.
 //
 // Returns:
-//   - `*file.Regular`: the destination resource with populated metadata.
+//   - `file.Regular`: the destination resource with populated metadata.
 //   - `*Receipt`: compensation state for removing the decrypted file.
 //   - `error`: any error from the mode floor, reading, decrypting, or writing.
 //
 // +devlore:defaults mode=0o600
 //
 // +devlore:claim=sandboxed
-func (p *Provider) DecryptSopsFile(activationRecord *op.ActivationRecord, source *file.Regular, destinationPath string, mode os.FileMode) (*file.Regular, *Receipt, error) {
+func (p *Provider) DecryptSopsFile(activationRecord *op.ActivationRecord, source file.Regular, destinationPath string, mode os.FileMode) (file.Regular, *Receipt, error) {
 
 	if err := enforceSecretFloor(mode); err != nil {
 		return nil, nil, err
@@ -76,20 +76,20 @@ func (p *Provider) DecryptSopsFile(activationRecord *op.ActivationRecord, source
 	root := p.RuntimeEnvironment().Root()
 
 	// 1. Read the source file into memory
-	data, err := root.ReadFile(root.NewPath(source.SourcePath.Abs()))
+	data, err := root.ReadFile(root.NewPath(source.Path().Abs()))
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read source: %w", err)
 	}
 
 	// 2. Decrypt via SopsClient
 
-	cleartext, err := p.sops.Decrypt(data, source.SourcePath.Abs())
+	cleartext, err := p.sops.Decrypt(data, source.Path().Abs())
 	if err != nil {
 		return nil, nil, fmt.Errorf("sops decryption failed: %w", err)
 	}
 
 	// 3. Write cleartext to the destination path
-	if err := root.WriteFile(root.NewPath(result.SourcePath.Abs()), cleartext, mode); err != nil {
+	if err := root.WriteFile(root.NewPath(result.Path().Abs()), cleartext, mode); err != nil {
 		return nil, nil, fmt.Errorf("failed to write destination: %w", err)
 	}
 
@@ -114,13 +114,13 @@ func (p *Provider) CompensateDecryptSopsFile(activationRecord *op.ActivationReco
 		return nil
 	}
 
-	resource, ok := receipt.Resource().(*file.Regular)
+	resource, ok := receipt.Resource().(file.Regular)
 	if !ok {
 		return fmt.Errorf("compensate decrypt sops file: unexpected resource type %T", receipt.Resource())
 	}
 
 	root := p.RuntimeEnvironment().Root()
-	return root.Remove(root.NewPath(resource.SourcePath.Abs()))
+	return root.Remove(root.NewPath(resource.Path().Abs()))
 }
 
 // EncryptFile reads source's cleartext and writes the SOPS-encrypted content to destinationPath.
@@ -140,12 +140,12 @@ func (p *Provider) CompensateDecryptSopsFile(activationRecord *op.ActivationReco
 //   - `mode`: the [os.FileMode] applied to the encrypted file.
 //
 // Returns:
-//   - `*file.Regular`: the destination resource with populated metadata.
+//   - `file.Regular`: the destination resource with populated metadata.
 //   - `*Receipt`: compensation state for removing the encrypted file.
 //   - `error`: any error from reading, encrypting, or writing.
 //
 // +devlore:defaults mode=0o600
-func (p *Provider) EncryptFile(activationRecord *op.ActivationRecord, source *file.Regular, destinationPath string, mode os.FileMode) (*file.Regular, *Receipt, error) {
+func (p *Provider) EncryptFile(activationRecord *op.ActivationRecord, source file.Regular, destinationPath string, mode os.FileMode) (file.Regular, *Receipt, error) {
 
 	result, err := file.DiscoverRegular(p.RuntimeEnvironment(), destinationPath)
 
@@ -156,19 +156,19 @@ func (p *Provider) EncryptFile(activationRecord *op.ActivationRecord, source *fi
 	root := p.RuntimeEnvironment().Root()
 
 	// 1. Read the source cleartext into memory
-	data, err := root.ReadFile(root.NewPath(source.SourcePath.Abs()))
+	data, err := root.ReadFile(root.NewPath(source.Path().Abs()))
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to read source: %w", err)
 	}
 
 	// 2. Encrypt for the recipients resolved from the .sops.yaml governing the source path
-	ciphertext, err := p.encrypter.Encrypt(data, source.SourcePath.Abs(), root.Name())
+	ciphertext, err := p.encrypter.Encrypt(data, source.Path().Abs(), root.Name())
 	if err != nil {
 		return nil, nil, fmt.Errorf("sops encryption failed: %w", err)
 	}
 
 	// 3. Write the ciphertext to the destination path
-	if err := root.WriteFile(root.NewPath(result.SourcePath.Abs()), ciphertext, mode); err != nil {
+	if err := root.WriteFile(root.NewPath(result.Path().Abs()), ciphertext, mode); err != nil {
 		return nil, nil, fmt.Errorf("failed to write destination: %w", err)
 	}
 
@@ -193,13 +193,13 @@ func (p *Provider) CompensateEncryptFile(activationRecord *op.ActivationRecord, 
 		return nil
 	}
 
-	resource, ok := receipt.Resource().(*file.Regular)
+	resource, ok := receipt.Resource().(file.Regular)
 	if !ok {
 		return fmt.Errorf("compensate encrypt file: unexpected resource type %T", receipt.Resource())
 	}
 
 	root := p.RuntimeEnvironment().Root()
-	return root.Remove(root.NewPath(resource.SourcePath.Abs()))
+	return root.Remove(root.NewPath(resource.Path().Abs()))
 }
 
 // endregion

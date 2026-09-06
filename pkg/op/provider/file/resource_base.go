@@ -298,53 +298,6 @@ func (r *resource) ConvertTo(target reflect.Type) (any, error) {
 	return r.ResourceBase.ConvertTo(target)
 }
 
-// CanConvertFrom reports whether `source` can be projected into a [*resource] via [entry.ConvertFrom].
-//
-// Opts the file entry into the framework's [op.TargetConverter] contract: the [op.Convert] cascade routes `source →
-// *resource` slot-fill through [entry.ConvertFrom] at dispatch time (step 6 of the cascade), and
-// [op.typesAreInterconvertible] consults the same probe at plan time so [op.Subgraph.mergeBubbled] does not flag a
-// variable bound to both a `string` slot and a `*resource` slot as a collision. Today's accepted source shape is
-// `string` — interpreted as a filesystem path under the active fsroot. Other source shapes (file URI strings, Path
-// values) can be added by extending this probe; the conversion body in [entry.ConvertFrom] must accept the
-// corresponding type.
-//
-// Cheap-probe contract: this method is called against a nil-or-zero `*resource` receiver by
-// [op.typesAreInterconvertible] during plan-time bubble-up checks. It MUST NOT dereference receiver fields.
-//
-// Parameters:
-//   - `source`: the candidate source type to test.
-//
-// Returns:
-//   - `bool`: true when `source` is `string`.
-func (*resource) CanConvertFrom(source reflect.Type) bool {
-
-	return source != nil && source.Kind() == reflect.String
-}
-
-// ConvertFrom projects `value` into a fresh [*resource].
-//
-// Today's accepted shape is `string` — interpreted as a filesystem path under the active fsroot. The returned
-// [*resource] carries the path under [entry.SourcePath] but is NOT catalog-interned at this layer; provider methods
-// that receive the projected entry are responsible for interning via their own taxonomy constructor
-// path. This mirrors the inline `&resource{SourcePath: fsroot.NewPath("", str)}` pattern used at writ adopt call sites
-// pre-13.0(n) — the slot-fill cascade absorbs the pattern uniformly.
-//
-// Parameters:
-//   - `value`: the source value; must be `string`.
-//
-// Returns:
-//   - `any`: the constructed unlinked [*resource].
-//   - `error`: non-nil when `value` is not a `string`.
-func (*resource) ConvertFrom(value any) (any, error) {
-
-	str, ok := value.(string)
-	if !ok {
-		return nil, fmt.Errorf("file.entry.ConvertFrom: source must be string, got %T", value)
-	}
-
-	return &resource{SourcePath: fsroot.NewPath("", str)}, nil
-}
-
 // Resolve rebinds the source path to the execution fsroot and verifies the file exists.
 //
 // The path is canonical from construction; rebinding updates Rel for confined I/O under the execution fsroot. If the

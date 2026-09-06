@@ -90,10 +90,12 @@ jobs:
         # indefinitely and the loop never reaches its break-or-retry decision -- retries handle failures,
         # not hangs. Observed 2026-08-18: this step sat 20+ minutes while every other leg finished (#439).
         run: |
+          # The version is the Makefile's, read rather than copied: one pin, one place to bump it.
+          version="$(make -s print-golangci-lint-version)"
           for attempt in 1 2 3; do
             curl -sSfL --connect-timeout 15 --max-time 120 \
-              https://raw.githubusercontent.com/golangci/golangci-lint/v2.13.1/install.sh |
-              sh -s -- -b "$(go env GOPATH)/bin" v2.13.1 && break
+              "https://raw.githubusercontent.com/golangci/golangci-lint/${version}/install.sh" |
+              sh -s -- -b "$(go env GOPATH)/bin" "${version}" && break
             echo "golangci-lint install attempt $attempt failed; retrying in 5s" >&2
             sleep 5
           done

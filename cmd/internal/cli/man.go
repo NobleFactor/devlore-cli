@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
 	"path/filepath"
 	"time"
@@ -134,11 +133,8 @@ func DisplayManPage(cmd *cobra.Command, header *doc.GenManHeader) (err error) {
 
 	// Display with man command
 	manCmd := exec.CommandContext(context.Background(), "man", pagePath.Abs()) //nolint:gosec // G204: argument is a temp file we created
-	manCmd.Stdout = os.Stdout
-	manCmd.Stderr = os.Stderr
-	manCmd.Stdin = os.Stdin
 
-	return manCmd.Run()
+	return RunInteractive(manCmd, "pass --help, or read the pages `self install` writes under the prefix")
 }
 
 // isManAvailable checks if the man command is available on this system.
@@ -172,9 +168,9 @@ func installManPages(rootCmd *cobra.Command, header *doc.GenManHeader, manRoot f
 		return fmt.Errorf("failed to generate man pages: %w", err)
 	}
 
-	fmt.Printf("Man pages installed to %s\n", manRoot.Name())
-	fmt.Println("Ensure this path is in your MANPATH:")
-	fmt.Printf("  export MANPATH=\"%s:$MANPATH\"\n", filepath.Dir(manRoot.Name()))
+	Success("Man pages installed to %s", manRoot.Name())
+	Note("Ensure this path is in your MANPATH:")
+	Note("  export MANPATH=\"%s:$MANPATH\"", filepath.Dir(manRoot.Name()))
 
 	return nil
 }

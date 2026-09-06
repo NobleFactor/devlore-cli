@@ -27,7 +27,7 @@ func TestDiscoverRegular_PathAndOwnSpecific_SameIdentity(t *testing.T) {
 	// The provider's OWN specific, asked of the resource rather than spelled here — the pin follows the
 	// mint instead of freezing a retired form (the defect this test caught on Windows when it hardcoded
 	// "file://" + abs).
-	fromSpecific, err := DiscoverRegular(p.RuntimeEnvironment(), fromPath.ReachabilityURI())
+	fromSpecific, err := DiscoverRegular(p.RuntimeEnvironment(), concrete[*regular](t, fromPath).ReachabilityURI())
 	if err != nil {
 		t.Fatalf("DiscoverRegular(own specific): %v", err)
 	}

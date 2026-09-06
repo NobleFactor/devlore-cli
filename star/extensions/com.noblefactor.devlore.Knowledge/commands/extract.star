@@ -44,7 +44,6 @@ def run(command, ctx):
     source = ctx.args.get("source", "")
     target = _resolve_target(ctx)
     domain = ctx.args.get("domain", "all")
-    fmt = ctx.args.get("format", "all")
 
     # Smart default for source: look for sibling directory
     if not source:
@@ -60,7 +59,7 @@ def run(command, ctx):
 
     # Build knowledge for selected domain(s)
     if domain == "all" or domain == "onboarding":
-        build_onboarding_knowledge(source, target, fmt)
+        build_onboarding_knowledge(source, target)
 
     if domain == "all" or domain == "migration":
         build_migration_knowledge(source, target)
@@ -591,7 +590,7 @@ def _parse_migrate_knowledge(path):
 # ONBOARDING KNOWLEDGE (Starlark API reference for lore package authors)
 # =============================================================================
 
-def build_onboarding_knowledge(source, target, fmt = "all"):
+def build_onboarding_knowledge(source, target):
     """Build Starlark API reference from devlore-cli source."""
     note("Building onboarding knowledge (Starlark API)...")
 
@@ -620,46 +619,44 @@ def build_onboarding_knowledge(source, target, fmt = "all"):
     succeed("  No contract violations")
 
     # Write YAML reference
-    if fmt in ("yaml", "all"):
-        reference_path = file.join(target, "knowledge", "package-authoring", "bindings", "reference.yaml")
+    reference_path = file.join(target, "knowledge", "package-authoring", "bindings", "reference.yaml")
 
-        changes_detected = False
-        new_content = yaml.encode(api)
-        if file.exists(reference_path):
-            current_content = file.read_text(reference_path)
-            if current_content != new_content:
-                changes_detected = True
-                note("  Changes detected in reference.yaml")
-        else:
+    changes_detected = False
+    new_content = yaml.encode(api)
+    if file.exists(reference_path):
+        current_content = file.read_text(reference_path)
+        if current_content != new_content:
             changes_detected = True
-            note("  Creating new reference.yaml")
+            note("  Changes detected in reference.yaml")
+    else:
+        changes_detected = True
+        note("  Creating new reference.yaml")
 
-        if changes_detected:
-            file.write_text(reference_path, new_content)
-            succeed("  Wrote " + reference_path)
-        else:
-            succeed("  No changes to reference.yaml")
+    if changes_detected:
+        file.write_text(reference_path, new_content)
+        succeed("  Wrote " + reference_path)
+    else:
+        succeed("  No changes to reference.yaml")
 
     # Write markdown reference
-    if fmt in ("md", "all"):
-        md_path = file.join(target, "knowledge", "package-authoring", "bindings", "reference.md")
-        md_content = _render_markdown(api)
+    md_path = file.join(target, "knowledge", "package-authoring", "bindings", "reference.md")
+    md_content = _render_markdown(api)
 
-        md_changed = False
-        if file.exists(md_path):
-            current_md = file.read_text(md_path)
-            if current_md != md_content:
-                md_changed = True
-                note("  Changes detected in reference.md")
-        else:
+    md_changed = False
+    if file.exists(md_path):
+        current_md = file.read_text(md_path)
+        if current_md != md_content:
             md_changed = True
-            note("  Creating new reference.md")
+            note("  Changes detected in reference.md")
+    else:
+        md_changed = True
+        note("  Creating new reference.md")
 
-        if md_changed:
-            file.write_text(md_path, md_content)
-            succeed("  Wrote " + md_path)
-        else:
-            succeed("  No changes to reference.md")
+    if md_changed:
+        file.write_text(md_path, md_content)
+        succeed("  Wrote " + md_path)
+    else:
+        succeed("  No changes to reference.md")
 
 
 def _count_bindings(api):

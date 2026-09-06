@@ -68,7 +68,7 @@ func IndexPath() string {
 // ReadIndex reads the run index, tolerating a torn final line.
 //
 // Lines that fail to parse are skipped — a crash mid-append must not fail every later read. A missing index
-// file is an error (callers distinguish it via [os.IsNotExist]): per the deploy-family design, `writ status`
+// file is an error (callers distinguish it via [os.IsNotExist]): per the deploy-family design, `writ reconcile`
 // treats a missing index as a hard error rather than degrading silently.
 //
 // Returns:

@@ -7,6 +7,11 @@ parent: ../../phase-8.md
 
 # Step 47 — writ deploy family rewrite
 
+> **Renamed back, 2026-09-01.** This document records `writ status` replacing `writ reconcile` at
+> phase-8 step 47. [#762](https://github.com/NobleFactor/devlore-cli/issues/762) returned the name once
+> repair was chartered, and [#774](https://github.com/NobleFactor/devlore-cli/issues/774) landed it: the
+> command is `writ reconcile` again. The text below is kept as the record of the original decision.
+
 **Chartered 2026-07-15** from the settled design in [writ-deploy-family.md](../writ-deploy-family.md) (nine settled
 items, no open questions; the design round ran 2026-07-15). This is the deploy-family crater formerly tracked as
 "step 33 slice C" — chartered as its own step per step 33's ruling that the crater needs its own spec.

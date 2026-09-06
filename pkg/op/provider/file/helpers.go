@@ -87,7 +87,7 @@ func applyOwnership(root fsroot.Dir, path, user, group string) error {
 //     embedded via [op.NewResourceBase].
 //   - `value`: an `any` carrying a string filesystem path (or the provider's own emitted identity
 //     specific, `file://` + path, on the rehydration round-trip); other dynamic types are rejected.
-//   - `resourceType`: the concrete variant pointer type (e.g. `reflect.TypeFor[*Regular]()`) minted into the base.
+//   - `resourceType`: the concrete variant pointer type (e.g. `reflect.TypeFor[Regular]()`) minted into the base.
 //
 // Returns:
 //   - `*resource`: the constructed candidate base, ready for embedding. Not interned in the catalog.
@@ -146,23 +146,23 @@ func candidateOfMode(runtimeEnvironment *op.RuntimeEnvironment, abs string, mode
 
 	switch {
 	case mode&os.ModeSymlink != 0:
-		base, err := buildCandidateAs(runtimeEnvironment, abs, reflect.TypeFor[*SymbolicLink]())
+		base, err := buildCandidateAs(runtimeEnvironment, abs, reflect.TypeFor[SymbolicLink]())
 		if err != nil {
 			return nil, err
 		}
-		return &SymbolicLink{resource: *base}, nil
+		return &symbolicLink{resource: *base}, nil
 	case mode.IsDir():
-		base, err := buildCandidateAs(runtimeEnvironment, abs, reflect.TypeFor[*Directory]())
+		base, err := buildCandidateAs(runtimeEnvironment, abs, reflect.TypeFor[Directory]())
 		if err != nil {
 			return nil, err
 		}
-		return &Directory{resource: *base}, nil
+		return &directory{resource: *base}, nil
 	case mode.IsRegular():
-		base, err := buildCandidateAs(runtimeEnvironment, abs, reflect.TypeFor[*Regular]())
+		base, err := buildCandidateAs(runtimeEnvironment, abs, reflect.TypeFor[Regular]())
 		if err != nil {
 			return nil, err
 		}
-		return &Regular{resource: *base}, nil
+		return &regular{resource: *base}, nil
 	default:
 		return nil, fmt.Errorf("file: %s: unsupported entry kind %s (no taxonomy variant)", abs, mode)
 	}
@@ -275,7 +275,7 @@ func internEntry[E Resource](
 		// — the kinded claim asserts more, and it is the one that can fail, so it must be the one
 		// verification judges. Any other mismatch is a genuine cross-kind conflict: two claims asserting
 		// different kinds of the same path is contradictory intent, and the earliest claim reports it.
-		if _, unasserted := got.(*AnyKind); unasserted {
+		if _, unasserted := got.(AnyKind); unasserted {
 			superseded, isKind := runtimeEnvironment.ResourceCatalog.Supersede(got, candidate).(E)
 			if isKind {
 				return superseded, nil
@@ -283,7 +283,7 @@ func internEntry[E Resource](
 		}
 
 		var zero E
-		return zero, fmt.Errorf("file: catalog entry for %q is %T, want %T", candidate.URI(), got, candidate)
+		return zero, fmt.Errorf("file: catalog entry for %q is %s, want %s", candidate.URI(), kindName(got), kindName(candidate))
 	}
 
 	return canonical, nil
@@ -573,4 +573,28 @@ func statTupleEtag(info os.FileInfo) string {
 
 	h := sha256.Sum256(buf[:])
 	return hex.EncodeToString(h[:])
+}
+
+// kindName names a resource's kind the way an author knows it — by the exported interface, `file.Regular` rather
+// than the `*file.regular` that %T would print now that the structs are unexported. Anything that is not one of
+// the four variants falls back to its Go type.
+//
+// Parameters:
+//   - `r`: the resource to name.
+//
+// Returns:
+//   - `string`: `file.AnyKind`, `file.Regular`, `file.Directory`, `file.SymbolicLink`, or the Go type.
+func kindName(r op.Resource) string {
+	switch r.(type) {
+	case AnyKind:
+		return "file.AnyKind"
+	case Regular:
+		return "file.Regular"
+	case Directory:
+		return "file.Directory"
+	case SymbolicLink:
+		return "file.SymbolicLink"
+	default:
+		return fmt.Sprintf("%T", r)
+	}
 }

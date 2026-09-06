@@ -1,12 +1,70 @@
 ---
 title: "Sealed provider resources: every announced resource type is an interface"
 issue: https://github.com/NobleFactor/devlore-cli/issues/625
-status: approved
+status: in-progress
 created: 2026-08-23
-updated: 2026-08-24
+updated: 2026-09-04
 ---
 
 # Plan: Sealed provider resources — every announced resource type is an interface
+
+
+## Where we are (2026-09-04)
+
+This plan is **thread 2 of four**, worked after the CLI output conventions
+([#740](https://github.com/NobleFactor/devlore-cli/issues/740),
+[cli-output-conventions.md](740-cli-output-conventions.md)) and before the writ lifecycle surface
+([#762](https://github.com/NobleFactor/devlore-cli/issues/762)) and unified configuration
+([#441](https://github.com/NobleFactor/devlore-cli/issues/441)).
+
+**Eight of ten phases have landed.** Phases 1-8 are complete: the framework repairs and `service`, the
+generator inspecting the implementation, `git` and `appnet`, `json` and `yaml`, `mem` and `function`, `pkg`,
+`file`, and the `ConvertFrom` sweep. Every announced resource type is an interface, the rule holds with no
+exceptions, and no string reaches a resource through the target side. What remains is closure: the structural
+assertion and the design record.
+
+| Phase | Subject | Issue |
+| --- | --- | --- |
+| 9 | the rule becomes structurally enforceable | [#646](https://github.com/NobleFactor/devlore-cli/issues/646) |
+| 10 | closure — the design record states the contract | [#647](https://github.com/NobleFactor/devlore-cli/issues/647) |
+
+Every remaining phase already has an issue. **#646 is next.**
+
+### The thread's other open work
+
+Not part of this plan, and tracked separately under `Epic:ResourceModel`:
+
+- [#635](https://github.com/NobleFactor/devlore-cli/issues/635) — a unit test and a functional test for
+  every provider method, one pull request per provider.
+- [#597](https://github.com/NobleFactor/devlore-cli/issues/597) — design: the RuntimeEnvironment holds a
+  named set of roots, `(root-name, rel)` identity.
+- [#735](https://github.com/NobleFactor/devlore-cli/issues/735) — a resource-valued slot re-identifies by
+  URI, binding to the current generation. High severity, P1.
+
+### The four items outstanding on the status document
+
+[4-resource-management.status.md](../../architecture/4-resource-management.status.md) records the
+construction campaign as **converged** — design and tree agree, no surviving divergence row — and lists
+four items that outlive it:
+
+1. **The staged per-type `Resolve`/`Exists` rollout.** `file` is proven and kind-honest; the other eight
+   resource-bearing providers await their per-type step. Phases 6 and 7 of this plan touch `pkg` and
+   `file`, so the rollout and the sealing overlap and should be sequenced together rather than twice.
+2. **Remote-execution filesystem abstraction** (open question §10.1). No owner, no thread.
+3. **Run-start claiming for variable-fed resource slots**, ruled 2026-08-22 and explicitly sequenced after
+   the resource-construction campaign. The interim posture is a plan-time refusal of plain variables into
+   resource-typed slots, the reserved gather `item` frame excepted. That interim is live, so this is not
+   blocking anything today.
+4. **Judgment scenario 2** — relocate the tree, reconcile at the new root. It is the direct payoff of rel
+   identity and stays a recorded prediction **until there is a drivable reconcile surface**, which is
+   thread 3's phase 2 ([#762](https://github.com/NobleFactor/devlore-cli/issues/762)). This is a
+   cross-thread dependency running thread 3 → thread 2, and it is the reason to expect a return to this
+   thread after #762 lands rather than to treat it as finished when phase 10 closes.
+
+**The process this thread is worked under** is
+[noblefactor-ops `development-process.md`](https://github.com/NobleFactor/noblefactor-ops/blob/develop/docs/guides/development-process.md):
+one open worktree at a time, every issue in it resolved before a pull request, issues logged on discovery
+with their resolution site decided at that moment, and every commit updating every document it touches.
 
 ## Summary
 
@@ -27,7 +85,7 @@ The threat is not a struct literal somebody might one day write. **No `&<provide
 outside its own package anywhere in the tree** — checked across all eight on 2026-08-24. The live threat
 is a path the framework already takes.
 
-`tryHydrateStruct` ([pkg/op/convert.go:441](../../pkg/op/convert.go)) is generic map→struct hydration
+`tryHydrateStruct` ([pkg/op/convert.go:441](../../../pkg/op/convert.go)) is generic map→struct hydration
 inside `op.Convert`. Its guard admits any conversion whose source is a string-keyed map and whose target
 has concrete kind `reflect.Struct`. A resource slot declaring `*service.Resource` satisfies that today.
 So an author who supplies a dict where a resource is expected gets `reflect.New(concrete).Elem()` — a
@@ -35,7 +93,7 @@ freshly minted `service.Resource` with its exported fields filled from the map.
 
 The embedded `op.ResourceBase` has only unexported fields, so it stays zero. `URI()` returns `""`. The
 value is not merely unclaimed, it is **identity-less** — and it reaches
-[pkg/op/provider/service/provider.go:50](../../pkg/op/provider/service/provider.go), which reads
+[pkg/op/provider/service/provider.go:50](../../../pkg/op/provider/service/provider.go), which reads
 `name.Name` directly (20 such reads, none re-canonicalizing) and calls `sm.Disable(name.Name)` against
 the host. A host mutation performed for a resource the ledger never issued.
 
@@ -56,7 +114,7 @@ fills nothing yet still forges and returns an identity-less `*Regular`. Part 1 a
 most-used provider open on the very path that motivates the feature — which is why part 2 is not polish.
 
 **What this does not fix.** `ConvertFrom` — e.g.
-[pkg/op/provider/service/resource.go:305](../../pkg/op/provider/service/resource.go) — returns
+[pkg/op/provider/service/resource.go:305](../../../pkg/op/provider/service/resource.go) — returns
 `&Resource{Name: str}`, the same identity-less value, and it ships. Its own doc comment hands the problem
 downstream: *"Provider methods consuming the projected Resource are responsible for re-canonicalization
 … when full identity is required."* That is in-package construction, which the seal permits by design.
@@ -102,7 +160,7 @@ Two import paths, the same package *name*, **different packages**. The gen file 
 `package service` line and stopped before the import.
 
 That mattered because the fragment is `typeIDOf(goType) = PkgPath() + "." + Name()`
-([pkg/op/resource.go:529](../../pkg/op/resource.go)). Holding to ruling 2's fragment clause would have
+([pkg/op/resource.go:529](../../../pkg/op/resource.go)). Holding to ruling 2's fragment clause would have
 required each provider to export a `ResourceType() reflect.Type` seam for the gen file to announce — and
 `reflect.New` on that seam forges a resource, reopening the door the feature exists to close. It would
 also have moved every URI, contradicting this plan's own no-drift criterion.
@@ -121,8 +179,8 @@ three ways at once. All three surface in phase 1 and are paid once.
 
 **Where it breaks.**
 
-1. **The two `PointerTo` promotions** — [pkg/op/helpers.go:258](../../pkg/op/helpers.go) and
-   [pkg/op/receiver_type.go:357](../../pkg/op/receiver_type.go). Both read *"if not a pointer, make it
+1. **The two `PointerTo` promotions** — [pkg/op/helpers.go:258](../../../pkg/op/helpers.go) and
+   [pkg/op/receiver_type.go:357](../../../pkg/op/receiver_type.go). Both read *"if not a pointer, make it
    one, so pointer-receiver methods are visible."* On an interface that yields `*Resource` — a pointer to
    interface, whose method set is **empty**. Providers that announce method metadata fail loudly at init
    (`parseParameters` → `MethodByName` → `"method Equal: not found on type service.Resource"`).
@@ -130,7 +188,7 @@ three ways at once. All three surface in phase 1 and are paid once.
    returns an empty but non-nil map and the announced path then matches nothing.
 
 2. **`NewMethod` cannot consume an interface method at all** —
-   [pkg/op/method.go:178](../../pkg/op/method.go). Per `reflect`, an interface type's `Method` has
+   [pkg/op/method.go:178](../../../pkg/op/method.go). Per `reflect`, an interface type's `Method` has
    `Func == nil` and a `Type` carrying **no receiver**. So `do.Type.In(0)` yields the first *parameter*
    for `Equal(other any)`, producing the action name `"..Equal"`, and **panics** outright for a no-arg
    method like `Etag()`, where `NumIn()` is 0. Ten lines on, `doFn := do.Func` is the zero `Value` and
@@ -146,7 +204,7 @@ machinery cannot build a dispatchable method from an interface however it is rea
 concrete types instead, and split the one field that is doing two jobs:
 
 - **the concrete `*resource`** serves method enumeration, promotion, dispatch, and the `byType` key at
-  [pkg/op/receiver_registry.go:960](../../pkg/op/receiver_registry.go) — which must key on the concrete
+  [pkg/op/receiver_registry.go:960](../../../pkg/op/receiver_registry.go) — which must key on the concrete
   type, because `marshalReflect` looks up by `reflect.TypeOf(value)`.
 - **a stored `typeID string`**, computed once from the interface at announce time, serves the two
   `typeIDOf(ProviderType()) == typeID` comparisons at `receiver_registry.go:486` and `:513`, which match
@@ -169,9 +227,9 @@ emits both.
 identity. Today any Go rename silently invalidates every saved document; afterwards the id is a value that
 can be seen and pinned.
 
-Checked and *not* a cost: `plannerForType` ([pkg/op/planner.go:147](../../pkg/op/planner.go)) does the
+Checked and *not* a cost: `plannerForType` ([pkg/op/planner.go:147](../../../pkg/op/planner.go)) does the
 same nil-interface probe but is only ever called with `metadata.Planner` — never a resource type. And
-`deriveMethodParams` ([pkg/op/receiver_type.go:702](../../pkg/op/receiver_type.go)) already filters
+`deriveMethodParams` ([pkg/op/receiver_type.go:702](../../../pkg/op/receiver_type.go)) already filters
 `!m.IsExported()`.
 
 One consequence ruling 6 does add: `file`'s variant interfaces each declare `kind()`, so part 2 must
@@ -191,9 +249,9 @@ exported one.
 a separate string, derived from a different type by a different function.
 
 `ReceiptBase.Commit` records `canonicalIDOf(result)` — the produced value's **dynamic** type
-([pkg/op/receipt.go:438](../../pkg/op/receipt.go)). `ProductTypeByID` resolves it through an index built
+([pkg/op/receipt.go:438](../../../pkg/op/receipt.go)). `ProductTypeByID` resolves it through an index built
 from **every** action method's **declared** result type
-([pkg/op/receiver_registry.go:542](../../pkg/op/receiver_registry.go)). The two need not agree, and today
+([pkg/op/receiver_registry.go:542](../../../pkg/op/receiver_registry.go)). The two need not agree, and today
 they agree only by coincidence:
 
 - `file.Move`, `Remove`, `RemoveAll`, and `Backup` already return the `Resource` interface, so they record
@@ -203,7 +261,7 @@ they agree only by coincidence:
 
 **Sealing removes the coincidence.** The dynamic type becomes `*…/file.regular`, an unexported struct no
 method declares, so nothing contributes the key and the lookup misses. And the miss is **silent** —
-`retypeStampedResult` ([pkg/op/recovery_stack.go:647](../../pkg/op/recovery_stack.go)) reads:
+`retypeStampedResult` ([pkg/op/recovery_stack.go:647](../../../pkg/op/recovery_stack.go)) reads:
 
 ```go
 productType, ok := ReceiverRegistry().ProductTypeByID(s.resultType)
@@ -282,7 +340,7 @@ failing. This is the load-bearing detail of part 2.
 | 1 | 3 | #642 | `git`, `appnet` |
 | 1 | 4 | #643 | `json`, `yaml` |
 | 1 | 5 | #662 | `mem` and `function` — coupled by a cross-package embed |
-| 1 | 6 | #644 | `pkg` — the widest footprint |
+| 1 | 6 | #644 | `pkg` — the widest footprint, in-package |
 | 2 | 7 | #645 | `file`'s four variants, discriminated by `kind()` |
 | — | 8 | #649 | sweep `ConvertFrom` / `CanConvertFrom` — dead once every provider is sealed |
 | — | 9 | #646 | the rule becomes structurally enforceable |
@@ -291,7 +349,8 @@ failing. This is the load-bearing detail of part 2.
 Supersedes #626–#630, which were filed against the original phase shape and are closed as superseded.
 
 Phases are grouped by risk, not by footprint. The `Unpacker` four share one failure mode and are proved
-together; `pkg` is alone because it has the widest consumer surface (7 files) and the open question about
+together; `pkg` is alone because it has the widest footprint — 46 field reads, every one in-package, as the
+phase-6 sizing found; the "7 files" it was filed with were importers of its action-name constants — and the open question about
 exported behavioral fields.
 
 ## Phases
@@ -458,15 +517,65 @@ anticipated — because phase 4's groundwork had already moved the content-addre
    cyclomatic-complexity ceiling breach in `ConvertTo`, three receiver-naming inconsistencies, and three
    misspellings. The first phase where that ran before the push rather than after CI.
 
-#### Phase 6 — `pkg` — status: pending
+#### Phase 6 — `pkg` — status: complete
 
-Seven external files, the widest surface. Answers the plan's standing question: a resource whose exported
-behavioral fields consumers read must expose them as interface methods, or those consumers change. Size
-it before transforming it.
+Also resolved in this worktree: [#796](https://github.com/NobleFactor/devlore-cli/issues/796) -- the five checked-in package manifests, found on the Windows test.
+
+**Sized 2026-09-04 (#644), before transforming anything.** The "seven external files, the widest surface"
+was wrong in the way phase 5's "six exported fields" turned out to be: the surface is wide inside the
+package and almost nothing outside it touches the struct.
+
+- **The struct.** `op.ResourceBase` plus three exported fields, `Name`, `Type`, `Version`. Identity is the
+  purl, location-keyed, so all three are identity-bearing or requested state: they become interface
+  methods `Name()`, `Type()`, `Version()` on a sealed `Resource` over an unexported `resource`, the shape
+  every earlier phase set.
+- **Outside the package**, two non-generated files import it, lore's `builder.go` and writ's
+  `deploy/report.go`, and both use the action-name constants `pkg.Install`, `pkg.Remove`, `pkg.Upgrade`.
+  Not one reads a field. Every mention of `pkg.Resource` elsewhere is a doc comment in `pkg/platform`.
+  The generated tests read `Name()` and `Type()` of action and receiver metadata, not of the resource.
+  **No consumer changes.**
+- **Inside the package**, 20 field reads in code and 26 in tests. The code sites are `helpers.go`, which
+  builds a purl from the three fields; `provider.go`'s query paths, which read `Name` and `Type`; and one
+  **write**: after an install the provider replaces `Type` with the manager's resolved purl type
+  (`provider.go:393`, `resource.Type = resolvedType`). That is the one thing sealing has to keep honest.
+  The write stays in-package on the struct, reached through the same `.(*resource)` assertion the other
+  providers use to reach their struct, and gets a method with a name that says it is a resolution, not a
+  free setter.
+- **Method signatures.** `Install`, `Remove`, `Upgrade` take `[]*Resource`; `Installed`, `NotInstalled`,
+  `Observe`, `VersionGTE` take `*Resource`; `NewReceipt` takes one. All become the interface, and the
+  generated files regenerate from the implementation, as phase 2 arranged.
+- **Tests.** In-package, so they may construct `&resource{}` directly where a test needs a specific
+  shape, and go through `NewResource`/`DiscoverResource` where it needs a catalog entry.
+
+Steps, each a commit only if it needs to be one:
+
+1. `resource.go`: the interface, the struct, `sealedResource`, the three accessors, the resolution method,
+   the two constructors returning the interface, the `init` registration pair, the interface guards.
+2. `provider.go`, `helpers.go`, `receipt.go`, `observation.go`: the interface in every signature; field
+   reads become accessor calls; the write becomes the resolution method.
+3. `make generate` regenerates the gen files; the four fragments stay byte-identical (ruling 4).
+4. Tests follow; `make check`.
+
+**Landed 2026-09-04 (#644).** The sizing held; one commit. What the transformation showed:
+
+- **The generated files did not change by a byte**, and no generator work was needed: the announcement
+  already named `provider.Resource`, which is now the interface, and phase 2's generator reads the
+  implementation for the receiver methods. Ruling 4 cost nothing here.
+- **The write** is `(*resource).resolveType`, reached from `buildStack` through `resolved(r Resource)
+  *resource`, an in-package helper that asserts to the struct and states, via `assert.True`, that a
+  foreign implementation is a framework bug. `receiptResource` asserts the same way. The URI is untouched
+  by the resolution, so the catalog key stays the purl the user asked for.
+- **`DiscoverResource` split**: the exported form returns the interface; an unexported `discoverResource`
+  returns the struct for the three unmarshalers, which copy into a receiver they already hold.
+- **Tests** reach `ReachabilityURI` and `Equal` through a `concrete(t, r)` helper, the pattern phase 1 set
+  in `service`: neither is on [op.Resource], so the sealed interface does not expose them, and widening
+  the contract for a test would be the wrong fix. Everything else the tests read is on the interface.
+- **No consumer changed**, as sized: the tree built and `make check` passed with edits confined to the
+  seven files in `pkg/op/provider/pkg`.
 
 ### Part 2 — `file`
 
-#### Phase 7 — `file`'s four variants become interfaces — status: pending
+#### Phase 7 — `file`'s four variants become interfaces — status: complete
 
 `AnyKind`, `Regular`, `Directory`, `SymbolicLink` each become a sealed interface over an unexported
 struct — `anyKind`, `regular`, `directory`, `symbolicLink` — discriminated by `kind() <Interface>` per
@@ -486,9 +595,82 @@ types rather than concrete ones — this is where a silent regression would hide
 
 At the end of this phase the rule holds with no exceptions, and the feature's goal is met.
 
+**Sized 2026-09-04 (#645), before transforming anything.** Read against develop at 1fc3ea9c, after phase 6.
+
+- **The shape today.** `file.Resource` is already sealed, from #616's first phase: `op.Resource` plus
+  `Path()` plus the unexported marker. The four variants are exported structs that each embed the one
+  unexported base, `resource` in `resource_base.go`, and add no fields of their own. The base carries the
+  package's one exported field, `SourcePath`, read nowhere outside the package. So there are no
+  behavioral fields to promote; the work is the four type declarations and everything that names them.
+- **Constructors.** `NewRegular`/`DiscoverRegular`, `NewDirectory`/`DiscoverDirectory`, and
+  `NewSymbolicLink`/`DiscoverSymbolicLink` return the struct pointer; each returns its variant interface.
+  `DiscoverAnyKind` already returns `Resource` and is untouched.
+- **Registration.** One mint exists today, `Resource → *AnyKind` in `planspace.go`. The phase adds the four
+  implementation registrations and the four interface→struct mints the plan names. The kind resolver on
+  any-kind is reached in the catalog by an interface assertion, and `Supersede` takes `op.Resource` values,
+  so the concrete-type change is invisible to both; the re-pinning the plan warns about lives in
+  `kind_resolution_test.go` and `planner_test.go`, which model the any-kind shape "without the filesystem"
+  and are read against the interface forms.
+- **Outside the package**, the pointer type is held in three consumer packages and one test: `encryption`
+  (`DecryptSopsFile` and `EncryptFile` take and return `*file.Regular`; two compensations and `receipt.go`
+  assert it), `archive` (`Extract` takes `source *file.Regular`), `starcode` (a tree-walk reducer asserts
+  `entry.(*file.Directory)`), and `encryption/provider_test.go`. Everything else naming a variant outside
+  the package is a doc comment, in five files. **Ruled 2026-09-04 (USER): this worktree edits those
+  sites.** A pointer type becomes the interface of the same name; the change is mechanical; the phase cannot
+  compile without it, and splitting it off would leave the tree red between two PRs.
+- **Inside the package**, the pointer forms appear roughly 140 times in code and 34 in tests, many in
+  error strings that keep their text. The methods outside the interfaces — `BindRoot`, `IsDir`,
+  `MismatchesKind`, `String`, `Equal`, `ConvertTo`, the unmarshalers — stay on the base struct; in-package
+  callers reach them through the struct, tests through a `concrete` helper as `pkg` and `service` do.
+  `BindRoot` is reached by the executor through `op.RootBinder`, an interface assertion, so it is unaffected.
+- **Generated files.** The four announcements name `provider.AnyKind`, `provider.Regular`,
+  `provider.Directory`, `provider.SymbolicLink`, the names the interfaces keep. Expected byte-identical, as
+  `pkg`'s were.
+- **The discriminator** is `kind() Regular` and its three siblings on the unexported structs, per ruling 6;
+  the base's `sealedResource()` stays where it is. #645's body still uses the pre-rename `Any`/`any`; the
+  names settled above govern.
+
+Steps, each a commit only if it needs to be one:
+
+1. `regular.go`, `directory.go`, `symbolic_link.go`, `any_kind.go`: the interface, the unexported struct,
+   `kind()`, the constructors returning the interface; `planspace.go`: the registrations.
+2. In-package readers to the interfaces; the `concrete` helper in the tests.
+3. The consumer sites, under the ruling: `encryption` (five sites and the test), `archive` (one),
+   `starcode` (one).
+4. `make generate`; the four fragments stay byte-identical (ruling 4).
+5. Tests follow, the kind-resolution and planner tests read against the interface types; `make check`.
+
+**Landed 2026-09-04 (#645).** One commit after the sizing. Where the transformation and the sizing disagreed:
+
+- **The sizing was wrong on the field.** `SourcePath` is read outside the package — eight sites in `encryption`,
+  three in `archive` — and two more test files in `plan` held `*file.Regular`. The survey's filters hid them
+  (an enumeration error, the capped-grep kind). All became `Path()`, which the base interface already had, under
+  the consumer-edit ruling. `archive` also called `IsDir()` on a `Directory` after `Exists()`; a `Directory`'s
+  `Exists` is kind-honest, so the second check was unreachable and the two folded into one refusal.
+- **The framework change landed in `convert.go`, not the catalog.** The plan-time interconvertibility probes
+  (`sourceSideAdvertises`, `targetSideAdvertises`) inspect a type's method set, and an interface type has none
+  of the struct's converter methods, so binding a `file.Directory` output to a `string` slot was refused at
+  validation — three tests caught it. `probeTypeFor` resolves a registered sealed interface to
+  `*implementation` before probing. This is the third framework path an interface-typed resource breaks, after
+  #641's two; it had not bitten earlier because no graph binds a `service` or `pkg` output to a string slot.
+- **Kind resolution and supersession needed no change.** The catalog reaches the resolver by interface
+  assertion. `internEntry`'s probe for an unasserted entry asserts `AnyKind`, the interface, and the any-kind
+  tests assert the ledger holds `Regular` and `AnyKind` by interface — the re-pinning the plan asked for.
+- **Registrations.** Four implementations and five mints, in `resource.go`'s `init`; the base's mint moved
+  there from `planspace.go` to sit beside them. The plan-path normalizers register the interfaces, because the
+  parameter type is what the planner looks up.
+- **Constructors return an explicit nil on error.** The earlier phases return a typed nil through
+  `return discoverResource(...)` — logged as [#807](https://github.com/NobleFactor/devlore-cli/issues/807).
+  The cross-kind collision error now prints the struct names via `%T` — logged as
+  [#808](https://github.com/NobleFactor/devlore-cli/issues/808), for #649's sweep.
+- **Tests** reach struct-only members (`MismatchesKind`, `Equal`, `ReachabilityURI`) through a generic
+  `concrete[S]` helper; two test helpers were renamed to make room for the unexported `discoverDirectory` and
+  `discoverSymbolicLink`.
+- **Generated files** are byte-identical to develop for `file`, `encryption`, `archive`, and `starcode`.
+
 ### Closure
 
-#### Phase 8 — sweep `ConvertFrom` / `CanConvertFrom` — status: pending
+#### Phase 8 — sweep `ConvertFrom` / `CanConvertFrom` — status: complete
 
 [#649](https://github.com/NobleFactor/devlore-cli/issues/649), scheduled here rather than per-phase (USER,
 2026-08-25). Sealing is what makes a resource's `TargetConverter` pair unreachable: `op.Convert` step 7
@@ -515,6 +697,68 @@ Two things make this safe rather than merely tidy, and both are evidence rather 
 
 Distinct from [#661](https://github.com/NobleFactor/devlore-cli/issues/661), which is the opposite shape: a
 documented override contract that **zero** implementors honour.
+
+**Sized 2026-09-05 (#649), before removing anything.** Read against develop at f4b3cdb1, after phase 7.
+
+- **The count holds.** Sixteen methods in eight pairs: `appnet/resource.go`, `git/resource.go`,
+  `service/resource.go`, `pkg/resource.go`, and in `file` the base `resource_base.go` plus `regular.go`,
+  `directory.go`, `symbolic_link.go`. `anyKind` never had the pair. Each pair carries a doc comment that opts the
+  type into `op.TargetConverter`; the comments go with the methods.
+- **Two tests assert the methods exist**, both in `file/regular_test.go`: `TestRegularCanConvertFrom_NilReceiverSafe`
+  and `TestRegularConvertFrom_Unlinked`. They test a contract this phase removes by design, so they go, and the
+  contract that replaces it is asserted as strongly: a string does not reach a sealed resource through the target
+  side. `service/forgery_test.go` already pins that for one provider
+  (`TestConvert_EnvlessStringNoLongerReachesConvertFrom`); the phase generalizes it to every sealed resource.
+- **Phase 7 touched the probes.** `probeTypeFor` now resolves a sealed interface to `*implementation` before
+  `targetSideAdvertises` inspects it. After the sweep the implementation has no `TargetConverter` methods, so the
+  probe reports false for every resource, which is the intended answer: the string→resource path is the constructor
+  and the catalog, not conversion. The source side (`ConvertTo`, `probeTypeFor` in `sourceSideAdvertises`) is
+  untouched.
+- **#807 folds in.** Seven constructors return a typed nil on their error path through
+  `return discoverResource(...)`: `json`, `yaml`, `service`, `git`, `mem`, `appnet`, `pkg`. Each becomes the
+  explicit form `file` uses (`built, err := ...; if err != nil { return nil, err }; return built, nil`), with a
+  unit test per provider that `resource == nil` when `err != nil`. `function` and `file` already return an
+  explicit nil.
+- **#808 folds in.** `file/helpers.go:286` reports a cross-kind collision with `%T` of the ledger entry and the
+  candidate, which now prints `*file.regular` and `*file.directory`. It names the kinds by their exported
+  interface names, and `TestDiscover_CrossKindCollisionErrors` asserts those.
+- **Consumers.** No file outside the five packages calls `ConvertFrom` or `CanConvertFrom` on a resource; the
+  framework's own callers reach them only through the `TargetConverter` interface. No consumer changes.
+- **Generated files** do not name the pair; expected byte-identical.
+
+Steps, each a commit only if it needs to be one:
+
+1. The sixteen methods and their opt-in comments removed; the two `regular_test.go` tests removed.
+2. The forgery pin generalized: one test, table-driven over the eight sealed resource interfaces, that a string
+   does not convert to any of them through the target side.
+3. #807: the seven constructors return an explicit nil; a test per provider.
+4. #808: the collision error names the kinds; the test asserts the exported names.
+5. `make generate` (byte-identical); `make check`.
+
+**Landed 2026-09-05 (#649, #807, #808).** One commit after the sizing. Where the sizing was wrong, and what the
+phase found:
+
+- **The generated files are not byte-identical.** Each announcement carries the resource's method-parameter table,
+  and the pair had entries in it. Seven announcements lost three lines each: `appnet`, `git`, `pkg`, `service`,
+  and `file`'s `regular`, `directory`, `symbolic_link`. `anyKind` never had the pair, so its announcement is
+  unchanged. The sizing said "byte-identical" by reasoning from ruling 4's fragments; the tables were the part it
+  did not look at.
+- **The file announcements did not regenerate.** The Makefile rule for `file`'s generated files listed only
+  `provider.go` and `resource.go` as prerequisites, so an edit to a variant file left its announcement stale, and
+  the stale announcement panicked the in-tree `star` at startup before it could regenerate anything. The rule now
+  names `resource_base.go` and the four variant files. This is the kind of gap that hides until a method is removed.
+- **The LKG was not taken at worktree open**, so the panic above had no in-tree escape hatch. Recovery was
+  `make star-lkg` in the green clone and `make generate STAR_LKG=<clone>/build/star.lkg` here; the rule is now
+  recorded as "at every worktree open, before any edit", not "before touching `cmd/star`".
+- **The two file tests** that asserted the pair are replaced by one table-driven pin in `pkg/op/provider`,
+  `TestConvert_NoSealedResourceIsReachedFromAStringOnTheTargetSide`, over nine sealed interfaces: `appnet`,
+  `git`, `pkg`, `service`, and `file`'s base and four variants. Env-less `op.Convert` of a string errors for
+  every one; `service`'s forgery tests stay as they were.
+- **#807:** the seven constructors (`json`, `yaml`, `service`, `git`, `mem`, `appnet`, `pkg`) return an explicit
+  nil on the error path, each with `TestDiscoverResource_ErrorPathReturnsANilInterface`.
+- **#808:** `internEntry`'s collision error names the kinds through `kindName`, a type switch over the four
+  interfaces, and `TestDiscover_CrossKindCollisionErrors` asserts `file.Regular` and `file.Directory`.
+- **No consumer changed.** `make check` green.
 
 #### Phase 9 — the rule becomes structurally enforceable — status: pending
 

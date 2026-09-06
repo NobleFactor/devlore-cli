@@ -178,7 +178,7 @@ func (p *Provider) captureRecursive(absRoot, pattern string, includeGitignored b
 	var files []string
 
 	visitor := file.Reducer(func(initial any, entry file.Resource, relPath string, _ *op.RecoveryStack) (any, error) {
-		if _, isDirectory := entry.(*file.Directory); isDirectory {
+		if _, isDirectory := entry.(file.Directory); isDirectory {
 			return initial, nil
 		}
 		if !isStarlarkFile(relPath) {

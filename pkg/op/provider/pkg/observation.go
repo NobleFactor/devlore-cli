@@ -9,7 +9,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-// Observation captures the runtime-observed state of a [*Resource] (a host package) at the moment it was observed.
+// Observation captures the runtime-observed state of a [Resource] (a host package) at the moment it was observed.
 //
 // Distinct from [Resource], which carries identity (the purl URI, `Name`, `Type`). An observation is a point-in-time
 // metadata snapshot record — not a [Resource], never cataloged — whose identity comes from the resource it references
@@ -26,13 +26,13 @@ type Observation struct {
 // NewObservation constructs a *Observation anchored to the resource it observes.
 //
 // Parameters:
-//   - `ofResource`: the [*Resource] this observation is of. Must be non-nil (asserted by [op.NewObservationBase]).
+//   - `ofResource`: the [Resource] this observation is of. Must be non-nil (asserted by [op.NewObservationBase]).
 //   - `exists`: true when the package was installed at observation time.
 //   - `version`: the installed version reported by the package manager.
 //
 // Returns:
 //   - `*Observation`: the constructed observation.
-func NewObservation(ofResource *Resource, exists bool, version string) *Observation {
+func NewObservation(ofResource Resource, exists bool, version string) *Observation {
 
 	return &Observation{
 		ObservationBase: op.NewObservationBase(ofResource, exists),

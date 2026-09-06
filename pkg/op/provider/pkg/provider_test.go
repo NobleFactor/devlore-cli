@@ -136,13 +136,13 @@ func newTestProvider(packageManager *mockPackageManager) *Provider {
 	}
 }
 
-func res(name string) *Resource {
-	base, err := op.NewResourceBase(&op.RuntimeEnvironment{}, "pkg:apt/"+name, reflect.TypeFor[*Resource]())
+func res(name string) Resource {
+	base, err := op.NewResourceBase(&op.RuntimeEnvironment{}, "pkg:apt/"+name, reflect.TypeFor[Resource]())
 	assert.NoError("res("+name+")", err)
-	return &Resource{
+	return &resource{
 		ResourceBase: base,
-		Name:         name,
-		Type:         "apt",
+		name:         name,
+		typ:          "apt",
 	}
 }
 
@@ -178,16 +178,16 @@ func TestInstall_Success(t *testing.T) {
 	packageManager := newMockPackageManager()
 	p := newTestProvider(packageManager)
 
-	result, stack, err := p.Install(op.NewActivationRecord(nil, "", p.RuntimeEnvironment()), []*Resource{res("vim"), res("git")}, nil)
+	result, stack, err := p.Install(op.NewActivationRecord(nil, "", p.RuntimeEnvironment()), []Resource{res("vim"), res("git")}, nil)
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
-	if len(result) != 2 || result[0].Name != "vim" || result[1].Name != "git" {
+	if len(result) != 2 || result[0].Name() != "vim" || result[1].Name() != "git" {
 		t.Errorf("Install() result = %v, want [vim git]", result)
 	}
 	for _, r := range result {
-		if r.Type != "apt" {
-			t.Errorf("Install() result Type = %q, want %q", r.Type, "apt")
+		if r.Type() != "apt" {
+			t.Errorf("Install() result Type = %q, want %q", r.Type(), "apt")
 		}
 	}
 	receipts := stackReceipts(t, stack)
@@ -229,7 +229,7 @@ func TestInstall_WithAlreadyInstalled(t *testing.T) {
 	packageManager.versions["vim"] = "8.2"
 	p := newTestProvider(packageManager)
 
-	_, stack, err := p.Install(op.NewActivationRecord(nil, "", p.RuntimeEnvironment()), []*Resource{res("vim"), res("git")}, nil)
+	_, stack, err := p.Install(op.NewActivationRecord(nil, "", p.RuntimeEnvironment()), []Resource{res("vim"), res("git")}, nil)
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
@@ -250,7 +250,7 @@ func TestInstall_Error(t *testing.T) {
 	packageManager.installErr = "disk full"
 	p := newTestProvider(packageManager)
 
-	_, _, err := p.Install(op.NewActivationRecord(nil, "", p.RuntimeEnvironment()), []*Resource{res("vim")}, nil)
+	_, _, err := p.Install(op.NewActivationRecord(nil, "", p.RuntimeEnvironment()), []Resource{res("vim")}, nil)
 	if err == nil {
 		t.Fatal("Install() expected error when package manager fails")
 	}
@@ -338,15 +338,15 @@ func TestUpgrade_Success(t *testing.T) {
 	packageManager.versions["vim"] = "8.2"
 	p := newTestProvider(packageManager)
 
-	result, stack, err := p.Upgrade(op.NewActivationRecord(nil, "", p.RuntimeEnvironment()), []*Resource{res("vim")}, nil)
+	result, stack, err := p.Upgrade(op.NewActivationRecord(nil, "", p.RuntimeEnvironment()), []Resource{res("vim")}, nil)
 	if err != nil {
 		t.Fatalf("Upgrade() error = %v", err)
 	}
-	if len(result) != 1 || result[0].Name != "vim" {
+	if len(result) != 1 || result[0].Name() != "vim" {
 		t.Errorf("Upgrade() result = %v, want [vim]", result)
 	}
-	if result[0].Type != "apt" {
-		t.Errorf("Upgrade() result Type = %q, want %q", result[0].Type, "apt")
+	if result[0].Type() != "apt" {
+		t.Errorf("Upgrade() result Type = %q, want %q", result[0].Type(), "apt")
 	}
 	receipts := stackReceipts(t, stack)
 	if receipts[0].PreviousVersion != "8.2" {
@@ -378,16 +378,16 @@ func TestRemove_Success(t *testing.T) {
 	packageManager.installed["git"] = true
 	p := newTestProvider(packageManager)
 
-	result, stack, err := p.Remove(op.NewActivationRecord(nil, "", p.RuntimeEnvironment()), []*Resource{res("vim"), res("git")}, nil)
+	result, stack, err := p.Remove(op.NewActivationRecord(nil, "", p.RuntimeEnvironment()), []Resource{res("vim"), res("git")}, nil)
 	if err != nil {
 		t.Fatalf("Remove() error = %v", err)
 	}
-	if len(result) != 2 || result[0].Name != "vim" || result[1].Name != "git" {
+	if len(result) != 2 || result[0].Name() != "vim" || result[1].Name() != "git" {
 		t.Errorf("Remove() result = %v, want [vim git]", result)
 	}
 	for _, r := range result {
-		if r.Type != "apt" {
-			t.Errorf("Remove() result Type = %q, want %q", r.Type, "apt")
+		if r.Type() != "apt" {
+			t.Errorf("Remove() result Type = %q, want %q", r.Type(), "apt")
 		}
 	}
 	receipts := stackReceipts(t, stack)

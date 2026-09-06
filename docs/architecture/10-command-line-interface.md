@@ -69,6 +69,15 @@ of [#755](https://github.com/NobleFactor/devlore-cli/issues/755) reached `lore` 
 it was excluded by a construction choice made elsewhere, and discovered by measurement afterwards. Every
 future repair in `cmd/internal/cli` has the same reach and the same silence.
 
+**Ruled 2026-09-02: the shared root's commands are one set, and a program's additions attach beside them.**
+`config`, `man`, `self` and `version` come from [NewRootCmd], identical on all four programs. A program with
+commands of its own under one of those names attaches them beneath the shared command -- `star config show`
+and `star config sync` sit beside `get` and `set` -- and there is never a second command carrying a shared
+name. What a program needs at install time rides `RootConfig` hooks (star's extensions), not a private
+`self`. A program's own documentation stays its own: `star docs starlark` is star's authoring guide, and no
+other program has one. The rulings and the collisions they resolved are in
+[743-star-adoption.md](../plans/feature/743-star-adoption.md).
+
 ## 3. Command grammar
 
 Commands are `<binary> <noun> <verb>` or `<binary> <verb>` where the noun is implied by the binary. `lore
@@ -157,6 +166,15 @@ take the name for something else. See §4.1.
 `--output` / `-o` selects the **rendering**, matching `az` and `kubectl`. It is deliberately not a
 destination: a user typing `-o json` must never be silently creating a file named `json`. See Design
 decisions.
+
+**A destination is a positional operand, never a flag.** Ruled 2026-09-01. A command that writes a file
+or fills a directory names the place as an operand — `lore bundle @<manifest> <output>`,
+`lore onboard --from <source> [<dir>]` — the way `cp`, `aws s3 cp`, `gsutil cp`, `kubectl cp`, `tar` and `zip`
+do. The surveyed tools reach for a flag only when the output is optional *and* a file, and that flag is
+`-o` (`docker save`, `pandoc`), which this convention has already given to the rendering. So there is no
+destination flag to name: `--dest`, `--to` and `--target` were each weighed and declined, the last because
+`--target` is the name `writ` retires for `--scope`. An optional destination is an optional trailing
+positional with a stated default, as `onboard`'s directory defaults to `.`.
 
 **No boolean format flags.** `--json` is not a flag; `--output json` is. A boolean cannot express a third
 format, which is why two `writ` commands cannot emit YAML today.
@@ -297,9 +315,10 @@ rather than the sink, hard-codes column widths, measures truncation in bytes, an
 name column as a `*` suffix. A shared formatter fixes all four, and `installed` stays a field that
 `--output json` can emit.
 
-A **domain** rendering is a different question. `lore list` registers `--format manifest`, which means
-something only to lore. Under this convention that is a lore-specific flag outside the common set -- never a
-value added to the shared formatter list.
+A **domain** rendering is a different question. `lore list` once registered `--format manifest`, which meant
+something only to lore; [#779](https://github.com/NobleFactor/devlore-cli/pull/779) removed it with the stub
+it decorated. The rule stands for the next one: a domain rendering is an app-specific flag outside the common
+set -- never a value added to the shared formatter list.
 
 ## 8. The pipeline: two stages, one flag each
 
@@ -530,12 +549,44 @@ An error message names what failed, what was expected, and what the user can do.
 errors are rewritten at the boundary rather than surfaced raw; a Go error string is a diagnostic, not a
 message.
 
+**No usage text on an error (ruled 2026-09-02).** Not after a command that ran and failed, and not for a bad
+flag, a wrong argument count or an unknown subcommand either. Cobra funnels every error through one exit and,
+by default, follows each with the full usage block; that block is not context-aware and gives no specific
+guidance, so it is noise in every case. [NewRootCmd] sets `SilenceUsage: true`, which cobra honors for every
+command beneath it, and no program sets it on its own. The guidance a user needs is in the message, per the
+paragraph above -- an exit-code-2 error names the flag or the subcommand, and that is the whole of it.
+
 ## 10. Interactivity and TTY
 
 - Prompt only when stdin is a TTY. A non-interactive invocation that would prompt fails instead, naming the
   flag that would have supplied the answer.
 - Color and progress indicators only when stderr is a TTY, and never in the result stream.
 - `--silent` suppresses narration. It never suppresses the result, and never changes the exit code.
+
+**The interaction model (ruled 2026-09-03).** Two kinds of child process, two rules. A child run for its
+output -- `git`, `shellcheck`, anything a provider executes -- is captured, always, and never sees the
+terminal; executing a graph never needs a TTY, and the only thing a graph may do with the terminal is a
+prompt under the rule above. A child launched for the user to drive -- `$EDITOR` under `config edit`,
+`man` under `man`, and no other -- receives the three standard streams through one seam,
+[RunInteractive], which refuses when stdin or stdout is not a terminal and names what to do instead. The
+enforcement walk (§14) allows `os.Stdout` in that function and nowhere else.
+
+An interactive command -- onboarding and migration first -- works the way an agent's terminal does:
+
+1. It is interactive only when a TTY is present, through `internal/console`; without one, `--unattended`
+   runs on defaults, `--from <answers>` replays a recorded set, and anything still undecided fails naming
+   the flag.
+2. Each decision is one question with a short menu and a default, asked once, and never about something a
+   flag already settled.
+3. Every answer is recorded into the artifact the command produces -- the manifest, the migration plan --
+   so the interactive run and the unattended run produce the same artifact, and the artifact is the record.
+4. Progress narrates on stderr; the artifact is the result on stdout, so `-o` and `--store` behave the same
+   in both modes.
+5. Stop anywhere and resume: the recorded answers so far are the checkpoint.
+6. The flow never opens an editor or a pager; it shows the diff or the draft and asks.
+
+A `!` prefix, so the user can run a shell command mid-flow and have its output land in the flow, is an
+open question, raised 2026-09-03 and not yet designed.
 
 ## 11. Configuration precedence
 
@@ -582,6 +633,12 @@ does not.
 
 Help text is the specification a user reads. It states what the command does, what its flags mean, and what
 its output is — including, for a multi-artifact command, the names of the artifacts it writes.
+
+**`man` is the one route to man pages (ruled 2026-09-02).** The shared `man [command]` from [NewRootCmd]
+generates the pages and displays or installs them, the same on all four programs, and `self install` writes
+them under the prefix. `star docs man` duplicated that route and `star docs markdown` duplicated `make docs`;
+both are removed in [#743](https://github.com/NobleFactor/devlore-cli/issues/743). `star docs starlark`, the
+authoring guide, is star's own and stays.
 
 `docs/cli/**` is generated from the command tree by `devlore-docs`. It is **gitignored in this repository and
 published from it**: `.github/workflows/docs-publish.yaml` runs `make docs` on every push to `develop`,
@@ -649,75 +706,65 @@ Each rule below is greppable, and each has a test. These are the reason the docu
 
 | # | Invariant | Enforced by |
 | --- | --- | --- |
-| 1 | No command package writes to `os.Stdout` directly | a test over `cmd/**` |
-| 2 | No command registers `--output`, `--store`, or `--json` itself | a test over cobra flag registration |
-| 3 | All four in-scope roots register the full common set | a test over the command tree |
+| 1 | No in-scope command package writes to `os.Stdout` directly; the one seam is [RunInteractive] | `TestNoDirectStdout_InScope`, a source walk over `cmd/internal/cli` and the four programs |
+| 2 | No command registers `--output`, `--store`, or `--json` itself, and no command shadows any flag it inherits, by name or shorthand | [CheckNoOwnOutputFlag], called from every program's root test |
+| 3 | All four in-scope roots are the shared root, which registers the common set once; nothing outside `cmd/internal/cli` builds a rendering | [CheckSharedSetOnRoot] from every root test; `TestNoPrivatePipeline_InScope`, a source walk for `pkg/result` importers |
 | 4 | `--store` relocates both subdirectories and the run index together | a store round-trip test |
 | 5 | Narration is absent from stdout under every format | a test capturing both streams |
 | 6 | Help strings read as published prose; they ship unreviewed | `make docs` and read it, in the flag-changing work |
 
-Invariants 1 and 2 are the ones that prevent regression, because both are mechanical and both are red today.
+Invariants 1 to 3 are the ones that prevent regression, because all three are mechanical. Invariants 1 and 2
+were red when this was written; they went green with #774, #775 and #743, and invariant 1 went red once more
+on the shared package's own `config` and `man` commands before #776 closed it. Each checker was shown red on
+a fixture before it was trusted.
 
 ## 15. Per-app conformance
 
-Current state, 2026-08-30. Two of the four in-scope programs register the common set on their root.
+Current state, 2026-09-01. Three of the four in-scope programs register the common set on their root, and
+two of those three consume it everywhere.
 
 | App | Root registers the set | Remaining deviations |
 | --- | --- | --- |
 | `devlore-test` | **yes** | none |
-| `writ` | **yes** | `status`'s 22 `fmt.Print` calls; four dry-run dumps; `migrate`'s `--format` |
-| `lore` | no | hand-rolled flags on three commands; 13 `fmt.Print`; `runSearch` (#741) |
-| `star` | no | a **second `cli` package** of its own -- see below |
+| `writ` | **yes** | none — #774 routed all 30 stdout sites through the sink |
+| `lore` | **yes** | none — #775 routed every stdout site through the sink and fixed #741 |
+| `star` | **yes** | none — #743 routed the last eight sites: two Starlark `print` handlers narrate, `docs starlark` is a result, and three unimplemented `key` leaves fail instead of printing a note |
 | `devlore-docs` | not in scope | — |
 
-`writ reconcile` is bridged rather than converted, and the bridge is one bool: `cfg.JSONOutput` reads
-`outputOptions.Format == "json"` (`cmd/writ/writ/config.go:160`) while the report still renders itself.
-Measured 2026-08-30, **one of eight formats works**:
+**How `writ` got to "none", recorded because the shape of the defect recurs.** Measured 2026-08-30,
+`writ reconcile` was bridged rather than converted: one bool, `cfg.JSONOutput`, read
+`outputOptions.Format == "json"` while the report rendered itself. **One of eight formats worked** -- `json`
+was real JSON, and `yaml`, `table`, `list`, `csv`, `value`, `none` and `template=BODY` all printed the
+byte-identical human dashboard. Three were worse than ignored: `-o none` printed ten lines where its whole
+contract is silence, `-o yaml` emitted text a parser fails on at line 1, and `-o template=BODY` neither
+rendered the template nor rejected it. The value was never validated
+([#754](https://github.com/NobleFactor/devlore-cli/issues/754)): the format string never reached
+[FormatterByName], so `writ reconcile -o bogus` printed the dashboard and exited 0. And `--store` was read
+nowhere in writ ([#753](https://github.com/NobleFactor/devlore-cli/issues/753)), so
+`writ reconcile --store <elsewhere>` reported on the default store as compliance -- the wrong data, silently.
 
-| `-o` | Result |
-| --- | --- |
-| `json` | real JSON |
-| `yaml`, `table`, `list`, `csv`, `value`, `none`, `template=BODY` | byte-identical human dashboard |
-
-Three of those are worse than ignored. `-o none` prints ten lines where its whole contract is silence.
-`-o yaml` emits text a parser fails on at line 1. `-o template=BODY` neither renders the template nor
-rejects it.
-
-**And the value is never validated** ([#754](https://github.com/NobleFactor/devlore-cli/issues/754)).
-Because the format string never reaches [FormatterByName], any string is accepted: `writ reconcile -o bogus`
-prints the dashboard and exits 0, where `devlore-test -o bogus` reports `unknown formatter "bogus"; expected
-one of csv, json, list, none, table, template=BODY, value, yaml`. A typo is silently honored as a request for
-the default. That is a second defect, distinct from the seven wrong renderings: one does the wrong thing, the
-other accepts wrong input. It is not confined to `status` -- every writ command but `verify` accepts any
-value.
-
-**`--store` is read nowhere in writ at all**
-([#753](https://github.com/NobleFactor/devlore-cli/issues/753)), and that is the severe face of the same
-cause. `outputOptions` is read in exactly two places: `config.go:160` takes `.Format`, and `commands.go:302`
-hands the struct to [BuildPipeline] in `runVerify`. Meanwhile `readback.go` genuinely reads [TracesDir] and
-[GraphsDir] to fold runs into the inventory. So `writ reconcile --store <elsewhere>` reads the default store and
-reports the result as compliance -- not a formatting nicety, but the wrong data, silently.
-
-**The shared cause is a flag registered on a root that no leaf consumes.** `root.go:49` calls
-[AddOutputFlags], so cobra advertises the whole set on every command's help; consuming it is a separate act,
+**The shared cause was a flag registered on a root that no leaf consumed.** `root.go` called
+[AddOutputFlags], so cobra advertised the whole set on every command's help; consuming it is a separate act,
 performed once. Registration without consumption is worse than absence: an absent flag errors and the user
 tries something else, where a present one that does nothing returns a confident wrong answer.
 
-Both end the moment `runStatus` calls [BuildPipeline] the way `runVerify` already does. `BuildReport`
-already returns `*Report`, so the conversion deletes `status.Execute`'s branch, `presentJSON`, `presentText`,
-and `JSONOutput` together.
+[#774](https://github.com/NobleFactor/devlore-cli/pull/774) ended both on 2026-08-31, closing #753 and #754:
+`BuildReport` returns the report, `runReconcile` hands it to [BuildPipeline] the way `runVerify` already
+did, and the bridge went with `status.Execute`'s branch, `presentJSON`, `presentText` and `JSONOutput`.
+What pins it now is `report_output_test.go`, which renders the report through all eight formats, and the
+scenario suite's `--jq`, `--filter` and `--store` assertions on the real binary.
 
-**`star` does not lack the convention -- it has a second copy of it.** `cmd/star/cli` duplicates eighteen
-exported names from `cmd/internal/cli`, including all ten exit codes and `AddOutputFlags`, and at 387 lines
-against 196 the copy has grown rather than gone stale. The two now disagree: one binds `--filter`, `--jq`,
-`--output`/`-o`, and `--store` on `PersistentFlags`, the other binds `--format` and `--filter`
-on `Flags`. A program cannot share a common set while binding a different one from a different package
-([#743](https://github.com/NobleFactor/devlore-cli/issues/743)).
+**`star` did not lack the convention -- it carried a second copy of it, and the copy was dead.** `cmd/star/cli`
+duplicated eighteen exported names from `cmd/internal/cli`, including all ten exit codes and `AddOutputFlags`,
+and at 387 lines against 196 the copy had grown rather than gone stale. But nothing imported it: `main.go`
+imports `cmd/internal/cli`, and star's root bound no output flags from either package. #743 phase 2 deleted
+the copy whole ([743-star-adoption.md](../plans/feature/743-star-adoption.md)); what star still lacks is
+the root itself, which phase 3 moves onto [NewRootCmd].
 
 Its `renderTable` was the exception worth keeping, and it has been kept: [TableFormatter] in `pkg/result`
 took star's `text/tabwriter` approach and joined it to the delimited formats' column inference. star's own
-version carried a third implementation of column selection, so `cmd/star/cli` is now deletable whole rather
-than half salvaged.
+version carried a third implementation of column selection, so `cmd/star/cli` was deletable whole rather
+than half salvaged, and it was.
 
 **CLI code also lives outside `cmd/`.** Every package under the repository-root `internal/` is imported only
 by `cmd/`, and `internal/console` is a Bubble Tea terminal UI. Root `internal/` is importable by the whole
@@ -739,9 +786,9 @@ Measured 2026-08-31, after the fixes for
 | App | Help wraps (`NewRootCmd`) | `--output` validated, `--store` resolved (`AddOutputFlags`) |
 | --- | --- | --- |
 | `writ` | yes | yes -- registered on the root, so every command |
-| `lore` | yes | **`inspect` only** -- the one command that registers the set |
-| `devlore-test` | **no** | yes -- registered on the root |
-| `star` | **no** | **no** |
+| `lore` | yes | yes -- registered on the root since #779, so every command |
+| `devlore-test` | **yes** | **yes** -- on the shared root since #757 |
+| `star` | **yes** | **yes** |
 
     COLUMNS=70, longest flag line
       writ           70
@@ -751,22 +798,24 @@ Measured 2026-08-31, after the fixes for
 
 Three different causes, each already tracked:
 
-- `devlore-test` builds its root directly rather than through [NewRootCmd], so it inherits `AddOutputFlags`
-  and not the help wrapping. Nothing prevents it from using the shared constructor; it simply does not.
-- `star` binds its own `cmd/star/cli.AddOutputFlags`, so a fix to the shared package cannot reach it. This
-  is the concrete cost of the duplication in
-  [#743](https://github.com/NobleFactor/devlore-cli/issues/743), and the argument against keeping the copy:
-  a defect fixed once is fixed once per package.
-- `lore` calls [AddOutputFlags] on its `inspect` command rather than its root
-  (`cmd/lore/lore/commands.go:838`), so every other lore command does not have the flags at all -- the
-  "1 of 46 commands" measurement, still true.
+- `devlore-test` built its root directly rather than through [NewRootCmd], so it had the common set
+  and not the help wrapping. #757 moved it onto the shared constructor, the last of the four, and its
+  `run` lost a local `--dry-run` that had been shadowing the root's.
+- `star` built a bare `cobra.Command` and bound no output flags at all, so nothing from the shared package
+  reached it. The duplicate `cmd/star/cli` was the visible symptom and went first
+  ([#743](https://github.com/NobleFactor/devlore-cli/issues/743) phase 2); the root moved onto [NewRootCmd]
+  in phase 3, which also found three Starlark extension commands binding `--output` and `--format` of
+  their own -- the loader now refuses a reserved name.
+- `lore` called [AddOutputFlags] on its `inspect` command rather than its root, so every other lore
+  command did not have the flags at all -- the "1 of 46 commands" measurement. #779 moved the call to
+  the root.
 
 The lesson generalizes past these three fixes: **a repair in `cmd/internal/cli` reaches exactly the programs
 that route through `cmd/internal/cli`.** Registration on a root is what turns one fix into a program-wide
 one, and a second copy of the package is what stops it being a suite-wide one.
 
 No deviation is sanctioned. Every row above is work, tracked by the plan in
-[`cli-output-conventions.md`](../plans/cli-output-conventions.md).
+[`740-cli-output-conventions.md`](../plans/feature/740-cli-output-conventions.md).
 
 
 ## Design decisions
@@ -834,6 +883,24 @@ No deviation is sanctioned. Every row above is work, tracked by the plan in
    store since it was written, and `writ secret`'s help already says so to users. A fifth synonym for one
    concept is how `graph` and `receipt` came to be inverted in `devlore-test`
    ([#738](https://github.com/NobleFactor/devlore-cli/issues/738)).
+
+**Settled 2026-09-02** (forced by moving `star` onto the shared root, where its own `config`, `self`,
+`version` and `docs man` collided with the shared ones):
+
+7. **The shared root's commands are one set on all four programs, and a program's additions attach beneath
+   them.** `star config` keeps `show` and `sync` beside the shared `get`, `set` and the rest; a second
+   command named `config` was the alternative, and cobra reaches only the first. Uniformity is the
+   requirement, not a preference: the same rule was applied to `self` the same day
+   ([#780](https://github.com/NobleFactor/devlore-cli/issues/780)).
+
+8. **No usage text on an error.** Cobra's default prints the usage block after every error; two programs
+   had opted out on their own roots and two had not. The dump makes sense only for a bad flag or an unknown
+   subcommand, and only if it were context-aware and specific, which it is not. So it is off, once, on the
+   shared root, for every error. A rejected refinement: keep it for invalid invocations by switching it off
+   in the pre-run; the ruling was that even there it is noise.
+
+9. **`man` is the one route to man pages.** `star docs man` and `star docs markdown` went; `star docs
+   starlark` stayed as star's own. Same shape as 7: the shared route, plus what only that program has.
 
 ## 16. Divergences from clig.dev
 

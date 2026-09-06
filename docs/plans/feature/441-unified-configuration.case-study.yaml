@@ -1,0 +1,137 @@
+# 441-unified-configuration.case-study.yaml
+#
+# An illustrative full-hierarchy configuration, and the concrete serialization target the devconfig
+# model is settled against. Values are fabricated, not precise; the SHAPE is the point.
+#
+# Companion to docs/plans/feature/441-unified-configuration.md (thread 4, issue #441). The design of
+# record is docs/architecture/configuration.md, whose own case study covers the elevation section
+# alone -- this file covers the whole tree, which is where an overlay implementation goes wrong.
+#
+# What it exercises, and why each is here:
+#
+#   base / profiles / applications   the three reserved resolver-level keys, the hard-coded
+#                                    resolution axis (configuration.md:137)
+#   applications.lore.profiles       the app-by-profile recursion -- a layer inside a layer, the
+#                                    hardest part of the overlay and the easiest to omit
+#   brokers.ssh vs pkg.brokers       typed leaves beside bare kv maps, the two container shapes
+#   providers.elevation vs .file     a brokered provider beside an unbrokered one
+#   star: {}                         an application that overrides nothing, so inheritance is tested
+#
+# Written 2026-06-17 against the design draft of 2026-06-12; `elevator` renamed to `elevation`
+# 2026-09-01 per issue #679, which 6.1-privilege-elevation.md had already settled. It has NOT been
+# re-verified against design changes since June -- doing so is thread 4's first task.
+
+# ─────────────────────────────────────────────────────────────────────────────
+base:                                    # the foundational layer every app/profile inherits
+  # top-level subsystem sections (leaves)
+  runtime:
+    dry_run: false
+    conflict_policy: stop
+    backup_suffix: ".devlore-backup"
+  signing:
+    backend: cosign
+    key: "/etc/devlore/keys/cosign.key"
+    allowed_signers: "/etc/devlore/allowed_signers"
+  registry:
+    url: "https://registry.local"
+    timeout: 30s
+  model:                                 # the LLM section
+    provider: openai
+    model: gpt-4o
+    max_retries: 3
+
+  providers:                             # the providers container
+    elevation:                            # a brokered provider
+      brokers:
+        ssh:                             # broker — mints SSH certificates
+          default_ttl: 15m
+          failover: [step-ca, vault-ssh]
+          plan: standard
+          step-ca:                       # service (leaf)
+            endpoint: "https://ca.internal:9000"
+            provisioner: "devlore@internal"
+            ca_fingerprint: "sha256:0a1b2c…"
+          vault-ssh:                     # service (leaf)
+            address: "https://vault.internal:8200"
+            mount: "ssh-client-signer"
+            role: "devlore"
+        sudo:                            # broker — host escalation
+          non_interactive: true
+          local:                         # service (leaf)
+            askpass: false
+    pkg:                                 # another brokered provider (apt/dnf/brew)
+      brokers:
+        apt:  { update_cache: true }
+        dnf:  { gpgcheck: true }
+        brew: { greedy: false }
+    file:                                # an UNBROKERED provider — no broker trait
+      backup_suffix: ".bak"
+
+# ─────────────────────────────────────────────────────────────────────────────
+profiles:                                # deployment stages; strictness scales toward release
+  development:
+    registry:   { url: "https://localhost:8080" }
+    model:      { provider: ollama, model: llama3 }
+    providers:
+      elevation:
+        brokers:
+          ssh:
+            default_ttl: 8h              # long-lived in dev for convenience
+            step-ca: { endpoint: "https://localhost:9000" }
+
+  integration:
+    registry:   { url: "https://test.internal" }
+    providers:
+      elevation:
+        brokers:
+          ssh:
+            default_ttl: 1h
+            step-ca: { provisioner: "ci@internal" }
+
+  staging:
+    registry:   { url: "https://staging.internal" }
+    providers:
+      elevation:
+        brokers:
+          ssh: { default_ttl: 30m }
+
+  release:
+    registry:   { url: "https://registry.live" }
+    model:      { max_retries: 5 }       # stricter in production
+    signing:    { backend: kms, key: "awskms:///alias/devlore-release" }
+    providers:
+      elevation:
+        brokers:
+          ssh:
+            default_ttl: 5m              # production tightens cert lifetime
+            plan: enterprise             # production SKU
+            step-ca:  { endpoint: "https://ca.live:9000" }
+            vault-ssh: { address: "https://vault.live:8200" }
+          sudo:
+            non_interactive: false       # require interactive confirmation in prod
+
+# ─────────────────────────────────────────────────────────────────────────────
+applications:                            # per-app layer; overlays resolved base + profile
+  lore:
+    model:                               # app override, every profile
+      provider: anthropic
+      model: claude-fable-5
+    providers:
+      elevation:
+        brokers:
+          ssh:
+            failover: [vault-ssh, step-ca]   # lore prefers vault
+    profiles:                            # app × profile recursion
+      integration:
+        providers:
+          elevation:
+            brokers:
+              ssh:
+                step-ca: { provisioner: "lore-ci@internal" }
+      release:
+        model: { max_retries: 8 }        # lore, in release, wants extra retries
+
+  star: {}                               # inherits resolved base + active profile, no overrides
+
+  writ:
+    registry: { url: "https://packages.internal" }   # writ pulls from its own registry

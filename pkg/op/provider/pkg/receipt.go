@@ -67,7 +67,7 @@ type Receipt struct {
 // mutation kind and the package fields. The transactionID is minted later at [op.ReceiptBase.Commit].
 //
 // Parameters:
-//   - `resource`: the package [*Resource] the mutation affected.
+//   - `resource`: the package [Resource] the mutation affected.
 //   - `kind`: the [MutationKind] the receipt records.
 //   - `manager`: the purl type of the leaf that handled the package.
 //   - `installedBefore`: whether the package was present before the action.
@@ -75,7 +75,7 @@ type Receipt struct {
 //
 // Returns:
 //   - `*Receipt`: the constructed receipt, born naming its compensator.
-func NewReceipt(resource *Resource, kind MutationKind, manager string, installedBefore bool, previousVersion string) *Receipt {
+func NewReceipt(resource Resource, kind MutationKind, manager string, installedBefore bool, previousVersion string) *Receipt {
 	return &Receipt{
 		ReceiptBase:     op.NewReceiptBaseWithCompensator(resource, compensatePackageMutationAction),
 		kind:            kind,

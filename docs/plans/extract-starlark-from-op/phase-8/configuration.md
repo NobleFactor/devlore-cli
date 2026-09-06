@@ -2,7 +2,7 @@
 title: configuration — implementation plan (pkg/devconfig)
 status: draft
 created: 2026-06-11
-updated: 2026-07-16
+updated: 2026-09-02
 ---
 
 # Configuration — implementation plan
@@ -146,6 +146,11 @@ sequencing correction stands and is now structural: `Application.Config` (item 2
    not part of the first iterations. **Travel form settled:** a lazy reflection adapter projects any section as the
    sealed `Mapping` (uniform across the root `Config` / typed sections / `ConfigBase` / `DataSection`); a
    struct-valued setting crosses as a `goReceiver` through the existing reflection framework.
+   **Command surface ruled ahead of this item (2026-09-02):** `config` is one set of subcommands on all four
+   programs, the shared root's, and star's `show` and `sync` attach beneath it -- that lands with #743, before
+   this item. What this item delivers on top is the model beneath: today `star config get` reads the XDG
+   tree and `star config show` reads the `star.yaml` hierarchy, and after the fold every subcommand reads the
+   one resolved `Config` (architecture doc: "The command surface -- one set on four programs").
 
 7. **Config intake close-out — every outstanding setting lands in a section, or is ruled out.** The framework
    pieces (items 1–3: the tree, `Application.Config`, the loader with its env + cli sources) unblock a queue of
@@ -227,6 +232,8 @@ it).
 - **Scope-composition home** — one shared assembly package vs. each app composing its own scope structs.
 - **Schema versioning** — when (not whether) to add the Kubernetes-style migration hook; deferred by design.
 - **Star unification timing** — the shape is defined; when to execute the fold is item 6's own decision.
+- **`show` and `sync` on all four programs, or star's alone** — asked 2026-09-02 when the command surface was
+  ruled; `show`, the resolved view, is what every program's users ask for. Tracked in the architecture doc.
 
 ## Related
 

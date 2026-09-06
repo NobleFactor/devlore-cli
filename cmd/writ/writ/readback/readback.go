@@ -10,7 +10,7 @@
 // nothing. Per-unit file metadata comes from the graph origin's `files` annotation (stamped at plan time by the
 // deploy package); per-unit outcomes come from the trace's receipt stack. The store is user territory — deleted
 // documents fold as missing pieces (reported, never fatal), but a missing run index is an error per the settled
-// design: `writ status` refuses to report from silence.
+// design: `writ reconcile` refuses to report from silence.
 package readback
 
 import (

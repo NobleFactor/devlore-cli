@@ -336,10 +336,18 @@ func TestCLI_ConfigPath(t *testing.T) {
 	stdout, _, code := run("config", "path")
 	assertExit(t, 0, code)
 
-	// xdg.ConfigPath, not a literal: the printed path is OS-native, so "devlore/config.yaml" only ever matched
-	// on Unix. Asking xdg rather than cli.SharedConfigPath keeps the assertion independent of the accessor the
-	// command itself calls -- a wrong helper should fail here, not agree with itself.
-	assertContains(t, stdout, xdg.ConfigPath("devlore", "config.yaml"))
+	// The path is a result and reaches stdout as JSON by default (#776): a quoted string, with a Windows
+	// path's backslashes escaped as JSON requires. So the test decodes it rather than searching the raw
+	// text, which only ever worked where a path had nothing to escape. xdg.ConfigPath, not a literal: the
+	// path is OS-native, and asking xdg rather than cli.SharedConfigPath keeps the assertion independent of
+	// the accessor the command itself calls -- a wrong helper should fail here, not agree with itself.
+	var got string
+	if err := json.Unmarshal([]byte(stdout), &got); err != nil {
+		t.Fatalf("config path did not emit a JSON string: %v\n%s", err, stdout)
+	}
+	if want := xdg.ConfigPath("devlore", "config.yaml"); got != want {
+		t.Errorf("config path = %q, want %q", got, want)
+	}
 }
 
 func TestCLI_SelfInstallHelp(t *testing.T) {

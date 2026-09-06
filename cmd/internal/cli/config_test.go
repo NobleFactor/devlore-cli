@@ -4,7 +4,6 @@
 package cli
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -169,7 +168,7 @@ writ:
 }
 
 func TestPrintFlattened_ShowsAllSettings(t *testing.T) {
-	// printFlattened should output all settings from the unified config
+	// flatten should yield every setting of the unified config by dotted key
 	// This is what 'config list' uses
 
 	config := map[string]interface{}{
@@ -195,36 +194,27 @@ func TestPrintFlattened_ShowsAllSettings(t *testing.T) {
 		},
 	}
 
-	// Capture output
-	var buf bytes.Buffer
-	old := os.Stdout
-	r, w, _ := os.Pipe()
-	os.Stdout = w
+	// The listing is a result: flatten folds the tree into dotted keys, and the pipeline renders them.
+	flat := map[string]any{}
+	flatten("", config, flat)
 
-	printFlattened("", config)
-
-	_ = w.Close()
-	os.Stdout = old
-	_, _ = buf.ReadFrom(r)
-
-	output := buf.String()
-
-	// Verify shared settings are printed
-	expectedKeys := []string{
-		"verbosity=verbose",
-		"dry_run=true",
-		"model.provider=anthropic",
-		"model.name=claude-sonnet-4-20250514",
-		"registry.url=https://example.com/registry.git",
-		"registry.branch=develop",
-		"lore.preferences.shell=zsh",
-		"writ.vars.USER_NAME=Test User",
+	expected := map[string]any{
+		"verbosity":              "verbose",
+		"dry_run":                true,
+		"model.provider":         "anthropic",
+		"model.name":             "claude-sonnet-4-20250514",
+		"registry.url":           "https://example.com/registry.git",
+		"registry.branch":        "develop",
+		"lore.preferences.shell": "zsh",
+		"writ.vars.USER_NAME":    "Test User",
 	}
-
-	for _, expected := range expectedKeys {
-		if !strings.Contains(output, expected) {
-			t.Errorf("expected output to contain %q, got:\n%s", expected, output)
+	for key, want := range expected {
+		if got, ok := flat[key]; !ok || got != want {
+			t.Errorf("flat[%q] = %v, want %v", key, got, want)
 		}
+	}
+	if len(flat) != len(expected) {
+		t.Errorf("flattened %d settings, want %d: %v", len(flat), len(expected), flat)
 	}
 }
 

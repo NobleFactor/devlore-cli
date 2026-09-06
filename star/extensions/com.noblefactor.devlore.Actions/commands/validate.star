@@ -26,7 +26,6 @@
 def run(command, ctx):
     """Main entry point."""
     source = ctx.args.get("source", "")
-    output_format = ctx.args.get("format", "markdown")
 
     if source == "":
         fail("--source is required: path to devlore-cli repository")
@@ -42,19 +41,13 @@ def run(command, ctx):
     # Parse the API using Go AST primitives
     api = _parse_devlore_api(starlark_path)
 
-    # Count bindings for display
-    binding_count = _count_bindings(api)
     violation_count = len(api["violations"])
-
-    if output_format == "json":
-        print(json.encode(api))
-    elif output_format == "yaml":
-        print(yaml.encode(api))
-    else:
-        _output_markdown(api, binding_count, violation_count)
-
     if violation_count > 0:
         fail("Contract violations found: " + str(violation_count))
+
+    # The API is the result: it reaches stdout through the shared pipeline, so `-o json`, `-o yaml`
+    # and the rest render it. The command renders nothing itself.
+    return api
 
 
 # =============================================================================
@@ -263,98 +256,3 @@ def _parse_doc_comment(doc_text):
 # =============================================================================
 # OUTPUT HELPERS
 # =============================================================================
-
-def _count_bindings(api):
-    """Count total bindings in the API dict."""
-    count = 0
-    for ns in api["plan"]:
-        count += len(api["plan"][ns])
-    for ns in api["system"]:
-        count += len(api["system"][ns])
-    return count
-
-
-def _output_markdown(api, binding_count, violation_count):
-    """Output API documentation in Markdown format."""
-    print("# devlore-cli Starlark API")
-    print("")
-
-    if violation_count > 0:
-        print("## Contract Violations")
-        print("")
-        print("> **ERROR**: The following bindings use StringDict instead of Attr receivers:")
-        print("")
-        for v in api["violations"]:
-            print("- `" + v["name"] + "` (" + v["file"] + ":" + str(v["line"]) + ")")
-        print("")
-
-    print("## Slot Model")
-    print("")
-    print("Any slot accepts either a **promise** or an **immediate** value:")
-    print("")
-    print("| Type | Behavior |")
-    print("|------|----------|")
-    print("| Promise | Creates an edge; value flows at runtime |")
-    print("| Immediate | Stored directly; known at analysis time |")
-    print("")
-
-    print("## plan")
-    print("")
-    print("*Execution graph builders - all mutations go through plan.*")
-    print("")
-    _output_context_markdown(api["plan"])
-
-    print("## system")
-    print("")
-    print("*Read-only system state queries.*")
-    print("")
-    _output_context_markdown(api["system"])
-
-    print("---")
-    print("")
-    print("*Valid bindings: " + str(binding_count) + "*")
-
-
-def _output_context_markdown(context):
-    """Output namespaces and methods for a context (dict)."""
-    namespaces = sorted(context.keys())
-
-    for namespace in namespaces:
-        methods = context[namespace]
-        if namespace == "(root)":
-            print("### (root methods)")
-        else:
-            print("### " + namespace)
-        print("")
-
-        for m in methods:
-            print("#### `" + m["name"] + "()`")
-            print("")
-
-            if m["doc"]:
-                print(m["doc"])
-                print("")
-
-            if m["usage"]:
-                print("```python")
-                print(m["usage"])
-                print("```")
-                print("")
-
-            slots = m["slots"]
-            if len(slots) > 0:
-                print("| Slot | Description |")
-                print("|------|-------------|")
-                for slot in slots:
-                    slot_doc = m["slot_docs"].get(slot, "")
-                    print("| `" + slot + "` | " + (slot_doc if slot_doc else "-") + " |")
-                print("")
-
-            ops = m["operations"]
-            ops_str = ", ".join(["`" + op + "`" for op in ops]) if len(ops) > 0 else "none"
-            print("**Operations**: " + ops_str + "  ")
-            print("**Output**: " + m["output"])
-            if m["returns"]:
-                print("  ")
-                print("**Returns**: " + m["returns"])
-            print("")

@@ -84,7 +84,7 @@ func TestWriteFile_Create_RemovedOnCompensate(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	if got, err := os.ReadFile(target.SourcePath.Abs()); err != nil || string(got) != "hello" {
+	if got, err := os.ReadFile(target.Path().Abs()); err != nil || string(got) != "hello" {
 		t.Fatalf("written content = %q (err %v); want %q", got, err, "hello")
 	}
 
@@ -92,7 +92,7 @@ func TestWriteFile_Create_RemovedOnCompensate(t *testing.T) {
 		t.Fatalf("CompensateFileMutation: %v", err)
 	}
 
-	if _, err := os.Lstat(target.SourcePath.Abs()); !os.IsNotExist(err) {
+	if _, err := os.Lstat(target.Path().Abs()); !os.IsNotExist(err) {
 		t.Errorf("created file still present after compensate (stat err = %v); want removed", err)
 	}
 }

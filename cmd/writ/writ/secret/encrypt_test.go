@@ -66,7 +66,7 @@ func TestExecuteEncrypt_RoundTrip(t *testing.T) {
 	source := filepath.Join(tree, "Home", "demo", "app.yaml")
 	mustWriteFile(t, source, "credential: hello world\n")
 
-	if err := ExecuteEncrypt(context.Background(), &EncryptConfig{Files: []string{source}}); err != nil {
+	if _, err := ExecuteEncrypt(context.Background(), &EncryptConfig{Files: []string{source}}); err != nil {
 		t.Fatalf("ExecuteEncrypt: %v", err)
 	}
 
@@ -105,7 +105,7 @@ func TestExecuteEncrypt_RefusesExistingDestination(t *testing.T) {
 	mustWriteFile(t, source, "credential: hello\n")
 	mustWriteFile(t, source+".sops", "occupied")
 
-	err := ExecuteEncrypt(context.Background(), &EncryptConfig{Files: []string{source}})
+	_, err := ExecuteEncrypt(context.Background(), &EncryptConfig{Files: []string{source}})
 	if err == nil || !strings.Contains(err.Error(), "never overwrites") {
 		t.Fatalf("expected overwrite refusal, got %v", err)
 	}
@@ -122,7 +122,7 @@ func TestExecuteEncrypt_RefusesOutsideLayer(t *testing.T) {
 	outside := filepath.Join(t.TempDir(), "loose.yaml")
 	mustWriteFile(t, outside, "credential: hello\n")
 
-	err := ExecuteEncrypt(context.Background(), &EncryptConfig{Files: []string{outside}})
+	_, err := ExecuteEncrypt(context.Background(), &EncryptConfig{Files: []string{outside}})
 	if err == nil || !strings.Contains(err.Error(), "writ repo add") {
 		t.Fatalf("expected containment refusal naming writ repo add, got %v", err)
 	}
@@ -134,7 +134,7 @@ func TestExecuteEncrypt_NoGoverningRule(t *testing.T) {
 	source := filepath.Join(tree, "Home", "demo", "app.yaml")
 	mustWriteFile(t, source, "credential: hello\n")
 
-	err := ExecuteEncrypt(context.Background(), &EncryptConfig{Files: []string{source}})
+	_, err := ExecuteEncrypt(context.Background(), &EncryptConfig{Files: []string{source}})
 	if err == nil || !strings.Contains(err.Error(), "no .sops.yaml creation rule governs") {
 		t.Fatalf("expected the resolver's no-rule error verbatim, got %v", err)
 	}
@@ -148,7 +148,7 @@ func TestExecuteEncrypt_MultipleFilesOneGraph(t *testing.T) {
 	mustWriteFile(t, first, "a: 1\n")
 	mustWriteFile(t, second, "b: 2\n")
 
-	if err := ExecuteEncrypt(context.Background(), &EncryptConfig{Files: []string{first, second}}); err != nil {
+	if _, err := ExecuteEncrypt(context.Background(), &EncryptConfig{Files: []string{first, second}}); err != nil {
 		t.Fatalf("ExecuteEncrypt: %v", err)
 	}
 
@@ -170,8 +170,12 @@ func TestExecuteEncrypt_DryRunWritesNothing(t *testing.T) {
 	source := filepath.Join(tree, "Home", "demo", "app.yaml")
 	mustWriteFile(t, source, "credential: hello\n")
 
-	if err := ExecuteEncrypt(context.Background(), &EncryptConfig{Files: []string{source}, DryRun: true}); err != nil {
+	graphs, err := ExecuteEncrypt(context.Background(), &EncryptConfig{Files: []string{source}, DryRun: true})
+	if err != nil {
 		t.Fatalf("ExecuteEncrypt dry-run: %v", err)
+	}
+	if len(graphs) == 0 {
+		t.Fatal("ExecuteEncrypt dry-run returned no graphs; the plan is the result")
 	}
 
 	if _, err := os.Lstat(source + ".sops"); !os.IsNotExist(err) {

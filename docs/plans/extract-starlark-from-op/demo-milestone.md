@@ -79,11 +79,11 @@ the ⬜ rows above is largely irrelevant to Scenario 1.
 
 **Goal:** `writ deploy noblefactor thenobles` puts the personal environment repository (`../Personal`, to be
 restructured by the user) into effect through the rewritten deploy family — layered tree walk, per-scope graphs,
-store-persisted plan + trace, `writ status` reporting the result.
+store-persisted plan + trace, `writ reconcile` reporting the result.
 
 **Gate:** the deploy-family rewrite (the StateView-crater step chartered from
 [phase-8/writ-deploy-family.md](phase-8/writ-deploy-family.md)); slice 1 (store index + readback + deploy) is the
-scenario's critical path, slice 3 (`writ status`) proves the readback.
+scenario's critical path, slice 3 (`writ reconcile`) proves the readback.
 
 **Gate:** criterion 5 (the graph-immutability work — sealed graph + **lore consumer migration**) is the
 true blocker. Per directive, **the graph-immutability work does not exit until Scenario 1 works

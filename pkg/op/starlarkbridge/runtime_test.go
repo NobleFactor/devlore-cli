@@ -430,13 +430,13 @@ func TestNewRuntime_Hermetic_AdmitsOnlyClaimingMethods(t *testing.T) {
 
 	env := &op.RuntimeEnvironment{Modules: bridgeFixtureModules(t, "bridgeMixedClaimFixture")}
 
-	t.Run("non-hermetic admits every method", func(t *testing.T) {
+	t.Run("an ambient runtime admits every method", func(t *testing.T) {
 
 		receiver := requireGlobal(t, NewRuntime(env).Predeclared(), "bridgeMixedClaimFixture")
 
 		for _, name := range []string{"pure", "impure"} {
 			if _, err := receiver.Attr(name); err != nil {
-				t.Errorf("Attr(%q): %v; a non-hermetic runtime filters nothing", name, err)
+				t.Errorf("Attr(%q): %v; an ambient runtime filters nothing", name, err)
 			}
 		}
 	})

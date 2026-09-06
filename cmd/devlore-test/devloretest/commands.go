@@ -12,7 +12,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
 )
 
-func newRunCmd(opts *cli.SinkOptions) *cobra.Command {
+func newRunCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:   "run [flags] <script.star>",
@@ -34,18 +34,18 @@ execution store, which --store relocates.`,
   devlore-test run --store ./run test.star`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runTest(cmd, args[0], opts)
+			return runTest(cmd, args[0])
 		},
 	}
 
-	cmd.Flags().Bool("dry-run", false, "Plan only, no side effects")
+	// --dry-run is the root's; a local one would shadow it (10-command-line-interface.md §4).
 	cmd.Flags().Bool("trace", false, "Enable Starlark step trace")
 	cmd.Flags().String("provider", "", "Restrict to a specific provider")
 
 	return cmd
 }
 
-func runTest(cmd *cobra.Command, script string, opts *cli.SinkOptions) (err error) {
+func runTest(cmd *cobra.Command, script string) (err error) {
 	dryRun, _ := cmd.Flags().GetBool("dry-run")      //nolint:errcheck // flag registered above
 	trace, _ := cmd.Flags().GetBool("trace")         //nolint:errcheck // flag registered above
 	provider, _ := cmd.Flags().GetString("provider") //nolint:errcheck // flag registered above
@@ -56,14 +56,7 @@ func runTest(cmd *cobra.Command, script string, opts *cli.SinkOptions) (err erro
 	}
 
 	// Documents -- the definition and its traces -- go to the execution store. --store relocates the whole
-	// store; unset, it is devlore's XDG state home.
-	if opts.Store != "" {
-		restore, storeErr := cli.SetStoreRoot(opts.Store)
-		if storeErr != nil {
-			return storeErr
-		}
-		defer restore()
-	}
+	// store, and the root's pre-run has already resolved it; unset, it is devlore's XDG state home.
 
 	runOptions := []Option{}
 	if dryRun {
@@ -87,11 +80,7 @@ func runTest(cmd *cobra.Command, script string, opts *cli.SinkOptions) (err erro
 	}
 
 	// The result goes to stdout, rendered by --output. Narration has been on stderr throughout.
-	pipeline, err := cli.BuildPipeline(*opts, cmd.OutOrStdout())
-	if err != nil {
-		return err
-	}
-	if err := pipeline.Emit(result); err != nil {
+	if err := cli.Emit(cmd, result); err != nil {
 		return fmt.Errorf("writing the result: %w", err)
 	}
 

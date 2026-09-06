@@ -115,8 +115,8 @@ func (p *Provider) Backup(
 // When either is set they are resolved and applied via os.Chown after the file is created.
 //
 // Parameters:
-//   - `activationRecord`: the dispatch activation; its `Unit` stamps the produced [*Regular]'s producerID.
-//   - `source`: the [*Regular] whose contents are copied — a content read, so the parameter is the resource
+//   - `activationRecord`: the dispatch activation; its `Unit` stamps the produced [Regular]'s producerID.
+//   - `source`: the [Regular] whose contents are copied — a content read, so the parameter is the resource
 //     (step 23, ruling 2).
 //   - `destinationPath`: the destination path for the new file.
 //   - `mode`: the [os.FileMode] applied to the created file.
@@ -124,7 +124,7 @@ func (p *Provider) Backup(
 //   - `group`: the group, by name or decimal gid; empty leaves the group unchanged.
 //
 // Returns:
-//   - `*Regular`: the created destination resource, resolved against the filesystem.
+//   - `Regular`: the created destination resource, resolved against the filesystem.
 //   - `*Receipt`: the compensation receipt for undo.
 //   - `error`: non-nil on resource construction, write preparation, copy, ownership, or resolve failure.
 //
@@ -133,12 +133,12 @@ func (p *Provider) Backup(
 // +devlore:claim=sandboxed
 func (p *Provider) Copy(
 	activationRecord *op.ActivationRecord,
-	source *Regular,
+	source Regular,
 	destinationPath string,
 	mode os.FileMode,
 	user string,
 	group string,
-) (product *Regular, receipt *Receipt, err error) {
+) (product Regular, receipt *Receipt, err error) {
 
 	product, err = NewRegular(p.RuntimeEnvironment(), activationRecord.CallerID, destinationPath)
 	if err != nil {
@@ -154,13 +154,13 @@ func (p *Provider) Copy(
 	}
 	receipt = NewReceipt(spec)
 
-	src, err := p.open(source.SourcePath.Abs())
+	src, err := p.open(source.Path().Abs())
 	if err != nil {
 		return product, receipt, err
 	}
 	defer iox.Close(&err, src)
 
-	dst, err := p.openFile(product.SourcePath.Abs(), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
+	dst, err := p.openFile(product.Path().Abs(), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
 	if err != nil {
 		return product, receipt, err
 	}
@@ -170,7 +170,7 @@ func (p *Provider) Copy(
 		return product, receipt, err
 	}
 
-	if err := applyOwnership(p.RuntimeEnvironment().Root(), product.SourcePath.Abs(), user, group); err != nil {
+	if err := applyOwnership(p.RuntimeEnvironment().Root(), product.Path().Abs(), user, group); err != nil {
 		return product, receipt, err
 	}
 
@@ -194,13 +194,13 @@ func (p *Provider) Copy(
 // and its boundary recorded on the receipt for compensation.
 //
 // Parameters:
-//   - `activationRecord`: the dispatch activation; its `Unit` stamps the produced [*SymbolicLink]'s producerID.
+//   - `activationRecord`: the dispatch activation; its `Unit` stamps the produced [SymbolicLink]'s producerID.
 //   - `sourcePath`: the path the link points to.
 //   - `targetPath`: the path at which the symlink is created.
 //   - `verbatim`: when true, store `sourcePath` in the link exactly as given instead of absolutizing it.
 //
 // Returns:
-//   - `*SymbolicLink`: the link resource (resolved when created; the matched resource when already correct).
+//   - `SymbolicLink`: the link resource (resolved when created; the matched resource when already correct).
 //   - `*Receipt`: the compensation receipt for undo, or nil when no change was made.
 //   - `error`: non-nil on resource construction, archive, parent creation, symlink, or resolve failure.
 //
@@ -212,7 +212,7 @@ func (p *Provider) Link(
 	sourcePath string,
 	targetPath string,
 	verbatim bool,
-) (product *SymbolicLink, receipt *Receipt, err error) {
+) (product SymbolicLink, receipt *Receipt, err error) {
 
 	storedName := p.RuntimeEnvironment().Root().NewPath(sourcePath).Abs()
 	if verbatim {
@@ -224,9 +224,9 @@ func (p *Provider) Link(
 		return nil, nil, err
 	}
 
-	if info, err := p.lstat(product.SourcePath.Abs()); err == nil {
+	if info, err := p.lstat(product.Path().Abs()); err == nil {
 
-		if info.Mode()&os.ModeSymlink != 0 && p.existingLinkMatches(product.SourcePath.Abs(), storedName, verbatim) {
+		if info.Mode()&os.ModeSymlink != 0 && p.existingLinkMatches(product.Path().Abs(), storedName, verbatim) {
 			return product, nil, nil // Already correct — no change
 		}
 
@@ -235,7 +235,7 @@ func (p *Provider) Link(
 		case op.ConflictStop:
 			return nil, nil, fmt.Errorf(
 				"target %s is occupied and the conflict policy is stop (replace archives and overwrites; skip leaves it)",
-				product.SourcePath.Abs())
+				product.Path().Abs())
 		case op.ConflictSkip:
 			return nil, nil, nil
 		case op.ConflictReplace:
@@ -248,7 +248,7 @@ func (p *Provider) Link(
 	} else {
 
 		// Does not exist — standard parent directory creation.
-		parentPath := filepath.Dir(product.SourcePath.Abs())
+		parentPath := filepath.Dir(product.Path().Abs())
 
 		boundary, _, err := p.findClosestExistingDir(parentPath)
 		if err != nil {
@@ -263,9 +263,9 @@ func (p *Provider) Link(
 	}
 
 	if verbatim {
-		err = p.symlinkRaw(storedName, product.SourcePath.Abs())
+		err = p.symlinkRaw(storedName, product.Path().Abs())
 	} else {
-		err = p.symlink(storedName, product.SourcePath.Abs())
+		err = p.symlink(storedName, product.Path().Abs())
 	}
 	if err != nil {
 		return nil, receipt, err
@@ -312,11 +312,11 @@ func (p *Provider) existingLinkMatches(linkPath, storedName string, verbatim boo
 // Returns:
 //   - `*Receipt`: the update receipt carrying the recovery ID and pre-archive digest.
 //   - `error`: non-nil when archiving fails.
-func (p *Provider) archiveOccupant(product *SymbolicLink) (*Receipt, error) {
+func (p *Provider) archiveOccupant(product SymbolicLink) (*Receipt, error) {
 
-	preDigest := preArchiveDigest(p.RuntimeEnvironment().Root(), product.SourcePath.Abs())
+	preDigest := preArchiveDigest(p.RuntimeEnvironment().Root(), product.Path().Abs())
 
-	recoveryID, archiveErr := p.RuntimeEnvironment().RecoverySite.ArchiveFile(product.SourcePath)
+	recoveryID, archiveErr := p.RuntimeEnvironment().RecoverySite.ArchiveFile(product.Path())
 	if archiveErr != nil {
 		return nil, archiveErr
 	}
@@ -332,14 +332,14 @@ func (p *Provider) archiveOccupant(product *SymbolicLink) (*Receipt, error) {
 // "created here."
 //
 // Parameters:
-//   - `activationRecord`: the dispatch activation; its `Unit` stamps the produced [*Directory]'s producerID.
+//   - `activationRecord`: the dispatch activation; its `Unit` stamps the produced [Directory]'s producerID.
 //   - `path`: the directory path to create.
 //   - `mode`: the [os.FileMode] applied to the leaf directory.
 //   - `user`: the owner applied to the leaf directory, by name or decimal uid; empty leaves it unchanged.
 //   - `group`: the group applied to the leaf directory, by name or decimal gid; empty leaves it unchanged.
 //
 // Returns:
-//   - `*Directory`: the created directory resource, resolved; a nil receipt accompanies an already-existing
+//   - `Directory`: the created directory resource, resolved; a nil receipt accompanies an already-existing
 //     directory.
 //   - `*Receipt`: the compensation receipt recording the creation boundary for undo.
 //   - `error`: non-nil when `path` exists as a non-directory, or on construction, mkdir, ownership, or resolve failure.
@@ -353,7 +353,7 @@ func (p *Provider) Mkdir(
 	mode os.FileMode,
 	user string,
 	group string,
-) (product *Directory, receipt *Receipt, err error) {
+) (product Directory, receipt *Receipt, err error) {
 
 	leaf := p.RuntimeEnvironment().Root().NewPath(path).Abs()
 
@@ -459,8 +459,8 @@ func (p *Provider) compensateMakeDir(receipt *Receipt) (err error) {
 
 // Move moves `source` to `destinationPath`, archiving any existing destination first.
 //
-// **AnyKind kind moves.** The source is claimed as [Resource], the taxonomy's interface, so an authored path
-// claims as [*AnyKind] and resolves to whatever the disk holds at activation: a regular file, a directory
+// *AnyKind kind moves.** The source is claimed as [Resource], the taxonomy's interface, so an authored path
+// claims as [AnyKind] and resolves to whatever the disk holds at activation: a regular file, a directory
 // and its subtree (a rename carries it whole), or a symbolic link — the link itself, never the entry it
 // designates. The kind is the disk's business, not the author's; a move moves what is there.
 //
@@ -680,7 +680,7 @@ func (p *Provider) compensateRemoveDir(receipt *Receipt) error {
 
 // Remove deletes the single entry at `target`, archiving it for compensation.
 //
-// **AnyKind kind is removable.** The target is claimed as [Resource], so an authored path claims as [*AnyKind]
+// *AnyKind kind is removable.** The target is claimed as [Resource], so an authored path claims as [AnyKind]
 // and resolves to whatever the disk holds: a regular file, an empty directory, or a symbolic link — the
 // link itself, never the entry it designates, because the entry is discovered with lstat semantics and a
 // removal never follows. The removal family splits by **blast radius, never by kind**, which is the
@@ -800,7 +800,7 @@ func (p *Provider) removeEntry(
 
 	// Only a DIRECTORY can be non-empty, and `entry` is lstat-honest, so a symbolic link never reaches
 	// the guard however populated the tree it points at may be.
-	if _, isDirectory := entry.(*Directory); isDirectory && refuseNonEmptyDirectory {
+	if _, isDirectory := entry.(Directory); isDirectory && refuseNonEmptyDirectory {
 		nonEmpty, emptinessErr := p.isDirAndNotEmpty(abs)
 		if emptinessErr != nil {
 			return nil, nil, emptinessErr
@@ -830,7 +830,7 @@ func (p *Provider) removeEntry(
 //
 // Parameters:
 //   - `activationRecord`: the dispatch activation (the required floor for compensable actions — step 27).
-//   - `root`: the [*Directory] to traverse — a content read of the tree, so the parameter is the resource
+//   - `root`: the [Directory] to traverse — a content read of the tree, so the parameter is the resource
 //     (step 23, ruling 2).
 //   - `fn`: the [Reducer] invoked for each entry, threading an accumulator and the recovery stack.
 //   - `includeGitignored`: when false, entries matched by gitignore rules are skipped.
@@ -843,19 +843,19 @@ func (p *Provider) removeEntry(
 // +devlore:defaults includeGitignored=false
 func (p *Provider) WalkTree(
 	activationRecord *op.ActivationRecord,
-	root *Directory,
+	root Directory,
 	fn Reducer,
 	includeGitignored bool,
 ) (product any, stack *op.RecoveryStack, err error) {
 
 	stack = op.NewRecoveryStack()
 
-	tracker, err := p.newTrackerIfEnabled(root.SourcePath.Abs(), !includeGitignored)
+	tracker, err := p.newTrackerIfEnabled(root.Path().Abs(), !includeGitignored)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	absoluteRoot, err := filepath.Abs(root.SourcePath.Abs())
+	absoluteRoot, err := filepath.Abs(root.Path().Abs())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -932,7 +932,7 @@ func (p *Provider) CompensateWalkTree(activation *op.ActivationRecord, stack *op
 // compensation before the write.
 //
 // Parameters:
-//   - `activationRecord`: the dispatch activation; its `Unit` stamps the produced [*Regular]'s producerID.
+//   - `activationRecord`: the dispatch activation; its `Unit` stamps the produced [Regular]'s producerID.
 //   - `destinationPath`: the path of the file to write.
 //   - `content`: the bytes to write, carried as a string.
 //   - `mode`: the [os.FileMode] applied to the written file.
@@ -940,7 +940,7 @@ func (p *Provider) CompensateWalkTree(activation *op.ActivationRecord, stack *op
 //   - `group`: the group, by name or decimal gid; empty leaves the group unchanged.
 //
 // Returns:
-//   - `*Regular`: the written resource.
+//   - `Regular`: the written resource.
 //   - `*Receipt`: the compensation receipt for undo.
 //   - `error`: non-nil on construction or write failure.
 //
@@ -954,7 +954,7 @@ func (p *Provider) WriteBytes(
 	mode os.FileMode,
 	user string,
 	group string,
-) (product *Regular, receipt *Receipt, err error) {
+) (product Regular, receipt *Receipt, err error) {
 
 	product, err = NewRegular(p.RuntimeEnvironment(), activationRecord.CallerID, destinationPath)
 	if err != nil {
@@ -975,18 +975,18 @@ func (p *Provider) WriteBytes(
 // core: bytes flow through [io.Copy] (constant memory, and the
 // kernel copy_file_range/sendfile fast path when `src` is an [*os.File]), and any content already at `targetPath`
 // is archived to [op.RecoverySite] before the overwrite. Takes a path (step 23, ruling 2) and mints the
-// [*Regular] product internally with the activation's producer stamp. WriteFile applies no ownership change
+// [Regular] product internally with the activation's producer stamp. WriteFile applies no ownership change
 // (callers needing `user` / `group` use [Provider.WriteText] / [Provider.WriteBytes]). The returned [*Receipt] names
 // [Provider.CompensateFileMutation] as its undo.
 //
 // Parameters:
-//   - `activationRecord`: the dispatch activation; its `Unit` stamps the produced [*Regular]'s producerID.
+//   - `activationRecord`: the dispatch activation; its `Unit` stamps the produced [Regular]'s producerID.
 //   - `targetPath`: the path of the file to write.
 //   - `src`: the byte source, streamed once via [io.Copy] without seeking or re-reading.
 //   - `mode`: the [os.FileMode] applied to the written file.
 //
 // Returns:
-//   - `*Regular`: the written resource.
+//   - `Regular`: the written resource.
 //   - `*Receipt`: the self-describing compensation receipt naming [Provider.CompensateFileMutation] as its undo.
 //   - `error`: non-nil on construction, archive, or write failure.
 //
@@ -996,7 +996,7 @@ func (p *Provider) WriteFile(
 	targetPath string,
 	src io.Reader,
 	mode os.FileMode,
-) (product *Regular, receipt *Receipt, err error) {
+) (product Regular, receipt *Receipt, err error) {
 
 	product, err = NewRegular(p.RuntimeEnvironment(), activationRecord.CallerID, targetPath)
 	if err != nil {
@@ -1013,7 +1013,7 @@ func (p *Provider) WriteFile(
 // compensation before the write.
 //
 // Parameters:
-//   - `activationRecord`: the dispatch activation; its `Unit` stamps the produced [*Regular]'s producerID.
+//   - `activationRecord`: the dispatch activation; its `Unit` stamps the produced [Regular]'s producerID.
 //   - `destinationPath`: the path of the file to write.
 //   - `content`: the text to write.
 //   - `mode`: the [os.FileMode] applied to the written file.
@@ -1021,7 +1021,7 @@ func (p *Provider) WriteFile(
 //   - `group`: the group, by name or decimal gid; empty leaves the group unchanged.
 //
 // Returns:
-//   - `*Regular`: the written resource.
+//   - `Regular`: the written resource.
 //   - `*Receipt`: the compensation receipt for undo.
 //   - `error`: non-nil on construction or write failure.
 //
@@ -1035,7 +1035,7 @@ func (p *Provider) WriteText(
 	mode os.FileMode,
 	user string,
 	group string,
-) (product *Regular, receipt *Receipt, err error) {
+) (product Regular, receipt *Receipt, err error) {
 
 	product, err = NewRegular(p.RuntimeEnvironment(), activationRecord.CallerID, destinationPath)
 	if err != nil {
@@ -1483,7 +1483,7 @@ func (p *Provider) IsFile(path string) (bool, error) {
 
 // Observe captures the runtime-observed state of `resource` as an [*Observation].
 //
-// Stats the file at `resource.SourcePath`. When the file exists, the Observation carries the stat-derived metadata
+// Stats the file at `resource.Path()`. When the file exists, the Observation carries the stat-derived metadata
 // (`Size`, `Mode`, `ModTime`, `Inode`, `Device`) with `Exists` set to true. When the file does not exist
 // (`os.ErrNotExist`), the Observation carries zero metadata with `Exists` set to false — not-exist is a valid
 // observation outcome, not an error. Any other stat failure returns nil and the underlying error.
@@ -1526,14 +1526,14 @@ func (p *Provider) Observe(resource Resource) (*Observation, error) {
 // ReadBytes returns the contents of the file `resource` as bytes.
 //
 // Parameters:
-//   - `resource`: the [*Regular] to read — a content read, so the parameter is the resource (step 23, ruling 2).
+//   - `resource`: the [Regular] to read — a content read, so the parameter is the resource (step 23, ruling 2).
 //
 // Returns:
 //   - `[]byte`: the file contents.
 //   - `error`: non-nil on read failure.
 //
 // +devlore:claim=sandboxed
-func (p *Provider) ReadBytes(resource *Regular) (product []byte, err error) {
+func (p *Provider) ReadBytes(resource Regular) (product []byte, err error) {
 
 	buffer, err := p.read(resource)
 	if err != nil {
@@ -1546,14 +1546,14 @@ func (p *Provider) ReadBytes(resource *Regular) (product []byte, err error) {
 // ReadText returns the contents of the file `resource` as text.
 //
 // Parameters:
-//   - `resource`: the [*Regular] to read — a content read, so the parameter is the resource (step 23, ruling 2).
+//   - `resource`: the [Regular] to read — a content read, so the parameter is the resource (step 23, ruling 2).
 //
 // Returns:
 //   - `string`: the file contents.
 //   - `error`: non-nil on read failure.
 //
 // +devlore:claim=sandboxed
-func (p *Provider) ReadText(resource *Regular) (product string, err error) {
+func (p *Provider) ReadText(resource Regular) (product string, err error) {
 
 	buffer, err := p.read(resource)
 	if err != nil {
@@ -2141,15 +2141,15 @@ func (p *Provider) stageWrite(product Resource) (spec *ReceiptSpec, err error) {
 // read returns the contents of the file `resource` as an in-memory buffer.
 //
 // Parameters:
-//   - `resource`: the [*Regular] to read.
+//   - `resource`: the [Regular] to read.
 //
 // Returns:
 //   - `*bytes.Buffer`: a buffer over the file contents.
 //   - `error`: non-nil on read failure.
-func (p *Provider) read(resource *Regular) (*bytes.Buffer, error) {
+func (p *Provider) read(resource Regular) (*bytes.Buffer, error) {
 
 	root := p.RuntimeEnvironment().Root()
-	data, err := root.ReadFile(root.NewPath(resource.SourcePath.Abs()))
+	data, err := root.ReadFile(root.NewPath(resource.Path().Abs()))
 
 	if err != nil {
 		return nil, err
@@ -2316,23 +2316,23 @@ func (p *Provider) walkDir(
 // file the kernel may yet reject.
 //
 // Parameters:
-//   - `target`: the minted [*Regular] to write.
+//   - `target`: the minted [Regular] to write.
 //   - `src`: the byte source streamed to the file.
 //   - `mode`: the [os.FileMode] applied to the written file.
 //   - `user`: the owner, by name or decimal uid; empty leaves the owner unchanged.
 //   - `group`: the group, by name or decimal gid; empty leaves the group unchanged.
 //
 // Returns:
-//   - `*Regular`: the written resource (`target`).
+//   - `Regular`: the written resource (`target`).
 //   - `*Receipt`: the compensation receipt for undo.
 //   - `error`: non-nil on write preparation, open, write, sync, or ownership failure.
 func (p *Provider) write(
-	target *Regular,
+	target Regular,
 	src io.Reader,
 	mode os.FileMode,
 	user string,
 	group string,
-) (product *Regular, receipt *Receipt, err error) {
+) (product Regular, receipt *Receipt, err error) {
 
 	product = target
 
@@ -2345,7 +2345,7 @@ func (p *Provider) write(
 	}
 	receipt = NewReceipt(spec)
 
-	f, err := p.openFile(product.SourcePath.Abs(), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
+	f, err := p.openFile(product.Path().Abs(), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
 	if err != nil {
 		return product, receipt, err
 	}
@@ -2359,7 +2359,7 @@ func (p *Provider) write(
 		return product, receipt, err
 	}
 
-	if err := applyOwnership(p.RuntimeEnvironment().Root(), product.SourcePath.Abs(), user, group); err != nil {
+	if err := applyOwnership(p.RuntimeEnvironment().Root(), product.Path().Abs(), user, group); err != nil {
 		return product, receipt, err
 	}
 

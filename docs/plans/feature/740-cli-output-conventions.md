@@ -1,9 +1,9 @@
 ---
 title: "One output convention, every app"
 issue: https://github.com/NobleFactor/devlore-cli/issues/740
-status: in-progress
+status: complete
 created: 2026-08-28
-updated: 2026-08-30
+updated: 2026-09-01
 ---
 
 # Plan: One output convention, every app
@@ -17,15 +17,51 @@ to point at the **execution store**, which is where definitions and traces persi
 improvised too. This plan adds `--store`, renames `--format` to `--output` / `-o`, adds the `none`
 rendering, and adopts the whole set everywhere.
 
+## Where we are (2026-09-01)
+
+This plan is **thread 1 of four**, worked in order: this epic, then resource management
+(`Epic:ResourceModel`), then the writ lifecycle surface ([#762](https://github.com/NobleFactor/devlore-cli/issues/762)),
+then unified configuration ([#441](https://github.com/NobleFactor/devlore-cli/issues/441), planned at
+[441-unified-configuration.md](441-unified-configuration.md)). Threads 1 and 3 were previously
+entangled -- #762 renames the command this epic's next phase rewrites. The work lands as
+`writ reconcile`: the rename is part of it, not a later step, so this epic's writ phase and #762's phase 2
+are one piece of work rather than two adjacent ones.
+
+**Four items remain**, in the epic's own order:
+
+| # | Item | Phase | Issue |
+| --- | --- | --- | --- |
+| 1 | `writ reconcile` -- the rename and the 30 stdout call sites, one piece of work | 3b | **landed** -- [#774](https://github.com/NobleFactor/devlore-cli/issues/774), [774-writ-reconcile.md](774-writ-reconcile.md) |
+| 2 | `lore` -- search table, hand-rolled flags, thirteen `fmt.Print` | 4 | [#775](https://github.com/NobleFactor/devlore-cli/issues/775) -- [775-lore-adoption.md](775-lore-adoption.md); [#741](https://github.com/NobleFactor/devlore-cli/issues/741) closes there only if verified |
+| 3 | `star` -- register the set, delete `cmd/star/cli` | 4 / 4b | [#743](https://github.com/NobleFactor/devlore-cli/issues/743) -- [743-star-adoption.md](743-star-adoption.md) |
+| 4 | Enforcement -- the invariant tests | 5 | [#776](https://github.com/NobleFactor/devlore-cli/issues/776) -- [776-output-enforcement.md](776-output-enforcement.md) |
+
+All four now have issues and plans. `lore`'s is kept **separate** from #741 so a user-visible defect is
+not buried inside a refactor; enforcement is one issue for both tests, since they are the same invariant
+seen twice and together they define what "done" means for this epic -- which is why it is sequenced
+last, red until the other three land.
+
+**One correction landed with this update.** `10-command-line-interface.status.md` carried "`writ` consumes
+the set it registers" as unchecked after [#753](https://github.com/NobleFactor/devlore-cli/issues/753) and
+[#754](https://github.com/NobleFactor/devlore-cli/issues/754) had both closed in PR #747 -- the document
+reported landed work as outstanding. Corrected there, and recorded rather than quietly ticked.
+
+**The process this thread is worked under** is
+[noblefactor-ops `development-process.md`](https://github.com/NobleFactor/noblefactor-ops/blob/develop/docs/guides/development-process.md):
+one open worktree at a time, every issue in it resolved before a pull request, issues logged on discovery
+with their resolution site decided at that moment, and every commit updating every document it touches.
+
 ## Goals
 
 - [x] `--store` is part of the shared convention, not per-command improvisation.
 - [x] `--output` / `-o` selects the rendering, as in `aws`, `az`, and `kubectl` -- never a destination.
 - [x] `--output none` turns the result off, reachable from config and env where a shell is not.
-- [ ] `devlore-test`, `lore`, `star`, and `writ` each register the full common set on their root, so
-      every command of all four accepts every flag.
-- [ ] No command invents an output flag of its own.
-- [ ] Results go to stdout or a file; narration goes to stderr. Enforced, not merely stated.
+- [x] `devlore-test`, `lore`, `star`, and `writ` each register the full common set on their root, so
+      every command of all four accepts every flag. All four are the shared root since #776, which
+      registers the set once.
+- [x] No command invents an output flag of its own. `CheckNoOwnOutputFlag`, from every root test (#776).
+- [x] Results go to stdout or a file; narration goes to stderr. Enforced, not merely stated:
+      `TestNoDirectStdout_InScope` (#776).
 - [x] A boolean `--json` does not exist anywhere.
 
 ## Current State
@@ -77,7 +113,7 @@ devlore-test's stream routing all sit outside it: there was nothing to conform t
 | `lore bundle` | `--output, -o <path>` | destination outside the convention |
 | `lore onboard` | `--output <dir>` + `--format` | own `--format`, own destination |
 | `lore list` | `--format table\|manifest\|json` | own `--format`, values differ |
-| `writ status` | `--json` (**bool**) | a boolean, not a format |
+| `writ reconcile` | `--json` (**bool**) | a boolean, not a format |
 | `writ verify` | `--json` (**bool**) | a boolean, not a format |
 | `writ migrate` | `--format json\|yaml\|text` | own `--format`; help text corrupted (#739) |
 | `devlore-test run` | `--output stream=dest` x3, `--receipt-format` | stream routing; a second format flag |
@@ -134,8 +170,8 @@ no command registers an output flag of its own.
 
 ### Requirement 5: No boolean format flags
 
-`--json` is replaced by `--output json`. A boolean cannot express a third format, which is why `writ status`
-and `writ verify` cannot render yaml today.
+`--json` is replaced by `--output json`. A boolean cannot express a third format, which is why
+`writ reconcile` and `writ verify` cannot render yaml today.
 
 ## Implementation Phases
 
@@ -175,7 +211,7 @@ the same. The real figure is **30 call sites**:
 
 | Location | Calls | What it is |
 | --- | --- | --- |
-| `cmd/writ/writ/status/report.go` | 22 `fmt.Print*` | the human status report |
+| `cmd/writ/writ/status/report.go` (`reconcile/` under #762) | 22 `fmt.Print*` | the reconcile report |
 | `cmd/writ/writ/verify/verify.go` | 2 `fmt.Print*` | now removed with `presentReport` |
 | `deploy`, `decommission`, `upgrade`, `secret` | 4 `SerializeGraphs(os.Stdout, ...)` | the dry-run plan dump |
 | `cmd/writ/writ/migrate/session.go` | 1 `os.Stdout` | TUI session output |
@@ -194,35 +230,38 @@ cells. Legible for `list`, useless for `table`. Whether that is acceptable, or w
 case for a sectioned object, is a design question for after the pipeline is wired. Wiring is not blocked on
 it: `-o json`, `-o yaml`, `-o none`, `--jq`, and `--filter` all become correct immediately.
 
-**Measured 2026-08-30, before starting.** `writ status` honors one of eight formats. `-o json` produces
+**Measured 2026-08-30, before starting**, when the command was named `writ status`; #762 renames it to
+`writ reconcile`, which is what it is called throughout below. `writ reconcile` honors one of eight
+formats. `-o json` produces
 JSON; `yaml`, `table`, `list`, `csv`, `value`, `none`, and `template=BODY` all produce the same
 byte-identical human dashboard. `-o none` prints ten lines where its contract is silence, and `-o yaml`
 emits text a parser fails on. The bridge is one bool at `cmd/writ/writ/config.go:160`.
 
 The format value is also never validated (#754), because it never reaches `FormatterByName`:
-`writ status -o bogus` prints the dashboard and exits 0, and so does every writ command but `verify`. That is
+`writ reconcile -o bogus` prints the dashboard and exits 0, and so does every writ command but `verify`. That is
 a second defect, distinct from the wrong renderings -- one does the wrong thing, the other accepts wrong
 input.
 
 `--store` is read nowhere in writ at all (#753), which is the severe face of the same cause. `readback.go`
-reads `TracesDir()` and `GraphsDir()` to fold runs, so `writ status --store <elsewhere>` reports on the
+reads `TracesDir()` and `GraphsDir()` to fold runs, so `writ reconcile --store <elsewhere>` reports on the
 default store as though it had complied -- the wrong data rather than the wrong shape.
 
 The shared cause is a flag registered on a root that no leaf consumes. `root.go:49` registers the whole set,
 so cobra advertises it everywhere; `commands.go:302` consumes it once. Registration without consumption is
 worse than absence: an absent flag errors, a present one that does nothing lies.
 
-- [ ] `runStatus` calls `BuildPipeline` and emits `*Report`, as `runVerify` already does. `BuildReport`
+- [x] `runStatus` calls `BuildPipeline` and emits `*Report`, as `runVerify` already does. `BuildReport`
       already returns the value, so this deletes `status.Execute`'s branch, `presentJSON`, `presentText`,
       and `JSONOutput` together -- the 22 `fmt.Print` calls go with them.
-- [ ] The four dry-run `SerializeGraphs(os.Stdout, ...)` dumps emit the plan as the command's result.
-- [ ] `migrate`'s own `--format` retires; its `text` rendering is a domain question like `lore list`'s
+- [x] The four dry-run `SerializeGraphs(os.Stdout, ...)` dumps emit the plan as the command's result.
+- [x] `migrate`'s own `--format` retires; its `text` rendering is a domain question like `lore list`'s
       `manifest`, and does not join the shared set.
-- [ ] `migrate/session.go`'s stdout write is classified: narration to stderr, or a result to the pipeline.
-- [ ] `writ` resolves `--store` through `cli.SetStoreRoot` before any command that touches the store,
+- [x] `migrate/session.go`'s stdout write is classified: narration to stderr, or a result to the pipeline.
+- [x] `writ` resolves `--store` through `cli.SetStoreRoot` before any command that touches the store,
       restoring on exit as `devlore-test` does (#753). Every command routed through `readback` is affected,
       not only `status`.
-- [ ] Every writ command validates `--output`, which follows from reaching `BuildPipeline` (#754).
+- [x] Every writ command validates `--output`, which follows from reaching `BuildPipeline` (#754).
+      Every box above landed in #774 (774-writ-reconcile.md); ticked here on 2026-09-03, late.
 
 ### Phase 3c: The format value accepts an argument -- COMPLETE
 
@@ -278,14 +317,16 @@ the four findings below are defects the rules exposed on their first contact wit
       Written as "promote star's `renderTable`"; it is really star's tabwriter approach plus the delimited
       formatter's column inference. star's version carried its own reflection, which would have been a third
       implementation of column selection -- so `cmd/star/cli` stays deletable whole rather than half salvaged.
-- [ ] Convert `lore`'s `runSearch` (`commands.go:525-556`) first: it is the only real table in the tree, and
-      converting it is a bug fix as much as a refactor (see the byte-truncation defect it carries).
-- [ ] `star` registers the common set, and `cmd/star/cli` is deleted -- it duplicates eighteen
-      exported names from `cmd/internal/cli` and now contradicts it (#743).
-- [ ] `lore`'s `bundle`, `onboard`, and `list` drop their hand-rolled flags. `list` is a stub returning
+- [x] Convert `lore`'s `runSearch` (`commands.go:525-556`) first: it is the only real table in the tree, and
+      converting it is a bug fix as much as a refactor (see the byte-truncation defect it carries). Landed in
+      #779 ([775-lore-adoption.md](775-lore-adoption.md)); #741's byte-count cut went with it.
+- [x] `star` registers the common set, and `cmd/star/cli` is deleted. The copy went in #743 phase 2 -- it
+      was dead, nothing imported it -- and the root moved onto `cli.NewRootCmd` in phase 3
+      ([743-star-adoption.md](743-star-adoption.md)).
+- [x] `lore`'s `bundle`, `onboard`, and `list` drop their hand-rolled flags. `list` is a stub returning
       "not yet implemented", so it adapts at no cost; its `--format manifest` is a domain rendering and does
-      not join the shared set.
-- [ ] The thirteen `fmt.Print` calls are triaged: narration to `cli.*`, results to the sink.
+      not join the shared set. Landed in #779: `bundle` and `onboard` take a positional destination.
+- [x] The thirteen `fmt.Print` calls are triaged: narration to `cli.*`, results to the sink. Landed in #779.
 
 ### Phase 4b: Every in-scope program uses the shared infrastructure
 
@@ -297,22 +338,34 @@ set of programs that route through it -- measured, not assumed, in §15.
       directly. It has `AddOutputFlags` and therefore #753 and #754, and lacks #755's help wrapping for no
       reason anyone chose: at `COLUMNS=70` its longest flag line is 389 columns where `writ` and `lore` are
       at 70. This holds whether or not `devlore-test` ever ships.
-- [ ] `star` uses `cmd/internal/cli` and `cmd/star/cli` is deleted -- the same task as #743, restated here
+- [x] `star` uses `cmd/internal/cli` and `cmd/star/cli` is deleted -- the same task as #743, restated here
       because the duplication's cost is now demonstrated rather than argued: a defect fixed in the shared
-      package is fixed once per package, and star got neither of this branch's three fixes.
-- [ ] `lore` registers the common set on its root rather than on `inspect` alone, which is what makes a
-      program-wide fix program-wide.
+      package is fixed once per package, and star got neither of this branch's three fixes. The deletion
+      landed in #743 phase 2 and the root moved in phase 3.
+- [x] `lore` registers the common set on its root rather than on `inspect` alone, which is what makes a
+      program-wide fix program-wide. Landed in #779.
+- [x] The shared root's commands -- `config`, `man`, `self`, `version` -- are one set on the four programs,
+      a program's additions attach beneath, and no usage text follows any error. Ruled 2026-09-02 in
+      [743-star-adoption.md](743-star-adoption.md) and recorded in the design (§2, §9, §12, decisions 7-9);
+      landed with #743 phase 3.
 
 ### Phase 5: Enforce it
 
-- [ ] A test that fails when a command registers an output flag of its own.
-- [ ] A test that fails on a direct `os.Stdout` write from a command package.
-- [ ] A test that fails when a root registers the common set and a leaf command does not consume it.
+- [x] A test that fails when a command registers an output flag of its own: `CheckNoOwnOutputFlag`,
+      called from every program's root test, which also refuses any shadow of an inherited flag (#776).
+- [x] A test that fails on a direct `os.Stdout` write from a command package:
+      `TestNoDirectStdout_InScope` (#776); it was red on the shared package's own `config` and `man`
+      commands first.
+- [x] A test that fails when a root registers the common set and a leaf command does not consume it.
+      Reframed in #776: every root is the shared root, which registers the set once, and nothing outside
+      `cmd/internal/cli` builds a rendering (`CheckSharedSetOnRoot`, `TestNoPrivatePipeline_InScope`).
       Neither invariant above catches #753 or #754: `writ` registers no flags of its own, and the
       `os.Stdout` check finds `status` but not `repo`, which is equally unvalidated while printing nothing
       of its own. Greppable as "every root calling `AddOutputFlags` has every leaf reaching
       `BuildPipeline`".
-- [ ] Regenerate the CLI docs and confirm every command documents the same flags.
+- [x] Regenerate the CLI docs and confirm every command documents the same flags. `make docs` runs in
+      #776's closing commit; the flag set is proven on the trees by the root tests. `devlore-docs`
+      generates pages for `lore` and `writ` only, which is #787, filed from #776.
 - [x] Correct `docs/plans/extract-output-package.md`, which is marked complete while describing an
       `internal/output` package that was never created. Done ahead of the rest of this phase: a completed
       plan describing absent code misleads anyone who reads it for where the code lives, and it holds the
@@ -328,7 +381,7 @@ set of programs that route through it -- measured, not assumed, in §15.
 | 3a | A relocated store keeps its run index and checksum keying | unit | The store is treated as a dump dir |
 | 4 | A trace in a relocated store still resolves to its definition | unit | `GraphChecksum` ties break |
 | 5 | Every format value round-trips through the pipeline | unit | A formatter is unregistered |
-| 6 | `-o json` and `-o yaml` both work on `writ status` | unit | `--json` boolean returns |
+| 6 | `-o json` and `-o yaml` both work on `writ reconcile` | unit | `--json` boolean returns |
 | 6a | `-o none` emits nothing on stdout, errors still on stderr | unit | `none` renders anyway |
 | 7 | Narration appears on stderr while stdout holds only the result | unit | A `cli.Note` reaches stdout |
 | 8 | No command package writes to `os.Stdout` directly | unit | A direct write is added |

@@ -85,11 +85,11 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 // +devlore:claim=sandboxed
 func (p *Provider) Extract(
 	activationRecord *op.ActivationRecord,
-	source *file.Regular,
+	source file.Regular,
 	prefixPath string,
 ) (products []file.Resource, stack *op.RecoveryStack, err error) {
 
-	reader, err := p.openArchive(source.SourcePath.Abs())
+	reader, err := p.openArchive(source.Path().Abs())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -358,15 +358,13 @@ func resolveExtractPrefix(runtimeEnvironment *op.RuntimeEnvironment, prefixPath 
 		return "", err
 	}
 
+	// A Directory's Exists is kind-honest: it is false for a missing path and for a path holding any other kind
+	// of entry, so one check covers both refusals.
 	if !destination.Exists() {
-		return "", fmt.Errorf("prefix directory does not exist: %s", prefixPath)
+		return "", fmt.Errorf("prefix path is not an existing directory: %s", prefixPath)
 	}
 
-	if !destination.IsDir() {
-		return "", fmt.Errorf("prefix path is not a directory: %s", prefixPath)
-	}
-
-	return destination.SourcePath.Abs(), nil
+	return destination.Path().Abs(), nil
 }
 
 // extractEntry materializes one archive entry through the file provider, per its kind.

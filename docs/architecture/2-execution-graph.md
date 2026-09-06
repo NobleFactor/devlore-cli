@@ -129,7 +129,7 @@ Two documents, two roles:
    ([5.2 recovery serialization](5.2-recovery-serialization.md)).
 
 The store lives behind `cmd/internal/cli`: `WriteGraph` persists the plan once, `WriteTrace` persists every run's trace —
-win or lose — and both append to the NDJSON **run index** that `writ status` and the deploy family fold over.
+win or lose — and both append to the NDJSON **run index** that `writ reconcile` and the deploy family fold over.
 
 ## The command layer
 

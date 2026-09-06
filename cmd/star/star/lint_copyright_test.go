@@ -250,7 +250,7 @@ func runLintCopyright(t *testing.T, r *Application, fix bool, path string) (pass
 
 	// Capture output by running the command
 	// The command returns an error on failure
-	err = cmd.Run(args)
+	_, err = cmd.Run(args)
 	passed = err == nil
 
 	return passed, "", err

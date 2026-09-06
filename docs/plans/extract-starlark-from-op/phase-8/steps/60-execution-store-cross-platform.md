@@ -47,7 +47,7 @@ So on an unprivileged Windows machine:
 2. `latest.yaml` does not exist.
 3. `appendIndexEntry` sits **after** the symlink, so the run index never receives the event. The
    index silently loses every trace on that machine.
-4. The command reports success with a warning, and `writ status` / reconciliation later read an index
+4. The command reports success with a warning, and `writ reconcile` / reconciliation later read an index
    that disagrees with the directory.
 
 Step 3 is a defect on **every** platform, not just Windows: any failure of the link step discards the

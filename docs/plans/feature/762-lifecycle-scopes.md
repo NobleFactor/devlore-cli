@@ -3,7 +3,7 @@ title: "The writ lifecycle surface: reconcile, scopes, and the vocabulary settle
 issue: https://github.com/NobleFactor/devlore-cli/issues/762
 status: in-progress
 created: 2026-08-31
-updated: 2026-08-31
+updated: 2026-09-01
 ---
 
 # Plan: The writ lifecycle surface
@@ -48,8 +48,10 @@ phase-8 step 47. From `writ-deploy-family.md:136`:
 > … "reconcile" retires entirely — no `--fix`: the repair for each finding is [named] instead.
 
 Reconcile now reports **and** repairs (ruled 2026-08-31), so the promise will be kept and the name returns.
-The original shape is recorded at `writ-deploy-family.md:31`:
-`writ reconcile [--drift] [--fix] [--json] [<project>...]`.
+
+`writ-deploy-family.md:31` records an original shape carrying `--drift`, `--fix` and `--json`. **None of
+those three survives.** `--json` is replaced by the shared `--output` / `-o` (#740); the other two are the
+deferred selector under earlier names.
 
 ### The vocabulary collides in one file, four lines apart
 
@@ -90,10 +92,26 @@ Zero occurrences in the tree of `RootReader`, `RootReaderWriter`, `confinedRoot`
 `deploy`, `reconcile`, `upgrade`, `decommission`, in both programs. No `status` command anywhere. The
 retirement is by deletion — no alias, no hidden command (§13).
 
-### Requirement 2: Reconcile reports and repairs
+### Requirement 2: Reconcile produces a report, and takes no command flags
 
-The command answers "what changed since deploy and some number of upgrades", like `git diff`; the repair
-half is chartered, not built here. `5.1`'s "there is no `--fix`" is retired as the stale claim it is.
+`writ reconcile` **produces a report** answering "what changed since deploy and some number of upgrades",
+like `git diff`. The repair half is chartered, not built here.
+
+**It has no command flags.** It takes the globals — `--output` / `-o`, `--filter`, `--jq`, `--store`,
+`--dry-run` — and must utilize all of them faithfully. A command that registers a flag its root already
+provides is the defect #740 exists to stop.
+
+The selector between fix, diff and summary behaviors is **deferred to the reconciliation epic**. `5.1`'s
+"there is no `--fix`" is no longer the whole truth — reconcile will repair — but neither is a `--fix`
+flag settled: today there is none, and the surface for choosing is undesigned.
+
+**A caution for whoever designs it.** Two of the three candidate views are already projections of the one
+document the report produces: the diff is `--jq '.entries'`, and the history is `--jq '.packages'`. Those
+are stage 2 of the pipeline #740 landed, and `--jq` and `--filter` are already in the reserved set.
+Adding `--diff` and `--history` flags would create a second way to select a subset of the same document,
+and the two will drift. Only the repair half is genuinely new, because it is a mutation rather than a
+projection — and the mutation axis already carries `--dry-run`, so anything added there has to say how
+the two compose.
 
 ### Requirement 3: Reconcile is valid only after deployment
 
@@ -201,18 +219,24 @@ Documents first: the code changes cite them, and three of them currently describ
 - [x] `5.3-recovery-site.md` — the `RootReaderWriter` test mode that no longer exists
 - [x] `schema/devlore-config.json` and `schema/defaults/writ.yaml` — `writ.scopes` added, `writ.segments`
       reshaped to a map, `vars` reduced to template variables
-- [ ] `4.4-root-path-triad.md` — §4 "Mode Switch" tabulates three types with zero tree occurrences. OPEN:
-      rewrite, or delete and renumber?
-- [ ] `10-command-line-interface.md` §15 — the conformance table still says `writ status`
-- [ ] `10-command-line-interface.md` §1 is titled "Scope and principles"; "scope" now names an execution
-      context. Two meanings, one document.
+- [x] `4.4-root-path-triad.md` — §4 "Mode Switch" deleted and the rest renumbered (#767)
+- [x] `10-command-line-interface.md` §15 — the conformance table says `writ reconcile` (#767)
+- [x] `10-command-line-interface.md` §1 retitled "What this governs", so "scope" has one meaning (#767)
 
-### Phase 2: The rename
+*The three boxes above were completed by #767 and stayed unticked until 2026-09-01 — recorded rather than
+quietly corrected, since stale status is the drift the revised process exists to prevent.*
 
-- [ ] `writ status` → `writ reconcile`; `git mv cmd/writ/writ/status cmd/writ/writ/reconcile`, `status.go` →
+### Phase 2: The rename — landed under #774 (status: complete)
+
+This phase and thread 1's `writ` item are one piece of work, done in
+[774-writ-reconcile.md](774-writ-reconcile.md) phase 1.
+
+- [x] `writ status` → `writ reconcile`; `git mv cmd/writ/writ/status cmd/writ/writ/reconcile`, `status.go` →
       `reconcile.go`, so history follows. No alias.
-- [ ] `status.Report` → `reconcile.Report`, and the rest of the package surface.
-- [ ] Scenario tests and the eight plan documents that name `writ status`.
+- [x] `status.Report` → `reconcile.Report`, and the rest of the package surface — `ReconcileConfig`,
+      `parseReconcileConfig`, `newReconcileCmd`, `runReconcile`.
+- [x] Scenario tests, and every document that named `writ status` as live: seven architecture and guide
+      documents and nine plans changed outright; the two that *record* the step-47 rename carry a note.
 
 ### Phase 3: The vocabulary sweep
 

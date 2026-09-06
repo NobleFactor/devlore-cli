@@ -36,7 +36,7 @@ var (
 //
 // Distinct from [RegisterResourceMint], which answers a different question: what a bare authored string
 // claims as. The two coincide only for an interface with exactly one implementation. `file` designates
-// `*file.AnyKind` as its mint while having four implementations, so conflating them would be wrong there.
+// `file.AnyKind` as its mint while having four implementations, so conflating them would be wrong there.
 //
 // Parameters:
 //   - `resourceInterface`: the provider's sealed resource interface type.

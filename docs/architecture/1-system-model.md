@@ -254,14 +254,14 @@ The trace ([2](2-execution-graph.md), [5.2](5.2-recovery-serialization.md)) reco
 - **Checksum and signature** — the graph document's checksum covers canonical content; signing is
   `pkg/signing` + `writ verify` ([5](5-graph-trace-integrity.md)).
 
-The run index (`cmd/internal/cli`) folds records over time — `writ status` reads it today; the fleet-level record graph
+The run index (`cmd/internal/cli`) folds records over time — `writ reconcile` reads it today; the fleet-level record graph
 above is the same idea at distributed scale.
 
 ### 7.3 Drift Detection
 
 Re-verification against the recorded content identity provides drift detection: matching identity means the record
 is still accurate; divergence means drift — attributable as source-changed vs. target-modified from the recorded
-Etag/Digest (steps 47/48 landed exactly this for `writ status` / `upgrade`). The same code that deployed the system
+Etag/Digest (steps 47/48 landed exactly this for `writ reconcile` / `upgrade`). The same code that deployed the system
 re-verifies it — a native capability, not an external agent.
 
 ### 7.4 Traceability
@@ -331,7 +331,7 @@ walk catches drift even without a new deployment.
 ## 10. Lifecycle Operations
 
 - **Deploy** — forward: build, persist the plan, execute, record. *(landed: the writ deploy family, steps 47–49)*
-- **Status / reconcile** — the re-verify walk over the records: `writ status` classifies fresh / stale / modified
+- **Status / reconcile** — the re-verify walk over the records: `writ reconcile` classifies fresh / stale / modified
   from the recorded content identity. *(landed locally)*
 - **Upgrade** — constrained re-deploy with drift attribution (source-changed vs. target-modified) from the
   as-deployed record. *(landed locally; the §5 solver remains vision)*

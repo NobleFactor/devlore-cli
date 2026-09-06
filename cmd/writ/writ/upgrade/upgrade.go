@@ -77,18 +77,19 @@ type Config struct {
 //   - `cfg`: the resolved upgrade configuration.
 //
 // Returns:
-//   - `error`: non-nil when the fold fails, planning fails, or a regeneration run fails.
-func Execute(ctx context.Context, cfg *Config) (err error) {
+//   - `graphs`: the plan, under --dry-run; nil when the run executed (or there was nothing to do).
+//   - `err`: non-nil when the fold fails, planning fails, or a regeneration run fails.
+func Execute(ctx context.Context, cfg *Config) (graphs []*op.Graph, err error) {
 
 	inventory, err := readback.Fold(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	copied := selectCopied(inventory, cfg.Projects)
 	if len(copied) == 0 {
 		cli.Note("No copied files to upgrade.")
-		return nil
+		return nil, nil
 	}
 
 	data := deploy.RenderData(cfg.Segments, cfg.Vars)
@@ -98,21 +99,21 @@ func Execute(ctx context.Context, cfg *Config) (err error) {
 
 	if len(regenerate) == 0 {
 		cli.Success("Nothing to regenerate.")
-		return nil
+		return nil, nil
 	}
 
-	graphs, err := buildScopeGraphs(ctx, cfg, regenerate, data)
+	graphs, err = buildScopeGraphs(ctx, cfg, regenerate, data)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if cfg.DryRun {
-		return op.SerializeGraphs(os.Stdout, graphs)
+		return graphs, nil
 	}
 
 	regenerated, err := runAll(ctx, cfg, graphs)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if len(skipped) > 0 {
@@ -121,7 +122,7 @@ func Execute(ctx context.Context, cfg *Config) (err error) {
 		cli.Success("%d file(s) regenerated", regenerated)
 	}
 
-	return nil
+	return nil, nil
 }
 
 // region HELPER FUNCTIONS

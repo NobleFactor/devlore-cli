@@ -25,7 +25,6 @@ import (
 type Options struct {
 	Source     string                // URL or file path
 	OutputDir  string                // Output directory (default: current)
-	Format     string                // Manifest format: "plain" or "yaml"
 	Verbose    bool                  // Show AI reasoning
 	Explain    bool                  // Show detailed confidence decisions
 	Provider   model.Provider        // AI provider
@@ -142,7 +141,7 @@ func Run(ctx context.Context, opts Options) (*Result, error) {
 	}
 
 	// Phase 5: Generate manifest
-	manifest := generateManifest(discovery, slots, opts.Format)
+	manifest := generateManifest(discovery, slots)
 
 	result := &Result{
 		Product:    discovery.Product,
@@ -315,7 +314,7 @@ func parseDocuments(ctx context.Context, opts Options, docs []documentContent) (
 //
 // Returns:
 //   - `string`: the generated manifest text.
-func generateManifest(discovery *discoveryResult, slots []ExtractedSlot, _ string) string {
+func generateManifest(discovery *discoveryResult, slots []ExtractedSlot) string {
 
 	var sb strings.Builder
 

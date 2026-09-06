@@ -58,7 +58,8 @@ func runIndex(t *testing.T, app *Application, target string) error {
 	if !ok {
 		t.Fatal(`command "devlore knowledge index" is not registered`)
 	}
-	return cmd.Run(map[string]string{"target": target, "dry_run": ""})
+	_, err := cmd.Run(map[string]string{"target": target, "dry_run": ""})
+	return err
 }
 
 // writeTree materializes files under dir; a path ending in "/" creates an empty directory.

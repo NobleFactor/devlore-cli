@@ -20,11 +20,12 @@ import (
 
 // Options controls migration behavior.
 type Options struct {
-	SourceRoot   string
-	TargetRoot   string // empty = rename in place
-	Execute      bool
-	Verbose      bool
-	Format       string // "json" (default), "yaml", "text"
+	SourceRoot string
+	TargetRoot string // empty = rename in place
+	Execute    bool
+	Verbose    bool
+	// Emit hands a result to the caller's pipeline. The command sets it; the session has no writer of its own.
+	Emit         func(value any) error
 	Provider     model.Provider
 	RegClient    *lorepackage.Registry
 	TreeDepth    int // max directory depth to scan (0 = auto based on provider)

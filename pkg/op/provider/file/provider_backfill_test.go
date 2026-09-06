@@ -442,7 +442,7 @@ func TestRemoveAll_MissingTarget_FollowsThePolicy(t *testing.T) {
 // --- test helpers ---
 
 // collectWalk runs [Provider.WalkTree] with a set-collecting reducer and returns the relative paths it folded.
-func collectWalk(t *testing.T, p Provider, root *Directory, includeGitignored bool) map[string]bool {
+func collectWalk(t *testing.T, p Provider, root Directory, includeGitignored bool) map[string]bool {
 	t.Helper()
 
 	visited := map[string]bool{}

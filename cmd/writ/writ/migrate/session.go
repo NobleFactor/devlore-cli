@@ -8,7 +8,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
@@ -565,8 +564,8 @@ func (s *Session) executeStep() *console.Step {
 		s.aiResponse = "Migration complete."
 	}
 
-	// Promise analysis + execution_graph JSON to stdout
-	s.outputJSON()
+	// The analysis and execution graph are the session's result; the command's pipeline renders them.
+	s.emitResult()
 
 	s.result = &SessionResult{
 		Graph:       s.graph,
@@ -584,16 +583,15 @@ func (s *Session) executeStep() *console.Step {
 	}
 }
 
-// outputJSON writes the analysis and execution graph to stdout in JSON format.
-func (s *Session) outputJSON() {
-	// Use the same format as FormatMigrationPlan with "json"
-	var buf bytes.Buffer
-	if err := FormatMigrationPlan(&buf, s.graph, s.analysis, "json"); err != nil {
-		cli.Warn("Failed to format JSON output: %v", err)
+// emitResult hands the analysis and execution graph to the caller's pipeline.
+func (s *Session) emitResult() {
+	if s.opts.Emit == nil {
+		cli.Warn("no result pipeline configured; the migration view was not emitted")
 		return
 	}
-	//nolint:errcheck // diagnose-ignored-error: stdout write; see docs/architecture/2.8-eventing-infrastructure.md
-	_, _ = fmt.Fprintln(os.Stdout, buf.String())
+	if err := s.opts.Emit(NewMigrationView(s.graph, s.analysis)); err != nil {
+		cli.Warn("Failed to emit the migration view: %v", err)
+	}
 }
 
 // completeStep shows the completion message.

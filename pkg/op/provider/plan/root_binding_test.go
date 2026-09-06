@@ -174,12 +174,12 @@ func TestRun_PlanningCatalogStaysPristineInLocation(t *testing.T) {
 	if !ok {
 		t.Fatalf("planning catalog does not hold its own entry %s", row.ID)
 	}
-	regular, ok := entry.(*file.Regular)
+	regular, ok := entry.(file.Regular)
 	if !ok {
-		t.Fatalf("planning entry is %T, want *file.Regular", entry)
+		t.Fatalf("planning entry is %T, want file.Regular", entry)
 	}
 
-	abs := regular.SourcePath.Abs()
+	abs := regular.Path().Abs()
 	if !strings.HasPrefix(abs, planRoot) {
 		t.Errorf("planning object binds %q, want the PLAN root %q — the run re-rooted a shared object", abs, planRoot)
 	}

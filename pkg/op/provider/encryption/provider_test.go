@@ -294,15 +294,15 @@ func TestDecryptSopsFile_RoundTrip(t *testing.T) {
 		t.Errorf("decrypted content missing 'world': %s", decrypted)
 	}
 
-	if result.SourcePath.Abs() != destination {
-		t.Errorf("result path = %q, want %q", result.SourcePath.Abs(), destination)
+	if result.Path().Abs() != destination {
+		t.Errorf("result path = %q, want %q", result.Path().Abs(), destination)
 	}
-	resource, ok := receipt.Resource().(*file.Regular)
+	resource, ok := receipt.Resource().(file.Regular)
 	if !ok {
-		t.Fatalf("receipt resource = %T, want *file.Regular", receipt.Resource())
+		t.Fatalf("receipt resource = %T, want file.Regular", receipt.Resource())
 	}
-	if resource.SourcePath.Abs() != destination {
-		t.Errorf("receipt resource path = %q, want %q", resource.SourcePath.Abs(), destination)
+	if resource.Path().Abs() != destination {
+		t.Errorf("receipt resource path = %q, want %q", resource.Path().Abs(), destination)
 	}
 }
 
@@ -440,8 +440,8 @@ func TestEncryptFile_RoundTrip(t *testing.T) {
 	if bytes.Contains(encrypted, []byte("hello")) || bytes.Contains(encrypted, []byte("world")) {
 		t.Fatalf("plaintext leaked into the encrypted file:\n%s", encrypted)
 	}
-	if result.SourcePath.Abs() != destPath {
-		t.Errorf("result path = %q, want %q", result.SourcePath.Abs(), destPath)
+	if result.Path().Abs() != destPath {
+		t.Errorf("result path = %q, want %q", result.Path().Abs(), destPath)
 	}
 
 	// Round-trip: decrypt it back and confirm the original content.

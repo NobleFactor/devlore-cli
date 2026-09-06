@@ -421,10 +421,24 @@ func segmentOS() string {
 }
 
 // TestWritDeployScenario_Deploy is the phase-2 leg: deploy noblefactor and thenobles into the sandbox, then
-// assert the deployed filesystem, the status report, the execution store, and a clean second deploy.
+// assert the deployed filesystem, the reconcile report, the execution store, and a clean second deploy.
 func TestWritDeployScenario_Deploy(t *testing.T) {
 
 	sandbox := newScenarioSandbox(t)
+
+	// The dry run first: its plan is the result, rendered by -o like any other. Before this it was a YAML
+	// dump written regardless of -o, so `-o json` produced YAML and this assertion failed.
+	dryOut, dryErr, err := runWrit(t, sandbox, "deploy", "--dry-run", "-o", "json", "noblefactor", "thenobles")
+	if err != nil {
+		t.Fatalf("writ deploy --dry-run failed: %v\nstderr: %s", err, dryErr)
+	}
+	var plan []any
+	if err := json.Unmarshal([]byte(dryOut), &plan); err != nil {
+		t.Fatalf("deploy --dry-run -o json is not a JSON array of graphs: %v\n%s", err, dryOut)
+	}
+	if len(plan) == 0 {
+		t.Fatalf("deploy --dry-run -o json rendered an empty plan:\n%s", dryOut)
+	}
 
 	stdout, stderr, err := runWrit(t, sandbox, "deploy", "noblefactor", "thenobles")
 	if err != nil {
@@ -432,7 +446,7 @@ func TestWritDeployScenario_Deploy(t *testing.T) {
 	}
 
 	// The per-file inventory assertions are fixture-specific; a real repo (WRIT_SCENARIO_REPO) carries
-	// the owner's content, so that mode asserts the generic invariants only (status, store, re-deploy).
+	// the owner's content, so that mode asserts the generic invariants only (reconcile, store, re-deploy).
 	fixtureMode := os.Getenv("WRIT_SCENARIO_REPO") == ""
 
 	// The deployed inventory: base dot-content on every platform, segment variants by matching, the
@@ -461,10 +475,58 @@ func TestWritDeployScenario_Deploy(t *testing.T) {
 		assertAbsent(t, filepath.Join(sandbox.Home, "scenario-note.md"))
 	}
 
-	// The status report, machine-readable: every classified entry is healthy.
-	statusOut, statusErr, err := runWrit(t, sandbox, "status", "-o", "json")
+	// Every rendering of the report is a rendering of its JSON. A format that is registered but falls
+	// through to a human dashboard fails here; shape only, since content is asserted on the JSON below.
+	for _, format := range []string{"yaml", "table", "list", "csv", "value", "none", "template={{len .entries}}"} {
+		out, stderr, err := runWrit(t, sandbox, "reconcile", "-o", format)
+		if err != nil {
+			t.Fatalf("writ reconcile -o %s failed: %v\nstderr: %s", format, err, stderr)
+		}
+		if strings.Contains(out, "Layers:") || strings.Contains(out, "Store: ") {
+			t.Fatalf("writ reconcile -o %s printed the human dashboard:\n%s", format, out)
+		}
+		if format == "none" && strings.TrimSpace(out) != "" {
+			t.Fatalf("writ reconcile -o none wrote to stdout:\n%s", out)
+		}
+		if format != "none" && strings.TrimSpace(out) == "" {
+			t.Fatalf("writ reconcile -o %s wrote nothing", format)
+		}
+	}
+
+	// The other three globals, each by its effect rather than its registration. A flag on a root that no
+	// leaf consumes looks like compliance (#753, #754); these fail if the flag never reaches the pipeline.
+	jqOut, jqErr, err := runWrit(t, sandbox, "reconcile", "--jq", ".entries")
 	if err != nil {
-		t.Fatalf("writ status failed: %v\nstderr: %s", err, statusErr)
+		t.Fatalf("writ reconcile --jq .entries failed: %v\nstderr: %s", err, jqErr)
+	}
+	var delta []any
+	if err := json.Unmarshal([]byte(jqOut), &delta); err != nil {
+		t.Fatalf("--jq .entries did not select the delta as a JSON array: %v\n%s", err, jqOut)
+	}
+	if len(delta) == 0 {
+		t.Fatalf("--jq .entries selected nothing:\n%s", jqOut)
+	}
+
+	// A malformed field expression must be refused. Were --filter ignored, this would print the report
+	// and exit 0 -- a typo honored as a request for the default, the same defect as #754.
+	if _, filterErr, err := runWrit(t, sandbox, "reconcile", "--filter", "no-equals-sign"); err == nil {
+		t.Fatal("writ reconcile --filter no-equals-sign succeeded; --filter never reached the parser")
+	} else if !strings.Contains(filterErr, "no-equals-sign") {
+		t.Fatalf("--filter refusal does not name the expression:\n%s", filterErr)
+	}
+
+	// --store must be read: pointed at a store that was never written, reconcile refuses rather than
+	// reporting on the default store as though it had complied (#753).
+	if _, storeErr, err := runWrit(t, sandbox, "reconcile", "--store", t.TempDir()); err == nil {
+		t.Fatal("writ reconcile --store <empty> succeeded; it reported on the default store instead")
+	} else if !strings.Contains(strings.ToLower(storeErr), "index") {
+		t.Fatalf("--store <empty> refusal does not name the missing run index:\n%s", storeErr)
+	}
+
+	// The reconcile report, machine-readable: every classified entry is healthy.
+	reconcileOut, reconcileErr, err := runWrit(t, sandbox, "reconcile", "-o", "json")
+	if err != nil {
+		t.Fatalf("writ reconcile failed: %v\nstderr: %s", err, reconcileErr)
 	}
 	var report struct {
 		Entries []struct {
@@ -473,8 +535,8 @@ func TestWritDeployScenario_Deploy(t *testing.T) {
 			Project string `json:"project"`
 		} `json:"entries"`
 	}
-	if err := json.Unmarshal([]byte(statusOut), &report); err != nil {
-		t.Fatalf("status -o json is not parseable: %v\n%s", err, statusOut)
+	if err := json.Unmarshal([]byte(reconcileOut), &report); err != nil {
+		t.Fatalf("reconcile -o json is not parseable: %v\n%s", err, reconcileOut)
 	}
 	// With the implicit common project: Windows deploys the base pair + common + common.Windows (4);
 	// the unix platforms add their variants (darwin 8, linux 7).
@@ -483,7 +545,7 @@ func TestWritDeployScenario_Deploy(t *testing.T) {
 		minimumEntries = 4
 	}
 	if len(report.Entries) < minimumEntries {
-		t.Fatalf("status reports %d entries, expected at least %d:\n%s", len(report.Entries), minimumEntries, statusOut)
+		t.Fatalf("reconcile reports %d entries, expected at least %d:\n%s", len(report.Entries), minimumEntries, reconcileOut)
 	}
 	for _, entry := range report.Entries {
 		if entry.State != "linked" && entry.State != "copied" {

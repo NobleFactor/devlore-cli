@@ -105,7 +105,7 @@ func runLintCommand(t *testing.T, r *Application, cmdName string, args map[strin
 		args = map[string]string{}
 	}
 
-	err = cmd.Run(args)
+	_, err = cmd.Run(args)
 	passed = err == nil
 
 	return passed, err

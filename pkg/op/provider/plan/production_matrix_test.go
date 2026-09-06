@@ -177,13 +177,13 @@ func TestImmediateMode_ConstructionAndInterningSurvive(t *testing.T) {
 		t.Error("the immediate product was not interned into the session catalog")
 	}
 
-	converted, err := op.Convert(environment, "another.txt", reflect.TypeFor[*file.Regular]())
+	converted, err := op.Convert(environment, "another.txt", reflect.TypeFor[file.Regular]())
 	if err != nil {
-		t.Fatalf("session Convert(string → *file.Regular): %v — session construction must survive", err)
+		t.Fatalf("session Convert(string → file.Regular): %v — session construction must survive", err)
 	}
-	regular, ok := converted.(*file.Regular)
+	regular, ok := converted.(file.Regular)
 	if !ok {
-		t.Fatalf("session Convert returned %T, want *file.Regular", converted)
+		t.Fatalf("session Convert returned %T, want file.Regular", converted)
 	}
 	if id := environment.ResourceCatalog.Current(regular.URI()); id == "" {
 		t.Error("the session-constructed resource was not interned as a claim")

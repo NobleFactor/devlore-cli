@@ -166,7 +166,7 @@ func TestGenerateManifest(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 
-			got := generateManifest(test.discovery, test.slots, "")
+			got := generateManifest(test.discovery, test.slots)
 
 			if got != test.want {
 				t.Errorf("generateManifest() mismatch\n got: %q\nwant: %q", got, test.want)

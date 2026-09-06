@@ -10,10 +10,6 @@ commands:
         type: string
         required: true
         help: Path to the test script (.star)
-      - name: dry-run
-        type: bool
-        default: "false"
-        help: "Plan only, no side effects"
       - name: trace
         type: bool
         default: "false"

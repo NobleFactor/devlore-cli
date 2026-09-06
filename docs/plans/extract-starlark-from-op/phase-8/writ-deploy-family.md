@@ -7,6 +7,11 @@ parent: ../phase-8.md
 
 # writ deploy family — plan & design
 
+> **Renamed back, 2026-09-01.** This document records `writ status` replacing `writ reconcile` at
+> phase-8 step 47. [#762](https://github.com/NobleFactor/devlore-cli/issues/762) returned the name once
+> repair was chartered, and [#774](https://github.com/NobleFactor/devlore-cli/issues/774) landed it: the
+> command is `writ reconcile` again. The text below is kept as the record of the original decision.
+
 ## Purpose
 
 The deploy family is writ's core: put a layered configuration tree into effect on a machine, and manage what was

@@ -11,7 +11,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/inventory"
 )
 
@@ -32,17 +31,18 @@ func writeScript(t *testing.T, content string) string {
 func runCmd(t *testing.T, script string, extraArgs ...string) (Result, error) {
 	t.Helper()
 
-	opts := cli.SinkOptions{Format: "json", Store: t.TempDir()}
-
-	args := append(append([]string{}, extraArgs...), script)
+	// The command runs under the shared root, which is where the common set lives: -o and --store are
+	// flags, not a struct handed to the command.
+	args := append([]string{"run", "-o", "json", "--store", t.TempDir()}, extraArgs...)
+	args = append(args, script)
 
 	var stdout bytes.Buffer
-	cmd := newRunCmd(&opts)
-	cmd.SilenceErrors = true
-	cmd.SilenceUsage = true
-	cmd.SetArgs(args)
-	cmd.SetOut(&stdout)
-	err := cmd.Execute()
+	root := NewRootCmd()
+	root.SilenceErrors = true
+	root.SetArgs(args)
+	root.SetOut(&stdout)
+	root.SetErr(new(bytes.Buffer))
+	err := root.Execute()
 
 	var result Result
 	if stdout.Len() > 0 {
@@ -106,15 +106,14 @@ t.expect_unit_count(1)
 t.run(graph)
 `)
 
-	opts := cli.SinkOptions{Format: "json", Store: t.TempDir()}
-
 	var stdout bytes.Buffer
-	cmd := newRunCmd(&opts)
-	cmd.SilenceErrors, cmd.SilenceUsage = true, true
-	cmd.SetArgs([]string{script})
-	cmd.SetOut(&stdout)
+	root := NewRootCmd()
+	root.SilenceErrors = true
+	root.SetArgs([]string{"run", "-o", "json", "--store", t.TempDir(), script})
+	root.SetOut(&stdout)
+	root.SetErr(new(bytes.Buffer))
 
-	if err := cmd.Execute(); err != nil {
+	if err := root.Execute(); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
 
@@ -139,14 +138,14 @@ t.run(graph)
 `)
 
 	store := t.TempDir()
-	opts := cli.SinkOptions{Format: "json", Store: store}
 
-	cmd := newRunCmd(&opts)
-	cmd.SilenceErrors, cmd.SilenceUsage = true, true
-	cmd.SetArgs([]string{script})
-	cmd.SetOut(&bytes.Buffer{})
+	root := NewRootCmd()
+	root.SilenceErrors = true
+	root.SetArgs([]string{"run", "-o", "json", "--store", store, script})
+	root.SetOut(&bytes.Buffer{})
+	root.SetErr(new(bytes.Buffer))
 
-	if err := cmd.Execute(); err != nil {
+	if err := root.Execute(); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
 
@@ -175,15 +174,14 @@ graph = plan.assemble_definition([plan.shell.exec(command='echo hi')])
 t.run(graph)
 `)
 
-	opts := cli.SinkOptions{Format: "none", Store: t.TempDir()}
-
 	var stdout bytes.Buffer
-	cmd := newRunCmd(&opts)
-	cmd.SilenceErrors, cmd.SilenceUsage = true, true
-	cmd.SetArgs([]string{script})
-	cmd.SetOut(&stdout)
+	root := NewRootCmd()
+	root.SilenceErrors = true
+	root.SetArgs([]string{"run", "-o", "none", "--store", t.TempDir(), script})
+	root.SetOut(&stdout)
+	root.SetErr(new(bytes.Buffer))
 
-	if err := cmd.Execute(); err != nil {
+	if err := root.Execute(); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
 	if stdout.Len() != 0 {
@@ -218,13 +216,13 @@ t.run(graph)
 	}
 	t.Cleanup(func() { _ = os.Chdir(previous) })
 
-	opts := cli.SinkOptions{Format: "json", Store: t.TempDir()}
-	cmd := newRunCmd(&opts)
-	cmd.SilenceErrors, cmd.SilenceUsage = true, true
-	cmd.SetArgs([]string{script})
-	cmd.SetOut(&bytes.Buffer{})
+	root := NewRootCmd()
+	root.SilenceErrors = true
+	root.SetArgs([]string{"run", "-o", "json", "--store", t.TempDir(), script})
+	root.SetOut(&bytes.Buffer{})
+	root.SetErr(new(bytes.Buffer))
 
-	if err := cmd.Execute(); err != nil {
+	if err := root.Execute(); err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
 

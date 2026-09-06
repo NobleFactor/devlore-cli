@@ -1,0 +1,7 @@
+# star Configuration
+# Location: ~/.config/devlore/config.d/star.yaml
+# Shared config: ~/.config/devlore/config.yaml
+# See: star config schema
+
+star: {}
+  # dry_run: false

@@ -34,12 +34,17 @@ per-scope `dev`/`test`/`stage`/`prod` variants, scope-dominant); per-key overlay
   (`pkg/signing`, not yet created), model, registry pending.
 - [ ] Unify `cmd/star/config` onto `devconfig`.
 - [ ] Retire `cmd/internal/config` and the package-global `viper` reads.
+- [ ] The `config` command surface — one set on the four programs, ruled 2026-09-02
+  ([configuration.md § The command surface](configuration.md#the-command-surface--one-set-on-four-programs)).
+  **Landed** for `lore`, `writ` and `devlore-test` on the shared root; `star` joins in #743 with `show` and
+  `sync` attached beneath. **Not yet:** the fold that makes `get` and `show` read one model.
 
 ## Outstanding / open questions
 
 - Scope-composition home (one shared assembly package vs. per-app).
 - Builtin as runtime floor (today the embedded defaults only seed files at install).
 - Schema versioning + migration — the held-in-reserve Kubernetes idea.
+- `show` and `sync` on all four programs, or star's alone — asked 2026-09-02.
 - Star unification sequencing — shape defined in the doc ("Star unification and the two announcement paths": two
   collision policies, snapshot taken at resolution, project source layer, dotted-name flattening, guarantees G1–G3, sequence
   diagrams for both paths); timing open.
@@ -50,3 +55,5 @@ per-scope `dev`/`test`/`stage`/`prod` variants, scope-dominant); per-key overlay
   into the registry.
 - `cmd/star/config` is today's registration system — data-driven and star-only; this design generalizes it to cover
   Go participants and unifies the two.
+- `star config get` reads the XDG tree while `star config show` reads the `star.yaml` hierarchy — one command over
+  two sources until the fold above lands (recorded 2026-09-02).

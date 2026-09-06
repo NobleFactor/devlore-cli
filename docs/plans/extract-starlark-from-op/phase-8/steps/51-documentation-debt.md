@@ -41,7 +41,7 @@ The step-34 standard, uniformly:
    (verified current). Both `.status.md` companions rewritten. (4.1 / 4.2 / 4.4 current — untouched.)
 4. **`5.1-reconciliation.md` (landed 2026-07-22).** The issue-#156 draft plan's machinery (4-value `Do`,
    `Reconcile<X>` triangle, `ExecutionEvent`/`EventSink`/`AuditLedger`/`ReconciliationStore`, `ErrDrifted`) never
-   landed — tree-verified. Rewritten onto the landed realization: trace-as-audit; `writ status` + Etag/Digest drift
+   landed — tree-verified. Rewritten onto the landed realization: trace-as-audit; `writ reconcile` + Etag/Digest drift
    attribution (steps 47–48) replacing `writ reconcile`; the distributed recovery-safety gates (receipt precision,
    recovery-digest tamper check, state-checked `ResumeUnwind`); the `EventSink` idea mapped to the 2.8 observability
    design. Proposal preserved as an unimplemented appendix with a where-its-ideas-went mapping. `.status.md`

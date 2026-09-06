@@ -1,19 +1,20 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Noble Factor. All rights reserved.
 
-// Package status reports what should be present, where it should have come from, and what's missing or
-// different (phase-8 step 47 slice 3 — `writ status` replaces `writ reconcile`).
+// Package reconcile reports what should be present, where it should have come from, and what's missing or
+// different. Phase-8 step 47 named this command `writ status` because "reconcile" promised a mutation it
+// did not perform; #762 returned the name once repair was chartered, and #774 landed it.
 //
-// Status is report-only: it mutates nothing, and each finding names the lifecycle command that repairs it
+// Reconcile produces a report: today it mutates nothing, and each finding names the lifecycle command that repairs it
 // (missing → `writ deploy`; stale → `writ upgrade`; modified → `writ upgrade --force`; orphan →
 // `writ decommission`). The report has four sections: the registered layer tree (the "where from"), the
 // deployed inventory per scope (the fold, classified against the live filesystem), the package operations
 // writ's runs performed (fact-of-record), and store health (the run index's missing-piece detection). A missing
-// run index is a hard error per the settled design — status refuses to report from silence. Drift attribution
+// run index is a hard error per the settled design — reconcile refuses to report from silence. Drift attribution
 // (stale vs. modified) reads the run's recorded as-deployed content identity (step 48); runs traced before the
 // capture report differing targets as modified-or-stale (indeterminate). Document-signature verification is
 // `writ verify` (step 46).
-package status
+package reconcile
 
 import (
 	"bytes"
@@ -33,14 +34,11 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/template"
 )
 
-// Config carries the resolved settings for one status report.
+// Config carries the resolved settings for one reconcile report.
 type Config struct {
 
 	// Projects filters the inventory section; empty reports every project.
 	Projects []string
-
-	// JSON emits the report as JSON instead of human-readable text.
-	JSON bool
 
 	// Verbose narrates store detail via the shared console narrator.
 	Verbose bool
@@ -52,32 +50,14 @@ type Config struct {
 	Vars map[string]any
 }
 
-// Execute builds the status report and presents it.
+// BuildReport derives the four-section reconcile report from the store and the live filesystem.
+//
+// The report is the command's result and is rendered by the shared pipeline: every presentation is a
+// presentation of its JSON, so there is no text renderer here and no format decision.
 //
 // Parameters:
 //   - `ctx`: the context for the store fold.
-//   - `cfg`: the resolved status configuration.
-//
-// Returns:
-//   - `error`: non-nil when the run index is missing, the fold fails, or presentation fails.
-func Execute(ctx context.Context, cfg *Config) error {
-
-	report, err := BuildReport(ctx, cfg)
-	if err != nil {
-		return err
-	}
-
-	if cfg.JSON {
-		return presentJSON(report)
-	}
-	return presentText(report)
-}
-
-// BuildReport derives the four-section status report from the store and the live filesystem.
-//
-// Parameters:
-//   - `ctx`: the context for the store fold.
-//   - `cfg`: the resolved status configuration.
+//   - `cfg`: the resolved reconcile configuration.
 //
 // Returns:
 //   - `*Report`: the assembled report.
