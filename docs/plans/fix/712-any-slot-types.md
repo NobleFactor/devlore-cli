@@ -190,6 +190,15 @@ green. What the remaining red revealed, each a decision recorded below and appli
    up, which `assembleGraph` does not hand it (decision 10).
 3. The truthiness guard and the recovery-stack seam stay red for phase 2, as planned.
 
+**Decisions 9 and 10 applied 2026-09-06.** `frameworkSlotTypes` (`pkg/op/framework_slots.go`) declares `claim` and
+`on_missing`; `slotCarriesItsType` and `readAgainstField` consult it, the reader parsing a bare policy back through
+`UnmarshalText`. `assembleGraph` unpacks the document's catalog before `assembleUnits`, which now takes the catalog
+rather than the environment. The Resource-in-an-any-slot test catalogs its resource through `GetOrCreate` under the
+candidate's own URI and carries that catalog into the graph. Two fixture findings on the way: `convertResource`
+(`convert_test.go`) overrides `URI()` with a bare `test:` form the catalog cannot read back, so the any-slot tests
+mint their own `anySlotResource` on a plain [ResourceBase]; and a fixture minted outside the catalog is exactly
+what Decision 8 refuses, so the old fixture asserted the defect. Red set now: the two phase-2 items only.
+
 ### State as of 2026-09-01
 
 

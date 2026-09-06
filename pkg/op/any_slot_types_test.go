@@ -6,6 +6,7 @@ package op
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"math"
 	"reflect"
 	"strings"
@@ -53,6 +54,12 @@ func init() {
 // Returns:
 //   - `*Graph`: the one-node graph.
 func anySlotGraph(t *testing.T, value any) *Graph {
+	t.Helper()
+	return anySlotGraphIn(t, value, nil)
+}
+
+// anySlotGraphIn is [anySlotGraph] with the catalog the graph carries, for a value that names a ledger entry.
+func anySlotGraphIn(t *testing.T, value any, catalog *ResourceCatalog) *Graph {
 
 	t.Helper()
 
@@ -67,10 +74,14 @@ func anySlotGraph(t *testing.T, value any) *Graph {
 		t.Fatalf("NewNode: %v", err)
 	}
 
-	graph, err := NewGraph(NewGraphSpec().
+	spec := NewGraphSpec().
 		WithOrigin(NewOriginBase("test", "home", NewAnnotationMap(nil))).
 		WithUnits(node).
-		WithTimestamp(time.Unix(1_700_000_000, 0).UTC()))
+		WithTimestamp(time.Unix(1_700_000_000, 0).UTC())
+	if catalog != nil {
+		spec = spec.WithResourceCatalog(catalog)
+	}
+	graph, err := NewGraph(spec)
 	if err != nil {
 		t.Fatalf("NewGraph: %v", err)
 	}
@@ -114,15 +125,15 @@ func reloadedAnyValue(t *testing.T, graph *Graph) any {
 //
 // Returns:
 //   - `any`: the value the reloaded graph holds.
-func roundTripAnySlot(t *testing.T, value any, format string) any {
+func roundTripAnySlot(t *testing.T, value any) any {
 
 	t.Helper()
 
-	document := serializeGraph(t, anySlotGraph(t, value), format)
+	document := serializeGraph(t, anySlotGraph(t, value), "json")
 
-	loaded, err := LoadGraph(formatIdentityEnvironment(t), document, format)
+	loaded, err := LoadGraph(formatIdentityEnvironment(t), document, "json")
 	if err != nil {
-		t.Fatalf("LoadGraph(%s): %v", format, err)
+		t.Fatalf("LoadGraph(json): %v", err)
 	}
 
 	return reloadedAnyValue(t, loaded)
@@ -166,7 +177,7 @@ func TestLoadGraph_AGraphWithAValueInAnAnySlotLoads(t *testing.T) {
 // says nothing about the value having been a float, and no declared type exists to say it either. Finding 1.
 func TestLoadGraph_FloatInAnAnySlotReloadsAsAFloat(t *testing.T) {
 
-	got := roundTripAnySlot(t, float64(42), "json")
+	got := roundTripAnySlot(t, float64(42))
 
 	if _, isFloat := got.(float64); !isFloat {
 		t.Errorf("float64(42) in an `any` slot reloaded as %T(%v), want a float64", got, got)
@@ -179,7 +190,7 @@ func TestLoadGraph_FloatInAnAnySlotReloadsAsAFloat(t *testing.T) {
 // has to be pinned down alongside it.
 func TestLoadGraph_AnIntegerInAnAnySlotReloadsAsAnInteger(t *testing.T) {
 
-	got := roundTripAnySlot(t, int64(42), "json")
+	got := roundTripAnySlot(t, int64(42))
 
 	if _, isInteger := got.(int64); !isInteger {
 		t.Errorf("int64(42) in an `any` slot reloaded as %T(%v), want an int64", got, got)
@@ -195,7 +206,7 @@ func TestLoadGraph_BytesInAnAnySlotReloadAsBytes(t *testing.T) {
 
 	want := []byte("hi")
 
-	got := roundTripAnySlot(t, want, "json")
+	got := roundTripAnySlot(t, want)
 
 	gotBytes, isBytes := got.([]byte)
 	if !isBytes || !bytes.Equal(gotBytes, want) {
@@ -209,12 +220,24 @@ func TestLoadGraph_BytesInAnAnySlotReloadAsBytes(t *testing.T) {
 // `any` slot cannot tell from a string the author typed. Finding 3.
 func TestLoadGraph_AResourceInAnAnySlotReloadsAsAResource(t *testing.T) {
 
-	resource, err := newConvertResource(formatIdentityEnvironment(t), "any-slot")
+	// A resource in a slot is a cataloged resource: the catalog stamps the id the slot records (decision 8), and
+	// the graph carries that catalog so the document's ledger holds the entry the id names (decision 10).
+	environment := formatIdentityEnvironment(t)
+	candidate, err := newAnySlotResource(environment, "test:any-slot")
 	if err != nil {
-		t.Fatalf("newConvertResource: %v", err)
+		t.Fatalf("newAnySlotResource: %v", err)
+	}
+	resource, err := environment.ResourceCatalog.GetOrCreate("keep", candidate.URI(), func() (Resource, error) { return candidate, nil })
+	if err != nil {
+		t.Fatalf("GetOrCreate: %v", err)
 	}
 
-	got := roundTripAnySlot(t, resource, "json")
+	document := serializeGraph(t, anySlotGraphIn(t, resource, environment.ResourceCatalog), "json")
+	loaded, err := LoadGraph(formatIdentityEnvironment(t), document, "json")
+	if err != nil {
+		t.Fatalf("LoadGraph(json): %v", err)
+	}
+	got := reloadedAnyValue(t, loaded)
 
 	if _, isResource := got.(Resource); !isResource {
 		t.Errorf("a Resource in an `any` slot reloaded as %T(%v), want a Resource", got, got)
@@ -246,7 +269,7 @@ func TestSaveGraph_ANonFiniteFloatInAnAnySlotSaves(t *testing.T) {
 // convertDirect returns the json.Number untouched -- a decoder artifact loose in the runtime. Finding 5.
 func TestLoadGraph_AnAnySlotNeverHoldsAJSONNumber(t *testing.T) {
 
-	got := roundTripAnySlot(t, float64(42), "json")
+	got := roundTripAnySlot(t, float64(42))
 
 	if number, isNumber := got.(json.Number); isNumber {
 		t.Errorf("an `any` slot reloaded holding json.Number(%q); a decoder type must not escape the codec", number)
@@ -360,3 +383,28 @@ func TestYAMLMarshal_AnIntegralFloatEmitsNoDecimalPoint(t *testing.T) {
 }
 
 // endregion
+
+// anySlotResource is the resource the any-slot tests put in a slot: a bare [ResourceBase] with the canonical tag
+// URI, announced so [LoadGraph] can reconstruct it from the document's catalog row. `convertResource` will not do
+// here — it overrides URI() with a bare `test:` form the catalog cannot read back.
+type anySlotResource struct {
+	ResourceBase
+}
+
+// newAnySlotResource is the announced constructor: the identity is the tag URI's specific part.
+func newAnySlotResource(runtimeEnvironment *RuntimeEnvironment, identity any) (Resource, error) {
+	specific, ok := identity.(string)
+	if !ok {
+		return nil, fmt.Errorf("anySlotResource: expected string, got %T", identity)
+	}
+	base, err := NewResourceBase(runtimeEnvironment, specific, reflect.TypeFor[*anySlotResource]())
+	if err != nil {
+		return nil, err
+	}
+	return &anySlotResource{ResourceBase: base}, nil
+}
+
+// init announces the fixture resource so a document naming it can be loaded.
+func init() {
+	AnnounceResource(reflect.TypeFor[*anySlotResource](), newAnySlotResource, nil)
+}

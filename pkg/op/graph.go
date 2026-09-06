@@ -374,12 +374,7 @@ func SerializeGraphs(w io.Writer, graphs []*Graph) (err error) {
 // Returns:
 //   - `map[string]ExecutableUnit`: the unit table, keyed by ID.
 //   - `error`: the joined per-unit assembly failures, or nil.
-func assembleUnits(env *RuntimeEnvironment, p *graphData) (map[string]ExecutableUnit, error) {
-
-	var catalog *ResourceCatalog
-	if env != nil {
-		catalog = env.ResourceCatalog
-	}
+func assembleUnits(catalog *ResourceCatalog, p *graphData) (map[string]ExecutableUnit, error) {
 
 	var violations []error
 	unitsByID := make(map[string]ExecutableUnit, len(p.Nodes)+len(p.Subgraphs))
@@ -439,7 +434,21 @@ func assembleGraph(env *RuntimeEnvironment, p *graphData) (*Graph, error) {
 	// recomputed checksum matches the document's; re-deriving here would drop hand-authored, non-slot-producer edges.
 	root.edges = p.Edges
 
-	unitsByID, err := assembleUnits(env, p)
+	// The document's catalog is unpacked before the units, because a slot's resource id resolves against it
+	// (ruled 2026-09-06): the caller's environment holds the run's catalog, not the document's.
+	// The catalog section is mandatory even when empty (4-resource-management.md §5.4, ruled 2026-08-20):
+	// a nil section means a pre-ruling document, which does not load — it is rewritten by re-planning.
+	if p.Resources == nil {
+		return nil, fmt.Errorf(
+			"op.LoadGraph: document carries no resource catalog section — mandatory even when empty; re-plan the graph")
+	}
+
+	catalog, err := unpackCatalog(env, p.Resources, p.Content)
+	if err != nil {
+		return nil, err
+	}
+
+	unitsByID, err := assembleUnits(catalog, p)
 	if err != nil {
 		return nil, err
 	}
@@ -471,18 +480,6 @@ func assembleGraph(env *RuntimeEnvironment, p *graphData) (*Graph, error) {
 	}
 
 	if err := errors.Join(violations...); err != nil {
-		return nil, err
-	}
-
-	// The catalog section is mandatory even when empty (4-resource-management.md §5.4, ruled 2026-08-20):
-	// a nil section means a pre-ruling document, which does not load — it is rewritten by re-planning.
-	if p.Resources == nil {
-		return nil, fmt.Errorf(
-			"op.LoadGraph: document carries no resource catalog section — mandatory even when empty; re-plan the graph")
-	}
-
-	catalog, err := unpackCatalog(env, p.Resources, p.Content)
-	if err != nil {
 		return nil, err
 	}
 

@@ -204,6 +204,7 @@ func documentCodecs() []struct {
 	encode func(any) ([]byte, error)
 	decode func([]byte, any) error
 } {
+
 	return []struct {
 		name   string
 		encode func(any) ([]byte, error)

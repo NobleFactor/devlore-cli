@@ -443,6 +443,9 @@ func assembleNode(p *nodeData, catalog *ResourceCatalog) (*Node, error) {
 //   - `any`: the value read against the field, or the value unchanged.
 func readAgainstField(value any, method *Method, name string) any {
 
+	if declared, ok := frameworkSlotType(name); ok {
+		return readFrameworkSlot(value, declared)
+	}
 	if method == nil || !isDecodedNumber(value) {
 		return value
 	}
@@ -547,6 +550,11 @@ func slotCarriesItsType(method *Method, name string, value any) bool {
 
 	if isNonFiniteFloat(value) {
 		return true
+	}
+
+	if declared, ok := frameworkSlotType(name); ok {
+		// A framework slot is declared, and a declared resource slot is always its catalog id.
+		return declared.Implements(resourceInterfaceType)
 	}
 
 	if method == nil {
