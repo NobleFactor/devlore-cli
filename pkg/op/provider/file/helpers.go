@@ -283,7 +283,7 @@ func internEntry[E Resource](
 		}
 
 		var zero E
-		return zero, fmt.Errorf("file: catalog entry for %q is %T, want %T", candidate.URI(), got, candidate)
+		return zero, fmt.Errorf("file: catalog entry for %q is %s, want %s", candidate.URI(), kindName(got), kindName(candidate))
 	}
 
 	return canonical, nil
@@ -573,4 +573,28 @@ func statTupleEtag(info os.FileInfo) string {
 
 	h := sha256.Sum256(buf[:])
 	return hex.EncodeToString(h[:])
+}
+
+// kindName names a resource's kind the way an author knows it — by the exported interface, `file.Regular` rather
+// than the `*file.regular` that %T would print now that the structs are unexported. Anything that is not one of
+// the four variants falls back to its Go type.
+//
+// Parameters:
+//   - `r`: the resource to name.
+//
+// Returns:
+//   - `string`: `file.AnyKind`, `file.Regular`, `file.Directory`, `file.SymbolicLink`, or the Go type.
+func kindName(r op.Resource) string {
+	switch r.(type) {
+	case AnyKind:
+		return "file.AnyKind"
+	case Regular:
+		return "file.Regular"
+	case Directory:
+		return "file.Directory"
+	case SymbolicLink:
+		return "file.SymbolicLink"
+	default:
+		return fmt.Sprintf("%T", r)
+	}
 }

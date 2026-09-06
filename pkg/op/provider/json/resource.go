@@ -187,7 +187,13 @@ func NewResource(runtimeEnvironment *op.RuntimeEnvironment, producerID string, v
 //   - `Resource`: canonical catalog entry, or the unlinked candidate when no catalog is present.
 //   - `error`: unsupported value type, JSON parse failure, malformed URI, or identity construction failure.
 func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (Resource, error) {
-	return discoverResource(runtimeEnvironment, value)
+
+	built, err := discoverResource(runtimeEnvironment, value)
+	if err != nil {
+		return nil, err
+	}
+
+	return built, nil
 }
 
 // discoverResource is [DiscoverResource] returning the concrete type, which rehydration needs because it

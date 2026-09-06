@@ -583,11 +583,14 @@ $(P)/encryption/gen/action.gen_test.go \
 $(P)/encryption/gen/provider.gen.go &: $(P)/encryption/provider.go | $(STAR)
 	$(STAR) devlore actions generate $(P)/encryption
 
+# The four variant announcements derive from the variant files, so those are prerequisites too: an edit to a
+# variant's method set must regenerate its announcement, or the stale one panics star at startup.
 $(P)/file/action_names.gen.go \
 $(P)/file/gen/receiver_type.gen_test.go \
 $(P)/file/gen/action.gen_test.go \
 $(P)/file/gen/module.gen_test.go \
-$(P)/file/gen/provider.gen.go &: $(P)/file/provider.go $(P)/file/resource.go | $(STAR)
+$(P)/file/gen/provider.gen.go &: $(P)/file/provider.go $(P)/file/resource.go $(P)/file/resource_base.go \
+	$(P)/file/any_kind.go $(P)/file/regular.go $(P)/file/directory.go $(P)/file/symbolic_link.go | $(STAR)
 	$(STAR) devlore actions generate $(P)/file
 
 $(P)/git/action_names.gen.go \

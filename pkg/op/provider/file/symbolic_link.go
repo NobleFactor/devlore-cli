@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"reflect"
 
-	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -265,44 +264,6 @@ func (r *symbolicLink) String() string {
 // endregion
 
 // region Behaviors
-
-// CanConvertFrom reports whether `source` can be projected into a [SymbolicLink] via [SymbolicLink.ConvertFrom].
-//
-// The variant's own probe for the framework's [op.TargetConverter] contract — defined directly (not promoted from
-// the embedded base) because the cheap-probe contract calls it against a nil-or-zero `SymbolicLink` receiver, and a
-// promoted method would dereference the nil receiver to reach the embedded base. Today's accepted source shape is
-// `string`, interpreted as a filesystem path under the active fsroot.
-//
-// Parameters:
-//   - `source`: the candidate source type to test.
-//
-// Returns:
-//   - `bool`: true when `source` is `string`.
-func (*symbolicLink) CanConvertFrom(source reflect.Type) bool {
-
-	return source != nil && source.Kind() == reflect.String
-}
-
-// ConvertFrom projects `value` into a fresh [SymbolicLink].
-//
-// Mirrors [entry.ConvertFrom]: the returned value carries the path under SourcePath but is NOT catalog-interned
-// at this layer; receiving provider methods intern via their own [NewSymbolicLink]/[DiscoverSymbolicLink] path.
-//
-// Parameters:
-//   - `value`: the source value; must be `string`.
-//
-// Returns:
-//   - `any`: the constructed unlinked [SymbolicLink].
-//   - `error`: non-nil when `value` is not a `string`.
-func (*symbolicLink) ConvertFrom(value any) (any, error) {
-
-	str, ok := value.(string)
-	if !ok {
-		return nil, fmt.Errorf("file.SymbolicLink.ConvertFrom: source must be string, got %T", value)
-	}
-
-	return &symbolicLink{resource: resource{SourcePath: fsroot.NewPath("", str)}}, nil
-}
 
 // Resolve rebinds the source path to the execution fsroot and verifies the link itself exists.
 //
