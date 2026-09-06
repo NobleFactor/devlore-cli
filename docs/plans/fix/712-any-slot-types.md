@@ -176,6 +176,20 @@ failing on `encodeTypeWrapper: $resource … has no catalog to name it`, and thr
 Resource reload, the truthiness guard, the recovery-stack seam). Nothing else in the tree is red. The next step is
 the correction below, unchanged.
 
+**Decision 8 applied 2026-09-06.** `encodeResource` reads `resource.ID()`; two of the three executor tests went
+green. What the remaining red revealed, each a decision recorded below and applied in order:
+
+1. `TestRun_AKindMismatchStopsEvenUnderIgnore` fails on `no document type name for op.MissingResourcePolicy`. The
+   `on_missing` slot is not a parameter of the unit's method -- the executor reads it by name off the unit's
+   bindings (`unitMissingResourcePolicy`) -- so `slotCarriesItsType` sees an undeclared slot and envelopes it, and
+   the policy type has no envelope name. **Framework-owned slots are declared by the framework** (decision 9).
+2. `TestLoadGraph_AResourceInAnAnySlotReloadsAsAResource` fails on `is not cataloged`: its fixture mints the resource
+   through `NewResourceBase` and never catalogs it, which Decision 8 now refuses by design. The fixture catalogs
+   its resource and builds the graph with that catalog; a test that asserted an uncataloged resource round-trips
+   would assert the defect. And once it is cataloged the load side needs the document's catalog to look the id
+   up, which `assembleGraph` does not hand it (decision 10).
+3. The truthiness guard and the recovery-stack seam stay red for phase 2, as planned.
+
 ### State as of 2026-09-01
 
 
@@ -586,6 +600,30 @@ present. A serializer that interns into a catalog is writing where it was asked 
 
 The chain that reaches the resource is real -- a node holds slots, a slot holds a resource -- and it ends
 there. There is no next hop to reach for.
+
+#### Framework-owned slots are declared by the framework
+
+**Ruled 2026-09-06.** A unit's bindings hold two kinds of slot: the parameters its method declares, and the slots
+the framework itself reads by name -- `on_missing` (a [MissingResourcePolicy], read by `unitMissingResourcePolicy`)
+and `claim` (the consumed resource, read by scoped pre-flight). A method never declares the second kind, so
+`method.ParameterByName` cannot answer for them, and the "undeclared, therefore `any`" rule enveloped a policy
+value that has no envelope name.
+
+The framework's slots have framework-declared types, kept in one table, `frameworkSlotTypes`, that both seams
+consult: `slotCarriesItsType` treats a framework slot as declared (bare, marshaled through the type's own
+`MarshalJSON`/`MarshalYAML`, which for the policy is its name), and the reader parses the bare value back through
+the declared type's `UnmarshalText`. Symmetric, and it is the same rule as a method parameter's: a value with a
+declared type is bare, and the declaration -- wherever it lives -- is what the reader reads against. `claim`'s
+declared type is [Resource], so it follows the resource-valued-slot rule: the catalog id, and nothing else.
+
+#### The document's catalog is the one a slot id resolves against
+
+**Ruled 2026-09-06**, closing the "still open" above. `assembleGraph` assembled the units before it unpacked the
+document's catalog, and `assembleUnits` decoded slot values against the caller's `env.ResourceCatalog` -- a
+catalog that, for a fresh environment, holds nothing the document names. A `$resource` id therefore could not
+resolve on load even when the document carried the entry. The order inverts: `assembleGraph` unpacks the catalog
+first and hands it to `assembleUnits`, so every id resolves by `Lookup` against the ledger the document itself
+carries. The caller's environment catalog is never consulted for a slot; it is the run's, not the document's.
 
 **Rejected: stamping each node with its graph's catalog.** Considered on 2026-08-29 and wrong. It re-plumbs a
 lookup that does not need to exist, adds a field to every node to answer a question the resource already

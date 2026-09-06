@@ -49,27 +49,22 @@ const (
 // ledger keeps every generation under its own id. A slot recorded by URI re-identifies to the current
 // generation on reload, which is #735.
 //
-// The catalog is reached through the resource itself -- [Resource.RuntimeEnvironment] -- so the write side
-// needs nothing threaded into it.
+// A cataloged resource names itself (ruled 2026-08-30). The catalog is the stamper, not the namer: it writes
+// the id onto the [ResourceBase] when the resource is cataloged, and every later reader asks the resource. The
+// write side therefore needs no catalog -- the environment's is nil by design once [NewGraph] has taken
+// ownership, and asking it to `Resolve` would intern into a ledger a serializer was only meant to read.
 //
 // Parameters:
 //   - `resource`: the resource occupying the slot.
 //
 // Returns:
 //   - `map[string]any`: the single-key wrapper carrying the catalog id.
-//   - `error`: when the resource has no environment or catalog to name it, or the catalog does not hold it.
+//   - `error`: when the resource was never cataloged, which is a defect upstream, not a case to serialize.
 func encodeResource(resource Resource) (map[string]any, error) {
 
-	runtimeEnvironment := resource.RuntimeEnvironment()
-	if runtimeEnvironment == nil || runtimeEnvironment.ResourceCatalog == nil {
-		return nil, fmt.Errorf("op.encodeTypeWrapper: %s %q has no catalog to name it",
-			typeNameResource, resource.URI())
-	}
-
-	_, id := runtimeEnvironment.ResourceCatalog.Resolve(resource)
+	id := resource.ID()
 	if id == "" {
-		return nil, fmt.Errorf("op.encodeTypeWrapper: %s %q is not in the catalog",
-			typeNameResource, resource.URI())
+		return nil, fmt.Errorf("op.encodeTypeWrapper: %s %q is not cataloged", typeNameResource, resource.URI())
 	}
 
 	return map[string]any{typeNameResource: id}, nil
