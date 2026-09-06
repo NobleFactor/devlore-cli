@@ -9,7 +9,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 	"testing"
 )
@@ -149,7 +148,7 @@ func TestDiscover_CrossKindCollisionErrors(t *testing.T) {
 	if err == nil {
 		t.Fatal("DiscoverDirectory over a URI held as Regular = nil error; want the cross-kind collision")
 	}
-	if !strings.Contains(err.Error(), "file.regular") || !strings.Contains(err.Error(), "file.directory") {
+	if !strings.Contains(err.Error(), "file.Regular") || !strings.Contains(err.Error(), "file.Directory") {
 		t.Errorf("collision error %q does not name both kinds", err)
 	}
 }
@@ -174,42 +173,5 @@ func TestDiscoverRegular_CacheHitReturnsCanonical(t *testing.T) {
 
 	if first != second {
 		t.Error("second discovery returned a different entry than the canonical")
-	}
-}
-
-// TestRegularCanConvertFrom_NilReceiverSafe pins the cheap-probe contract: the probe must survive a nil receiver
-// (the plan-time interconvertibility check calls it that way) — a promoted method would panic here.
-func TestRegularCanConvertFrom_NilReceiverSafe(t *testing.T) {
-
-	var nilRegular *regular
-
-	if !nilRegular.CanConvertFrom(reflect.TypeFor[string]()) {
-		t.Error("CanConvertFrom(string) = false; want true")
-	}
-	if nilRegular.CanConvertFrom(nil) {
-		t.Error("CanConvertFrom(nil) = true; want false")
-	}
-}
-
-// TestRegularConvertFrom_Unlinked pins the projection contract: a string projects to an unlinked regular carrying
-// the path.
-func TestRegularConvertFrom_Unlinked(t *testing.T) {
-
-	projected, err := (*regular)(nil).ConvertFrom("/some/path.txt")
-	if err != nil {
-		t.Fatalf("ConvertFrom: %v", err)
-	}
-
-	got, ok := projected.(*regular)
-	if !ok {
-		t.Fatalf("ConvertFrom returned %T; want *regular", projected)
-	}
-	// Abs is OS-native, so the expectation is platform-correct rather than a slash literal.
-	if want := filepath.FromSlash("/some/path.txt"); got.SourcePath.Abs() != want {
-		t.Errorf("projected path = %q; want %q", got.SourcePath.Abs(), want)
-	}
-
-	if _, err := (*regular)(nil).ConvertFrom(42); err == nil {
-		t.Error("ConvertFrom(42) = nil error; want the non-string rejection")
 	}
 }

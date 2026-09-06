@@ -195,7 +195,13 @@ func newResource(runtimeEnvironment *op.RuntimeEnvironment, producerID string, v
 //   - `*Resource`: the canonical catalog entry (or the unlinked candidate when no catalog is present).
 //   - `error`: if `value` is not a string, or the input violates RFC 8089 when in file URI form.
 func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (Resource, error) {
-	return discoverResource(runtimeEnvironment, value)
+
+	built, err := discoverResource(runtimeEnvironment, value)
+	if err != nil {
+		return nil, err
+	}
+
+	return built, nil
 }
 
 // discoverResource is [DiscoverResource] returning the concrete type, which rehydration needs because it
@@ -422,53 +428,6 @@ func (r *resource) String() string {
 // endregion
 
 // region Behaviors
-
-// CanConvertFrom reports whether `source` can be projected into a [*Resource] via [Resource.ConvertFrom].
-//
-// Opts the git Resource into the framework's [op.TargetConverter] contract — accepted source shape is `string`
-// (interpreted as a local clone's filesystem path or a git URL). The framework consults this probe both at
-// plan-time via [op.typesAreInterconvertible] (the bubble-up parameter-consistency check honors the
-// convertibility relation without running an actual conversion) and at dispatch-time via [op.Convert] step 7
-// (env-less fallback). The canonical dispatch-time path remains the registered constructor at [op.Convert]
-// step 6, which receives the full [op.RuntimeEnvironment] and produces a fully-canonicalized Resource via
-// [buildCandidate].
-//
-// Cheap-probe contract: this method is called against a nil-or-zero `*Resource` receiver by
-// [op.typesAreInterconvertible] during plan-time bubble-up checks. MUST NOT dereference receiver fields.
-//
-// Parameters:
-//   - `source`: the candidate source type to test.
-//
-// Returns:
-//   - `bool`: true when `source` is `string`.
-func (*resource) CanConvertFrom(source reflect.Type) bool {
-
-	return source != nil && source.Kind() == reflect.String
-}
-
-// ConvertFrom projects `value` into an env-less unlinked [*Resource].
-//
-// Used by [op.Convert] step 7 when the env-aware registered constructor (step 6) is unavailable — env-less
-// library callers, tests, or [op.RuntimeEnvironment.Registry]-missing contexts. The returned Resource carries
-// only the SourcePath set from `value`; URI / Ref / HEAD / catalog interning are not populated here. Provider
-// methods consuming the projected Resource are responsible for re-canonicalization via their own
-// [NewResource]/[DiscoverResource] path when full identity is required.
-//
-// Parameters:
-//   - `value`: the source value; must be `string`.
-//
-// Returns:
-//   - `any`: the constructed unlinked [*Resource].
-//   - `error`: non-nil when `value` is not a `string`.
-func (*resource) ConvertFrom(value any) (any, error) {
-
-	str, ok := value.(string)
-	if !ok {
-		return nil, fmt.Errorf("git.Resource.ConvertFrom: source must be string, got %T", value)
-	}
-
-	return &resource{sourcePath: fsroot.NewPath("", str)}, nil
-}
 
 // UnmarshalJSON populates the receiver from its JSON document.
 //

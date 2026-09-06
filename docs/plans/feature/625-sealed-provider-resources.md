@@ -17,18 +17,18 @@ This plan is **thread 2 of four**, worked after the CLI output conventions
 ([#762](https://github.com/NobleFactor/devlore-cli/issues/762)) and unified configuration
 ([#441](https://github.com/NobleFactor/devlore-cli/issues/441)).
 
-**Seven of ten phases have landed.** Phases 1-7 are complete: the framework repairs and `service`, the
+**Eight of ten phases have landed.** Phases 1-8 are complete: the framework repairs and `service`, the
 generator inspecting the implementation, `git` and `appnet`, `json` and `yaml`, `mem` and `function`, `pkg`,
-and `file`. Parts 1 and 2 are done: every announced resource type is an interface, and the rule holds with no
-exceptions. What remains is closure.
+`file`, and the `ConvertFrom` sweep. Every announced resource type is an interface, the rule holds with no
+exceptions, and no string reaches a resource through the target side. What remains is closure: the structural
+assertion and the design record.
 
 | Phase | Subject | Issue |
 | --- | --- | --- |
-| 8 | sweep `ConvertFrom` / `CanConvertFrom` (sized 2026-09-05; folds #807, #808) | [#649](https://github.com/NobleFactor/devlore-cli/issues/649) |
 | 9 | the rule becomes structurally enforceable | [#646](https://github.com/NobleFactor/devlore-cli/issues/646) |
 | 10 | closure — the design record states the contract | [#647](https://github.com/NobleFactor/devlore-cli/issues/647) |
 
-Every remaining phase already has an issue. **#649 is in progress** (sized 2026-09-05).
+Every remaining phase already has an issue. **#646 is next.**
 
 ### The thread's other open work
 
@@ -670,7 +670,7 @@ Steps, each a commit only if it needs to be one:
 
 ### Closure
 
-#### Phase 8 — sweep `ConvertFrom` / `CanConvertFrom` — status: in-progress
+#### Phase 8 — sweep `ConvertFrom` / `CanConvertFrom` — status: complete
 
 [#649](https://github.com/NobleFactor/devlore-cli/issues/649), scheduled here rather than per-phase (USER,
 2026-08-25). Sealing is what makes a resource's `TargetConverter` pair unreachable: `op.Convert` step 7
@@ -734,6 +734,31 @@ Steps, each a commit only if it needs to be one:
 3. #807: the seven constructors return an explicit nil; a test per provider.
 4. #808: the collision error names the kinds; the test asserts the exported names.
 5. `make generate` (byte-identical); `make check`.
+
+**Landed 2026-09-05 (#649, #807, #808).** One commit after the sizing. Where the sizing was wrong, and what the
+phase found:
+
+- **The generated files are not byte-identical.** Each announcement carries the resource's method-parameter table,
+  and the pair had entries in it. Seven announcements lost three lines each: `appnet`, `git`, `pkg`, `service`,
+  and `file`'s `regular`, `directory`, `symbolic_link`. `anyKind` never had the pair, so its announcement is
+  unchanged. The sizing said "byte-identical" by reasoning from ruling 4's fragments; the tables were the part it
+  did not look at.
+- **The file announcements did not regenerate.** The Makefile rule for `file`'s generated files listed only
+  `provider.go` and `resource.go` as prerequisites, so an edit to a variant file left its announcement stale, and
+  the stale announcement panicked the in-tree `star` at startup before it could regenerate anything. The rule now
+  names `resource_base.go` and the four variant files. This is the kind of gap that hides until a method is removed.
+- **The LKG was not taken at worktree open**, so the panic above had no in-tree escape hatch. Recovery was
+  `make star-lkg` in the green clone and `make generate STAR_LKG=<clone>/build/star.lkg` here; the rule is now
+  recorded as "at every worktree open, before any edit", not "before touching `cmd/star`".
+- **The two file tests** that asserted the pair are replaced by one table-driven pin in `pkg/op/provider`,
+  `TestConvert_NoSealedResourceIsReachedFromAStringOnTheTargetSide`, over nine sealed interfaces: `appnet`,
+  `git`, `pkg`, `service`, and `file`'s base and four variants. Env-less `op.Convert` of a string errors for
+  every one; `service`'s forgery tests stay as they were.
+- **#807:** the seven constructors (`json`, `yaml`, `service`, `git`, `mem`, `appnet`, `pkg`) return an explicit
+  nil on the error path, each with `TestDiscoverResource_ErrorPathReturnsANilInterface`.
+- **#808:** `internEntry`'s collision error names the kinds through `kindName`, a type switch over the four
+  interfaces, and `TestDiscover_CrossKindCollisionErrors` asserts `file.Regular` and `file.Directory`.
+- **No consumer changed.** `make check` green.
 
 #### Phase 9 — the rule becomes structurally enforceable — status: pending
 

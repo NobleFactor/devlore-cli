@@ -19,9 +19,7 @@ func init() {
 			return provider.DiscoverSymbolicLink(runtimeEnvironment, identity)
 		},
 		map[string][]string{
-			"Equal":          {"other"},
-			"CanConvertFrom": {"source"},
-			"ConvertFrom":    {"value"},
+			"Equal": {"other"},
 		},
 	)
 }
