@@ -10,3 +10,11 @@ lint:
       - "**/testdata"
       - "**/vendor"
       - "wiki/**"
+
+# The repositories `star gh issues report` spans by default, and the issues the classification audit
+# exempts by decision (#65 is deliberately outside the scheme). See noblefactor-ops#140.
+gh:
+  repositories:
+    - NobleFactor/devlore-cli
+    - NobleFactor/noblefactor-ops
+  exempt: [65]
