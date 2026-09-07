@@ -371,7 +371,7 @@ func readSlotValue(value any, method *Method, name string, catalog *ResourceCata
 		return decodeTypeWrapper(value, catalog)
 	}
 
-	return readAgainstField(value, method, name), nil
+	return readAgainstField(value, method, name)
 }
 
 // assembleNode constructs a [*Node] from a [nodeData] payload during deserialization.
@@ -440,27 +440,31 @@ func assembleNode(p *nodeData, catalog *ResourceCatalog) (*Node, error) {
 //   - `name`: the slot name, which is the parameter name.
 //
 // Returns:
-//   - `any`: the value read against the field, or the value unchanged.
-func readAgainstField(value any, method *Method, name string) any {
+//   - `any`: the value read against the field; a non-number passes through unchanged.
+//   - `error`: a number with nothing to read it against, or one its parameter's type cannot hold.
+func readAgainstField(value any, method *Method, name string) (any, error) {
 
 	if declared, ok := frameworkSlotType(name); ok {
 		return readFrameworkSlot(value, declared)
 	}
-	if method == nil || !isDecodedNumber(value) {
-		return value
+	if !isDecodedNumber(value) {
+		return value, nil
 	}
-
+	// From here the value is a decoder artifact -- a number whose type only the field can supply -- and every
+	// route that once handed it forward unchanged is an error instead (#712 phase 2): no guessing.
+	if method == nil {
+		return nil, fmt.Errorf("a number (%T) with no action to declare the slot: nothing to read it against", value)
+	}
 	parameter, declared := method.ParameterByName(name)
 	if !declared || parameter.Type == nil {
-		return value
+		return nil, fmt.Errorf("a number (%T) in a slot %s declares no parameter for: nothing to read it against", value, method.Name())
 	}
-
 	converted, err := Convert(nil, value, parameter.Type)
 	if err != nil {
-		return value
+		return nil, fmt.Errorf("parameter %q of %s is declared %s, and the document's number cannot be read as one: %w",
+			parameter.Name, method.Name(), parameter.Type, err)
 	}
-
-	return converted
+	return converted, nil
 }
 
 // isDecodedNumber reports whether a decoded slot value is a number a codec may have mistyped.

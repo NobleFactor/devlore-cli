@@ -408,3 +408,97 @@ func newAnySlotResource(runtimeEnvironment *RuntimeEnvironment, identity any) (R
 func init() {
 	AnnounceResource(reflect.TypeFor[*anySlotResource](), newAnySlotResource, nil)
 }
+
+// typedSlotFixture carries a method with a declared `bool` parameter, for the load-time refusals of #712 phase 2.
+type typedSlotFixture struct{ ProviderBase }
+
+// Take accepts a flag; the method does nothing with it.
+//
+// Parameters:
+//   - `flag`: the declared-`bool` parameter the refusal tests write a number into.
+//
+// Returns:
+//   - `error`: always nil.
+func (p *typedSlotFixture) Take(flag bool) error { return nil }
+
+func init() {
+	AnnounceProvider(reflect.TypeFor[typedSlotFixture](), NewProviderFlags(SurfaceWorkflow, PlacementQualified),
+		func(runtimeEnvironment *RuntimeEnvironment) (any, error) {
+			return &typedSlotFixture{ProviderBase: NewProviderBase(runtimeEnvironment)}, nil
+		},
+		map[string]MethodMetadata{
+			"Take": {ParameterNames: []string{"flag"}},
+		})
+}
+
+// loadWithSlotRewritten serializes a one-node graph, rewrites one slot's document form by textual replacement, and
+// loads the result. The rewrite stands in for a hand-edited or foreign document, which is the only way a bare
+// number reaches a slot the serializer would have enveloped.
+func loadWithSlotRewritten(t *testing.T, graph *Graph, from, to string) error {
+	t.Helper()
+	document := string(serializeGraph(t, graph, "json"))
+	if !strings.Contains(document, from) {
+		t.Fatalf("the document does not contain %q:\n%s", from, document)
+	}
+	_, err := LoadGraph(formatIdentityEnvironment(t), []byte(strings.Replace(document, from, to, 1)), "json")
+	return err
+}
+
+// TestLoadGraph_ABareNumberInAnUndeclaredSlotIsRefused pins #712 phase 2's second route: a number in a slot no
+// parameter declares has nothing to be read against, and the loader says so rather than handing a decoder
+// artifact forward.
+func TestLoadGraph_ABareNumberInAnUndeclaredSlotIsRefused(t *testing.T) {
+
+	action, err := ReceiverRegistry().BuildAction("anySlotFixture.keep")
+	if err != nil {
+		t.Fatalf("BuildAction: %v", err)
+	}
+	node, err := NewNode(NewNodeSpec().WithID("keep").WithAction(action).
+		WithSlot("value", NewImmediateBinding("kept")).
+		WithSlot("extra", NewImmediateBinding(int64(5))))
+	if err != nil {
+		t.Fatalf("NewNode: %v", err)
+	}
+	graph, err := NewGraph(NewGraphSpec().WithOrigin(NewOriginBase("test", "home", NewAnnotationMap(nil))).WithUnits(node))
+	if err != nil {
+		t.Fatalf("NewGraph: %v", err)
+	}
+
+	err = loadWithSlotRewritten(t, graph, `{"$int64":"5"}`, "5")
+	if err == nil {
+		t.Fatal("LoadGraph accepted a bare number in a slot no parameter declares; want a refusal")
+	}
+	for _, want := range []string{`"extra"`, "keep", "nothing to read it against"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("refusal %q does not name %s", err, want)
+		}
+	}
+}
+
+// TestLoadGraph_ANumberAParameterCannotHoldIsRefusedAtLoad pins #712 phase 2's third route: a number the declared
+// type cannot hold fails at load, naming the slot, the parameter, and the type -- not at dispatch.
+func TestLoadGraph_ANumberAParameterCannotHoldIsRefusedAtLoad(t *testing.T) {
+
+	action, err := ReceiverRegistry().BuildAction("typedSlotFixture.take")
+	if err != nil {
+		t.Fatalf("BuildAction: %v", err)
+	}
+	node, err := NewNode(NewNodeSpec().WithID("take").WithAction(action).WithSlot("flag", NewImmediateBinding(true)))
+	if err != nil {
+		t.Fatalf("NewNode: %v", err)
+	}
+	graph, err := NewGraph(NewGraphSpec().WithOrigin(NewOriginBase("test", "home", NewAnnotationMap(nil))).WithUnits(node))
+	if err != nil {
+		t.Fatalf("NewGraph: %v", err)
+	}
+
+	err = loadWithSlotRewritten(t, graph, `"value":true`, `"value":5`)
+	if err == nil {
+		t.Fatal("LoadGraph accepted a number in a bool slot; want a refusal at load")
+	}
+	for _, want := range []string{`"flag"`, "Take", "bool"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("refusal %q does not name %s", err, want)
+		}
+	}
+}

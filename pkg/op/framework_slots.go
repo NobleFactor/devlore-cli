@@ -5,6 +5,7 @@ package op
 
 import (
 	"encoding"
+	"fmt"
 	"reflect"
 )
 
@@ -39,30 +40,30 @@ func frameworkSlotType(name string) (reflect.Type, bool) {
 // readFrameworkSlot parses a bare document value back through a framework slot's declared type.
 //
 // The declared types marshal as text (a policy writes its name), so a string reads back through
-// [encoding.TextUnmarshaler]. A value of any other shape, or a type without a text form, passes through unchanged and
-// fails at its consumer, which names the slot.
+// [encoding.TextUnmarshaler]. Anything else is an error naming the slot and the type: no guessing (#712 phase 2).
 //
 // Parameters:
 //   - `value`: the decoded document value.
 //   - `declared`: the slot's framework-declared type.
 //
 // Returns:
-//   - `any`: the typed value, or `value` unchanged.
-func readFrameworkSlot(value any, declared reflect.Type) any {
+//   - `any`: the typed value.
+//   - `error`: a value that is not text, a declared type without a text form, or text the type refuses.
+func readFrameworkSlot(value any, declared reflect.Type) (any, error) {
 
 	text, isString := value.(string)
 	if !isString {
-		return value
+		return nil, fmt.Errorf("declared %s by the framework, and the document holds a %T, not its text form", declared, value)
 	}
 
 	target := reflect.New(declared)
 	unmarshaler, ok := target.Interface().(encoding.TextUnmarshaler)
 	if !ok {
-		return value
+		return nil, fmt.Errorf("declared %s by the framework, a type with no text form to read %q back through", declared, text)
 	}
 	if err := unmarshaler.UnmarshalText([]byte(text)); err != nil {
-		return value
+		return nil, err
 	}
 
-	return target.Elem().Interface()
+	return target.Elem().Interface(), nil
 }

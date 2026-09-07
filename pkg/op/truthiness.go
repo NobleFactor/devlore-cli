@@ -3,7 +3,10 @@
 
 package op
 
-import "reflect"
+import (
+	"encoding/json"
+	"reflect"
+)
 
 // IsTruthy reports whether `value` is truthy under Python / Starlark truth semantics.
 //
@@ -56,10 +59,28 @@ func IsTruthy(value any) bool {
 //   - `bool`: the truthiness, when `value` is a built-in scalar.
 //   - `bool`: true when `value` was a built-in scalar.
 func scalarTruthy(value any) (truthy, isScalar bool) {
-
 	switch v := value.(type) {
 	case bool:
 		return v, true
+	case string:
+		return v != "", true
+	case json.Number:
+		return numberTruthy(v)
+	}
+	return numericTruthy(value)
+}
+
+// numericTruthy is [scalarTruthy]'s case for the Go numeric types, exactly typed: a named type with a numeric
+// underlying kind is not a scalar here, as it never was.
+//
+// Parameters:
+//   - `value`: the value under test.
+//
+// Returns:
+//   - `truthy`: whether the number is non-zero.
+//   - `isScalar`: false when `value` is not one of the built-in numeric types.
+func numericTruthy(value any) (truthy, isScalar bool) {
+	switch v := value.(type) {
 	case int:
 		return v != 0, true
 	case int8:
@@ -84,8 +105,28 @@ func scalarTruthy(value any) (truthy, isScalar bool) {
 		return v != 0, true
 	case float64:
 		return v != 0, true
-	case string:
-		return v != "", true
+	}
+	return false, false
+}
+
+// numberTruthy is [scalarTruthy]'s case for a decoder artifact.
+//
+// Defense in depth (#712 phase 2): the decoder should never let a json.Number reach a truthiness check, but if a
+// new path does, a zero is falsy however it was decoded.
+//
+// Parameters:
+//   - `number`: the undecoded number.
+//
+// Returns:
+//   - `truthy`: whether the number is non-zero.
+//   - `isScalar`: false when the number parses as neither an integer nor a float.
+func numberTruthy(number json.Number) (truthy, isScalar bool) {
+
+	if integer, err := number.Int64(); err == nil {
+		return integer != 0, true
+	}
+	if float, err := number.Float64(); err == nil {
+		return float != 0, true
 	}
 
 	return false, false

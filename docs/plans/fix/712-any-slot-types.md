@@ -199,6 +199,9 @@ candidate's own URI and carries that catalog into the graph. Two fixture finding
 mint their own `anySlotResource` on a plain [ResourceBase]; and a fixture minted outside the catalog is exactly
 what Decision 8 refuses, so the old fixture asserted the defect. Red set now: the two phase-2 items only.
 
+**Phase 2 complete 2026-09-06.** Red set: the recovery-stack seam alone, which is phase 3's (finding 6, `Result` at
+`recovery_stack.go`).
+
 ### State as of 2026-09-01
 
 
@@ -739,17 +742,22 @@ Two things Phase 1 changed about the plan itself:
   compares only the result's literal digits, read with `UseNumber` so the probe does not re-run the very
   float64 conversion it exists to detect.
 
-### Phase 2: Resolve at the two authorities
+### Phase 2: Resolve at the two authorities -- COMPLETE (2026-09-06)
 
-- [ ] Resolve an enveloped value at the decoder in `graph.go`, so no envelope survives `LoadGraph`. This is
-      what makes a graph with a number in an `any` slot loadable again (finding 5).
-- [ ] Leave bare-literal resolution in `readAgainstField`, reading against the declared type. It must not move
+- [x] Resolve an enveloped value at the decoder in `graph.go`, so no envelope survives `LoadGraph`. This is
+      what makes a graph with a number in an `any` slot loadable again (finding 5). Landed as `readSlotValue` on
+      the assembly path (`assembleUnits` → `assembleNode` → `assembleBindings`), the decoder's own seam.
+- [x] Leave bare-literal resolution in `readAgainstField`, reading against the declared type. It must not move
       to the decoder; that would guess ahead of the field and regress #711.
-- [ ] Turn each of the four pass-through routes into an error rather than a guess, including the [Convert]
+- [x] Turn each of the four pass-through routes into an error rather than a guess, including the [Convert]
       failure that is deferred to dispatch today. The load-time message names the slot, the parameter, and the
-      declared type.
-- [ ] Give `scalarTruthy` a `json.Number` case as defense in depth, so the truthiness inversion cannot recur
-      if a new decoder path appears. The resolution above is the fix; this is the guard rail.
+      declared type. `readAgainstField` returns an error on the three reachable routes (the fourth cannot arise);
+      the framework-slot reader refuses a non-text value the same way. Pinned by
+      `TestLoadGraph_ABareNumberInAnUndeclaredSlotIsRefused` and `TestLoadGraph_ANumberAParameterCannotHoldIsRefusedAtLoad`,
+      both on documents rewritten by hand, since the serializer never writes a bare number where it would be refused.
+- [x] Give `scalarTruthy` a `json.Number` case as defense in depth, so the truthiness inversion cannot recur
+      if a new decoder path appears. The resolution above is the fix; this is the guard rail. `numberTruthy`;
+      the numeric cases moved to `numericTruthy` to keep the switch under the complexity gate.
 
 ### Phase 3: Write the envelope
 
