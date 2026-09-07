@@ -503,3 +503,112 @@ func TestLoadGraph_ANumberAParameterCannotHoldIsRefusedAtLoad(t *testing.T) {
 		}
 	}
 }
+
+// resourceSlotFixture carries a method whose parameter is declared [Resource], for the declared-resource-slot rule.
+type resourceSlotFixture struct{ ProviderBase }
+
+// Hold accepts a resource; the method does nothing with it.
+//
+// Parameters:
+//   - `entry`: the declared-Resource parameter.
+//
+// Returns:
+//   - `error`: always nil.
+func (p *resourceSlotFixture) Hold(entry Resource) error { return nil }
+
+func init() {
+	AnnounceProvider(reflect.TypeFor[resourceSlotFixture](), NewProviderFlags(SurfaceWorkflow, PlacementQualified),
+		func(runtimeEnvironment *RuntimeEnvironment) (any, error) {
+			return &resourceSlotFixture{ProviderBase: NewProviderBase(runtimeEnvironment)}, nil
+		},
+		map[string]MethodMetadata{
+			"Hold": {ParameterNames: []string{"entry"}},
+		})
+}
+
+// resourceSlotGraph builds a one-node graph whose declared resource slot holds a cataloged resource, and returns
+// the document and the resource's id.
+func resourceSlotGraph(t *testing.T) (document []byte, id string) {
+	t.Helper()
+	environment := formatIdentityEnvironment(t)
+	candidate, err := newAnySlotResource(environment, "test:held")
+	if err != nil {
+		t.Fatalf("newAnySlotResource: %v", err)
+	}
+	resource, err := environment.ResourceCatalog.GetOrCreate("hold", candidate.URI(), func() (Resource, error) { return candidate, nil })
+	if err != nil {
+		t.Fatalf("GetOrCreate: %v", err)
+	}
+	action, err := ReceiverRegistry().BuildAction("resourceSlotFixture.hold")
+	if err != nil {
+		t.Fatalf("BuildAction: %v", err)
+	}
+	node, err := NewNode(NewNodeSpec().WithID("hold").WithAction(action).WithSlot("entry", NewImmediateBinding(resource)))
+	if err != nil {
+		t.Fatalf("NewNode: %v", err)
+	}
+	graph, err := NewGraph(NewGraphSpec().WithOrigin(NewOriginBase("test", "home", NewAnnotationMap(nil))).
+		WithUnits(node).WithResourceCatalog(environment.ResourceCatalog))
+	if err != nil {
+		t.Fatalf("NewGraph: %v", err)
+	}
+	return serializeGraph(t, graph, "json"), resource.ID()
+}
+
+// TestLoadGraph_ADeclaredResourceSlotRecordsTheIDAndReloadsTheEntry pins #712 phase 3's declared-slot rule and
+// #735: the document holds the catalog id, bare, and the reloaded slot holds the ledger entry that id names.
+func TestLoadGraph_ADeclaredResourceSlotRecordsTheIDAndReloadsTheEntry(t *testing.T) {
+
+	document, id := resourceSlotGraph(t)
+	if !strings.Contains(string(document), `"value":"`+id+`"`) {
+		t.Fatalf("the document does not record the slot as the bare id %q:\n%s", id, document)
+	}
+	if strings.Contains(string(document), `"value":"tag:`) {
+		t.Fatalf("the document records a URI in a resource slot:\n%s", document)
+	}
+
+	loaded, err := LoadGraph(formatIdentityEnvironment(t), document, "json")
+	if err != nil {
+		t.Fatalf("LoadGraph: %v", err)
+	}
+	slots := loaded.Nodes()[0].ResolveSlots(nil, nil)
+	held, isResource := slots["entry"].(Resource)
+	if !isResource {
+		t.Fatalf("the reloaded slot holds %T, want the ledger entry", slots["entry"])
+	}
+	if held.ID() != id {
+		t.Errorf("the reloaded slot holds entry %q, want %q", held.ID(), id)
+	}
+}
+
+// TestLoadGraph_AURIInADeclaredResourceSlotIsRefused pins the pre-ruling document: a URI where an id belongs is
+// refused, not re-identified to the current generation (#735).
+func TestLoadGraph_AURIInADeclaredResourceSlotIsRefused(t *testing.T) {
+
+	document, id := resourceSlotGraph(t)
+	rewritten := strings.Replace(string(document), `"value":"`+id+`"`, `"value":"`+tagURIPrefix+`test:held#x"`, 1)
+	_, err := LoadGraph(formatIdentityEnvironment(t), []byte(rewritten), "json")
+	if err == nil {
+		t.Fatal("LoadGraph accepted a URI in a resource slot; want a refusal naming #735")
+	}
+	if !strings.Contains(err.Error(), "#735") {
+		t.Errorf("refusal %q does not name the ruling", err)
+	}
+}
+
+// TestLoadGraph_ADoctoredCatalogRowIsAChecksumMismatch pins #712 decision 11: the catalog's intent rows are in the
+// canonical form, so a document whose `resources` row was rewritten -- the slot's id untouched -- is a checksum
+// mismatch at load, never a graph pointed at something the plan never claimed.
+func TestLoadGraph_ADoctoredCatalogRowIsAChecksumMismatch(t *testing.T) {
+
+	document, _ := resourceSlotGraph(t)
+	if !bytes.Contains(document, []byte("test:held")) {
+		t.Fatalf("the document does not carry the row's URI:\n%s", document)
+	}
+	doctored := bytes.ReplaceAll(document, []byte("test:held"), []byte("test:ghost"))
+
+	_, err := LoadGraph(formatIdentityEnvironment(t), doctored, "json")
+	if err == nil || !strings.Contains(err.Error(), "checksum mismatch") {
+		t.Fatalf("LoadGraph(doctored row) error = %v; want a checksum mismatch", err)
+	}
+}

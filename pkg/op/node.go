@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math"
 	"reflect"
+	"strings"
 
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
 )
@@ -350,28 +351,58 @@ func assembleBindings(data map[string]bindingData, action Action, catalog *Resou
 // readSlotValue recovers a slot's value from its document form.
 //
 // A value that carries its own type is unwrapped, and the type it records is the answer -- no parameter is
-// consulted, because the document already said what the value is. Everything else is a bare literal whose
-// type only the field can supply, which is [readAgainstField]'s job and #711's mechanism.
-//
-// The two are told apart structurally: a type wrapper is a single-key mapping whose key names a type. That
-// works without a schema, which is what a reader holding no declared type needs.
+// consulted, because the document already said what the value is. A declared resource slot holds the catalog id,
+// bare, and binds to the ledger entry it names ([lookupSlotResource]). Everything else is a bare literal whose type
+// only the field can supply, which is [readAgainstField]'s job and #711's mechanism.
 //
 // Parameters:
-//   - `value`: the decoded slot value.
-//   - `method`: the resolved method whose parameter this slot fills; nil when the caller has no action.
-//   - `name`: the slot name, which is the parameter name.
-//   - `catalog`: the catalog a `$resource` id resolves against.
+//   - `value`: the decoded document value.
+//   - `method`: the node's resolved method; nil when the caller has no action.
+//   - `name`: the slot name.
+//   - `catalog`: the document's catalog, for resource ids.
 //
 // Returns:
-//   - `any`: the value with its recorded or declared type.
-//   - `error`: when a wrapper names a type this reader does not know, or its payload does not parse.
+//   - `any`: the live value.
+//   - `error`: a malformed envelope, an id the ledger does not hold, or a number nothing declares.
 func readSlotValue(value any, method *Method, name string, catalog *ResourceCatalog) (any, error) {
-
 	if isTypeWrapper(value) {
 		return decodeTypeWrapper(value, catalog)
 	}
-
+	if declared, ok := slotDeclaredType(method, name); ok && declared.Implements(resourceInterfaceType) {
+		if id, isString := value.(string); isString {
+			return lookupSlotResource(id, catalog)
+		}
+	}
 	return readAgainstField(value, method, name)
+}
+
+// lookupSlotResource binds a declared resource slot to the ledger entry its recorded id names.
+//
+// Identity only, by [ResourceCatalog.Lookup] against the document's own catalog (decision 10): the slot holds the
+// generation it was written against, never whichever generation of a URI is current (#735). A URI in the slot is a
+// document written before ids were recorded, and it is refused rather than re-identified.
+//
+// Parameters:
+//   - `id`: the slot's document value.
+//   - `catalog`: the document's catalog.
+//
+// Returns:
+//   - `any`: the ledger entry.
+//   - `error`: a URI where an id belongs, no catalog, or an id the ledger does not hold.
+func lookupSlotResource(id string, catalog *ResourceCatalog) (any, error) {
+
+	if strings.HasPrefix(id, tagURIPrefix) {
+		return nil, fmt.Errorf("a resource slot records the catalog id, and %q is a URI: a URI names whichever "+
+			"generation is current, not the one this graph was written against (#735); re-plan the graph", id)
+	}
+	if catalog == nil {
+		return nil, fmt.Errorf("resource id %q with no catalog to resolve it against", id)
+	}
+	resource, found := catalog.Lookup(id)
+	if !found {
+		return nil, fmt.Errorf("resource id %q is not in the document's ledger", id)
+	}
+	return resource, nil
 }
 
 // assembleNode constructs a [*Node] from a [nodeData] payload during deserialization.
@@ -520,6 +551,14 @@ func marshalBindings(bindings map[string]Binding, action Action) (map[string]bin
 					return nil, fmt.Errorf("slot %q: %w", name, err)
 				}
 				value = wrapped
+			} else if resource, isResource := value.(Resource); isResource {
+				// A declared resource slot records the catalog id, bare (#712 phase 3, #735): the declaration says
+				// what it is, and the id -- never the URI -- says which generation.
+				id := resource.ID()
+				if id == "" {
+					return nil, fmt.Errorf("slot %q: resource %q is not cataloged", name, resource.URI())
+				}
+				value = id
 			}
 			data[name] = bindingData{Immediate: &immediateData{Value: value}}
 		case PromiseBinding:
@@ -533,44 +572,55 @@ func marshalBindings(bindings map[string]Binding, action Action) (map[string]bin
 	return data, nil
 }
 
+// slotDeclaredType returns the type a slot is declared with, wherever the declaration lives: the framework's
+// table for the slots it reads by name (decision 9), else the method's parameter of that name.
+//
+// Parameters:
+//   - `method`: the node's resolved method; nil when the node has no action.
+//   - `name`: the slot name.
+//
+// Returns:
+//   - `reflect.Type`: the declared type.
+//   - `bool`: false when nothing declares the slot.
+func slotDeclaredType(method *Method, name string) (reflect.Type, bool) {
+	if declared, ok := frameworkSlotType(name); ok {
+		return declared, true
+	}
+	if method == nil {
+		return nil, false
+	}
+	parameter, declared := method.ParameterByName(name)
+	if !declared || parameter.Type == nil {
+		return nil, false
+	}
+	return parameter.Type, true
+}
+
 // slotCarriesItsType reports whether a slot's value must record its own type in the document.
 //
 // Two circumstances, justified differently. A slot with no declared type -- an `any` parameter, or no
-// parameter at all -- has nothing to read the value back against, so the document is the only place the type
+// declaration at all -- has nothing to read the value back against, so the document is the only place the type
 // can live. A non-finite float records its type wherever it appears, declared or not, because json cannot
-// express one as a bare number at any position (see finding 4).
-//
-// A slot whose parameter has a declared type records nothing extra: the field already says how to read it,
-// and writing it twice would put a second source of truth in the document.
+// express one as a bare number at any position (see finding 4). A declared resource slot is neither: it records
+// the catalog id, bare (see [marshalBindings]).
 //
 // Parameters:
-//   - `method`: the resolved method whose parameter this slot fills; nil when the node has no action.
-//   - `name`: the slot name, which is the parameter name.
-//   - `value`: the value bound to the slot.
+//   - `method`: the node's resolved method; nil when the node has no action.
+//   - `name`: the slot name.
+//   - `value`: the slot's value.
 //
 // Returns:
-//   - `bool`: true when the document must record the value's type.
+//   - `bool`: true when the document must carry the value's type.
 func slotCarriesItsType(method *Method, name string, value any) bool {
 
 	if isNonFiniteFloat(value) {
 		return true
 	}
-
-	if declared, ok := frameworkSlotType(name); ok {
-		// A framework slot is declared, and a declared resource slot is always its catalog id.
-		return declared.Implements(resourceInterfaceType)
-	}
-
-	if method == nil {
+	declared, ok := slotDeclaredType(method, name)
+	if !ok {
 		return true
 	}
-
-	parameter, declared := method.ParameterByName(name)
-	if !declared || parameter.Type == nil {
-		return true
-	}
-
-	return parameter.Type.Kind() == reflect.Interface && parameter.Type.NumMethod() == 0
+	return declared.Kind() == reflect.Interface && declared.NumMethod() == 0
 }
 
 // isNonFiniteFloat reports whether a value is an infinity or a NaN, which json cannot write as a bare number.

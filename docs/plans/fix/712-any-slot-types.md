@@ -3,7 +3,7 @@ title: "Slots must carry their type"
 issue: https://github.com/NobleFactor/devlore-cli/issues/712
 status: in-progress
 created: 2026-08-28
-updated: 2026-09-01
+updated: 2026-09-07
 ---
 
 # Plan: Slots must carry their type
@@ -165,7 +165,7 @@ Receipts and the recovery stack feed compensation and resume. A float that reloa
 changes a *compensating* call, which is worse than changing a forward one. One shared treatment at every
 `any` seam, not a local patch at `bindingData`.
 
-## Work in progress — state as of 2026-09-06
+## Work in progress — state as of 2026-09-07
 
 **Resumed 2026-09-06.** `origin/develop` merged at 869ca1bd as `24136bdf` (195 files, no conflicts; the branch is
 7 ahead, 0 behind). The order this plan asked for held: #644, #645, and #649 landed first, so every announced
@@ -222,11 +222,16 @@ the bare id for a declared resource slot, and the retirement of `Discover(uri)` 
    decision 8); `readSlotValue` reads a string in a resource-typed slot by `Lookup(id)` against the document's
    catalog (decision 10), so the slot holds the ledger's entry after load exactly as it did before save. An unknown
    id is an error. A string with the tag-URI prefix is a pre-ruling document, refused by name (#735).
-2. **Dispatch resolves by id.** `resolveDispatchResource` maps the slot's resource -- the graph catalog's entry --
-   onto the run clone's entry by `Lookup(v.ID())`, never `Current(v.URI())`. A string at dispatch is refused
-   outright: after (1) no string reaches a resource slot from a document, and immediate-mode session dispatch
-   (`Graph == nil`) falls through to [Convert] as today. Of the five `method_test.go` pins, the string-key hit becomes
-   a refusal and the resolve-by-URI becomes resolve-by-id; miss, non-identity, and session stay as they are.
+2. **Dispatch resolves a resource by id.** `resolveDispatchResource` maps a Resource slot value -- the graph
+   catalog's entry -- onto the run clone's entry by `Lookup(v.ID())`, never `Current(v.URI())`. **Corrected
+   2026-09-07, before the code landed:** the sizing said a string at dispatch is refused outright; the dispatch-miss
+   judgment scenario (`test_judgment_dispatch_miss.star`) shows why it is not. A `gather` item supplies the path at
+   run time, so `plan.item("source")` resolves to the authored string at dispatch -- a value no plan-time claim
+   ever saw. That string is a key into the run catalog (§5.6), resolved by `Current(key)` as today, and a miss is
+   the catalog's verdict ("not in the run catalog"), which is the scenario's assertion. What (1) removes is the
+   string a *document* used to leave in a declared slot; what (2) changes is the Resource half only. Of the five
+   `method_test.go` pins, resolve-by-URI becomes resolve-by-id; the string-key hit, miss, non-identity, and
+   session stay exactly as they are.
 3. **`origin.go` `Annotations`** are enveloped per value on write and unwrapped on read (`OriginBase`'s two
    unmarshalers), recursing through the map and list forms the envelope already has. Consumers read strings out of
    them (writ's `files` annotation) and are unaffected; a numeric annotation value comes back typed rather than as
@@ -239,7 +244,28 @@ the bare id for a declared resource slot, and the retirement of `Discover(uri)` 
    Filed as a follow-up under #625 rather than folded in here; the plan's "retire `Discover(uri)` on unmarshal"
    bullet is closed by the slot path no longer reaching it, and the methods' removal is that issue.
 
-Steps: (1) and (2) with their tests, one commit; (3) and (4), one commit; the follow-up issue filed; then phase 4.
+**Decision 11 (2026-09-07, found by the doctored-checksum judgment scenario): the checksum covers the catalog's
+intent rows.** `CanonicalContent` serializes `children`, `edges`, `subgraphs`, `nodes`, and `origin`; the
+`resources` section -- the ids and URIs the graph's identity is built on -- was outside it. Before (1) that gap
+was masked: a declared slot carried the URI, so doctoring a URI anywhere in the document changed a node and the
+mismatch fired. After (1) the slot carries `res-N`, the URI lives only in its row, and
+`test_judgment_doctored_checksum.star` -- which rewrites `claimed.txt` to `ghost.txt` across the document and
+expects `checksum mismatch` -- loaded the doctored row without complaint: the resolved entry pointed at a file the
+plan never claimed, past the trust boundary. The rows are part of what the graph IS (decision 8 made the id the
+identity a slot names), so they enter the canonical form as `resources`, and a doctored row is a mismatch at load
+as every other doctored byte is. This answers the checksum half of phase 5's open question early; the
+canonical-form half (the envelope is in the canonical form, decision 9) stands.
+
+Steps: (1), (2), and decision 11 with their tests, one commit; (3) and (4), one commit; the follow-up issue filed; then phase 4.
+
+**Items (1), (2), and decision 11 applied 2026-09-07; `make check` green.** `marshalBindings` writes a Resource in a
+declared resource slot as its bare id and refuses an uncataloged one; `readSlotValue` resolves a string in a
+resource-typed slot by `Lookup(id)` against the document's catalog and refuses a tag-URI string by name (#735);
+`resolveDispatchResource` resolves a Resource by `Lookup(v.ID())` and a string by `Current(key)`, the two halves
+of (2) as corrected; `CanonicalContent` carries the catalog's intent rows as `resources`. Pins: the declared slot
+records the id and reloads the entry; a URI in a declared slot is refused; a doctored `resources` row is a checksum
+mismatch; dispatch resolves a Resource by id. The two judgment scenarios that forced the corrections pass unchanged.
+Next: items (3) and (4), one commit.
 
 ### State as of 2026-09-01
 

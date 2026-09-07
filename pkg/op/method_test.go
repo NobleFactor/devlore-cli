@@ -31,17 +31,17 @@ func TestResolveDispatchResource_StringKeyHitReturnsTheCanonical(t *testing.T) {
 	}
 }
 
-// TestResolveDispatchResource_ResourceValueResolvesByURI pins the captured-object half: a Resource slot
-// value resolves by its URI to the canonical, never dispatching the captured object itself — the aliasing
-// between planning catalog and run clone is severed, not load-bearing.
-func TestResolveDispatchResource_ResourceValueResolvesByURI(t *testing.T) {
+// TestResolveDispatchResource_ResourceValueResolvesByID pins the captured-object half: a Resource slot value
+// resolves by its catalog id to the run clone's canonical, never dispatching the captured object itself -- the
+// aliasing between planning catalog and run clone is severed, not load-bearing -- and never by URI, which would
+// name whichever generation is current (#735).
+func TestResolveDispatchResource_ResourceValueResolvesByID(t *testing.T) {
 
 	catalog := NewResourceCatalog()
 	canonical := newLifecycle("test:///claimed", AddressingLocation)
-	catalog.Resolve(canonical)
-
+	_, id := catalog.Resolve(canonical)
 	captured := newLifecycle("test:///claimed", AddressingLocation) // the same identity, a different object
-
+	captured.id = id
 	activation := &ActivationRecord{Graph: &Graph{}, RuntimeEnvironment: &RuntimeEnvironment{ResourceCatalog: catalog}}
 
 	resolved, applied, err := resolveDispatchResource(activation, captured, reflect.TypeFor[*lifecycleResource]())
@@ -50,6 +50,11 @@ func TestResolveDispatchResource_ResourceValueResolvesByURI(t *testing.T) {
 	}
 	if resolved != Resource(canonical) {
 		t.Errorf("resolved %p is not the canonical %p — the captured object must not dispatch", resolved, canonical)
+	}
+
+	uncataloged := newLifecycle("test:///claimed", AddressingLocation)
+	if _, applied, err := resolveDispatchResource(activation, uncataloged, reflect.TypeFor[*lifecycleResource]()); !applied || err == nil {
+		t.Errorf("an uncataloged resource (no id) must be refused, got applied %t, err %v", applied, err)
 	}
 }
 

@@ -805,8 +805,9 @@ func (g *Graph) UnitCount() int { return len(g.Nodes()) + len(g.Subgraphs()) }
 // CanonicalContent returns the graph serialized as YAML without checksum and signature.
 //
 // Used for computing checksums and verifying signatures. The output mirrors the symbol-table serialized form: top-level
-// `children` (root's children IDs in topological order), `subgraphs` (every non-root Subgraph sorted by ID), and
-// `nodes` (every Node sorted by ID).
+// `children` (root's children IDs in topological order), `subgraphs` (every non-root Subgraph sorted by ID), `nodes`
+// (every Node sorted by ID), and `resources` (the catalog's intent rows: the ids a slot names and the URIs they stand
+// for -- part of what the graph is, so a doctored row is a mismatch at load; #712 decision 11).
 //
 // Returns:
 //   - `[]byte`: the canonical YAML bytes.
@@ -819,13 +820,14 @@ func (g *Graph) CanonicalContent() ([]byte, error) {
 	// checksums with no input having changed -- the thing 2.4 says must not happen (#690). Provenance survives on
 	// the graph and in the serialized document; only identity stops depending on it.
 	type canonicalGraph struct {
-		Kind          string      `yaml:"kind"`
-		SchemaVersion uint32      `yaml:"schema_version"`
-		Children      []string    `yaml:"children"`
-		Edges         []Edge      `yaml:"edges,omitempty"`
-		Subgraphs     []*Subgraph `yaml:"subgraphs,omitempty"`
-		Nodes         []*Node     `yaml:"nodes,omitempty"`
-		Origin        OriginBase  `yaml:"origin"`
+		Kind          string        `yaml:"kind"`
+		SchemaVersion uint32        `yaml:"schema_version"`
+		Children      []string      `yaml:"children"`
+		Edges         []Edge        `yaml:"edges,omitempty"`
+		Subgraphs     []*Subgraph   `yaml:"subgraphs,omitempty"`
+		Nodes         []*Node       `yaml:"nodes,omitempty"`
+		Origin        OriginBase    `yaml:"origin"`
+		Resources     []IntentEntry `yaml:"resources,omitempty"`
 	}
 
 	var rootEdges []Edge
@@ -840,6 +842,10 @@ func (g *Graph) CanonicalContent() ([]byte, error) {
 	nodes := g.root.descendantNodes()
 	sort.Slice(nodes, func(i, j int) bool { return nodes[i].ID() < nodes[j].ID() })
 
+	var resources []IntentEntry
+	if g.resourceCatalog != nil {
+		resources = g.resourceCatalog.IntentEntries()
+	}
 	canonical := canonicalGraph{
 		Kind:          g.kind,
 		SchemaVersion: g.schemaVersion,
@@ -848,6 +854,7 @@ func (g *Graph) CanonicalContent() ([]byte, error) {
 		Subgraphs:     subgraphs,
 		Nodes:         nodes,
 		Origin:        g.origin,
+		Resources:     resources,
 	}
 
 	return yaml.Marshal(canonical)
