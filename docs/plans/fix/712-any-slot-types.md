@@ -212,6 +212,35 @@ nothing else, and the two tests that pinned URI resolution now pin its absence. 
 the bare id for a declared resource slot, and the retirement of `Discover(uri)` on unmarshal and
 `resolveDispatchResource`.
 
+**Phase 3, second half — sized 2026-09-06, before code.** Read against the tree at 62fadf38.
+
+1. **A declared resource slot writes the id.** `slotCarriesItsType` answers false for a parameter whose type
+   implements [Resource] -- declared, so bare -- and bare today means [ResourceBase.MarshalJSON], which is the URI.
+   On reload the slot holds a string, and `resolveDispatchResource` resolves it by `Current(uri)`: #735 at the
+   declared seam, the twin of the resume path fixed in the first half. The change, at both seams: `marshalBindings`
+   writes a Resource in a declared resource slot as its bare id (`resource.ID()`, refusing an uncataloged one per
+   decision 8); `readSlotValue` reads a string in a resource-typed slot by `Lookup(id)` against the document's
+   catalog (decision 10), so the slot holds the ledger's entry after load exactly as it did before save. An unknown
+   id is an error. A string with the tag-URI prefix is a pre-ruling document, refused by name (#735).
+2. **Dispatch resolves by id.** `resolveDispatchResource` maps the slot's resource -- the graph catalog's entry --
+   onto the run clone's entry by `Lookup(v.ID())`, never `Current(v.URI())`. A string at dispatch is refused
+   outright: after (1) no string reaches a resource slot from a document, and immediate-mode session dispatch
+   (`Graph == nil`) falls through to [Convert] as today. Of the five `method_test.go` pins, the string-key hit becomes
+   a refusal and the resolve-by-URI becomes resolve-by-id; miss, non-identity, and session stay as they are.
+3. **`origin.go` `Annotations`** are enveloped per value on write and unwrapped on read (`OriginBase`'s two
+   unmarshalers), recursing through the map and list forms the envelope already has. Consumers read strings out of
+   them (writ's `files` annotation) and are unaffected; a numeric annotation value comes back typed rather than as
+   a float64, which is the point.
+4. **`variable.go` `Value`** is never read back from a document -- `op.Variable` is constructed by the runtime
+   environment and only ever emitted -- so the row is emit-only: the envelope on write, no reader to change.
+5. **The providers' `Unmarshal*` constructors are not this phase's.** Thirty-six methods across the sealed
+   providers construct a resource from a URI string; after (1) and (2) no slot path reaches them, and their other
+   callers ([Convert]'s text step, `env_value.go`, `parameter.go`) are a sweep of their own, the shape #649 took.
+   Filed as a follow-up under #625 rather than folded in here; the plan's "retire `Discover(uri)` on unmarshal"
+   bullet is closed by the slot path no longer reaching it, and the methods' removal is that issue.
+
+Steps: (1) and (2) with their tests, one commit; (3) and (4), one commit; the follow-up issue filed; then phase 4.
+
 ### State as of 2026-09-01
 
 
