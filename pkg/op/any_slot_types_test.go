@@ -296,7 +296,8 @@ func TestIsTruthy_AJSONNumberZeroIsFalsy(t *testing.T) {
 // large int64 are lost on the path whose whole job is restoring what already ran. Finding 6.
 //
 // Compared as documents rather than as values: the stack's result is not reachable through an accessor, and
-// re-serializing a faithfully reloaded stack has to reproduce the bytes it came from.
+// re-serializing a faithfully reloaded stack has to reproduce the bytes it came from. Since phase 3 the result
+// travels enveloped, so the probe reads the envelope's payload and the documents must match byte for byte.
 func TestRecoveryStack_ALargeIntegerSurvivesAResume(t *testing.T) {
 
 	// 2^53 + 1, the smallest positive integer a float64 cannot represent.
@@ -328,6 +329,9 @@ func TestRecoveryStack_ALargeIntegerSurvivesAResume(t *testing.T) {
 	if got, want := recordedResult(t, after), recordedResult(t, before); got != want {
 		t.Errorf("a result of %d reloaded as %s, want %s: a float64 cannot hold it", large, got, want)
 	}
+	if !bytes.Equal(before, after) {
+		t.Errorf("a reloaded stack does not reproduce its document:\n before: %s\n after:  %s", before, after)
+	}
 }
 
 // recordedResult returns the literal text of the single entry's result in an encoded recovery stack.
@@ -342,27 +346,24 @@ func TestRecoveryStack_ALargeIntegerSurvivesAResume(t *testing.T) {
 // Returns:
 //   - `string`: the result's literal text.
 func recordedResult(t *testing.T, document []byte) string {
-
 	t.Helper()
-
 	var probe struct {
 		Entries []struct {
-			Result json.Number `json:"result"`
+			Result map[string]any `json:"result"`
 		} `json:"entries"`
 	}
-
-	decoder := json.NewDecoder(bytes.NewReader(document))
-	decoder.UseNumber()
-
-	if err := decoder.Decode(&probe); err != nil {
+	if err := json.Unmarshal(document, &probe); err != nil {
 		t.Fatalf("decode probe: %v", err)
 	}
-
 	if len(probe.Entries) != 1 {
 		t.Fatalf("stack has %d entries, want 1", len(probe.Entries))
 	}
-
-	return probe.Entries[0].Result.String()
+	// A recorded result carries its type (#712 phase 3): the payload is the integer's decimal text.
+	payload, ok := probe.Entries[0].Result[typeNameInt64].(string)
+	if !ok {
+		t.Fatalf("result is %v, want a %s envelope", probe.Entries[0].Result, typeNameInt64)
+	}
+	return payload
 }
 
 // TestYAMLMarshal_AnIntegralFloatEmitsNoDecimalPoint confirms a claim the plan makes, so it passes today.

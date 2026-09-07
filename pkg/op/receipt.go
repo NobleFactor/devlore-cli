@@ -551,9 +551,17 @@ func (b *ReceiptBase) Restore(snapshot ReceiptData) error {
 	if compensator, ok := snapshot.Compensator.(Compensator); ok {
 		b.compensator = compensator
 	}
-	b.result = snapshot.Result
+	result, err := unwrapRecorded(snapshot.Result)
+	if err != nil {
+		return fmt.Errorf("restore failed: result: %w", err)
+	}
+	slots, err := unwrapRecordedSlots(snapshot.Slots)
+	if err != nil {
+		return fmt.Errorf("restore failed: %w", err)
+	}
+	b.result = result
 	b.resultType = snapshot.ResultType
-	b.slots = snapshot.Slots
+	b.slots = slots
 	if snapshot.Status != "" {
 		b.err = errors.New(snapshot.Status)
 	}
@@ -566,14 +574,13 @@ func (b *ReceiptBase) Restore(snapshot ReceiptData) error {
 	return nil
 }
 
-// RestoreEncoded restores the base execution state and any [*RecoveryStack] compensator from a codec-decoded envelope.
+// RestoreEncoded restores the base's execution state from a codec-decoded [ReceiptData].
 //
-// It is the default restore for every receipt. The recovery stack already decoded the envelope — through whichever
-// codec read the trace — into a [ReceiptData], so the base only copies the fields across: no byte parsing, so the same
-// method serves a trace stored as JSON, YAML, or Protobuf. The decoded `*RecoveryStack` compensator (a subgraph's child
-// stack) rides through as `base.Compensator`. A concrete receipt type overrides this to additionally resolve its own
-// provider-specific id references (`fields`) against the catalog; the base needs neither the environment nor `fields`,
-// so both are ignored here.
+// The counterpart of [ReceiptBase.Snapshot] on the stack's reload path. A concrete receipt type overrides this to
+// additionally resolve its provider-specific id references (`fields`) against the catalog; the base needs neither the
+// environment nor `fields`, so both are ignored here. Enveloped result and slot values are unwrapped (#712 phase 3),
+// and the transaction id and the slots are restored as the base restore restores them — they were dropped here, so a
+// stack reloaded through its entries could not reproduce its own document.
 //
 // Parameters:
 //   - `_`: the runtime environment, unused by the base restore.
@@ -581,7 +588,7 @@ func (b *ReceiptBase) Restore(snapshot ReceiptData) error {
 //   - `_`: the receipt's id-reference sub-field, unused by the base restore.
 //
 // Returns:
-//   - `error`: always nil; the signature satisfies the [Receipt] interface.
+//   - `error`: a malformed result or slot envelope, or an unparsable transaction id.
 func (b *ReceiptBase) RestoreEncoded(_ *RuntimeEnvironment, base ReceiptData, _ map[string]any) error {
 
 	// compensatingAction is the dotted compensator identity: compensation resolves the companion via the ActionByName
@@ -589,8 +596,27 @@ func (b *ReceiptBase) RestoreEncoded(_ *RuntimeEnvironment, base ReceiptData, _ 
 	b.unitID = base.UnitID
 	b.forwardAction = base.ForwardAction
 	b.compensatingAction = base.CompensatingAction
-	b.result = base.Result
+
+	result, err := unwrapRecorded(base.Result)
+	if err != nil {
+		return fmt.Errorf("RestoreEncoded: result: %w", err)
+	}
+	b.result = result
 	b.resultType = base.ResultType
+
+	slots, err := unwrapRecordedSlots(base.Slots)
+	if err != nil {
+		return fmt.Errorf("RestoreEncoded: %w", err)
+	}
+	b.slots = slots
+
+	if base.TransactionID != "" {
+		tid, parseErr := uuid.Parse(base.TransactionID)
+		if parseErr != nil {
+			return fmt.Errorf("RestoreEncoded: parse transaction_id %q: %w", base.TransactionID, parseErr)
+		}
+		b.transactionID = tid
+	}
 	if base.Status != "" {
 		b.err = errors.New(base.Status)
 	}
@@ -641,9 +667,9 @@ func (b *ReceiptBase) Snapshot() ReceiptData {
 		Attempts:           b.attempts,
 		Compensator:        b.compensator,
 		ResourceURI:        resourceURI,
-		Result:             b.result,
+		Result:             envelopeRecorded(b.result),
 		ResultType:         b.resultType,
-		Slots:              b.slots,
+		Slots:              envelopeRecordedSlots(b.slots),
 		Status:             status,
 		CompensationError:  compensationError,
 		TransactionID:      b.transactionID.String(),

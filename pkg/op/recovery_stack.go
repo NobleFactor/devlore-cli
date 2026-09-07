@@ -201,7 +201,7 @@ func (s *RecoveryStack) MarshalYAML() (any, error) {
 		Entries    []any  `json:"entries"               yaml:"entries"`
 	}{
 		UnitID:     s.unitID,
-		Result:     s.result,
+		Result:     envelopeRecorded(s.result),
 		ResultType: s.resultType,
 		Status:     errStatus(s.err),
 		Entries:    entries,
@@ -366,7 +366,11 @@ func (s *RecoveryStack) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	s.restoreStamp(encoded.UnitID, encoded.Result, encoded.ResultType, encoded.Status)
+	result, err := unwrapRecorded(encoded.Result)
+	if err != nil {
+		return fmt.Errorf("op.RecoveryStack: result: %w", err)
+	}
+	s.restoreStamp(encoded.UnitID, result, encoded.ResultType, encoded.Status)
 	s.fromEntries(encoded.Entries)
 
 	return nil
@@ -396,7 +400,11 @@ func (s *RecoveryStack) UnmarshalYAML(unmarshal func(any) error) error {
 		return err
 	}
 
-	s.restoreStamp(encoded.UnitID, encoded.Result, encoded.ResultType, encoded.Status)
+	result, err := unwrapRecorded(encoded.Result)
+	if err != nil {
+		return fmt.Errorf("op.RecoveryStack: result: %w", err)
+	}
+	s.restoreStamp(encoded.UnitID, result, encoded.ResultType, encoded.Status)
 	s.fromEntries(encoded.Entries)
 
 	return nil
@@ -684,19 +692,14 @@ func resolveRecordedResource(runtimeEnvironment *RuntimeEnvironment, result any,
 		return nil, false
 	}
 
-	uri, isString := result.(string)
-	if !isString {
+	// A recorded resource is its catalog id (#712 decision 8, #735). A URI string no longer resolves here: `ns` maps a
+	// URI to whichever generation is CURRENT, so a URI would rebind a resumed receipt to a generation it never saw.
+	id, isID := result.(recordedResourceID)
+	if !isID {
 		return nil, false
 	}
 
-	catalog := runtimeEnvironment.ResourceCatalog
-
-	id := catalog.Current(uri)
-	if id == "" {
-		return nil, false
-	}
-
-	canonical, ok := catalog.Lookup(id)
+	canonical, ok := runtimeEnvironment.ResourceCatalog.Lookup(string(id))
 	if !ok || !reflect.TypeOf(canonical).AssignableTo(productType) {
 		return nil, false
 	}

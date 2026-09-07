@@ -13,17 +13,17 @@ import (
 )
 
 // TestResolveRecordedResource_HitReturnsTheCanonical pins the rearm's identity decode
-// (4-resource-management.md §5.6): a reloaded producer result — the resource's URI string — resolves
-// against the rehydrated catalog to the restored generation, never a fresh construction.
+// (4-resource-management.md §5.6, #712 decision 8): a reloaded producer result — the resource's recorded catalog
+// id — resolves against the rehydrated catalog to exactly the generation it names, never a fresh construction and
+// never whichever generation of its URI is current.
 func TestResolveRecordedResource_HitReturnsTheCanonical(t *testing.T) {
 
 	catalog := NewResourceCatalog()
 	entry := newLifecycle("test:///produced", AddressingLocation)
-	catalog.Resolve(entry)
-
+	_, id := catalog.Resolve(entry)
 	environment := &RuntimeEnvironment{ResourceCatalog: catalog}
 
-	canonical, resolved := resolveRecordedResource(environment, "test:///produced", reflect.TypeFor[*lifecycleResource]())
+	canonical, resolved := resolveRecordedResource(environment, recordedResourceID(id), reflect.TypeFor[*lifecycleResource]())
 	if !resolved {
 		t.Fatal("resolveRecordedResource(hit) did not resolve")
 	}
@@ -32,21 +32,28 @@ func TestResolveRecordedResource_HitReturnsTheCanonical(t *testing.T) {
 	}
 }
 
-// TestResolveRecordedResource_MissAndNonStringFallThrough pins the rearm's documented tolerance: an
-// unknown URI and a non-string result both fall through unresolved — the value is left as-is, and a
-// consumer that needed the concrete type meets the dispatch seam's refusal at its own dispatch.
+// TestResolveRecordedResource_MissAndNonStringFallThrough pins the rearm's documented tolerance, and #735's
+// retirement: an unknown id and a non-id result both fall through unresolved — the value is left as-is, and a
+// consumer that needed the concrete type meets the dispatch seam's refusal at its own dispatch. A URI string is a
+// non-id result now: it used to resolve to whichever generation was current, which was the defect.
 func TestResolveRecordedResource_MissAndNonStringFallThrough(t *testing.T) {
 
-	environment := &RuntimeEnvironment{ResourceCatalog: NewResourceCatalog()}
+	catalog := NewResourceCatalog()
+	produced := newLifecycle("test:///produced", AddressingLocation)
+	catalog.Resolve(produced)
+	environment := &RuntimeEnvironment{ResourceCatalog: catalog}
 	target := reflect.TypeFor[*lifecycleResource]()
 
-	if _, resolved := resolveRecordedResource(environment, "test:///unknown", target); resolved {
+	if _, resolved := resolveRecordedResource(environment, recordedResourceID("res-does-not-exist"), target); resolved {
 		t.Error("a catalog miss must fall through unresolved (the rearm tolerates, dispatch refuses)")
 	}
-	if _, resolved := resolveRecordedResource(environment, 42, target); resolved {
-		t.Error("a non-string result must fall through unresolved")
+	if _, resolved := resolveRecordedResource(environment, produced.URI(), target); resolved {
+		t.Error("a URI string must not resolve: identity is the catalog id, never the current generation of a URI (#735)")
 	}
-	if _, resolved := resolveRecordedResource(environment, "test:///x", reflect.TypeFor[string]()); resolved {
+	if _, resolved := resolveRecordedResource(environment, 42, target); resolved {
+		t.Error("a non-id result must fall through unresolved")
+	}
+	if _, resolved := resolveRecordedResource(environment, recordedResourceID("x"), reflect.TypeFor[string]()); resolved {
 		t.Error("a non-resource product type must fall through unresolved")
 	}
 }

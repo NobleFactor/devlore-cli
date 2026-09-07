@@ -95,7 +95,9 @@ func decodeResource(payload any, catalog *ResourceCatalog) (any, error) {
 	}
 
 	if catalog == nil {
-		return nil, fmt.Errorf("op.decodeTypeWrapper: %s %q needs a catalog to resolve against", typeNameResource, id)
+		// No catalog at this seam -- a receipt or a recovery stack decoding on its own. The id is kept, typed, and
+		// resolved by [resolveRecordedResource] once the run's catalog is in hand.
+		return recordedResourceID(id), nil
 	}
 
 	resource, found := catalog.Lookup(id)
@@ -428,3 +430,89 @@ func decodeMap(payload any, catalog *ResourceCatalog) (any, error) {
 }
 
 // endregion
+
+// recordedResourceID is a `$resource` envelope's payload decoded where no catalog was available: a receipt or a
+// recovery stack unmarshaling on its own. It is the catalog id, typed so [resolveRecordedResource] can tell it from
+// a string result, and resolved by [ResourceCatalog.Lookup] at rehydration -- never by URI (#735).
+type recordedResourceID string
+
+// envelopeRecorded records a receipt or stack value for a document.
+//
+// The rule is the plan's (#712): a value with no declared type carries its own. A receipt's `result_type` is a
+// declaration for a typed product -- the reader retypes it through the registry -- so a value the envelope has no
+// name for (a provider's own result struct) stays bare, as today. A value the envelope does name (a scalar, bytes, a
+// list, a map, a resource) is enveloped, because `result_type` is empty or names a type the registry cannot rebuild
+// for exactly those, and a bare number would come back as a float64.
+//
+// Parameters:
+//   - `value`: the recorded value.
+//
+// Returns:
+//   - `any`: the envelope, or `value` unchanged when the envelope has no name for it.
+func envelopeRecorded(value any) any {
+	if value == nil {
+		return nil
+	}
+	enveloped, err := encodeTypeWrapper(value)
+	if err != nil {
+		return value
+	}
+	return enveloped
+}
+
+// envelopeRecordedSlots applies [envelopeRecorded] to each slot value; the keys are slot names and stay bare.
+//
+// Parameters:
+//   - `slots`: the recorded slot values, possibly nil.
+//
+// Returns:
+//   - `map[string]any`: the same keys with enveloped values, or nil for nil.
+func envelopeRecordedSlots(slots map[string]any) map[string]any {
+	if slots == nil {
+		return nil
+	}
+	out := make(map[string]any, len(slots))
+	for name, value := range slots {
+		out[name] = envelopeRecorded(value)
+	}
+	return out
+}
+
+// unwrapRecorded reads a recorded value back: an envelope is decoded (with no catalog, so a `$resource` becomes a
+// [recordedResourceID]); anything else is the bare, declared-type form and passes through to the registry's retyping.
+//
+// Parameters:
+//   - `value`: the document value.
+//
+// Returns:
+//   - `any`: the decoded value.
+//   - `error`: a malformed envelope.
+func unwrapRecorded(value any) (any, error) {
+	if !isTypeWrapper(value) {
+		return value, nil
+	}
+	return decodeTypeWrapper(value, nil)
+}
+
+// unwrapRecordedSlots applies [unwrapRecorded] to each slot value.
+//
+// Parameters:
+//   - `slots`: the document slot values, possibly nil.
+//
+// Returns:
+//   - `map[string]any`: the decoded values under the same keys, or nil for nil.
+//   - `error`: the first malformed envelope, naming its slot.
+func unwrapRecordedSlots(slots map[string]any) (map[string]any, error) {
+	if slots == nil {
+		return nil, nil
+	}
+	out := make(map[string]any, len(slots))
+	for name, value := range slots {
+		decoded, err := unwrapRecorded(value)
+		if err != nil {
+			return nil, fmt.Errorf("slot %q: %w", name, err)
+		}
+		out[name] = decoded
+	}
+	return out, nil
+}

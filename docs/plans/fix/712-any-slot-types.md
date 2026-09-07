@@ -202,6 +202,16 @@ what Decision 8 refuses, so the old fixture asserted the defect. Red set now: th
 **Phase 2 complete 2026-09-06.** Red set: the recovery-stack seam alone, which is phase 3's (finding 6, `Result` at
 `recovery_stack.go`).
 
+**Phase 3, first half, 2026-09-06.** The receipt and recovery-stack seams envelope their `Result` and `Slots`; the
+large-integer resume test is green and asserts the whole document round-trips byte for byte. Two findings on the way:
+`ReceiptBase.RestoreEncoded`, the stack's reload path, dropped the transaction id and the slots that the base restore
+kept, so a reloaded stack could not reproduce its own document -- it restores both now; and `resolveRecordedResource`
+resolved a URI string to whichever generation was current, #735 in the resume path -- it resolves a recorded id and
+nothing else, and the two tests that pinned URI resolution now pin its absence. **The tree is green: every test in
+`pkg/op` passes, and `make check` is the gate again.** Open in this phase: the `variable.go` and `origin.go` seams,
+the bare id for a declared resource slot, and the retirement of `Discover(uri)` on unmarshal and
+`resolveDispatchResource`.
+
 ### State as of 2026-09-01
 
 
@@ -759,7 +769,7 @@ Two things Phase 1 changed about the plan itself:
       if a new decoder path appears. The resolution above is the fix; this is the guard rail. `numberTruthy`;
       the numeric cases moved to `numericTruthy` to keep the switch under the complexity gate.
 
-### Phase 3: Write the envelope
+### Phase 3: Write the envelope -- IN PROGRESS (first half landed 2026-09-06)
 
 - [ ] Envelope every value in an `any` slot, in JSON and in YAML, emitting the same shape in both so the two
       documents stay structurally isomorphic.
@@ -767,15 +777,21 @@ Two things Phase 1 changed about the plan itself:
 - [ ] Leave containers with a declared element type bare inside.
 - [ ] Write a resource-valued slot as its catalog id, at both seams at once: wrapped for an `any`
       position, bare for a declared resource type.
-- [ ] Resolve it by `ResourceCatalog.Lookup(id)`, never `Discover(uri)`, so a slot binds to the
-      generation it was written against. A ledger miss fails the whole run.
+- [x] Resolve it by `ResourceCatalog.Lookup(id)`, never `Discover(uri)`, so a slot binds to the
+      generation it was written against. A ledger miss fails the whole run. Slots: `decodeResource` looks the id
+      up in the document's catalog (decision 10). Receipts and the stack: with no catalog at their seam the id is
+      kept typed as `recordedResourceID`, and `resolveRecordedResource` looks it up at rehydration; the URI path
+      through `Current(uri)` is retired there, and the tests assert a URI no longer resolves (#735).
 - [ ] Resolve identity ONLY, binding the Resource pointer. Load never verifies existence -- a
       `Pending` entry is the normal case for a plan whose producing node has not run.
 - [ ] Retire the URI paths for slots: `Discover(uri)` on unmarshal, and `resolveDispatchResource`.
 - [ ] Encode a non-finite float in the envelope payload, so JSON can carry what it cannot express as a
       bare number. Apply this at **every** float position, declared or not -- not only in `any` slots.
 - [ ] Leave a value with a declared type bare. Enveloping it would duplicate what the field already says.
-- [ ] Apply it at every seam in the finding-7 table, not only `bindingData`.
+- [ ] Apply it at every seam in the finding-7 table, not only `bindingData`. **Landed:** `receipt.go` `Result`
+      and `Slots` (per value), `recovery_stack.go` `Result`, through `envelopeRecorded` / `unwrapRecorded`: a value
+      the envelope names is enveloped; a typed product the registry retypes through `result_type` stays bare, as the
+      declared-type rule says. **Open:** `variable.go` `Value`, `origin.go` `Annotations`.
 
 ### Phase 4: Refuse an unenveloped value
 
