@@ -108,3 +108,26 @@ func TestResolveDispatchResource_SessionDispatchFallsThrough(t *testing.T) {
 }
 
 // endregion
+
+// TestResolveDispatchResource_ARecordedIDResolvesByID pins the resume half of #712 item 4: a resource a paused run's
+// trace held in a variable comes back as a recorded id, and dispatch resolves it against the run catalog by that id --
+// the same seam a receipt's recorded resource uses. A miss is the catalog's verdict.
+func TestResolveDispatchResource_ARecordedIDResolvesByID(t *testing.T) {
+
+	catalog := NewResourceCatalog()
+	canonical := newLifecycle("test:///claimed", AddressingLocation)
+	_, id := catalog.Resolve(canonical)
+	activation := &ActivationRecord{Graph: &Graph{}, RuntimeEnvironment: &RuntimeEnvironment{ResourceCatalog: catalog}}
+
+	resolved, applied, err := resolveDispatchResource(activation, recordedResourceID(id), reflect.TypeFor[*lifecycleResource]())
+	if !applied || err != nil {
+		t.Fatalf("resolveDispatchResource(recorded id) = applied %t, err %v; want applied, nil", applied, err)
+	}
+	if resolved != Resource(canonical) {
+		t.Errorf("resolved %p is not the canonical %p", resolved, canonical)
+	}
+	_, applied, err = resolveDispatchResource(activation, recordedResourceID("res-404"), reflect.TypeFor[*lifecycleResource]())
+	if !applied || err == nil || !strings.Contains(err.Error(), "not in the run catalog") {
+		t.Errorf("a recorded id the run catalog lacks must be refused; got applied %t, err %v", applied, err)
+	}
+}

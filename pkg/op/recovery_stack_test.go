@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -403,4 +404,48 @@ func failStack(err error) *RecoveryStack {
 	})
 	inner.PushNested(leaf)
 	return inner
+}
+
+// TestReceiptBase_AnnotationsAreEnvelopedAndRestoredTyped pins #712 phase 3, item 3, at the receipt seam: a unit's
+// annotations leave Snapshot enveloped, both restore paths decode them back to the authored types, and a bare value
+// is refused naming its key. RestoreEncoded had not restored annotations at all before this.
+func TestReceiptBase_AnnotationsAreEnvelopedAndRestoredTyped(t *testing.T) {
+
+	enveloped, err := envelopeAnnotations(map[string]any{"order": int64(4), "tags": []string{"a"}})
+	if err != nil {
+		t.Fatalf("envelopeAnnotations: %v", err)
+	}
+	if !reflect.DeepEqual(enveloped["order"], map[string]any{typeNameInt64: "4"}) {
+		t.Fatalf("order enveloped as %#v; want a $int64 envelope", enveloped["order"])
+	}
+	held := newLifecycle("test:///held", AddressingLocation)
+	const nilTransaction = "00000000-0000-0000-0000-000000000000"
+
+	restored := NewReceiptBase(held)
+	if err := restored.Restore(ReceiptData{ResourceURI: held.URI(), TransactionID: nilTransaction, Annotations: enveloped}); err != nil {
+		t.Fatalf("Restore: %v", err)
+	}
+	encoded := NewReceiptBase(held)
+	if err := encoded.RestoreEncoded(nil, ReceiptData{Annotations: enveloped}, nil); err != nil {
+		t.Fatalf("RestoreEncoded: %v", err)
+	}
+	for name, receipt := range map[string]*ReceiptBase{"Restore": &restored, "RestoreEncoded": &encoded} {
+		order, _ := receipt.Annotations().Get("order")
+		tags, _ := receipt.Annotations().Get("tags")
+		if order != int64(4) || !reflect.DeepEqual(tags, []any{"a"}) {
+			t.Errorf("%s: annotations = order %#v (%T), tags %#v; want int64 4 and [a]", name, order, order, tags)
+		}
+		snapshot, err := receipt.Snapshot()
+		if err != nil {
+			t.Fatalf("%s: Snapshot: %v", name, err)
+		}
+		if !reflect.DeepEqual(snapshot.Annotations["order"], map[string]any{typeNameInt64: "4"}) {
+			t.Errorf("%s: Snapshot re-emitted order as %#v; want the $int64 envelope", name, snapshot.Annotations["order"])
+		}
+	}
+	bare := NewReceiptBase(held)
+	err = bare.Restore(ReceiptData{ResourceURI: held.URI(), TransactionID: nilTransaction, Annotations: map[string]any{"order": 4}})
+	if err == nil || !strings.Contains(err.Error(), `annotation "order"`) {
+		t.Errorf("Restore(bare annotation) error = %v; want a refusal naming order", err)
+	}
 }

@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"math"
+	"reflect"
 	"strconv"
 )
 
@@ -156,6 +157,9 @@ func encodeTypeWrapper(value any) (map[string]any, error) {
 
 	case Resource:
 		return encodeResource(v)
+	case recordedResourceID:
+		// A resource a trace recorded and a resume decoded with no catalog: an id already, re-emitted as one.
+		return map[string]any{typeNameResource: string(v)}, nil
 
 	case map[string]any:
 		entries := make(map[string]any, len(v))
@@ -169,6 +173,55 @@ func encodeTypeWrapper(value any) (map[string]any, error) {
 		return map[string]any{typeNameMap: entries}, nil
 	}
 
+	return encodeReflected(value)
+}
+
+// encodeReflected is [encodeTypeWrapper]'s reflective step for Go's natural shapes (#712 decision 12). The typed
+// cases above name the document's own types; this names everything else a caller legitimately holds. Every integer
+// kind is a `$int64`; a `float32` widens exactly to `$float64`; a slice or array of any element type is a `$list` and
+// a map with string keys a `$map`, elements enveloped recursively; a named bool or string is its kind. Anything else
+// -- a struct, a channel, a function, a `uint64` beyond `MaxInt64` -- has no name, and that is the error.
+//
+// Parameters:
+//   - `value`: a non-nil value none of the typed cases matched.
+//
+// Returns:
+//   - `map[string]any`: the single-key wrapper.
+//   - `error`: when `value` has a Go type the document has no name for.
+func encodeReflected(value any) (map[string]any, error) {
+
+	reflected := reflect.ValueOf(value)
+	switch reflected.Kind() {
+	case reflect.Bool:
+		return encodeTypeWrapper(reflected.Bool())
+	case reflect.String:
+		return encodeTypeWrapper(reflected.String())
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return encodeTypeWrapper(reflected.Int())
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		if reflected.Uint() > math.MaxInt64 {
+			return nil, fmt.Errorf("op.encodeTypeWrapper: %d exceeds the document's integer range", reflected.Uint())
+		}
+		return map[string]any{typeNameInt64: strconv.FormatUint(reflected.Uint(), 10)}, nil
+	case reflect.Float32, reflect.Float64:
+		return encodeTypeWrapper(reflected.Float())
+	case reflect.Slice, reflect.Array:
+		elements := make([]any, reflected.Len())
+		for index := range elements {
+			elements[index] = reflected.Index(index).Interface()
+		}
+		return encodeTypeWrapper(elements)
+	case reflect.Map:
+		if reflected.Type().Key().Kind() != reflect.String {
+			return nil, fmt.Errorf("op.encodeTypeWrapper: no document type name for %T: map keys must be strings", value)
+		}
+		entries := make(map[string]any, reflected.Len())
+		iterator := reflected.MapRange()
+		for iterator.Next() {
+			entries[iterator.Key().String()] = iterator.Value().Interface()
+		}
+		return encodeTypeWrapper(entries)
+	}
 	return nil, fmt.Errorf("op.encodeTypeWrapper: no document type name for %T", value)
 }
 
@@ -511,6 +564,58 @@ func unwrapRecordedSlots(slots map[string]any) (map[string]any, error) {
 		decoded, err := unwrapRecorded(value)
 		if err != nil {
 			return nil, fmt.Errorf("slot %q: %w", name, err)
+		}
+		out[name] = decoded
+	}
+	return out, nil
+}
+
+// envelopeAnnotations envelopes each annotation value strictly (#712 phase 3, item 3). An annotation has no declared
+// type, so every value carries its own, and a value the document has no name for is the error, naming its key. The
+// keys are annotation names and stay bare.
+//
+// Parameters:
+//   - `annotations`: the annotation values, possibly nil.
+//
+// Returns:
+//   - `map[string]any`: the same keys with enveloped values; nil for nil.
+//   - `error`: the first value the document has no name for, naming its key.
+func envelopeAnnotations(annotations map[string]any) (map[string]any, error) {
+
+	if annotations == nil {
+		return nil, nil
+	}
+	out := make(map[string]any, len(annotations))
+	for name, value := range annotations {
+		enveloped, err := encodeTypeWrapper(value)
+		if err != nil {
+			return nil, fmt.Errorf("annotation %q: %w", name, err)
+		}
+		out[name] = enveloped
+	}
+	return out, nil
+}
+
+// unwrapAnnotations decodes each annotation value strictly: a bare value is an error naming its key, there being no
+// declared type to read it against, and a `$resource` decodes to a [recordedResourceID], there being no catalog at
+// this seam.
+//
+// Parameters:
+//   - `annotations`: the document's annotation values, possibly nil.
+//
+// Returns:
+//   - `map[string]any`: the decoded values under the same keys; nil for nil.
+//   - `error`: the first bare or malformed value, naming its key.
+func unwrapAnnotations(annotations map[string]any) (map[string]any, error) {
+
+	if annotations == nil {
+		return nil, nil
+	}
+	out := make(map[string]any, len(annotations))
+	for name, value := range annotations {
+		decoded, err := decodeTypeWrapper(value, nil)
+		if err != nil {
+			return nil, fmt.Errorf("annotation %q: %w", name, err)
 		}
 		out[name] = decoded
 	}

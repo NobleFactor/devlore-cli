@@ -131,7 +131,10 @@ func (r *Receipt) MarshalYAML() (any, error) {
 
 	// The base owns resource_uri (pkg resolves its resource by URI via DiscoverResource) and transaction_id; the
 	// compensator is not serialized — the recovery tree nests it structurally (phase-8 step 42 slice 3b).
-	base := r.Snapshot()
+	base, err := r.Snapshot()
+	if err != nil {
+		return nil, err
+	}
 	base.Compensator = nil
 
 	return struct {

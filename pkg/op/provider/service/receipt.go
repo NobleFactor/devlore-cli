@@ -60,7 +60,10 @@ func (r *Receipt) MarshalYAML() (any, error) {
 	// The base owns forward_action, resource_uri (service resolves by URI via DiscoverResource), transaction_id, and the
 	// execution state; the compensator is not serialized — the recovery tree nests it structurally (phase-8 step 42
 	// slice 3b).
-	base := r.Snapshot()
+	base, err := r.Snapshot()
+	if err != nil {
+		return nil, err
+	}
 	base.Compensator = nil
 
 	return struct {

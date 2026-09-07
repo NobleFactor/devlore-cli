@@ -496,7 +496,10 @@ func (b *ReceiptBase) MarshalYAML() (any, error) {
 	// The recovery tree encodes compensation structurally — each compensator is its own entry, nested LIFO — so the
 	// per-receipt compensator is not serialized. A resource receipt is its own compensator, so emitting it here would
 	// recurse forever through this marshaler (phase-8 step 42 slice 3b).
-	snapshot := b.Snapshot()
+	snapshot, err := b.Snapshot()
+	if err != nil {
+		return nil, err
+	}
 	snapshot.Compensator = nil
 	return snapshot, nil
 }
@@ -546,7 +549,11 @@ func (b *ReceiptBase) Restore(snapshot ReceiptData) error {
 
 	b.forwardAction = snapshot.ForwardAction
 	b.compensatingAction = snapshot.CompensatingAction
-	b.annotations = NewAnnotationMap(snapshot.Annotations)
+	annotations, err := unwrapAnnotations(snapshot.Annotations)
+	if err != nil {
+		return fmt.Errorf("restore failed: %w", err)
+	}
+	b.annotations = NewAnnotationMap(annotations)
 	b.attempts = snapshot.Attempts
 	if compensator, ok := snapshot.Compensator.(Compensator); ok {
 		b.compensator = compensator
@@ -597,6 +604,11 @@ func (b *ReceiptBase) RestoreEncoded(_ *RuntimeEnvironment, base ReceiptData, _ 
 	b.forwardAction = base.ForwardAction
 	b.compensatingAction = base.CompensatingAction
 
+	annotations, err := unwrapAnnotations(base.Annotations)
+	if err != nil {
+		return fmt.Errorf("RestoreEncoded: %w", err)
+	}
+	b.annotations = NewAnnotationMap(annotations)
 	result, err := unwrapRecorded(base.Result)
 	if err != nil {
 		return fmt.Errorf("RestoreEncoded: result: %w", err)
@@ -642,8 +654,9 @@ func (b *ReceiptBase) RestoreEncoded(_ *RuntimeEnvironment, base ReceiptData, _ 
 //   - ReceiptData: the receipt's base state with ResourceURI empty when no resource is attached, TransactionID the
 //     canonical 36-char UUID string (the all-zeros UUID until Commit runs), Status the dispatch error's message
 //     (empty when Err is nil), and CompensationError the failed-unwind error's message (empty when the undo succeeded
-//     or never ran).
-func (b *ReceiptBase) Snapshot() ReceiptData {
+//     or never ran). Annotations carries one type envelope per value (#712 phase 3, item 3).
+//   - `error`: an annotation value the document has no name for.
+func (b *ReceiptBase) Snapshot() (ReceiptData, error) {
 
 	var resourceURI string
 	if b.resource != nil {
@@ -660,10 +673,14 @@ func (b *ReceiptBase) Snapshot() ReceiptData {
 		compensationError = b.compensationError.Error()
 	}
 
+	annotations, err := envelopeAnnotations(b.annotations.values)
+	if err != nil {
+		return ReceiptData{}, fmt.Errorf("op.ReceiptBase.Snapshot: %w", err)
+	}
 	return ReceiptData{
 		ForwardAction:      b.forwardAction,
 		CompensatingAction: b.compensatingAction,
-		Annotations:        b.annotations.values,
+		Annotations:        annotations,
 		Attempts:           b.attempts,
 		Compensator:        b.compensator,
 		ResourceURI:        resourceURI,
@@ -674,7 +691,7 @@ func (b *ReceiptBase) Snapshot() ReceiptData {
 		CompensationError:  compensationError,
 		TransactionID:      b.transactionID.String(),
 		UnitID:             b.unitID,
-	}
+	}, nil
 }
 
 // endregion

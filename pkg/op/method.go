@@ -820,7 +820,8 @@ func resolveDispatchResource(activation *ActivationRecord, value any, target ref
 	// A Resource in the slot is the graph catalog's entry; the run clone holds the same ids, so it resolves by id
 	// (#712 decision 8, #735) -- never by URI, which would name whichever generation is current. A string is a
 	// run-time value -- a gather item, a variable -- that no plan-time claim saw: a key into the run catalog, never
-	// a constructor (4-resource-management.md §5.6). A miss is the catalog's verdict either way.
+	// a constructor (4-resource-management.md §5.6). A recorded id is a resource a paused run's trace held in a
+	// variable, decoded with no catalog: an id already. A miss is the catalog's verdict in every case.
 	var id string
 	switch v := value.(type) {
 	case Resource:
@@ -828,6 +829,8 @@ func resolveDispatchResource(activation *ActivationRecord, value any, target ref
 		if id == "" {
 			return nil, true, fmt.Errorf("graph dispatch: resource %q is not cataloged; nothing constructs at dispatch", v.URI())
 		}
+	case recordedResourceID:
+		id = string(v)
 	case string:
 		id = environment.ResourceCatalog.Current(v)
 		if id == "" {

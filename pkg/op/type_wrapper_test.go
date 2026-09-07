@@ -220,3 +220,64 @@ func documentCodecs() []struct {
 }
 
 // endregion
+
+// TestTypeWrapper_GoShapesEnvelopeAsTheirDocumentType pins #712 decision 12: the codec accepts Go's natural shapes
+// -- every integer kind, float32, typed slices and arrays, string-keyed typed maps -- and names each by the document's
+// own type, so what comes back is the document's shape, not the caller's.
+func TestTypeWrapper_GoShapesEnvelopeAsTheirDocumentType(t *testing.T) {
+
+	for _, testCase := range []struct {
+		name     string
+		value    any
+		typeName string
+		decoded  any
+	}{
+		{"int", 4, typeNameInt64, int64(4)},
+		{"int8", int8(-3), typeNameInt64, int64(-3)},
+		{"uint16", uint16(9), typeNameInt64, int64(9)},
+		{"uint64 within range", uint64(1 << 62), typeNameInt64, int64(1 << 62)},
+		{"float32", float32(1.5), typeNameFloat64, 1.5},
+		{"string slice", []string{"a", "b"}, typeNameList, []any{"a", "b"}},
+		{"int array", [2]int{1, 2}, typeNameList, []any{int64(1), int64(2)}},
+		{"string map", map[string]string{"k": "v"}, typeNameMap, map[string]any{"k": "v"}},
+		{"nested typed shapes", map[string][]int{"n": {7}}, typeNameMap, map[string]any{"n": []any{int64(7)}}},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			enveloped, err := encodeTypeWrapper(testCase.value)
+			if err != nil {
+				t.Fatalf("encodeTypeWrapper(%T) error: %v", testCase.value, err)
+			}
+			if _, named := enveloped[testCase.typeName]; !named || len(enveloped) != 1 {
+				t.Fatalf("encodeTypeWrapper(%T) = %v; want a single %s envelope", testCase.value, enveloped, testCase.typeName)
+			}
+			decoded, err := decodeTypeWrapper(enveloped, nil)
+			if err != nil {
+				t.Fatalf("decodeTypeWrapper: %v", err)
+			}
+			if !reflect.DeepEqual(decoded, testCase.decoded) {
+				t.Errorf("decoded %#v (%T); want %#v (%T)", decoded, decoded, testCase.decoded, testCase.decoded)
+			}
+		})
+	}
+}
+
+// TestTypeWrapper_AShapeWithNoNameIsRefused pins the other side of decision 12: the envelope describes values, not
+// types, so a struct, a non-string-keyed map, and an unsigned integer beyond the document's range are errors.
+func TestTypeWrapper_AShapeWithNoNameIsRefused(t *testing.T) {
+
+	for _, testCase := range []struct {
+		name  string
+		value any
+	}{
+		{"struct", struct{ N int }{1}},
+		{"int-keyed map", map[int]string{1: "a"}},
+		{"uint64 beyond MaxInt64", uint64(math.MaxUint64)},
+		{"function", func() {}},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			if enveloped, err := encodeTypeWrapper(testCase.value); err == nil {
+				t.Fatalf("encodeTypeWrapper(%T) = %v; want a refusal", testCase.value, enveloped)
+			}
+		})
+	}
+}

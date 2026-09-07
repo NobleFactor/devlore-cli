@@ -232,12 +232,26 @@ the bare id for a declared resource slot, and the retirement of `Discover(uri)` 
    string a *document* used to leave in a declared slot; what (2) changes is the Resource half only. Of the five
    `method_test.go` pins, resolve-by-URI becomes resolve-by-id; the string-key hit, miss, non-identity, and
    session stay exactly as they are.
-3. **`origin.go` `Annotations`** are enveloped per value on write and unwrapped on read (`OriginBase`'s two
-   unmarshalers), recursing through the map and list forms the envelope already has. Consumers read strings out of
-   them (writ's `files` annotation) and are unaffected; a numeric annotation value comes back typed rather than as
-   a float64, which is the point.
-4. **`variable.go` `Value`** is never read back from a document -- `op.Variable` is constructed by the runtime
-   environment and only ever emitted -- so the row is emit-only: the envelope on write, no reader to change.
+3. **Annotations are enveloped at three seams, strictly.** Sized as `origin.go` alone; read against the tree
+   at e54e4168 there are three raw `map[string]any` annotation seams in documents: `OriginBase`'s two marshalers
+   and two unmarshalers, and `ReceiptData.Annotations` -- a unit's own annotations, written by `Snapshot` and read
+   by `RestoreEncoded` -- which the receipt seam of the first half left bare beside its enveloped `Result` and
+   `Slots`. All three go through one pair of helpers, `envelopeAnnotations` / `unwrapAnnotations`, and both are
+   strict: an annotation has no declared type, so a bare value on read is an error naming the key now, not in phase
+   4, and a value the envelope cannot name is a write error naming the key (decision 3: within an `any` position,
+   without exception). Readers are unaffected -- lore's `annotationStringSlice` and `annotationStringMap` already
+   take `[]any` and `map[string]any`, writ's `files` reader asserts `map[string]any`, `run_root` asserts a string.
+   What the producers hand in is why decision 12 exists.
+4. **`variable.go` `Value` is written AND read.** Sized as emit-only; that was wrong. `Trace.Variables` is the
+   resolved frame, `LoadTrace` reads a trace back, and `ResumeExecutor` installs `trace.Variables` as the executor's
+   frame -- so a paused run's variables are read from a document, and an integer among them has been coming back as
+   a `float64` (finding 6 at a seam the finding-7 table missed). `Variable` gets `MarshalJSON` / `MarshalYAML`
+   enveloping `Value` (strict, as above) and `UnmarshalJSON` / `UnmarshalYAML` decoding it with no catalog, so a
+   resource in a variable comes back as a `recordedResourceID` exactly as a receipt's does. `resolveDispatchResource`
+   gains that case: a recorded id at dispatch resolves by `Lookup`, the seam receipts already use through
+   `resolveRecordedResource`. `VariableSource.Kind` is a declared integer field and stays bare by rule. **Known
+   limit, stated:** a recorded id nested inside a container in a variable is not resolved by this commit; it reaches
+   [Convert] and is refused there, and phase 4's sweep decides whether containers resolve ids at dispatch.
 5. **The providers' `Unmarshal*` constructors are not this phase's.** Thirty-six methods across the sealed
    providers construct a resource from a URI string; after (1) and (2) no slot path reaches them, and their other
    callers ([Convert]'s text step, `env_value.go`, `parameter.go`) are a sweep of their own, the shape #649 took.
@@ -256,7 +270,19 @@ identity a slot names), so they enter the canonical form as `resources`, and a d
 as every other doctored byte is. This answers the checksum half of phase 5's open question early; the
 canonical-form half (the envelope is in the canonical form, decision 9) stands.
 
-Steps: (1), (2), and decision 11 with their tests, one commit; (3) and (4), one commit; the follow-up issue filed; then phase 4.
+**Decision 12 (2026-09-07): the codec accepts Go's natural shapes.** `encodeTypeWrapper` names `int64`, `float64`,
+`[]any`, and `map[string]any`, and nothing else numeric or composite. The annotation producers hand in `[]string`
+(lore's `packages` and `features`, writ's `projects` and `layers`), `map[string]string` (`settings`, `segments`,
+`commit_hashes`), and Go `int` (the format-identity fixture's `order`) -- every one a write error under item 3's
+strictness. The fix belongs in the codec, not in each producer: every integer kind envelopes as `$int64` (a `uint64`
+above `MaxInt64` is an error, since no document type holds it); `float32` widens exactly to `$float64`; a slice or
+array of any element type is a `$list` and a map with string keys a `$map`, elements enveloped recursively. The
+decode side does not change: the document's type names are the envelope's own, so a `[]string` comes back as
+`[]any` of strings and a `map[string]string` as `map[string]any`, which is what every reader already accepts. A
+struct still has no name and is still an error -- the envelope describes values, not types.
+
+Steps: (1), (2), and decision 11 with their tests, one commit (e54e4168); (3) across its three seams, (4) with its resume
+case, and decision 12, one commit; the follow-up issue filed; then phase 4.
 
 **Items (1), (2), and decision 11 applied 2026-09-07; `make check` green.** `marshalBindings` writes a Resource in a
 declared resource slot as its bare id and refuses an uncataloged one; `readSlotValue` resolves a string in a
@@ -265,7 +291,19 @@ resource-typed slot by `Lookup(id)` against the document's catalog and refuses a
 of (2) as corrected; `CanonicalContent` carries the catalog's intent rows as `resources`. Pins: the declared slot
 records the id and reloads the entry; a URI in a declared slot is refused; a doctored `resources` row is a checksum
 mismatch; dispatch resolves a Resource by id. The two judgment scenarios that forced the corrections pass unchanged.
-Next: items (3) and (4), one commit.
+
+**Items (3) and (4) and decision 12 applied 2026-09-07; `make check` green.** `envelopeAnnotations` /
+`unwrapAnnotations` (strict both ways) sit under `OriginBase`'s four marshalers and under `ReceiptBase.Snapshot`,
+`Restore`, and `RestoreEncoded`; `Snapshot` now returns an error, and its four callers (the base's `MarshalYAML`
+and the file, service, and pkg receipts) propagate it. Found on the way: `RestoreEncoded` -- the document-to-runtime
+path -- had never restored a receipt's annotations at all; it does now. `Variable` gained the four marshalers over a
+`variableDocument` DTO, and `resolveDispatchResource` resolves a `recordedResourceID` by `Lookup`. `encodeTypeWrapper`
+re-emits a `recordedResourceID` as `$resource` (a resumed frame saved again keeps its resources) and falls through to
+`encodeReflected` for Go's natural shapes. Pins: origin annotations reload typed from both codecs and a bare one is
+refused naming its key; receipt annotations round-trip through both restore paths; trace variables reload typed with
+a resource as its recorded id, and a bare variable value is refused; a recorded id dispatches by id; nine Go shapes
+envelope as their document types and four nameless ones are refused. Next: the follow-up issue for item 5, then
+phase 4.
 
 ### State as of 2026-09-01
 
@@ -826,27 +864,31 @@ Two things Phase 1 changed about the plan itself:
 
 ### Phase 3: Write the envelope -- IN PROGRESS (first half landed 2026-09-06)
 
-- [ ] Envelope every value in an `any` slot, in JSON and in YAML, emitting the same shape in both so the two
-      documents stay structurally isomorphic.
-- [ ] Recurse into `[]any`, `map[string]any`, and arrays, enveloping each element.
-- [ ] Leave containers with a declared element type bare inside.
-- [ ] Write a resource-valued slot as its catalog id, at both seams at once: wrapped for an `any`
-      position, bare for a declared resource type.
+- [x] Envelope every value in an `any` slot, in JSON and in YAML, emitting the same shape in both so the two
+      documents stay structurally isomorphic. **Landed:** ff33a2f, the wrapper at the slot seam; `TestGraphChecksum_IdenticalAcrossJSONAndYAMLDocuments` and
+      `TestTypeWrapper_RoundTripsEveryDocumentType` pin the shape in both codecs.
+- [x] Recurse into `[]any`, `map[string]any`, and arrays, enveloping each element. **Landed:** the codec's list and map cases, recursive; the same round-trip test.
+- [x] Leave containers with a declared element type bare inside. **Landed:** `slotCarriesItsType` answers false for a declared type, so the whole slot is bare.
+- [x] Write a resource-valued slot as its catalog id, at both seams at once: wrapped for an `any`
+      position, bare for a declared resource type. **Landed:** e54e4168; `TestLoadGraph_ADeclaredResourceSlotRecordsTheIDAndReloadsTheEntry` (bare) and
+      `TestLoadGraph_AResourceInAnAnySlotReloadsAsAResource` (wrapped).
 - [x] Resolve it by `ResourceCatalog.Lookup(id)`, never `Discover(uri)`, so a slot binds to the
       generation it was written against. A ledger miss fails the whole run. Slots: `decodeResource` looks the id
       up in the document's catalog (decision 10). Receipts and the stack: with no catalog at their seam the id is
       kept typed as `recordedResourceID`, and `resolveRecordedResource` looks it up at rehydration; the URI path
       through `Current(uri)` is retired there, and the tests assert a URI no longer resolves (#735).
-- [ ] Resolve identity ONLY, binding the Resource pointer. Load never verifies existence -- a
-      `Pending` entry is the normal case for a plan whose producing node has not run.
-- [ ] Retire the URI paths for slots: `Discover(uri)` on unmarshal, and `resolveDispatchResource`.
+- [x] Resolve identity ONLY, binding the Resource pointer. Load never verifies existence -- a
+      `Pending` entry is the normal case for a plan whose producing node has not run. **Landed:** `Lookup(id)` binds the document catalog's entry and never stats; the same two tests.
+- [x] Retire the URI paths for slots: `Discover(uri)` on unmarshal, and `resolveDispatchResource`. **Landed:** `resolveDispatchResource` resolves a Resource by id (e54e4168); `Discover(uri)` on unmarshal is
+      unreachable from any slot path and its removal is item 5's follow-up issue.
 - [ ] Encode a non-finite float in the envelope payload, so JSON can carry what it cannot express as a
       bare number. Apply this at **every** float position, declared or not -- not only in `any` slots.
-- [ ] Leave a value with a declared type bare. Enveloping it would duplicate what the field already says.
-- [ ] Apply it at every seam in the finding-7 table, not only `bindingData`. **Landed:** `receipt.go` `Result`
+- [x] Leave a value with a declared type bare. Enveloping it would duplicate what the field already says. **Landed:** `slotCarriesItsType`; `TestLoadGraph_ABareNumberInAnUndeclaredSlotIsRefused` pins the other side.
+- [x] Apply it at every seam in the finding-7 table, not only `bindingData`. **Landed:** `receipt.go` `Result`
       and `Slots` (per value), `recovery_stack.go` `Result`, through `envelopeRecorded` / `unwrapRecorded`: a value
       the envelope names is enveloped; a typed product the registry retypes through `result_type` stays bare, as the
-      declared-type rule says. **Open:** `variable.go` `Value`, `origin.go` `Annotations`.
+      declared-type rule says. **Landed 2026-09-07:** `variable.go` `Value` (both directions -- see item 4), `origin.go` `Annotations`, and
+      `receipt.go` `Annotations`, the seam the table had not listed.
 
 ### Phase 4: Refuse an unenveloped value
 
@@ -903,6 +945,10 @@ Two things Phase 1 changed about the plan itself:
 None. Per the governing principle there are no legacy documents to accommodate. Documents written before this
 change already read back wrong; Phase 4 makes them fail loudly instead of quietly, which is the intent.
 
+Operationally (noted 2026-09-07): decisions 9 and 11 change the canonical bytes, so every graph and trace saved
+before this lands fails checksum verification at load, by design. The live writ store re-deploys after the merge;
+there is nothing to convert.
+
 ## Files to Create/Modify
 
 | File | Action | Purpose |
@@ -911,12 +957,13 @@ change already read back wrong; Phase 4 makes them fail loudly instead of quietl
 | `pkg/op/convert.go` | Modify | Resolve an enveloped value at the `any` seam |
 | `pkg/op/truthiness.go` | Modify | `json.Number` case in `scalarTruthy` as a guard rail |
 | `pkg/op/node.go` | Modify | Envelope `bindingData.Value` |
-| `pkg/op/variable.go` | Modify | Envelope `Value` |
-| `pkg/op/receipt.go` | Modify | Envelope `Result` and `Slots` |
+| `pkg/op/variable.go` | Modify | Envelope `Value`, both directions (**landed**) |
+| `pkg/op/receipt.go` | Modify | Envelope `Result`, `Slots`, and `Annotations`; `Snapshot` reports an error (**landed**) |
+| `pkg/op/provider/{file,pkg,service}/receipt.go` | Modify | Propagate `Snapshot`'s error (**landed**) |
 | `pkg/op/recovery_stack.go` | Modify | Envelope `Result` and `Entries` |
-| `pkg/op/origin.go` | Modify | Envelope `Annotations` |
+| `pkg/op/origin.go` | Modify | Envelope `Annotations`, strictly (**landed**) |
 | `pkg/op/graph.go` | Modify | Extend the `UseNumber` comment to state the envelope rule |
-| `pkg/op/method.go` | Modify | Retire `resolveDispatchResource`'s URI lookup for slots |
+| `pkg/op/method.go` | Modify | Resolve a Resource or a recorded id by catalog id; a string stays a key (**landed**) |
 | `pkg/op/provider/*/resource*.go` | Modify | Retire `Discover(uri)` on unmarshal for slot values |
 | `pkg/op/any_slot_types_test.go` | Create | Phase 1: one failing test per finding (**landed**) |
 | `pkg/op/type_wrapper_test.go` | Create | Wrapper round trips, both codecs (**landed**, green) |
