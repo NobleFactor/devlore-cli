@@ -1,0 +1,18 @@
+#compdef Declare-BashScript
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2025 Noble Factor. All rights reserved.
+
+_Declare-BashScript() {
+    local -a opts
+    opts=(
+        '(-h --help)'{-h,--help}'[Show usage information and exit]'
+        ':script_path:_files'
+        ':long_options:'
+        ':short_options:'
+        '*:arguments:'
+    )
+
+    _arguments -s -S $opts
+}
+
+_Declare-BashScript "$@"

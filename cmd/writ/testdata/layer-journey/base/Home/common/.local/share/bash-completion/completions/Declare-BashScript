@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# shellcheck disable=SC2207,SC2034 # COMPREPLY and standard completion variables
+
+# bash completion for Declare-BashScript
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2025 Noble Factor. All rights reserved.
+
+_Declare_BashScript() {
+    local cur prev opts
+    COMPREPLY=()
+    cur="${COMP_WORDS[COMP_CWORD]}"
+    prev="${COMP_WORDS[COMP_CWORD - 1]}"
+
+    opts="-h --help"
+
+    if [[ ${cur} == -* ]]; then
+        COMPREPLY=($(compgen -W "${opts}" -- "${cur}"))
+        return 0
+    fi
+
+    # Complete script paths
+    COMPREPLY=($(compgen -f -- "${cur}"))
+    return 0
+}
+
+complete -F _Declare_BashScript Declare-BashScript

@@ -1,0 +1,2 @@
+# Fixture scripts run under bash on every platform, Windows included: they must stay LF on every checkout.
+* text eol=lf

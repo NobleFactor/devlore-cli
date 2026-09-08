@@ -207,6 +207,9 @@ jobs:
       matrix:
         include:
           - { platform: darwin-arm64, os: macos-latest }
+          # darwin/amd64 runs here and only here: ruled 2026-09-07 (#855) over the arm64 plan's build-only
+          # stance for Intel macOS, for the two scenario jobs. The Intel label set is closed at macos-26-intel.
+          - { platform: darwin-amd64, os: macos-15-intel }
           - { platform: linux-amd64, os: ubuntu-latest }
           - { platform: linux-arm64, os: ubuntu-24.04-arm }
           - { platform: windows-amd64, os: windows-latest }
@@ -232,5 +235,14 @@ jobs:
           brew install make
           echo "$(brew --prefix)/opt/make/libexec/gnubin" >> "$GITHUB_PATH"
 
-      - name: Writ-deploy scenario
+      # Declare-BashScript parses options with GNU getopt's --long, which macOS's BSD getopt lacks. The
+      # layer-journey scenario runs the deployed consumers with --help, so the runner needs the GNU one
+      # ahead of /usr/bin on PATH — the same prerequisite a developer's Mac holds through MacPorts or brew.
+      - name: GNU getopt (macOS ships BSD getopt)
+        if: runner.os == 'macOS'
+        run: |
+          brew install gnu-getopt
+          echo "$(brew --prefix)/opt/gnu-getopt/bin" >> "$GITHUB_PATH"
+
+      - name: Writ-deploy and layer-journey scenarios
         run: make test-scenario

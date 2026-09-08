@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
+# Get-UnixScenario - report the Unix scenario state
+
+# shellcheck source=Declare-BashScript
+source "$(dirname "$0")/Declare-BashScript" "$0" "help" "h" "$@"
+require_nix
+
+###########
+# Arguments
+###########
+
+declare -r synopsis="Get-UnixScenario [-h|--help]"
+eval set -- "$script_arguments"
+
+while :; do
+    case $1 in
+        -h | --help)
+            usage "$synopsis" # does not return
+            ;;
+        --)
+            shift 1
+            break
+            ;;
+        *)
+            error $EX_USAGE "Unrecognized option: $1"
+            ;;
+    esac
+done
+
+###########
+# Main
+###########
+
+note "Get-UnixScenario: report the Unix scenario state"
+printf '%s\n' "personal:Get-UnixScenario"
