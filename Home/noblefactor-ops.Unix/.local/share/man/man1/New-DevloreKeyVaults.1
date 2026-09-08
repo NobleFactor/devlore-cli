@@ -1,0 +1,44 @@
+.\" SPDX-License-Identifier: Apache-2.0
+.\" Copyright Noble Factor. All rights reserved.
+.TH NEW-DEVLOREKEYVAULTS 1 "2026-09-07" "Noble Factor" "User Commands"
+.SH NAME
+New-DevloreKeyVaults \- create the Azure Key Vaults for the devlore environments
+.SH SYNOPSIS
+.B New-DevloreKeyVaults
+.RB [ \-h | \-\-help ]
+.SH DESCRIPTION
+For each devlore environment
+.RB ( dev ,
+.BR stg ,
+.BR prd )
+.B New-DevloreKeyVaults
+ensures the resource group
+.BR rg\-nbf\-devlore\-<env> ,
+the Key Vault
+.B kv\-nbf\-devlore\-<env>
+with RBAC authorization and 90-day retention, and a
+.B Key Vault Administrator
+assignment for the signed-in user, in
+.BR westus2 .
+Every step is idempotent: what exists is reported, not recreated.
+.SH OPTIONS
+.TP
+.BR \-h ", " \-\-help
+Show this manual page and exit.
+.SH EXIT STATUS
+.TP
+.B 0
+Every vault exists with its assignment.
+.TP
+.B 64
+Usage error.
+.TP
+.B 69
+The Azure CLI is not installed.
+.TP
+.B 78
+Not running on Linux or macOS.
+.SH SEE ALSO
+.BR az (1)
+.SH LICENSE
+Apache-2.0.
