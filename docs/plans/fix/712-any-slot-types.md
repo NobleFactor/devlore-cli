@@ -329,6 +329,18 @@ that describe the positions it applies to link there. All five phases are comple
 documents table, and a plan carries an `## Issue NNN` heading per issue it serves; this plan and its issues were
 brought to that standard before the pull request.
 
+**Acceptance pass, 2026-09-07.** #735's six criteria are pinned: a slot binds its own generation after a shadow and a
+run-time key binds the current one (`TestResolveDispatchResource_AResourceBindsItsOwnGenerationAfterShadow`, criteria
+1 and 2); a declared slot and an `any` slot agree on the entry (`TestLoadGraph_ADeclaredSlotAndAnAnySlotAgreeOnTheResource`,
+3); a ledger miss is refused naming the slot and the id at load (`TestLoadGraph_AResourceIDTheLedgerLacksIsRefusedNamingSlotAndID`)
+and at dispatch (`param %s: … not in the run catalog`, 4); load resolves by `Lookup` and never stats, every load test
+above running on entries that exist nowhere (5); no slot path reaches `Discover(uri)`, and the constructors' removal is
+#854 (6). #712's third criterion -- `plan.Variable(default=1.0)` survives save and reload -- cannot be met by this plan:
+`plan.variable` DISCARDS its default (`_ = defaultValue`, a stub the phase-8 plan never finished), so there is no
+default in any document to envelope. Filed 2026-09-07 as #857 (bug) under #856, the plan provider's feature (every
+provider is a feature under #815). Test-plan row 8 is #857's test; when the default reaches the document it is an
+`any` position and rule 3 of the architecture's Value Encoding section already governs it.
+
 ### State as of 2026-09-01
 
 
@@ -949,7 +961,7 @@ Two things Phase 1 changed about the plan itself:
 | 5 | `IsTruthy(json.Number("0"))` is false | unit | Removing the `json.Number` case from `scalarTruthy` |
 | 6 | A bare value in an `any` slot is refused | unit | Phase 4 reverted to inference |
 | 7 | A map whose own key is the reserved key round-trips intact | unit | The envelope is applied selectively |
-| 8 | `plan.Variable(default=1.0)` survives save/reload with its type | e2e | Either side reverted |
+| 8 | `plan.Variable(default=1.0)` survives save/reload with its type | e2e | Either side reverted -- **moved to #857**: the default never reaches a document today |
 | 9 | JSON and YAML agree on the same graph, both directions | unit | Enveloping in one codec only |
 | 10 | A receipt's `Result` keeps its type across compensation | scenario | Phase 3 applied to `bindingData` alone |
 | 11 | A `map[string]any` round-trips every element type | unit | The envelope stops at the top level |

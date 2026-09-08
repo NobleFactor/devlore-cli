@@ -665,6 +665,83 @@ func TestLoadGraph_AURIInADeclaredResourceSlotIsRefused(t *testing.T) {
 	}
 }
 
+// TestLoadGraph_ADeclaredSlotAndAnAnySlotAgreeOnTheResource pins #735's third acceptance criterion: one resource held
+// by a declared resource slot (bare id) and by an `any` slot (`$resource` envelope) in one graph reloads as one entry
+// -- the same ledger object under the same id -- through both seams.
+func TestLoadGraph_ADeclaredSlotAndAnAnySlotAgreeOnTheResource(t *testing.T) {
+
+	environment := formatIdentityEnvironment(t)
+	candidate, err := newAnySlotResource(environment, "test:shared")
+	if err != nil {
+		t.Fatalf("newAnySlotResource: %v", err)
+	}
+	resource, err := environment.ResourceCatalog.GetOrCreate("hold", candidate.URI(), func() (Resource, error) { return candidate, nil })
+	if err != nil {
+		t.Fatalf("GetOrCreate: %v", err)
+	}
+	hold, err := ReceiverRegistry().BuildAction("resourceSlotFixture.hold")
+	if err != nil {
+		t.Fatalf("BuildAction(hold): %v", err)
+	}
+	keep, err := ReceiverRegistry().BuildAction("anySlotFixture.keep")
+	if err != nil {
+		t.Fatalf("BuildAction(keep): %v", err)
+	}
+	holder, err := NewNode(NewNodeSpec().WithID("hold").WithAction(hold).WithSlot("entry", NewImmediateBinding(resource)))
+	if err != nil {
+		t.Fatalf("NewNode(hold): %v", err)
+	}
+	keeper, err := NewNode(NewNodeSpec().WithID("keep").WithAction(keep).WithSlot("value", NewImmediateBinding(resource)))
+	if err != nil {
+		t.Fatalf("NewNode(keep): %v", err)
+	}
+	graph, err := NewGraph(NewGraphSpec().WithOrigin(NewOriginBase("test", "home", NewAnnotationMap(nil))).
+		WithUnits(holder, keeper).WithResourceCatalog(environment.ResourceCatalog))
+	if err != nil {
+		t.Fatalf("NewGraph: %v", err)
+	}
+
+	loaded, err := LoadGraph(formatIdentityEnvironment(t), serializeGraph(t, graph, "json"), "json")
+	if err != nil {
+		t.Fatalf("LoadGraph: %v", err)
+	}
+	values := map[string]any{}
+	for _, node := range loaded.Nodes() {
+		for name, value := range node.ResolveSlots(nil, nil) {
+			values[node.ID()+"."+name] = value
+		}
+	}
+	held, kept := values["hold.entry"], values["keep.value"]
+	if held == nil || held != kept {
+		t.Fatalf("the declared slot holds %p and the any slot %p; want one ledger entry", held, kept)
+	}
+	if got := held.(Resource).ID(); got != resource.ID() {
+		t.Errorf("reloaded entry has id %s; want %s", got, resource.ID())
+	}
+}
+
+// TestLoadGraph_AResourceIDTheLedgerLacksIsRefusedNamingSlotAndID pins #735's fourth acceptance criterion at load: a
+// slot naming an id the document's ledger does not hold is refused, and the refusal names the slot and the id.
+func TestLoadGraph_AResourceIDTheLedgerLacksIsRefusedNamingSlotAndID(t *testing.T) {
+
+	document, id := resourceSlotGraph(t)
+	slot := []byte(`"value":"` + id + `"`)
+	if !bytes.Contains(document, slot) {
+		t.Fatalf("the document does not carry the slot's bare id %s:\n%s", id, document)
+	}
+	doctored := bytes.Replace(document, slot, []byte(`"value":"res-404"`), 1)
+
+	_, err := LoadGraph(formatIdentityEnvironment(t), doctored, "json")
+	if err == nil {
+		t.Fatal("LoadGraph accepted a slot naming an id the ledger lacks; want a refusal")
+	}
+	for _, want := range []string{`slot "entry"`, "res-404", "not in the document's ledger"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("refusal %q does not name %s", err, want)
+		}
+	}
+}
+
 // TestLoadGraph_ADoctoredCatalogRowIsAChecksumMismatch pins #712 decision 11: the catalog's intent rows are in the
 // canonical form, so a document whose `resources` row was rewritten -- the slot's id untouched -- is a checksum
 // mismatch at load, never a graph pointed at something the plan never claimed.

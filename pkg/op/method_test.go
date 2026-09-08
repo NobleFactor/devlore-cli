@@ -131,3 +131,44 @@ func TestResolveDispatchResource_ARecordedIDResolvesByID(t *testing.T) {
 		t.Errorf("a recorded id the run catalog lacks must be refused; got applied %t, err %v", applied, err)
 	}
 }
+
+// TestResolveDispatchResource_AResourceBindsItsOwnGenerationAfterShadow pins #735's first two acceptance criteria at
+// the dispatch seam: after a URI is re-produced -- a second generation shadows the first -- a slot written against
+// either generation resolves to that generation by id, while a run-time string key resolves to whichever generation
+// is current, which is what a key means (§5.6).
+func TestResolveDispatchResource_AResourceBindsItsOwnGenerationAfterShadow(t *testing.T) {
+
+	catalog := NewResourceCatalog()
+	first := newLifecycle("test:///versioned", AddressingLocation)
+	_, firstID := catalog.Resolve(first)
+	second := newLifecycle("test:///versioned", AddressingLocation)
+	secondID := catalog.Shadow(second, "writer")
+	if firstID == secondID {
+		t.Fatalf("Shadow minted no new generation: both ids are %s", firstID)
+	}
+	activation := &ActivationRecord{Graph: &Graph{}, RuntimeEnvironment: &RuntimeEnvironment{ResourceCatalog: catalog}}
+	target := reflect.TypeFor[*lifecycleResource]()
+
+	for _, testCase := range []struct {
+		name string
+		id   string
+		want *lifecycleResource
+	}{
+		{"the first generation", firstID, first},
+		{"the second generation", secondID, second},
+	} {
+		captured := newLifecycle("test:///versioned", AddressingLocation)
+		captured.id = testCase.id
+		resolved, applied, err := resolveDispatchResource(activation, captured, target)
+		if !applied || err != nil {
+			t.Fatalf("%s: applied %t, err %v; want applied, nil", testCase.name, applied, err)
+		}
+		if resolved != Resource(testCase.want) {
+			t.Errorf("%s: a slot written against %s resolved to %p, not its own generation %p", testCase.name, testCase.id, resolved, testCase.want)
+		}
+	}
+	resolved, applied, err := resolveDispatchResource(activation, "test:///versioned", target)
+	if !applied || err != nil || resolved != Resource(second) {
+		t.Errorf("a run-time key resolved to %v (applied %t, err %v); want the current generation %p", resolved, applied, err, second)
+	}
+}
