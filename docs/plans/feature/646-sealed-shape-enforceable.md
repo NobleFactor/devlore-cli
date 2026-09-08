@@ -10,12 +10,18 @@ updated: 2026-09-08
 
 ## Summary
 
-Every announced resource type is an exported interface, sealed by an unexported method, over an unexported struct
-in the provider's own package. That is true of all twelve today, and nothing enforces it: `AnnounceResource`
-refuses an interface with no registered implementation and accepts anything else, including the plain struct
-every provider announced before sealing. This plan states the shape as one check, has the announcement refuse a
-type that fails it, walks every announced type with the same check from the inventory's boot-discipline suite, and
-rewrites the registration document so a developer adding a provider reads the contract rather than infers it.
+This plan adds contract enforcement to the announcement of a resource, and takes nothing away.
+
+The contract already holds: every one of the twelve announced resource types is an exported interface, sealed by an
+unexported method, over an unexported struct in the provider's own package. What is missing is enforcement. Today
+`AnnounceResource` refuses only an interface with no registered implementation; after this plan it also refuses a
+type that fails the shape, the inventory's boot-discipline suite walks every announced type with the same check, and
+the registration document states the shape as the contract for adding a resource.
+
+Only `AnnounceResource` runs the check. `AnnounceProvider` and `AnnounceType` -- providers, and plain data types such
+as the providers' result structs -- are untouched, so a plain exported struct remains a data type exactly as before.
+Nothing that works today stops working; the only thing removed is the ability to announce a non-conforming type as a
+resource, which nothing in the tree does.
 
 ## Issue 646
 
