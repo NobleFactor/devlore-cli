@@ -25,7 +25,10 @@ kept), shadowing, observations-as-results, receipts + the recovery site, and the
 lifecycle sections restated. The **declared-output-spec design (old §6.8–6.9) did not land** — verified 2026-07-22:
 no `OutputSpec`, no `KnownAtExecution`, no `*Planned` companions in the tree — and is preserved as an explicitly
 unimplemented appendix with its prior-art grounding; the landed alternative (planner + conversion cascade,
-post-dispatch shadowing for monadic outputs) is named beside it.
+post-dispatch shadowing for monadic outputs) is named beside it. **Revised 2026-09-08 for the sealed contract (#647, phase 10 of #625):** §2 states the two-level
+seal -- the framework interface, and each provider's own sealed interface over an unexported struct -- and §9
+item 19 records what it buys (the guarantees hold by construction, not by convention) and the accepted `%T`
+cost.
 
 ## Completion
 

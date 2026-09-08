@@ -1,7 +1,7 @@
 ---
 title: "The design record states the sealed contract"
 issue: https://github.com/NobleFactor/devlore-cli/issues/647
-status: draft
+status: complete
 created: 2026-09-08
 updated: 2026-09-08
 ---
@@ -25,11 +25,11 @@ items are this plan's four requirements. Closed by this plan's pull request.
 
 ## Goals
 
-- [ ] No per-provider document describes a sealed resource as a struct or spells it as a pointer.
-- [ ] Each of the nine providers with a sealed resource records the shape, in one line, in the same form.
-- [ ] `4-resource-management.md` says what the seal buys, in the sections that state the guarantees.
-- [ ] The accepted `%T` cost is recorded where a reader meets the resource model, not only in the registration doc.
-- [ ] Every touched document's status file records the pass.
+- [x] No per-provider document describes a sealed resource as a struct or spells it as a pointer.
+- [x] Each of the nine providers with a sealed resource records the shape, in one line, in the same form.
+- [x] `4-resource-management.md` says what the seal buys, in the sections that state the guarantees.
+- [x] The accepted `%T` cost is recorded where a reader meets the resource model, not only in the registration doc.
+- [x] Every touched document's status file records the pass.
 
 ## Current State
 
@@ -90,31 +90,31 @@ one home.
 
 **Why `mem` and `pkg` are recorded, not fixed.** `mem`'s resource is described by `4.2-mem-resource.md`, which gets
 the sentence. `pkg` has no design document at all; writing one is a task under the pkg provider's feature
-([#836](https://github.com/NobleFactor/devlore-cli/issues/836)), filed by this plan rather than folded into a
-documentation pass.
+([#836](https://github.com/NobleFactor/devlore-cli/issues/836)); filed 2026-09-08 as
+[#868](https://github.com/NobleFactor/devlore-cli/issues/868) rather than folded into a documentation pass.
 
 **What this plan does not touch.** No code, no tests, no generated file. The gate runs to prove that.
 
 ## Implementation Phases
 
-### Phase 1: The per-provider documents
+### Phase 1: The per-provider documents -- COMPLETE (2026-09-08)
 
-- [ ] `3.5.5-json`, `3.5.6-yaml`, `3.5.14-function`: pointer prose becomes the interface; the sentence added.
-- [ ] `3.5.10-git`, `3.5.11-service`, `3.5.12-appnet`: the sentence added where the resource is first named.
-- [ ] `4.2-mem-resource.md`: the sentence added.
-- [ ] `3.5-provider-catalog.md`: its `json` and `yaml` rows name the interface.
-- [ ] `3.5.4-file-provider.md`: verified as the model; no change expected.
+- [x] `3.5.5-json`, `3.5.6-yaml`, `3.5.14-function`: pointer prose becomes the interface; the sentence added.
+- [x] `3.5.10-git`, `3.5.11-service`, `3.5.12-appnet`: the sentence added where the resource is first named.
+- [x] `4.2-mem-resource.md`: the sentence added.
+- [x] `3.5-provider-catalog.md`: its `json` and `yaml` rows name the interface.
+- [x] `3.5.4-file-provider.md`: verified as the model; no change expected.
 
-### Phase 2: The model and the cost
+### Phase 2: The model and the cost -- COMPLETE (2026-09-08)
 
-- [ ] `4-resource-management.md` §2's `Resource` paragraph states the two-level shape.
-- [ ] A resolved decision in §9 records what the seal buys and the accepted `%T` cost.
+- [x] `4-resource-management.md` §2's `Resource` paragraph states the two-level shape.
+- [x] A resolved decision in §9 records what the seal buys and the accepted `%T` cost.
 
-### Phase 3: Status files and closure
+### Phase 3: Status files and closure -- COMPLETE (2026-09-08)
 
-- [ ] The status file of every document touched gains its row.
-- [ ] `625-sealed-provider-resources.md` phase 10 reads complete; the feature's plan closes.
-- [ ] The `pkg` design-document gap filed under #836.
+- [x] The status file of every document touched gains its row.
+- [x] `625-sealed-provider-resources.md` phase 10 reads complete; the feature's plan closes.
+- [x] The `pkg` design-document gap filed under #836 (see below).
 
 ## Test Plan
 

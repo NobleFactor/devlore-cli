@@ -17,20 +17,21 @@ This plan is **thread 2 of four**, worked after the CLI output conventions
 ([#762](https://github.com/NobleFactor/devlore-cli/issues/762)) and unified configuration
 ([#441](https://github.com/NobleFactor/devlore-cli/issues/441)).
 
-**Nine of ten phases have landed.** Phases 1-9 are complete: the framework repairs and `service`, the
+**All ten phases have landed.** Phases 1-10 are complete: the framework repairs and `service`, the
 generator inspecting the implementation, `git` and `appnet`, `json` and `yaml`, `mem` and `function`, `pkg`,
 `file`, the `ConvertFrom` sweep, and the structural enforcement (#646: `AnnounceResource` refuses any shape but a
 sealed interface over an unexported struct; the boot-discipline suite reads the same rule). Every announced resource
 type is an interface, the rule holds with no exceptions and is enforced, and no string reaches a resource through the
-target side. What remains is closure: the design record (#647).
+target side, and the design record states the contract, what it buys, and its cost (#647). The feature is complete;
+the providers' `Unmarshal*` constructors are a follow-up of their own ([#854](https://github.com/NobleFactor/devlore-cli/issues/854)).
 
 | Phase | Subject | Issue |
 | --- | --- | --- |
 | 9 | the rule becomes structurally enforceable | [#646](https://github.com/NobleFactor/devlore-cli/issues/646) |
 | 10 | closure — the design record states the contract | [#647](https://github.com/NobleFactor/devlore-cli/issues/647) |
 
-Every remaining phase already has an issue. **#646 is complete** (2026-09-08, plan
-[646-sealed-shape-enforceable.md](646-sealed-shape-enforceable.md)); **#647 is next.**
+Every phase has an issue and every issue is closed but one: **#646 and #647 are complete** (2026-09-08); the
+feature's remaining work is **#854**, the `Unmarshal*` retirement.
 
 ### The thread's other open work
 
@@ -770,7 +771,7 @@ phase found:
 
 Without this the rule is a convention, and conventions decay.
 
-#### Phase 10 — closure — status: pending
+#### Phase 10 — closure — status: complete (2026-09-08; plan [../doc/647-sealed-contract-design-record.md](../doc/647-sealed-contract-design-record.md))
 
 The `3.5.x` per-provider design docs drop any language describing the resource as a struct.
 `4-resource-management.md` records what the seal buys: the model's guarantees now rest on the compiler

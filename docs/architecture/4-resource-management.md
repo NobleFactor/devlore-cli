@@ -63,8 +63,11 @@ executed on many machines:
 
 **`Resource`** (`pkg/op/resource.go`) — an interface sealed by an unexported method; only types embedding
 `ResourceBase` implement it. The base carries identity (`uri`, catalog `id`, `producerID` — empty for discovered,
-pre-existing things) and the catalog-owned `ResourceState`. Provider resource types embed the base and add domain
-fields ([3.5.x](3.5-provider-catalog.md) per provider; [4.1](4.1-resource-identity.md) for scheme and addressing).
+pre-existing things) and the catalog-owned `ResourceState`. **A provider's resource is sealed the same way, one level
+down**: an exported interface embedding `Resource` and sealed by an unexported method it declares itself, over an
+unexported struct that embeds the base and adds the domain fields ([3.5.x](3.5-provider-catalog.md) per provider;
+[4.1](4.1-resource-identity.md) for scheme and addressing). `AnnounceResource` refuses any other shape, so nothing
+outside a provider's package can build that provider's resource -- see item 19 below for what that buys.
 
 **`ResourceCatalog`** (`pkg/op/resource_catalog.go`) — one per graph: the append-only ledger plus the URI→id
 namespace. Its surface (tree-verified 2026-07-22):
@@ -504,6 +507,19 @@ is uniform: `p.RuntimeEnvironment()` for the root, catalog, platform, recovery s
 18. **Claims are true when made** (ruled 2026-08-22) — falseness is a mediation failure with four doors;
     kind-honest activation (per-kind `Exists`; the activation capture kind-mismatch becomes a verdict) is
     chartered in the plan's phase-4 docket.
+19. **The guarantees rest on the compiler** (delivered 2026-09-08, [#625](https://github.com/NobleFactor/devlore-cli/issues/625)
+    phases 1–10) — every provider's resource is a sealed interface over an unexported struct, and
+    [`AnnounceResource`](4.3-resource-registration.md) refuses any other shape at init. The model's guarantees
+    therefore hold by construction rather than by convention: a resource cannot come into being outside its
+    provider, so a claim is true when made (item 18) because only the claiming path can mint one; identity is the
+    catalog key (item 9) because the only constructor interns; a string is a key and never a constructor (item 15)
+    because there is nothing outside the package for a string to construct; and the graph carries complete intent
+    (item 9) because nothing can enter a slot un-cataloged. Before this, each was a rule a reviewer had to enforce.
+
+    **The accepted cost**: reflection prints the implementation while identity names the interface — `%T` on a
+    service resource yields `*service.resource`, and its type id and URI say `service.Resource`. The two are
+    deliberately different strings; matching one against the other is wrong by construction. Provider code and
+    tests compare types against the interface, never against `%T`'s text.
 
 ## 10. Open Questions
 
