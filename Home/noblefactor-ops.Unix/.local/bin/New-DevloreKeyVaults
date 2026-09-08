@@ -1,13 +1,35 @@
 #!/usr/bin/env bash
 
-# SPDX-License-Identifier: MIT
-# Copyright (c) 2025 Noble Factor. All rights reserved.
-# Redistribution and use in source and binary forms, with or without modification, are permitted under the terms of the MIT License.
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
 
-# New-DevloreKeyVaults - Create Azure Key Vaults for devlore environments
+# New-DevloreKeyVaults - Create the Azure Key Vaults for the devlore environments: dev, stg, prd
 
-source "Declare-BashScript" "$0" "" "" "$@"
+# shellcheck source=Declare-BashScript
+source "$(dirname "$0")/Declare-BashScript" "$0" "help" "h" "$@"
 require_nix
+
+###########
+# Arguments
+###########
+
+declare -r synopsis="New-DevloreKeyVaults [-h|--help]"
+eval set -- "$script_arguments"
+
+while :; do
+    case $1 in
+        -h | --help)
+            usage "$synopsis" # does not return
+            ;;
+        --)
+            shift 1
+            break
+            ;;
+        *)
+            error $EX_USAGE "Unrecognized option: $1"
+            ;;
+    esac
+done
 
 command -v az >/dev/null 2>&1 || error $EX_UNAVAILABLE "The 'az' command is required but not found. Please install the Azure CLI."
 

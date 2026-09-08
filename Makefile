@@ -1,7 +1,27 @@
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-SHELL := bash
+# Every recipe here is bash. On Windows, GNU make started from PowerShell or cmd may find no `bash` on
+# PATH; it then runs the recipes under cmd.exe, where the first one dies as
+#   'GOOS' is not recognized as an internal or external command
+# and names nothing useful (DANOBLE-WD11-3, 2026-09-08, #865). Git for Windows ships the bash this
+# Makefile is written for, so the Makefile finds it rather than leaving PATH to decide. By its 8.3 path:
+# make hands SHELL to the OS as a bare string, and `C:\Program Files\...` splits at the space. Evaluated
+# before any recipe or $(shell), so everything below runs under the chosen bash; empty $(OS) elsewhere
+# skips the block.
+ifeq ($(OS),Windows_NT)
+  GIT_BASH := $(firstword $(wildcard C:/PROGRA~1/Git/bin/bash.exe C:/PROGRA~1/Git/usr/bin/bash.exe \
+                                     $(subst \,/,$(LOCALAPPDATA))/Programs/Git/bin/bash.exe))
+  ifneq ($(GIT_BASH),)
+    SHELL := $(GIT_BASH)
+  else ifeq ($(wildcard C:/Program?Files/Git/bin/bash.exe),)
+    $(error This Makefile runs under bash. Install Git for Windows, or put a bash on PATH)
+  else
+    SHELL := bash
+  endif
+else
+  SHELL := bash
+endif
 .SHELLFLAGS := -o errexit -o nounset -o pipefail -c
 .ONESHELL:
 
