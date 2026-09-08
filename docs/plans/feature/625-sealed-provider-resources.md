@@ -17,19 +17,20 @@ This plan is **thread 2 of four**, worked after the CLI output conventions
 ([#762](https://github.com/NobleFactor/devlore-cli/issues/762)) and unified configuration
 ([#441](https://github.com/NobleFactor/devlore-cli/issues/441)).
 
-**Eight of ten phases have landed.** Phases 1-8 are complete: the framework repairs and `service`, the
+**Nine of ten phases have landed.** Phases 1-9 are complete: the framework repairs and `service`, the
 generator inspecting the implementation, `git` and `appnet`, `json` and `yaml`, `mem` and `function`, `pkg`,
-`file`, and the `ConvertFrom` sweep. Every announced resource type is an interface, the rule holds with no
-exceptions, and no string reaches a resource through the target side. What remains is closure: the structural
-assertion and the design record.
+`file`, the `ConvertFrom` sweep, and the structural enforcement (#646: `AnnounceResource` refuses any shape but a
+sealed interface over an unexported struct; the boot-discipline suite reads the same rule). Every announced resource
+type is an interface, the rule holds with no exceptions and is enforced, and no string reaches a resource through the
+target side. What remains is closure: the design record (#647).
 
 | Phase | Subject | Issue |
 | --- | --- | --- |
 | 9 | the rule becomes structurally enforceable | [#646](https://github.com/NobleFactor/devlore-cli/issues/646) |
 | 10 | closure — the design record states the contract | [#647](https://github.com/NobleFactor/devlore-cli/issues/647) |
 
-Every remaining phase already has an issue. **#646 is in progress** (opened 2026-09-08, plan
-[646-sealed-shape-enforceable.md](646-sealed-shape-enforceable.md)); #647 follows.
+Every remaining phase already has an issue. **#646 is complete** (2026-09-08, plan
+[646-sealed-shape-enforceable.md](646-sealed-shape-enforceable.md)); **#647 is next.**
 
 ### The thread's other open work
 
@@ -761,7 +762,7 @@ phase found:
   interfaces, and `TestDiscover_CrossKindCollisionErrors` asserts `file.Regular` and `file.Directory`.
 - **No consumer changed.** `make check` green.
 
-#### Phase 9 — the rule becomes structurally enforceable — status: in progress (2026-09-08; plan [646-sealed-shape-enforceable.md](646-sealed-shape-enforceable.md))
+#### Phase 9 — the rule becomes structurally enforceable — status: complete (2026-09-08; plan [646-sealed-shape-enforceable.md](646-sealed-shape-enforceable.md))
 
 1. `4.3-resource-registration.md` states the shape as **the contract** for adding a provider resource.
 2. A test asserts it structurally: every announced resource type is an interface, and the struct behind

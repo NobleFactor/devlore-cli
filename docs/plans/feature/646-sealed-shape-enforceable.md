@@ -1,7 +1,7 @@
 ---
 title: "The sealed-resource shape is enforced at announcement"
 issue: https://github.com/NobleFactor/devlore-cli/issues/646
-status: in-progress
+status: complete
 created: 2026-09-08
 updated: 2026-09-08
 ---
@@ -35,7 +35,7 @@ so it survives the next contributor without depending on review. Closed by this 
       refused at announcement, and the refusal names the type and the rule it broke.
 - [x] Every announced resource type in the tree passes the check, asserted by a test that walks the populated
       registry.
-- [ ] `4.3-resource-registration.md` states the shape as the contract for adding a provider resource; its status
+- [x] `4.3-resource-registration.md` states the shape as the contract for adding a provider resource; its status
       file and the feature plan record the phase.
 
 ## Current State
@@ -145,10 +145,10 @@ buys are phase 10. This plan touches `4.3` alone, because `4.3` is where the dev
 
 **Files:** `pkg/op/receiver_type.go`, `pkg/op/inventory/discipline_test.go`.
 
-### Phase 3: The document is the contract
+### Phase 3: The document is the contract -- COMPLETE (2026-09-08)
 
-- [ ] `4.3-resource-registration.md` §1, §5, §6 as Requirement 5 states; its status file gains the row.
-- [ ] `625-sealed-provider-resources.md` phase 9 reads complete; this plan's status reads complete.
+- [x] `4.3-resource-registration.md` §1, §5, §6 as Requirement 5 states; its status file gains the row.
+- [x] `625-sealed-provider-resources.md` phase 9 reads complete; this plan's status reads complete.
 
 **Files:** `docs/architecture/4.3-resource-registration.md`, `docs/architecture/4.3-resource-registration.status.md`,
 `docs/plans/feature/625-sealed-provider-resources.md`, this plan.
