@@ -3,7 +3,10 @@
 
 package op
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // VariableSourceKind identifies a variable-value source category. Numeric values ascend with precedence —
 // higher beats lower. Callers can compare kinds directly to determine which source would win in a cascade.
@@ -101,6 +104,35 @@ type Variable struct {
 
 // region Behaviors
 
+// MarshalJSON writes the variable with its value enveloped. A variable's value is an `any` position, and a paused
+// run reads it back from the trace, so the document names its type (#712 phase 3, item 4).
+//
+// Returns:
+//   - `[]byte`: the JSON encoding.
+//   - `error`: a value the document has no name for, or any error from [json.Marshal].
+func (v Variable) MarshalJSON() ([]byte, error) {
+
+	value, err := encodeTypeWrapper(v.Value)
+	if err != nil {
+		return nil, fmt.Errorf("op.Variable.MarshalJSON: %s: %w", v.Name, err)
+	}
+	return json.Marshal(variableDocument{Name: v.Name, Field: v.Field, Value: value, Source: v.Source})
+}
+
+// MarshalYAML returns the variable's document shape for the YAML encoder, its value enveloped (#712 phase 3, item 4).
+//
+// Returns:
+//   - `any`: the [variableDocument] value.
+//   - `error`: a value the document has no name for.
+func (v Variable) MarshalYAML() (any, error) {
+
+	value, err := encodeTypeWrapper(v.Value)
+	if err != nil {
+		return nil, fmt.Errorf("op.Variable.MarshalYAML: %s: %w", v.Name, err)
+	}
+	return variableDocument{Name: v.Name, Field: v.Field, Value: value, Source: v.Source}, nil
+}
+
 // String formats as "<name> = <value> [<source>]". The bracketed source keeps the boundary between value
 // and source unambiguous even when the value contains spaces.
 //
@@ -111,6 +143,62 @@ func (v Variable) String() string {
 	return fmt.Sprintf("%s = %v [%s]", v.Name, v.Value, v.Source)
 }
 
+// UnmarshalJSON reads a variable back, decoding its enveloped value with no catalog: a `$resource` becomes a
+// [recordedResourceID], which graph dispatch resolves against the run catalog by id.
+//
+// Parameters:
+//   - `data`: the JSON document.
+//
+// Returns:
+//   - `error`: any error from [json.Unmarshal], or a value that does not carry its type.
+func (v *Variable) UnmarshalJSON(data []byte) error {
+
+	var document variableDocument
+	if err := json.Unmarshal(data, &document); err != nil {
+		return err
+	}
+	value, err := decodeTypeWrapper(document.Value, nil)
+	if err != nil {
+		return fmt.Errorf("op.Variable.UnmarshalJSON: %s: %w", document.Name, err)
+	}
+	*v = Variable{Name: document.Name, Field: document.Field, Value: value, Source: document.Source}
+	return nil
+}
+
+// UnmarshalYAML reads a variable back from a YAML node, as [Variable.UnmarshalJSON] does from JSON.
+//
+// Parameters:
+//   - `unmarshal`: the yaml.v3 node-decoding callback.
+//
+// Returns:
+//   - `error`: any error from `unmarshal`, or a value that does not carry its type.
+func (v *Variable) UnmarshalYAML(unmarshal func(any) error) error {
+
+	var document variableDocument
+	if err := unmarshal(&document); err != nil {
+		return err
+	}
+	value, err := decodeTypeWrapper(document.Value, nil)
+	if err != nil {
+		return fmt.Errorf("op.Variable.UnmarshalYAML: %s: %w", document.Name, err)
+	}
+	*v = Variable{Name: document.Name, Field: document.Field, Value: value, Source: document.Source}
+	return nil
+}
+
 // endregion
+
+// endregion
+
+// region SUPPORTING TYPES
+
+// variableDocument is [Variable]'s document shape: the same fields, with `Value` carrying its type envelope (#712).
+// It exists only to (de)serialize a Variable through the two codecs.
+type variableDocument struct {
+	Name   string         `json:"name"            yaml:"name"`
+	Field  string         `json:"field,omitempty" yaml:"field,omitempty"`
+	Value  any            `json:"value"           yaml:"value"`
+	Source VariableSource `json:"source"          yaml:"source"`
+}
 
 // endregion

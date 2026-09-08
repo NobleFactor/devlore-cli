@@ -7,6 +7,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
+	"reflect"
+	"strings"
 
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
 )
@@ -193,14 +196,22 @@ func (n *Node) Execute(
 // Returns:
 //   - []byte: the JSON encoding of the node's document form.
 //   - `error`: non-nil if JSON marshaling fails.
-func (n *Node) MarshalJSON() ([]byte, error) { return json.Marshal(n.marshalData()) }
+func (n *Node) MarshalJSON() ([]byte, error) {
+
+	data, err := n.marshalData()
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(data)
+}
 
 // MarshalYAML returns the node's [nodeData] document shape for the YAML encoder to serialize.
 //
 // Returns:
 //   - `any`: the [nodeData] document-form value.
-//   - `error`: always nil; present only to satisfy the yaml.Marshaler signature.
-func (n *Node) MarshalYAML() (any, error) { return n.marshalData(), nil }
+//   - `error`: when a slot holds a value the document has no type name for.
+func (n *Node) MarshalYAML() (any, error) { return n.marshalData() }
 
 // Parameters returns this node's variable bubble-up surface — one [Parameter] per slot whose value is a
 // [VariableBinding]. Each returned entry carries the value-side variable name (the variable a caller of this node's
@@ -264,19 +275,26 @@ func (n *Node) Parameters() ([]Parameter, error) {
 //
 // Returns:
 //   - `nodeData`: the projected serialized value.
-func (n *Node) marshalData() nodeData {
+//   - `error`: when a slot holds a value the document has no type name for.
+func (n *Node) marshalData() (nodeData, error) {
 	var actionName string
 	if a := n.Action(); a != nil {
 		actionName = string(a.Name())
 	}
+
+	slots, err := marshalBindings(n.slots, n.Action())
+	if err != nil {
+		return nodeData{}, fmt.Errorf("op.Node.marshalData: node %q: %w", n.id, err)
+	}
+
 	return nodeData{
 		ID:          n.id,
 		ActionName:  actionName,
 		Annotations: n.annotations.values,
 		Retry:       n.RetryPolicy(),
-		Slots:       marshalBindings(n.slots),
+		Slots:       slots,
 		Transition:  n.TransitionPolicy(),
-	}
+	}, nil
 }
 
 // endregion
@@ -299,10 +317,10 @@ func (n *Node) marshalData() nodeData {
 //
 // Returns:
 //   - `map[string]Binding`: the live slot map, or nil when `data` is empty.
-func assembleBindings(data map[string]bindingData, action Action) map[string]Binding {
+func assembleBindings(data map[string]bindingData, action Action, catalog *ResourceCatalog) (map[string]Binding, error) {
 
 	if len(data) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	// A nil action carries no declared types, so serialized values pass through as decoded. Only an
@@ -316,14 +334,93 @@ func assembleBindings(data map[string]bindingData, action Action) map[string]Bin
 	for name, d := range data {
 		switch {
 		case d.Immediate != nil:
-			bindings[name] = NewImmediateBinding(readAgainstField(d.Immediate.Value, method, name))
+			value, err := readSlotValue(d.Immediate.Value, method, name, catalog)
+			if err != nil {
+				return nil, fmt.Errorf("slot %q: %w", name, err)
+			}
+			bindings[name] = NewImmediateBinding(value)
 		case d.Promise != nil:
 			bindings[name] = NewPromiseBinding(d.Promise.UnitID)
 		case d.Variable != nil:
 			bindings[name] = NewVariableBindingWithField(d.Variable.Name, d.Variable.Field)
 		}
 	}
-	return bindings
+	return bindings, nil
+}
+
+// readSlotValue recovers a slot's value from its document form.
+//
+// A value that carries its own type is unwrapped, and the type it records is the answer -- no parameter is
+// consulted, because the document already said what the value is. A declared resource slot holds the catalog id,
+// bare, and binds to the ledger entry it names ([lookupSlotResource]). A slot that carries its type by rule --
+// undeclared, or declared `any` -- holding anything but an envelope is refused: a bare value there is a malformed
+// document, not a type to infer (#712 phase 4). Everything else is a bare literal whose type only the field can
+// supply, which is [readAgainstField]'s job and #711's mechanism.
+//
+// Parameters:
+//   - `value`: the decoded document value.
+//   - `method`: the node's resolved method; nil when the caller has no action.
+//   - `name`: the slot name.
+//   - `catalog`: the document's catalog, for resource ids.
+//
+// Returns:
+//   - `any`: the live value.
+//   - `error`: a malformed or unknown envelope, a bare value in an `any` slot, an id the ledger does not hold, or
+//     a number nothing declares.
+func readSlotValue(value any, method *Method, name string, catalog *ResourceCatalog) (any, error) {
+	if isTypeWrapper(value) {
+		return decodeTypeWrapper(value, catalog)
+	}
+	// A slot that carries its type by rule -- undeclared, or declared `any` -- holds an envelope or nothing. A bare
+	// value here was not written by the encoder, and the reader does not infer a type from its shape: inference is
+	// what produced the defect (#712 phase 4, requirement 3). An envelope naming an unknown type is the same refusal,
+	// naming the type instead of guessing a fallback.
+	if declared, ok := slotDeclaredType(method, name); !ok || isAnyType(declared) {
+		unit := "a unit with no action"
+		if method != nil {
+			unit = method.Name()
+		}
+		if typeName, unknown := unknownEnvelopeName(value); unknown {
+			return nil, fmt.Errorf("slot %q of %s: the envelope names a type this reader does not know: %q", name, unit, typeName)
+		}
+		return nil, fmt.Errorf("slot %q of %s holds a bare %T: an `any` slot's value carries its type (#712), "+
+			"and there is nothing to read it against", name, unit, value)
+	}
+	if declared, ok := slotDeclaredType(method, name); ok && declared.Implements(resourceInterfaceType) {
+		if id, isString := value.(string); isString {
+			return lookupSlotResource(id, catalog)
+		}
+	}
+	return readAgainstField(value, method, name)
+}
+
+// lookupSlotResource binds a declared resource slot to the ledger entry its recorded id names.
+//
+// Identity only, by [ResourceCatalog.Lookup] against the document's own catalog (decision 10): the slot holds the
+// generation it was written against, never whichever generation of a URI is current (#735). A URI in the slot is a
+// document written before ids were recorded, and it is refused rather than re-identified.
+//
+// Parameters:
+//   - `id`: the slot's document value.
+//   - `catalog`: the document's catalog.
+//
+// Returns:
+//   - `any`: the ledger entry.
+//   - `error`: a URI where an id belongs, no catalog, or an id the ledger does not hold.
+func lookupSlotResource(id string, catalog *ResourceCatalog) (any, error) {
+
+	if strings.HasPrefix(id, tagURIPrefix) {
+		return nil, fmt.Errorf("a resource slot records the catalog id, and %q is a URI: a URI names whichever "+
+			"generation is current, not the one this graph was written against (#735); re-plan the graph", id)
+	}
+	if catalog == nil {
+		return nil, fmt.Errorf("resource id %q with no catalog to resolve it against", id)
+	}
+	resource, found := catalog.Lookup(id)
+	if !found {
+		return nil, fmt.Errorf("resource id %q is not in the document's ledger", id)
+	}
+	return resource, nil
 }
 
 // assembleNode constructs a [*Node] from a [nodeData] payload during deserialization.
@@ -338,7 +435,7 @@ func assembleBindings(data map[string]bindingData, action Action) map[string]Bin
 // Returns:
 //   - `*Node`: the constructed node, with action bound.
 //   - `error`: non-nil if the action name cannot be resolved.
-func assembleNode(p *nodeData) (*Node, error) {
+func assembleNode(p *nodeData, catalog *ResourceCatalog) (*Node, error) {
 
 	action, err := resolvePayloadAction(p.ActionName, "node", p.ID)
 	if err != nil {
@@ -355,7 +452,11 @@ func assembleNode(p *nodeData) (*Node, error) {
 		return nil, err
 	}
 
-	node.slots = assembleBindings(p.Slots, action)
+	slots, err := assembleBindings(p.Slots, action, catalog)
+	if err != nil {
+		return nil, fmt.Errorf("op.assembleNode: node %q: %w", p.ID, err)
+	}
+	node.slots = slots
 	return node, nil
 }
 
@@ -376,8 +477,8 @@ func assembleNode(p *nodeData) (*Node, error) {
 // run catalog. Converting it here constructs at LOAD time, which the ruling forbids, and it moves the graph's
 // checksum because the canonical form is computed from these values.
 //
-// A slot with no declared type passes through as decoded. An `any` parameter has nothing to read against, and
-// the document does not yet carry the type it would need (#712).
+// A slot with no declared type, or declared `any`, never reaches here: its value carries its own type, and a bare
+// one is refused in [readSlotValue] before this step (#712 phase 4).
 //
 // A value the field cannot hold also passes through unchanged, so the failure surfaces at dispatch naming the
 // parameter and its type rather than here naming a slot the author never wrote.
@@ -388,24 +489,31 @@ func assembleNode(p *nodeData) (*Node, error) {
 //   - `name`: the slot name, which is the parameter name.
 //
 // Returns:
-//   - `any`: the value read against the field, or the value unchanged.
-func readAgainstField(value any, method *Method, name string) any {
+//   - `any`: the value read against the field; a non-number passes through unchanged.
+//   - `error`: a number with nothing to read it against, or one its parameter's type cannot hold.
+func readAgainstField(value any, method *Method, name string) (any, error) {
 
-	if method == nil || !isDecodedNumber(value) {
-		return value
+	if declared, ok := frameworkSlotType(name); ok {
+		return readFrameworkSlot(value, declared)
 	}
-
+	if !isDecodedNumber(value) {
+		return value, nil
+	}
+	// From here the value is a decoder artifact -- a number whose type only the field can supply -- and every
+	// route that once handed it forward unchanged is an error instead (#712 phase 2): no guessing.
+	if method == nil {
+		return nil, fmt.Errorf("a number (%T) with no action to declare the slot: nothing to read it against", value)
+	}
 	parameter, declared := method.ParameterByName(name)
 	if !declared || parameter.Type == nil {
-		return value
+		return nil, fmt.Errorf("a number (%T) in a slot %s declares no parameter for: nothing to read it against", value, method.Name())
 	}
-
 	converted, err := Convert(nil, value, parameter.Type)
 	if err != nil {
-		return value
+		return nil, fmt.Errorf("parameter %q of %s is declared %s, and the document's number cannot be read as one: %w",
+			parameter.Name, method.Name(), parameter.Type, err)
 	}
-
-	return converted
+	return converted, nil
 }
 
 // isDecodedNumber reports whether a decoded slot value is a number a codec may have mistyped.
@@ -439,17 +547,38 @@ func isDecodedNumber(value any) bool {
 //
 // Returns:
 //   - `map[string]bindingData`: the document-form slot map, or nil when `bindings` is empty.
-func marshalBindings(bindings map[string]Binding) map[string]bindingData {
+func marshalBindings(bindings map[string]Binding, action Action) (map[string]bindingData, error) {
 
 	if len(bindings) == 0 {
-		return nil
+		return nil, nil
+	}
+
+	var method *Method
+	if action != nil {
+		method = action.Method()
 	}
 
 	data := make(map[string]bindingData, len(bindings))
 	for name, binding := range bindings {
 		switch b := binding.(type) {
 		case ImmediateBinding:
-			data[name] = bindingData{Immediate: &immediateData{Value: b.value}}
+			value := b.value
+			if slotCarriesItsType(method, name, value) {
+				wrapped, err := encodeTypeWrapper(value)
+				if err != nil {
+					return nil, fmt.Errorf("slot %q: %w", name, err)
+				}
+				value = wrapped
+			} else if resource, isResource := value.(Resource); isResource {
+				// A declared resource slot records the catalog id, bare (#712 phase 3, #735): the declaration says
+				// what it is, and the id -- never the URI -- says which generation.
+				id := resource.ID()
+				if id == "" {
+					return nil, fmt.Errorf("slot %q: resource %q is not cataloged", name, resource.URI())
+				}
+				value = id
+			}
+			data[name] = bindingData{Immediate: &immediateData{Value: value}}
 		case PromiseBinding:
 			data[name] = bindingData{Promise: &promiseData{UnitID: assert.Type[string]("promise unit ID", b.value)}}
 		case VariableBinding:
@@ -458,7 +587,90 @@ func marshalBindings(bindings map[string]Binding) map[string]bindingData {
 			panic(fmt.Sprintf("op: unknown Binding variant %T", binding))
 		}
 	}
-	return data
+	return data, nil
+}
+
+// slotDeclaredType returns the type a slot is declared with, wherever the declaration lives: the framework's
+// table for the slots it reads by name (decision 9), else the method's parameter of that name.
+//
+// Parameters:
+//   - `method`: the node's resolved method; nil when the node has no action.
+//   - `name`: the slot name.
+//
+// Returns:
+//   - `reflect.Type`: the declared type.
+//   - `bool`: false when nothing declares the slot.
+func slotDeclaredType(method *Method, name string) (reflect.Type, bool) {
+	if declared, ok := frameworkSlotType(name); ok {
+		return declared, true
+	}
+	if method == nil {
+		return nil, false
+	}
+	parameter, declared := method.ParameterByName(name)
+	if !declared || parameter.Type == nil {
+		return nil, false
+	}
+	return parameter.Type, true
+}
+
+// slotCarriesItsType reports whether a slot's value must record its own type in the document.
+//
+// Two circumstances, justified differently. A slot with no declared type -- an `any` parameter, or no
+// declaration at all -- has nothing to read the value back against, so the document is the only place the type
+// can live. A non-finite float records its type wherever it appears, declared or not, because json cannot
+// express one as a bare number at any position (see finding 4). A declared resource slot is neither: it records
+// the catalog id, bare (see [marshalBindings]).
+//
+// Parameters:
+//   - `method`: the node's resolved method; nil when the node has no action.
+//   - `name`: the slot name.
+//   - `value`: the slot's value.
+//
+// Returns:
+//   - `bool`: true when the document must carry the value's type.
+func slotCarriesItsType(method *Method, name string, value any) bool {
+
+	if isNonFiniteFloat(value) {
+		return true
+	}
+	declared, ok := slotDeclaredType(method, name)
+	if !ok {
+		return true
+	}
+	return isAnyType(declared)
+}
+
+// isNonFiniteFloat reports whether a value is an infinity or a NaN, which json cannot write as a bare number.
+//
+// Parameters:
+//   - `value`: the value under test.
+//
+// Returns:
+//   - `bool`: true for +Inf, -Inf, and NaN, at either float width.
+func isNonFiniteFloat(value any) bool {
+
+	switch v := value.(type) {
+	case float64:
+		return math.IsInf(v, 0) || math.IsNaN(v)
+	case float32:
+		return math.IsInf(float64(v), 0) || math.IsNaN(float64(v))
+	}
+
+	return false
+}
+
+// isAnyType reports whether a declared type is the empty interface -- `any` -- and so declares nothing a value
+// could be read against.
+//
+// Parameters:
+//   - `declared`: the parameter's declared type.
+//
+// Returns:
+//   - `bool`: true for the empty interface.
+func isAnyType(declared reflect.Type) bool {
+
+	return declared.Kind() == reflect.Interface && declared.NumMethod() == 0
 }
 
 // endregion

@@ -496,7 +496,10 @@ func (b *ReceiptBase) MarshalYAML() (any, error) {
 	// The recovery tree encodes compensation structurally — each compensator is its own entry, nested LIFO — so the
 	// per-receipt compensator is not serialized. A resource receipt is its own compensator, so emitting it here would
 	// recurse forever through this marshaler (phase-8 step 42 slice 3b).
-	snapshot := b.Snapshot()
+	snapshot, err := b.Snapshot()
+	if err != nil {
+		return nil, err
+	}
 	snapshot.Compensator = nil
 	return snapshot, nil
 }
@@ -546,14 +549,26 @@ func (b *ReceiptBase) Restore(snapshot ReceiptData) error {
 
 	b.forwardAction = snapshot.ForwardAction
 	b.compensatingAction = snapshot.CompensatingAction
-	b.annotations = NewAnnotationMap(snapshot.Annotations)
+	annotations, err := unwrapAnnotations(snapshot.Annotations)
+	if err != nil {
+		return fmt.Errorf("restore failed: %w", err)
+	}
+	b.annotations = NewAnnotationMap(annotations)
 	b.attempts = snapshot.Attempts
 	if compensator, ok := snapshot.Compensator.(Compensator); ok {
 		b.compensator = compensator
 	}
-	b.result = snapshot.Result
+	result, err := unwrapRecorded(snapshot.Result)
+	if err != nil {
+		return fmt.Errorf("restore failed: result: %w", err)
+	}
+	slots, err := unwrapRecordedSlots(snapshot.Slots)
+	if err != nil {
+		return fmt.Errorf("restore failed: %w", err)
+	}
+	b.result = result
 	b.resultType = snapshot.ResultType
-	b.slots = snapshot.Slots
+	b.slots = slots
 	if snapshot.Status != "" {
 		b.err = errors.New(snapshot.Status)
 	}
@@ -566,14 +581,13 @@ func (b *ReceiptBase) Restore(snapshot ReceiptData) error {
 	return nil
 }
 
-// RestoreEncoded restores the base execution state and any [*RecoveryStack] compensator from a codec-decoded envelope.
+// RestoreEncoded restores the base's execution state from a codec-decoded [ReceiptData].
 //
-// It is the default restore for every receipt. The recovery stack already decoded the envelope — through whichever
-// codec read the trace — into a [ReceiptData], so the base only copies the fields across: no byte parsing, so the same
-// method serves a trace stored as JSON, YAML, or Protobuf. The decoded `*RecoveryStack` compensator (a subgraph's child
-// stack) rides through as `base.Compensator`. A concrete receipt type overrides this to additionally resolve its own
-// provider-specific id references (`fields`) against the catalog; the base needs neither the environment nor `fields`,
-// so both are ignored here.
+// The counterpart of [ReceiptBase.Snapshot] on the stack's reload path. A concrete receipt type overrides this to
+// additionally resolve its provider-specific id references (`fields`) against the catalog; the base needs neither the
+// environment nor `fields`, so both are ignored here. Enveloped result and slot values are unwrapped (#712 phase 3),
+// and the transaction id and the slots are restored as the base restore restores them — they were dropped here, so a
+// stack reloaded through its entries could not reproduce its own document.
 //
 // Parameters:
 //   - `_`: the runtime environment, unused by the base restore.
@@ -581,7 +595,7 @@ func (b *ReceiptBase) Restore(snapshot ReceiptData) error {
 //   - `_`: the receipt's id-reference sub-field, unused by the base restore.
 //
 // Returns:
-//   - `error`: always nil; the signature satisfies the [Receipt] interface.
+//   - `error`: a malformed result or slot envelope, or an unparsable transaction id.
 func (b *ReceiptBase) RestoreEncoded(_ *RuntimeEnvironment, base ReceiptData, _ map[string]any) error {
 
 	// compensatingAction is the dotted compensator identity: compensation resolves the companion via the ActionByName
@@ -589,8 +603,32 @@ func (b *ReceiptBase) RestoreEncoded(_ *RuntimeEnvironment, base ReceiptData, _ 
 	b.unitID = base.UnitID
 	b.forwardAction = base.ForwardAction
 	b.compensatingAction = base.CompensatingAction
-	b.result = base.Result
+
+	annotations, err := unwrapAnnotations(base.Annotations)
+	if err != nil {
+		return fmt.Errorf("RestoreEncoded: %w", err)
+	}
+	b.annotations = NewAnnotationMap(annotations)
+	result, err := unwrapRecorded(base.Result)
+	if err != nil {
+		return fmt.Errorf("RestoreEncoded: result: %w", err)
+	}
+	b.result = result
 	b.resultType = base.ResultType
+
+	slots, err := unwrapRecordedSlots(base.Slots)
+	if err != nil {
+		return fmt.Errorf("RestoreEncoded: %w", err)
+	}
+	b.slots = slots
+
+	if base.TransactionID != "" {
+		tid, parseErr := uuid.Parse(base.TransactionID)
+		if parseErr != nil {
+			return fmt.Errorf("RestoreEncoded: parse transaction_id %q: %w", base.TransactionID, parseErr)
+		}
+		b.transactionID = tid
+	}
 	if base.Status != "" {
 		b.err = errors.New(base.Status)
 	}
@@ -616,8 +654,9 @@ func (b *ReceiptBase) RestoreEncoded(_ *RuntimeEnvironment, base ReceiptData, _ 
 //   - ReceiptData: the receipt's base state with ResourceURI empty when no resource is attached, TransactionID the
 //     canonical 36-char UUID string (the all-zeros UUID until Commit runs), Status the dispatch error's message
 //     (empty when Err is nil), and CompensationError the failed-unwind error's message (empty when the undo succeeded
-//     or never ran).
-func (b *ReceiptBase) Snapshot() ReceiptData {
+//     or never ran). Annotations carries one type envelope per value (#712 phase 3, item 3).
+//   - `error`: an annotation value the document has no name for.
+func (b *ReceiptBase) Snapshot() (ReceiptData, error) {
 
 	var resourceURI string
 	if b.resource != nil {
@@ -634,21 +673,25 @@ func (b *ReceiptBase) Snapshot() ReceiptData {
 		compensationError = b.compensationError.Error()
 	}
 
+	annotations, err := envelopeAnnotations(b.annotations.values)
+	if err != nil {
+		return ReceiptData{}, fmt.Errorf("op.ReceiptBase.Snapshot: %w", err)
+	}
 	return ReceiptData{
 		ForwardAction:      b.forwardAction,
 		CompensatingAction: b.compensatingAction,
-		Annotations:        b.annotations.values,
+		Annotations:        annotations,
 		Attempts:           b.attempts,
 		Compensator:        b.compensator,
 		ResourceURI:        resourceURI,
-		Result:             b.result,
+		Result:             envelopeRecorded(b.result),
 		ResultType:         b.resultType,
-		Slots:              b.slots,
+		Slots:              envelopeRecordedSlots(b.slots),
 		Status:             status,
 		CompensationError:  compensationError,
 		TransactionID:      b.transactionID.String(),
 		UnitID:             b.unitID,
-	}
+	}, nil
 }
 
 // endregion

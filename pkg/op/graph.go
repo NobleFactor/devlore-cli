@@ -368,18 +368,19 @@ func SerializeGraphs(w io.Writer, graphs []*Graph) (err error) {
 // existence with its action already bound — NewNode / NewSubgraph's assert.NonZero invariant holds.
 //
 // Parameters:
+//   - `env`: the run environment whose catalog a `$resource` id resolves against.
 //   - `p`: the decoded graph payload.
 //
 // Returns:
 //   - `map[string]ExecutableUnit`: the unit table, keyed by ID.
 //   - `error`: the joined per-unit assembly failures, or nil.
-func assembleUnits(p *graphData) (map[string]ExecutableUnit, error) {
+func assembleUnits(catalog *ResourceCatalog, p *graphData) (map[string]ExecutableUnit, error) {
 
 	var violations []error
 	unitsByID := make(map[string]ExecutableUnit, len(p.Nodes)+len(p.Subgraphs))
 
 	for i := range p.Nodes {
-		node, err := assembleNode(&p.Nodes[i])
+		node, err := assembleNode(&p.Nodes[i], catalog)
 		if err != nil {
 			violations = append(violations, err)
 			continue
@@ -433,7 +434,21 @@ func assembleGraph(env *RuntimeEnvironment, p *graphData) (*Graph, error) {
 	// recomputed checksum matches the document's; re-deriving here would drop hand-authored, non-slot-producer edges.
 	root.edges = p.Edges
 
-	unitsByID, err := assembleUnits(p)
+	// The document's catalog is unpacked before the units, because a slot's resource id resolves against it
+	// (ruled 2026-09-06): the caller's environment holds the run's catalog, not the document's.
+	// The catalog section is mandatory even when empty (4-resource-management.md §5.4, ruled 2026-08-20):
+	// a nil section means a pre-ruling document, which does not load — it is rewritten by re-planning.
+	if p.Resources == nil {
+		return nil, fmt.Errorf(
+			"op.LoadGraph: document carries no resource catalog section — mandatory even when empty; re-plan the graph")
+	}
+
+	catalog, err := unpackCatalog(env, p.Resources, p.Content)
+	if err != nil {
+		return nil, err
+	}
+
+	unitsByID, err := assembleUnits(catalog, p)
 	if err != nil {
 		return nil, err
 	}
@@ -465,18 +480,6 @@ func assembleGraph(env *RuntimeEnvironment, p *graphData) (*Graph, error) {
 	}
 
 	if err := errors.Join(violations...); err != nil {
-		return nil, err
-	}
-
-	// The catalog section is mandatory even when empty (4-resource-management.md §5.4, ruled 2026-08-20):
-	// a nil section means a pre-ruling document, which does not load — it is rewritten by re-planning.
-	if p.Resources == nil {
-		return nil, fmt.Errorf(
-			"op.LoadGraph: document carries no resource catalog section — mandatory even when empty; re-plan the graph")
-	}
-
-	catalog, err := unpackCatalog(env, p.Resources, p.Content)
-	if err != nil {
 		return nil, err
 	}
 
@@ -802,8 +805,9 @@ func (g *Graph) UnitCount() int { return len(g.Nodes()) + len(g.Subgraphs()) }
 // CanonicalContent returns the graph serialized as YAML without checksum and signature.
 //
 // Used for computing checksums and verifying signatures. The output mirrors the symbol-table serialized form: top-level
-// `children` (root's children IDs in topological order), `subgraphs` (every non-root Subgraph sorted by ID), and
-// `nodes` (every Node sorted by ID).
+// `children` (root's children IDs in topological order), `subgraphs` (every non-root Subgraph sorted by ID), `nodes`
+// (every Node sorted by ID), and `resources` (the catalog's intent rows: the ids a slot names and the URIs they stand
+// for -- part of what the graph is, so a doctored row is a mismatch at load; #712 decision 11).
 //
 // Returns:
 //   - `[]byte`: the canonical YAML bytes.
@@ -816,13 +820,14 @@ func (g *Graph) CanonicalContent() ([]byte, error) {
 	// checksums with no input having changed -- the thing 2.4 says must not happen (#690). Provenance survives on
 	// the graph and in the serialized document; only identity stops depending on it.
 	type canonicalGraph struct {
-		Kind          string      `yaml:"kind"`
-		SchemaVersion uint32      `yaml:"schema_version"`
-		Children      []string    `yaml:"children"`
-		Edges         []Edge      `yaml:"edges,omitempty"`
-		Subgraphs     []*Subgraph `yaml:"subgraphs,omitempty"`
-		Nodes         []*Node     `yaml:"nodes,omitempty"`
-		Origin        OriginBase  `yaml:"origin"`
+		Kind          string        `yaml:"kind"`
+		SchemaVersion uint32        `yaml:"schema_version"`
+		Children      []string      `yaml:"children"`
+		Edges         []Edge        `yaml:"edges,omitempty"`
+		Subgraphs     []*Subgraph   `yaml:"subgraphs,omitempty"`
+		Nodes         []*Node       `yaml:"nodes,omitempty"`
+		Origin        OriginBase    `yaml:"origin"`
+		Resources     []IntentEntry `yaml:"resources,omitempty"`
 	}
 
 	var rootEdges []Edge
@@ -837,6 +842,10 @@ func (g *Graph) CanonicalContent() ([]byte, error) {
 	nodes := g.root.descendantNodes()
 	sort.Slice(nodes, func(i, j int) bool { return nodes[i].ID() < nodes[j].ID() })
 
+	var resources []IntentEntry
+	if g.resourceCatalog != nil {
+		resources = g.resourceCatalog.IntentEntries()
+	}
 	canonical := canonicalGraph{
 		Kind:          g.kind,
 		SchemaVersion: g.schemaVersion,
@@ -845,6 +854,7 @@ func (g *Graph) CanonicalContent() ([]byte, error) {
 		Subgraphs:     subgraphs,
 		Nodes:         nodes,
 		Origin:        g.origin,
+		Resources:     resources,
 	}
 
 	return yaml.Marshal(canonical)
@@ -986,7 +996,11 @@ func (g *Graph) marshalData() (graphData, error) {
 
 	nodePayloads := make([]nodeData, 0, len(descendantNodes))
 	for _, n := range descendantNodes {
-		nodePayloads = append(nodePayloads, n.marshalData())
+		nodePayload, err := n.marshalData()
+		if err != nil {
+			return graphData{}, err
+		}
+		nodePayloads = append(nodePayloads, nodePayload)
 	}
 
 	content, err := g.packContent()

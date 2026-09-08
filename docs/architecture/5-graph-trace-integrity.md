@@ -19,6 +19,54 @@ Drift detection and reconciliation read from these documents: one graph accumula
 one per execution — and `writ reconcile` classifies live state against the latest trace's recorded content
 identity ([5.1](5.1-reconciliation.md)).
 
+## Value Encoding — the Type Envelope
+
+Settled 2026-09-07 ([#712](https://github.com/NobleFactor/devlore-cli/issues/712);
+plan [712-any-slot-types](../plans/fix/712-any-slot-types.md)). A persisted value is read back by one of two
+authorities, and never by inference from its shape:
+
+- **A declared position** — a slot whose parameter has a Go type, a struct field with a type — is written **bare**.
+  The declaration is what the reader reads it against; an envelope there would duplicate it.
+- **An `any` position** — a slot no parameter declares or one declared `any`, a receipt's `result` or `slots` the
+  registry cannot retype through `result_type`, a variable's `value`, an origin's or a receipt's `annotations` — carries
+  its own type as a **single-key mapping whose key names the type**:
+
+| Envelope | Payload | Reloads as |
+|---|---|---|
+| `{$nil: null}` | — | `nil` |
+| `{$bool: true}` | the boolean | `bool` |
+| `{$string: "…"}` | the string | `string` |
+| `{$bytes: "aGk="}` | standard base64 | `[]byte` |
+| `{$int64: "9007199254740993"}` | the decimal digits, as a string | `int64`, every digit intact |
+| `{$float64: "0.1"}` | the shortest round-trip rendering, or `inf`, `-inf`, `nan` | `float64`, bit-exact |
+| `{$list: [ … ]}` | each element enveloped | `[]any` |
+| `{$map: { … }}` | each value enveloped; keys bare | `map[string]any` |
+| `{$resource: "res-3"}` | the resource's **catalog id** | the catalog entry that id names |
+
+The rules that follow from the two authorities:
+
+1. **A resource is its catalog id, never its URI.** A declared resource slot records the bare id and reloads the
+   document catalog's entry by `Lookup(id)`; an `any` position holds `{$resource: id}`. A URI names whichever
+   generation is current, so a document written against one generation would silently bind to another
+   ([#735](https://github.com/NobleFactor/devlore-cli/issues/735)); a URI in a resource slot is refused by name. Where
+   no catalog is at hand — a trace's receipts and variables — the id stays typed as a recorded id until the ledger is
+   rehydrated, and graph dispatch resolves it there. A run-time string in a resource slot is a **key** into the run
+   catalog, never a constructor ([4 § 5.6](4-resource-management.md)).
+2. **A non-finite float is enveloped at every float position, declared or not**, because JSON has no bare rendering
+   for `Infinity` or `NaN`; the `$float64` payload carries `inf`, `-inf`, or `nan` as a string in both codecs.
+3. **A bare value at an `any` position is a load error**, naming the slot, the unit, and the Go type found; so is an
+   envelope under a name the reader does not know. The reader does not infer a type from a value's shape — inference
+   is what produced the defect this section retires.
+4. **The encoder accepts Go's natural shapes.** Every integer kind envelopes as `$int64` (an unsigned value beyond
+   `MaxInt64` is an error), `float32` widens exactly to `$float64`, a slice or array of any element type is a `$list`
+   and a string-keyed map a `$map`; a struct has no name and is an error. The decode side returns the document's shapes,
+   so a `[]string` reloads as `[]any` of strings.
+5. **JSON and YAML emit the same envelope**, so the two documents stay structurally isomorphic and their canonical forms
+   agree (Tier 1 below).
+
+A reader of a document can therefore predict what any value reloads as from the document alone, without consulting
+the encoder: a bare value reloads as its declared type, an enveloped value as the type its envelope names.
+
 ## Tier 1: Checksum (Integrity)
 
 Settled 2026-07-26/27. Every persisted run document carries a tier-1 checksum computed the same way:
@@ -39,7 +87,11 @@ artifact, the key belongs to whoever publishes it, so the caller signs and `Save
 `"sha256:<hex>"` (`pkg/op/helpers.go`). The type word is fixed per document kind; the filename is never
 part of the preimage. Each document's canonical form excludes both integrity fields (`checksum`,
 `signature`); the tier-2 signature covers the same canonical bytes, so integrity and authenticity verify
-independently. A document with a missing or mismatched checksum is refused at load — there is no
+independently. The graph's canonical form covers `children`, `edges`, `subgraphs`, `nodes`, `origin`, and
+`resources` — the catalog's intent rows, the ids a slot names and the URIs they stand for, brought in 2026-09-07
+(#712 decision 11) when slots began recording ids and a doctored row would otherwise have loaded unnoticed. Every
+value in the canonical form carries its type envelope where the rule above requires one (#712 decision 9), so a
+graph's identity depends on the typed value and not on either codec's rendering of it. A document with a missing or mismatched checksum is refused at load — there is no
 unverified read path.
 
 **Format must never leak into identity** (settled 2026-07-27, after a leak was found and fixed):
@@ -51,8 +103,10 @@ unverified read path.
 2. Canonicalization normalizes format-variant scalars: timestamps render as UTC RFC3339Nano strings
    (YAML parses unquoted RFC3339 into `time.Time`; JSON carries the same value as a string — see
    `normalizeCanonicalValue` in `pkg/op/trace.go`).
-3. Still unlegislated (single-codec plan): non-integral float rendering, int64 beyond float64's 2^53
-   through `encoding/json`, and null-versus-absent semantics.
+3. Legislated by the type envelope (#712, 2026-09-07): a float or an `int64` at an `any` position carries its
+   type and every digit, in both codecs; a declared `int64` field is written bare and is exact for our own reader,
+   with the exposure to a double-based external tool accepted explicitly (the plan's decision 5). Still unlegislated
+   (single-codec plan): null-versus-absent semantics.
 
 ### The Checksum Trust Boundary
 
@@ -138,5 +192,7 @@ Every read path funnels through the trust boundary:
 - [Emergent System Model](1-system-model.md) — the system model, dependency taxonomy
 - [Audit, Reconciliation, and Recovery](5.1-reconciliation.md) — drift detection over the trace stack
 - [Recovery Serialization](5.2-recovery-serialization.md) — what a trace carries
+- [Typed Slots](2.1-typed-slots.md) — where a position is declared, and where it is `any`
+- [Resource Management](4-resource-management.md) — the catalog whose ids the envelope records
 - [Recovery Site](5.3-recovery-site.md) — pause/restart on the persisted documents
 - [Action Namespaces](3-operation-namespaces.md) — engine actions

@@ -788,9 +788,9 @@ func guardConsumedGone(activation *ActivationRecord, goArgs []any) error {
 // resolveDispatchResource is graph dispatch's identity resolution — the §5.6 seam.
 //
 // Applies only when `activation` is a graph dispatch with a run catalog and `target` implements
-// [Resource]. A [Resource] value resolves by its URI — the dispatched object must BE the run clone's
+// [Resource]. A [Resource] value resolves by its catalog id — the dispatched object must BE the run clone's
 // entry (re-based, state-carrying, the row pre-flight verified), never the captured planning object. A
-// string is the rehydrated identity a reload leaves in the slot and resolves as the key it is. Any other
+// string is a run-time value — a gather item, a variable — and resolves as the key it is (§5.6). Any other
 // value cannot name a resource at dispatch. A miss is the catalog's verdict: the catalog is complete by
 // construction (§5.1), so nothing constructs here — construction from strings survives only in load-time
 // rehydration and immediate mode.
@@ -817,38 +817,40 @@ func resolveDispatchResource(activation *ActivationRecord, value any, target ref
 		return nil, false, nil
 	}
 
-	var key string
+	// A Resource in the slot is the graph catalog's entry; the run clone holds the same ids, so it resolves by id
+	// (#712 decision 8, #735) -- never by URI, which would name whichever generation is current. A string is a
+	// run-time value -- a gather item, a variable -- that no plan-time claim saw: a key into the run catalog, never
+	// a constructor (4-resource-management.md §5.6). A recorded id is a resource a paused run's trace held in a
+	// variable, decoded with no catalog: an id already. A miss is the catalog's verdict in every case.
+	var id string
 	switch v := value.(type) {
 	case Resource:
-		key = v.URI()
+		id = v.ID()
+		if id == "" {
+			return nil, true, fmt.Errorf("graph dispatch: resource %q is not cataloged; nothing constructs at dispatch", v.URI())
+		}
+	case recordedResourceID:
+		id = string(v)
 	case string:
-		key = v
+		id = environment.ResourceCatalog.Current(v)
+		if id == "" {
+			return nil, true, fmt.Errorf("graph dispatch: resource %q is not in the run catalog", v)
+		}
 	case nil:
 		return nil, false, nil
 	default:
 		return nil, true, fmt.Errorf(
-			"graph dispatch: a %T cannot name a resource — a string is a key, never a constructor (4-resource-management.md §5.6)",
-			value)
+			"graph dispatch: a %T cannot name a resource — a string is a key, never a constructor "+
+				"(4-resource-management.md §5.6)", value)
 	}
-
-	catalog := environment.ResourceCatalog
-
-	id := catalog.Current(key)
-	if id == "" {
-		return nil, true, fmt.Errorf(
-			"graph dispatch: %q is not in the run catalog — a string is a key, never a constructor; nothing constructs at dispatch (4-resource-management.md §5.6)",
-			key)
-	}
-
-	canonical, ok := catalog.Lookup(id)
+	canonical, ok := environment.ResourceCatalog.Lookup(id)
 	if !ok {
-		return nil, true, fmt.Errorf("graph dispatch: run catalog names %q as %s but holds no entry", key, id)
+		return nil, true, fmt.Errorf("graph dispatch: resource %s is not in the run catalog", id)
 	}
 	if !reflect.TypeOf(canonical).AssignableTo(target) {
 		return nil, true, fmt.Errorf(
-			"graph dispatch: run catalog entry %q is %T, which cannot fill a %s slot", key, canonical, target)
+			"graph dispatch: run catalog entry %s is %T, which cannot fill a %s slot", id, canonical, target)
 	}
-
 	return canonical, true, nil
 }
 

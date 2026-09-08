@@ -1,0 +1,760 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright Noble Factor. All rights reserved.
+
+package op
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"math"
+	"reflect"
+	"strings"
+	"testing"
+	"time"
+
+	"gopkg.in/yaml.v3"
+)
+
+// region Fixture
+
+// anySlotFixture carries a method whose parameter is declared `any`, which is what #712 is about.
+//
+// [numberFidelityFixture] proves the complementary case for #711: a declared type tells the reader how to read
+// a serialized number, so the document does not have to record it. Here no declaration exists at either end,
+// so whatever the document fails to record is gone for good.
+type anySlotFixture struct{ ProviderBase }
+
+// Keep accepts a value of any type, the declared-`any` parameter these tests are built around.
+//
+// Parameters:
+//   - `value`: the value under test; the method does nothing with it.
+//
+// Returns:
+//   - `error`: always nil.
+func (p *anySlotFixture) Keep(value any) error { return nil }
+
+// Weigh declares a float64 parameter: the declared float position requirement 2 must reach.
+func (p *anySlotFixture) Weigh(factor float64) error { return nil }
+
+func init() {
+
+	AnnounceProvider(reflect.TypeFor[anySlotFixture](), NewProviderFlags(SurfaceWorkflow, PlacementQualified),
+		func(runtimeEnvironment *RuntimeEnvironment) (any, error) {
+			return &anySlotFixture{ProviderBase: NewProviderBase(runtimeEnvironment)}, nil
+		},
+		map[string]MethodMetadata{
+			"Keep":  {ParameterNames: []string{"value"}},
+			"Weigh": {ParameterNames: []string{"factor"}},
+		})
+}
+
+// anySlotGraph builds a one-node graph whose single `any` slot holds `value`.
+//
+// Parameters:
+//   - `t`: the test that fails if the graph cannot be built.
+//   - `value`: the value to bind into the `any` slot.
+//
+// Returns:
+//   - `*Graph`: the one-node graph.
+func anySlotGraph(t *testing.T, value any) *Graph {
+	t.Helper()
+	return anySlotGraphIn(t, value, nil)
+}
+
+// anySlotGraphIn is [anySlotGraph] with the catalog the graph carries, for a value that names a ledger entry.
+func anySlotGraphIn(t *testing.T, value any, catalog *ResourceCatalog) *Graph {
+
+	t.Helper()
+
+	action, err := ReceiverRegistry().BuildAction("anySlotFixture.keep")
+	if err != nil {
+		t.Fatalf("BuildAction: %v", err)
+	}
+
+	node, err := NewNode(NewNodeSpec().WithID("keep").WithAction(action).
+		WithSlot("value", NewImmediateBinding(value)))
+	if err != nil {
+		t.Fatalf("NewNode: %v", err)
+	}
+
+	spec := NewGraphSpec().
+		WithOrigin(NewOriginBase("test", "home", NewAnnotationMap(nil))).
+		WithUnits(node).
+		WithTimestamp(time.Unix(1_700_000_000, 0).UTC())
+	if catalog != nil {
+		spec = spec.WithResourceCatalog(catalog)
+	}
+	graph, err := NewGraph(spec)
+	if err != nil {
+		t.Fatalf("NewGraph: %v", err)
+	}
+
+	return graph
+}
+
+// reloadedAnyValue returns the value bound to `graph`'s single node's "value" slot.
+//
+// Parameters:
+//   - `t`: the test that fails if the graph does not have the expected shape.
+//   - `graph`: the reloaded graph.
+//
+// Returns:
+//   - `any`: the bound value.
+func reloadedAnyValue(t *testing.T, graph *Graph) any {
+
+	t.Helper()
+
+	nodes := graph.Nodes()
+	if len(nodes) != 1 {
+		t.Fatalf("graph has %d nodes, want 1", len(nodes))
+	}
+
+	slots := nodes[0].ResolveSlots(nil, nil)
+
+	value, bound := slots["value"]
+	if !bound {
+		t.Fatalf("node has no \"value\" slot; slots are %v", slots)
+	}
+
+	return value
+}
+
+// roundTripAnySlot saves `value` into an `any` slot and returns what reloading the document yields.
+//
+// Parameters:
+//   - `t`: the test that fails if the round trip cannot be completed.
+//   - `value`: the value to bind into the `any` slot.
+//   - `format`: the document format, "json" or "yaml".
+//
+// Returns:
+//   - `any`: the value the reloaded graph holds.
+func roundTripAnySlot(t *testing.T, value any) any {
+
+	t.Helper()
+
+	document := serializeGraph(t, anySlotGraph(t, value), "json")
+
+	loaded, err := LoadGraph(formatIdentityEnvironment(t), document, "json")
+	if err != nil {
+		t.Fatalf("LoadGraph(json): %v", err)
+	}
+
+	return reloadedAnyValue(t, loaded)
+}
+
+// endregion
+
+// region Tests
+
+// TestLoadGraph_AGraphWithAValueInAnAnySlotLoads establishes the precondition every value assertion needs.
+//
+// The canonical form a checksum is computed over is built from the RELOADED values, so a value that reloads as
+// a different type changes the recomputed checksum and [LoadGraph] rejects the document for tampering. That
+// makes an `any` slot's type loss a hard failure rather than a silent one, and it runs before any assertion
+// about what the slot holds -- so a value test that skips this precondition is only ever proving this.
+func TestLoadGraph_AGraphWithAValueInAnAnySlotLoads(t *testing.T) {
+
+	for _, testCase := range []struct {
+		name  string
+		value any
+	}{
+		{"string", "hello"},
+		{"bool", true},
+		{"integer", int64(42)},
+		{"float", float64(42)},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+
+			document := serializeGraph(t, anySlotGraph(t, testCase.value), "json")
+
+			if _, err := LoadGraph(formatIdentityEnvironment(t), document, "json"); err != nil {
+				t.Errorf("LoadGraph(json) with %T in an `any` slot: %v", testCase.value, err)
+			}
+		})
+	}
+}
+
+// TestLoadGraph_FloatInAnAnySlotReloadsAsAFloat is row 1 of the #712 test plan.
+//
+// json.Marshal writes float64(42) as `42` -- the shortest form that round-trips a float64 -- so the document
+// says nothing about the value having been a float, and no declared type exists to say it either. Finding 1.
+func TestLoadGraph_FloatInAnAnySlotReloadsAsAFloat(t *testing.T) {
+
+	got := roundTripAnySlot(t, float64(42))
+
+	if _, isFloat := got.(float64); !isFloat {
+		t.Errorf("float64(42) in an `any` slot reloaded as %T(%v), want a float64", got, got)
+	}
+}
+
+// TestLoadGraph_AnIntegerInAnAnySlotReloadsAsAnInteger is row 2 of the #712 test plan.
+//
+// The accepting half of row 1. A rule that turns every number into a float is not a fix, so the integer case
+// has to be pinned down alongside it.
+func TestLoadGraph_AnIntegerInAnAnySlotReloadsAsAnInteger(t *testing.T) {
+
+	got := roundTripAnySlot(t, int64(42))
+
+	if _, isInteger := got.(int64); !isInteger {
+		t.Errorf("int64(42) in an `any` slot reloaded as %T(%v), want an int64", got, got)
+	}
+}
+
+// TestLoadGraph_BytesInAnAnySlotReloadAsBytes is row 3 of the #712 test plan.
+//
+// json.Marshal writes a `[]byte` as a base64 string, so in an `any` slot the VALUE changes and not merely its
+// type: "hi" comes back "aGk=". Syntax cannot express the difference between a string and a base64 string,
+// which is one of the reasons the envelope won over letting the document's shape carry the type. Finding 2.
+func TestLoadGraph_BytesInAnAnySlotReloadAsBytes(t *testing.T) {
+
+	want := []byte("hi")
+
+	got := roundTripAnySlot(t, want)
+
+	gotBytes, isBytes := got.([]byte)
+	if !isBytes || !bytes.Equal(gotBytes, want) {
+		t.Errorf("[]byte(%q) in an `any` slot reloaded as %T(%v), want []byte(%q)", want, got, got, want)
+	}
+}
+
+// TestLoadGraph_AResourceInAnAnySlotReloadsAsAResource is row 14 of the #712 test plan.
+//
+// [ResourceBase.MarshalJSON] is json.Marshal of the URI, so a Resource serializes to a bare string that an
+// `any` slot cannot tell from a string the author typed. Finding 3.
+func TestLoadGraph_AResourceInAnAnySlotReloadsAsAResource(t *testing.T) {
+
+	// A resource in a slot is a cataloged resource: the catalog stamps the id the slot records (decision 8), and
+	// the graph carries that catalog so the document's ledger holds the entry the id names (decision 10).
+	environment := formatIdentityEnvironment(t)
+	candidate, err := newAnySlotResource(environment, "test:any-slot")
+	if err != nil {
+		t.Fatalf("newAnySlotResource: %v", err)
+	}
+	resource, err := environment.ResourceCatalog.GetOrCreate("keep", candidate.URI(), func() (Resource, error) { return candidate, nil })
+	if err != nil {
+		t.Fatalf("GetOrCreate: %v", err)
+	}
+
+	document := serializeGraph(t, anySlotGraphIn(t, resource, environment.ResourceCatalog), "json")
+	loaded, err := LoadGraph(formatIdentityEnvironment(t), document, "json")
+	if err != nil {
+		t.Fatalf("LoadGraph(json): %v", err)
+	}
+	got := reloadedAnyValue(t, loaded)
+
+	if _, isResource := got.(Resource); !isResource {
+		t.Errorf("a Resource in an `any` slot reloaded as %T(%v), want a Resource", got, got)
+	}
+}
+
+// TestSaveGraph_ANonFiniteFloatInAnAnySlotSaves is row 15 of the #712 test plan.
+//
+// encoding/json refuses a non-finite float outright (encode.go:572 raises UnsupportedValueError), while
+// yaml.v3 writes .inf and succeeds, so one graph saves in one format and fails in the other. Finding 4.
+//
+// Asserted against [Graph.Serialize] rather than [serializeGraph], which fails the test on an encode error and
+// so could never observe one. The failure may instead surface while building the graph, if the checksum path
+// marshals first; that is the same defect reported one step earlier.
+func TestSaveGraph_ANonFiniteFloatInAnAnySlotSaves(t *testing.T) {
+
+	graph := anySlotGraph(t, math.Inf(1))
+
+	var buffer bytes.Buffer
+	if err := graph.Serialize(json.NewEncoder(&buffer)); err != nil {
+		t.Errorf("Serialize(json) with +Inf in an `any` slot: %v; a string payload carries what a bare number cannot", err)
+	}
+}
+
+// TestLoadGraph_AnAnySlotNeverHoldsAJSONNumber is row 4 of the #712 test plan.
+//
+// #713 gave the json branch decoder.UseNumber() and reads the literal against the declared type of the
+// parameter it fills. An `any` parameter has no declared type, so tryParseSerializedNumber matches no case and
+// convertDirect returns the json.Number untouched -- a decoder artifact loose in the runtime. Finding 5.
+func TestLoadGraph_AnAnySlotNeverHoldsAJSONNumber(t *testing.T) {
+
+	got := roundTripAnySlot(t, float64(42))
+
+	if number, isNumber := got.(json.Number); isNumber {
+		t.Errorf("an `any` slot reloaded holding json.Number(%q); a decoder type must not escape the codec", number)
+	}
+}
+
+// TestIsTruthy_AJSONNumberZeroIsFalsy is row 5 of the #712 test plan.
+//
+// json.Number is a NAMED type whose underlying type is string, so [scalarTruthy]'s `case string:` does not
+// match it and the helper reports "not a scalar". Control reaches the reflect switch, whose Kind is String,
+// which no case lists, so it lands on `default: return true`. A round-tripped zero is therefore truthy where
+// float64(0) is falsy, and a resumed decision node takes the wrong branch.
+func TestIsTruthy_AJSONNumberZeroIsFalsy(t *testing.T) {
+
+	if IsTruthy(json.Number("0")) {
+		t.Error("IsTruthy(json.Number(\"0\")) = true, want false: a zero is falsy however it was decoded")
+	}
+}
+
+// TestRecoveryStack_ALargeIntegerSurvivesAResume is row 20 of the #712 test plan.
+//
+// recovery_stack.go decodes with plain json.Unmarshal into `Result any`. Without UseNumber every json number
+// reaching an `any` becomes a float64, which represents integers exactly only to 2^53, so the low digits of a
+// large int64 are lost on the path whose whole job is restoring what already ran. Finding 6.
+//
+// Compared as documents rather than as values: the stack's result is not reachable through an accessor, and
+// re-serializing a faithfully reloaded stack has to reproduce the bytes it came from. Since phase 3 the result
+// travels enveloped, so the probe reads the envelope's payload and the documents must match byte for byte.
+func TestRecoveryStack_ALargeIntegerSurvivesAResume(t *testing.T) {
+
+	// 2^53 + 1, the smallest positive integer a float64 cannot represent.
+	const large = int64(9007199254740993)
+
+	receipt := &ReceiptBase{}
+	if err := receipt.Commit(nil, large, nil, nil); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+
+	stack := NewRecoveryStack()
+	stack.Push(receipt)
+
+	before, err := json.Marshal(stack)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+
+	reloaded := NewRecoveryStack()
+	if err := json.Unmarshal(before, reloaded); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+
+	after, err := json.Marshal(reloaded)
+	if err != nil {
+		t.Fatalf("Marshal(reloaded): %v", err)
+	}
+
+	if got, want := recordedResult(t, after), recordedResult(t, before); got != want {
+		t.Errorf("a result of %d reloaded as %s, want %s: a float64 cannot hold it", large, got, want)
+	}
+	if !bytes.Equal(before, after) {
+		t.Errorf("a reloaded stack does not reproduce its document:\n before: %s\n after:  %s", before, after)
+	}
+}
+
+// recordedResult returns the literal text of the single entry's result in an encoded recovery stack.
+//
+// Read with UseNumber so the probe reports the digits the document actually carries rather than re-running the
+// float64 conversion this test exists to detect.
+//
+// Parameters:
+//   - `t`: the test that fails if the document does not have the expected shape.
+//   - `document`: an encoded [RecoveryStack].
+//
+// Returns:
+//   - `string`: the result's literal text.
+func recordedResult(t *testing.T, document []byte) string {
+	t.Helper()
+	var probe struct {
+		Entries []struct {
+			Result map[string]any `json:"result"`
+		} `json:"entries"`
+	}
+	if err := json.Unmarshal(document, &probe); err != nil {
+		t.Fatalf("decode probe: %v", err)
+	}
+	if len(probe.Entries) != 1 {
+		t.Fatalf("stack has %d entries, want 1", len(probe.Entries))
+	}
+	// A recorded result carries its type (#712 phase 3): the payload is the integer's decimal text.
+	payload, ok := probe.Entries[0].Result[typeNameInt64].(string)
+	if !ok {
+		t.Fatalf("result is %v, want a %s envelope", probe.Entries[0].Result, typeNameInt64)
+	}
+	return payload
+}
+
+// TestYAMLMarshal_AnIntegralFloatEmitsNoDecimalPoint confirms a claim the plan makes, so it passes today.
+//
+// The plan states that yaml.Marshal(float64(42)) emits `42`, which is what makes finding 1 codec-independent
+// and decides whether the write side needs fixing in both codecs or only one. An unverified claim in a design
+// document is a guess, and this one is load-bearing.
+func TestYAMLMarshal_AnIntegralFloatEmitsNoDecimalPoint(t *testing.T) {
+
+	data, err := yaml.Marshal(float64(42))
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+
+	if got := strings.TrimSpace(string(data)); got != "42" {
+		t.Errorf("yaml.Marshal(float64(42)) = %q, want %q: finding 1 assumes both codecs lose the float", got, "42")
+	}
+}
+
+// endregion
+
+// anySlotResource is the resource the any-slot tests put in a slot: a bare [ResourceBase] with the canonical tag
+// URI, announced so [LoadGraph] can reconstruct it from the document's catalog row. `convertResource` will not do
+// here — it overrides URI() with a bare `test:` form the catalog cannot read back.
+type anySlotResource struct {
+	ResourceBase
+}
+
+// newAnySlotResource is the announced constructor: the identity is the tag URI's specific part.
+func newAnySlotResource(runtimeEnvironment *RuntimeEnvironment, identity any) (Resource, error) {
+	specific, ok := identity.(string)
+	if !ok {
+		return nil, fmt.Errorf("anySlotResource: expected string, got %T", identity)
+	}
+	base, err := NewResourceBase(runtimeEnvironment, specific, reflect.TypeFor[*anySlotResource]())
+	if err != nil {
+		return nil, err
+	}
+	return &anySlotResource{ResourceBase: base}, nil
+}
+
+// init announces the fixture resource so a document naming it can be loaded.
+func init() {
+	AnnounceResource(reflect.TypeFor[*anySlotResource](), newAnySlotResource, nil)
+}
+
+// typedSlotFixture carries a method with a declared `bool` parameter, for the load-time refusals of #712 phase 2.
+type typedSlotFixture struct{ ProviderBase }
+
+// Take accepts a flag; the method does nothing with it.
+//
+// Parameters:
+//   - `flag`: the declared-`bool` parameter the refusal tests write a number into.
+//
+// Returns:
+//   - `error`: always nil.
+func (p *typedSlotFixture) Take(flag bool) error { return nil }
+
+func init() {
+	AnnounceProvider(reflect.TypeFor[typedSlotFixture](), NewProviderFlags(SurfaceWorkflow, PlacementQualified),
+		func(runtimeEnvironment *RuntimeEnvironment) (any, error) {
+			return &typedSlotFixture{ProviderBase: NewProviderBase(runtimeEnvironment)}, nil
+		},
+		map[string]MethodMetadata{
+			"Take": {ParameterNames: []string{"flag"}},
+		})
+}
+
+// loadWithSlotRewritten serializes a one-node graph, rewrites one slot's document form by textual replacement, and
+// loads the result. The rewrite stands in for a hand-edited or foreign document, which is the only way a bare
+// number reaches a slot the serializer would have enveloped.
+func loadWithSlotRewritten(t *testing.T, graph *Graph, from, to string) error {
+	t.Helper()
+	document := string(serializeGraph(t, graph, "json"))
+	if !strings.Contains(document, from) {
+		t.Fatalf("the document does not contain %q:\n%s", from, document)
+	}
+	_, err := LoadGraph(formatIdentityEnvironment(t), []byte(strings.Replace(document, from, to, 1)), "json")
+	return err
+}
+
+// TestLoadGraph_ABareNumberInAnUndeclaredSlotIsRefused pins #712 phase 2's second route: a number in a slot no
+// parameter declares has nothing to be read against, and the loader says so rather than handing a decoder
+// artifact forward.
+func TestLoadGraph_ABareNumberInAnUndeclaredSlotIsRefused(t *testing.T) {
+
+	action, err := ReceiverRegistry().BuildAction("anySlotFixture.keep")
+	if err != nil {
+		t.Fatalf("BuildAction: %v", err)
+	}
+	node, err := NewNode(NewNodeSpec().WithID("keep").WithAction(action).
+		WithSlot("value", NewImmediateBinding("kept")).
+		WithSlot("extra", NewImmediateBinding(int64(5))))
+	if err != nil {
+		t.Fatalf("NewNode: %v", err)
+	}
+	graph, err := NewGraph(NewGraphSpec().WithOrigin(NewOriginBase("test", "home", NewAnnotationMap(nil))).WithUnits(node))
+	if err != nil {
+		t.Fatalf("NewGraph: %v", err)
+	}
+
+	err = loadWithSlotRewritten(t, graph, `{"$int64":"5"}`, "5")
+	if err == nil {
+		t.Fatal("LoadGraph accepted a bare number in a slot no parameter declares; want a refusal")
+	}
+	for _, want := range []string{`"extra"`, "keep", "nothing to read it against"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("refusal %q does not name %s", err, want)
+		}
+	}
+}
+
+// TestLoadGraph_ABareValueInAnAnySlotIsRefused is row 6 of the #712 test plan, phase 4's first box: a value in an
+// `any` slot that does not carry its type is a malformed document, refused naming the slot and what was found --
+// never a type inferred from the value's shape, which is what produced the defect.
+func TestLoadGraph_ABareValueInAnAnySlotIsRefused(t *testing.T) {
+
+	err := loadWithSlotRewritten(t, anySlotGraph(t, "kept"), `{"$string":"kept"}`, `"kept"`)
+	if err == nil {
+		t.Fatal("LoadGraph accepted a bare string in an `any` slot; want a refusal")
+	}
+	for _, want := range []string{`"value"`, "keep", "bare string", "carries its type"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("refusal %q does not name %s", err, want)
+		}
+	}
+}
+
+// TestLoadGraph_AnEnvelopeNamingAnUnknownTypeIsRefused is phase 4's second box: an envelope whose name this reader
+// does not know is refused by that name, not read as an author's map or resolved through a fallback.
+func TestLoadGraph_AnEnvelopeNamingAnUnknownTypeIsRefused(t *testing.T) {
+
+	err := loadWithSlotRewritten(t, anySlotGraph(t, int64(5)), `{"$int64":"5"}`, `{"$int128":"5"}`)
+	if err == nil {
+		t.Fatal("LoadGraph accepted an envelope naming an unknown type; want a refusal")
+	}
+	for _, want := range []string{`"value"`, "keep", `"$int128"`, "does not know"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("refusal %q does not name %s", err, want)
+		}
+	}
+}
+
+// TestSaveGraph_ANonFiniteFloatInADeclaredFloatSlotSavesAndReloads is row 17 of the #712 test plan (requirement 2):
+// a non-finite float records its type at a DECLARED float position too, because JSON cannot express one as a bare
+// number anywhere -- so +Inf in a float64 parameter saves as JSON and reloads as +Inf from both codecs.
+func TestSaveGraph_ANonFiniteFloatInADeclaredFloatSlotSavesAndReloads(t *testing.T) {
+
+	action, err := ReceiverRegistry().BuildAction("anySlotFixture.weigh")
+	if err != nil {
+		t.Fatalf("BuildAction: %v", err)
+	}
+	node, err := NewNode(NewNodeSpec().WithID("weigh").WithAction(action).WithSlot("factor", NewImmediateBinding(math.Inf(1))))
+	if err != nil {
+		t.Fatalf("NewNode: %v", err)
+	}
+	graph, err := NewGraph(NewGraphSpec().WithOrigin(NewOriginBase("test", "home", NewAnnotationMap(nil))).WithUnits(node))
+	if err != nil {
+		t.Fatalf("NewGraph: %v", err)
+	}
+	for _, format := range []string{"json", "yaml"} {
+		t.Run(format, func(t *testing.T) {
+			loaded, err := LoadGraph(formatIdentityEnvironment(t), serializeGraph(t, graph, format), format)
+			if err != nil {
+				t.Fatalf("LoadGraph(%s) with +Inf in a declared float64 slot: %v", format, err)
+			}
+			factor, bound := loaded.Nodes()[0].ResolveSlots(nil, nil)["factor"]
+			if !bound {
+				t.Fatal("the reloaded node has no \"factor\" slot")
+			}
+			if value, isFloat := factor.(float64); !isFloat || !math.IsInf(value, 1) {
+				t.Errorf("factor reloaded as %T(%v); want float64 +Inf", factor, factor)
+			}
+		})
+	}
+}
+
+// TestLoadGraph_ANumberAParameterCannotHoldIsRefusedAtLoad pins #712 phase 2's third route: a number the declared
+// type cannot hold fails at load, naming the slot, the parameter, and the type -- not at dispatch.
+func TestLoadGraph_ANumberAParameterCannotHoldIsRefusedAtLoad(t *testing.T) {
+
+	action, err := ReceiverRegistry().BuildAction("typedSlotFixture.take")
+	if err != nil {
+		t.Fatalf("BuildAction: %v", err)
+	}
+	node, err := NewNode(NewNodeSpec().WithID("take").WithAction(action).WithSlot("flag", NewImmediateBinding(true)))
+	if err != nil {
+		t.Fatalf("NewNode: %v", err)
+	}
+	graph, err := NewGraph(NewGraphSpec().WithOrigin(NewOriginBase("test", "home", NewAnnotationMap(nil))).WithUnits(node))
+	if err != nil {
+		t.Fatalf("NewGraph: %v", err)
+	}
+
+	err = loadWithSlotRewritten(t, graph, `"value":true`, `"value":5`)
+	if err == nil {
+		t.Fatal("LoadGraph accepted a number in a bool slot; want a refusal at load")
+	}
+	for _, want := range []string{`"flag"`, "Take", "bool"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("refusal %q does not name %s", err, want)
+		}
+	}
+}
+
+// resourceSlotFixture carries a method whose parameter is declared [Resource], for the declared-resource-slot rule.
+type resourceSlotFixture struct{ ProviderBase }
+
+// Hold accepts a resource; the method does nothing with it.
+//
+// Parameters:
+//   - `entry`: the declared-Resource parameter.
+//
+// Returns:
+//   - `error`: always nil.
+func (p *resourceSlotFixture) Hold(entry Resource) error { return nil }
+
+func init() {
+	AnnounceProvider(reflect.TypeFor[resourceSlotFixture](), NewProviderFlags(SurfaceWorkflow, PlacementQualified),
+		func(runtimeEnvironment *RuntimeEnvironment) (any, error) {
+			return &resourceSlotFixture{ProviderBase: NewProviderBase(runtimeEnvironment)}, nil
+		},
+		map[string]MethodMetadata{
+			"Hold": {ParameterNames: []string{"entry"}},
+		})
+}
+
+// resourceSlotGraph builds a one-node graph whose declared resource slot holds a cataloged resource, and returns
+// the document and the resource's id.
+func resourceSlotGraph(t *testing.T) (document []byte, id string) {
+	t.Helper()
+	environment := formatIdentityEnvironment(t)
+	candidate, err := newAnySlotResource(environment, "test:held")
+	if err != nil {
+		t.Fatalf("newAnySlotResource: %v", err)
+	}
+	resource, err := environment.ResourceCatalog.GetOrCreate("hold", candidate.URI(), func() (Resource, error) { return candidate, nil })
+	if err != nil {
+		t.Fatalf("GetOrCreate: %v", err)
+	}
+	action, err := ReceiverRegistry().BuildAction("resourceSlotFixture.hold")
+	if err != nil {
+		t.Fatalf("BuildAction: %v", err)
+	}
+	node, err := NewNode(NewNodeSpec().WithID("hold").WithAction(action).WithSlot("entry", NewImmediateBinding(resource)))
+	if err != nil {
+		t.Fatalf("NewNode: %v", err)
+	}
+	graph, err := NewGraph(NewGraphSpec().WithOrigin(NewOriginBase("test", "home", NewAnnotationMap(nil))).
+		WithUnits(node).WithResourceCatalog(environment.ResourceCatalog))
+	if err != nil {
+		t.Fatalf("NewGraph: %v", err)
+	}
+	return serializeGraph(t, graph, "json"), resource.ID()
+}
+
+// TestLoadGraph_ADeclaredResourceSlotRecordsTheIDAndReloadsTheEntry pins #712 phase 3's declared-slot rule and
+// #735: the document holds the catalog id, bare, and the reloaded slot holds the ledger entry that id names.
+func TestLoadGraph_ADeclaredResourceSlotRecordsTheIDAndReloadsTheEntry(t *testing.T) {
+
+	document, id := resourceSlotGraph(t)
+	if !strings.Contains(string(document), `"value":"`+id+`"`) {
+		t.Fatalf("the document does not record the slot as the bare id %q:\n%s", id, document)
+	}
+	if strings.Contains(string(document), `"value":"tag:`) {
+		t.Fatalf("the document records a URI in a resource slot:\n%s", document)
+	}
+
+	loaded, err := LoadGraph(formatIdentityEnvironment(t), document, "json")
+	if err != nil {
+		t.Fatalf("LoadGraph: %v", err)
+	}
+	slots := loaded.Nodes()[0].ResolveSlots(nil, nil)
+	held, isResource := slots["entry"].(Resource)
+	if !isResource {
+		t.Fatalf("the reloaded slot holds %T, want the ledger entry", slots["entry"])
+	}
+	if held.ID() != id {
+		t.Errorf("the reloaded slot holds entry %q, want %q", held.ID(), id)
+	}
+}
+
+// TestLoadGraph_AURIInADeclaredResourceSlotIsRefused pins the pre-ruling document: a URI where an id belongs is
+// refused, not re-identified to the current generation (#735).
+func TestLoadGraph_AURIInADeclaredResourceSlotIsRefused(t *testing.T) {
+
+	document, id := resourceSlotGraph(t)
+	rewritten := strings.Replace(string(document), `"value":"`+id+`"`, `"value":"`+tagURIPrefix+`test:held#x"`, 1)
+	_, err := LoadGraph(formatIdentityEnvironment(t), []byte(rewritten), "json")
+	if err == nil {
+		t.Fatal("LoadGraph accepted a URI in a resource slot; want a refusal naming #735")
+	}
+	if !strings.Contains(err.Error(), "#735") {
+		t.Errorf("refusal %q does not name the ruling", err)
+	}
+}
+
+// TestLoadGraph_ADeclaredSlotAndAnAnySlotAgreeOnTheResource pins #735's third acceptance criterion: one resource held
+// by a declared resource slot (bare id) and by an `any` slot (`$resource` envelope) in one graph reloads as one entry
+// -- the same ledger object under the same id -- through both seams.
+func TestLoadGraph_ADeclaredSlotAndAnAnySlotAgreeOnTheResource(t *testing.T) {
+
+	environment := formatIdentityEnvironment(t)
+	candidate, err := newAnySlotResource(environment, "test:shared")
+	if err != nil {
+		t.Fatalf("newAnySlotResource: %v", err)
+	}
+	resource, err := environment.ResourceCatalog.GetOrCreate("hold", candidate.URI(), func() (Resource, error) { return candidate, nil })
+	if err != nil {
+		t.Fatalf("GetOrCreate: %v", err)
+	}
+	hold, err := ReceiverRegistry().BuildAction("resourceSlotFixture.hold")
+	if err != nil {
+		t.Fatalf("BuildAction(hold): %v", err)
+	}
+	keep, err := ReceiverRegistry().BuildAction("anySlotFixture.keep")
+	if err != nil {
+		t.Fatalf("BuildAction(keep): %v", err)
+	}
+	holder, err := NewNode(NewNodeSpec().WithID("hold").WithAction(hold).WithSlot("entry", NewImmediateBinding(resource)))
+	if err != nil {
+		t.Fatalf("NewNode(hold): %v", err)
+	}
+	keeper, err := NewNode(NewNodeSpec().WithID("keep").WithAction(keep).WithSlot("value", NewImmediateBinding(resource)))
+	if err != nil {
+		t.Fatalf("NewNode(keep): %v", err)
+	}
+	graph, err := NewGraph(NewGraphSpec().WithOrigin(NewOriginBase("test", "home", NewAnnotationMap(nil))).
+		WithUnits(holder, keeper).WithResourceCatalog(environment.ResourceCatalog))
+	if err != nil {
+		t.Fatalf("NewGraph: %v", err)
+	}
+
+	loaded, err := LoadGraph(formatIdentityEnvironment(t), serializeGraph(t, graph, "json"), "json")
+	if err != nil {
+		t.Fatalf("LoadGraph: %v", err)
+	}
+	values := map[string]any{}
+	for _, node := range loaded.Nodes() {
+		for name, value := range node.ResolveSlots(nil, nil) {
+			values[node.ID()+"."+name] = value
+		}
+	}
+	held, kept := values["hold.entry"], values["keep.value"]
+	if held == nil || held != kept {
+		t.Fatalf("the declared slot holds %p and the any slot %p; want one ledger entry", held, kept)
+	}
+	if got := held.(Resource).ID(); got != resource.ID() {
+		t.Errorf("reloaded entry has id %s; want %s", got, resource.ID())
+	}
+}
+
+// TestLoadGraph_AResourceIDTheLedgerLacksIsRefusedNamingSlotAndID pins #735's fourth acceptance criterion at load: a
+// slot naming an id the document's ledger does not hold is refused, and the refusal names the slot and the id.
+func TestLoadGraph_AResourceIDTheLedgerLacksIsRefusedNamingSlotAndID(t *testing.T) {
+
+	document, id := resourceSlotGraph(t)
+	slot := []byte(`"value":"` + id + `"`)
+	if !bytes.Contains(document, slot) {
+		t.Fatalf("the document does not carry the slot's bare id %s:\n%s", id, document)
+	}
+	doctored := bytes.Replace(document, slot, []byte(`"value":"res-404"`), 1)
+
+	_, err := LoadGraph(formatIdentityEnvironment(t), doctored, "json")
+	if err == nil {
+		t.Fatal("LoadGraph accepted a slot naming an id the ledger lacks; want a refusal")
+	}
+	for _, want := range []string{`slot "entry"`, "res-404", "not in the document's ledger"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("refusal %q does not name %s", err, want)
+		}
+	}
+}
+
+// TestLoadGraph_ADoctoredCatalogRowIsAChecksumMismatch pins #712 decision 11: the catalog's intent rows are in the
+// canonical form, so a document whose `resources` row was rewritten -- the slot's id untouched -- is a checksum
+// mismatch at load, never a graph pointed at something the plan never claimed.
+func TestLoadGraph_ADoctoredCatalogRowIsAChecksumMismatch(t *testing.T) {
+
+	document, _ := resourceSlotGraph(t)
+	if !bytes.Contains(document, []byte("test:held")) {
+		t.Fatalf("the document does not carry the row's URI:\n%s", document)
+	}
+	doctored := bytes.ReplaceAll(document, []byte("test:held"), []byte("test:ghost"))
+
+	_, err := LoadGraph(formatIdentityEnvironment(t), doctored, "json")
+	if err == nil || !strings.Contains(err.Error(), "checksum mismatch") {
+		t.Fatalf("LoadGraph(doctored row) error = %v; want a checksum mismatch", err)
+	}
+}

@@ -224,7 +224,10 @@ func (r *Receipt) MarshalYAML() (any, error) {
 	// File resolves its resource by catalog id (a URI is not a unique identity — a shadowed generation shares its URI),
 	// so the base `resource_uri` is dropped and `resource_id` carries the reference; the base owns `transaction_id`
 	// (phase-8 step 42 slice 3b). The compensator is not serialized — the recovery tree nests it structurally.
-	base := r.Snapshot()
+	base, err := r.Snapshot()
+	if err != nil {
+		return nil, err
+	}
 	base.Compensator = nil
 	base.ResourceURI = ""
 

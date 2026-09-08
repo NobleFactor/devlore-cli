@@ -7,6 +7,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -197,5 +199,54 @@ func TestGraphChecksum_IdenticalAcrossConstructionTimes(t *testing.T) {
 			"a graph's identity is its content, and when it was built is not content",
 			first.Checksum(), first.Timestamp().Format(time.RFC3339),
 			second.Checksum(), second.Timestamp().Format(time.RFC3339))
+	}
+}
+
+// TestLoadGraph_OriginAnnotationsReloadTyped pins #712 phase 3, item 3, at the origin seam: every annotation value
+// carries its type in the document, so a reload from either codec hands back the value the plan authored -- an
+// integer as an int64, never a float64, and containers as the document's shapes.
+func TestLoadGraph_OriginAnnotationsReloadTyped(t *testing.T) {
+
+	graph := formatIdentityGraph(t, time.Unix(1_700_000_000, 0).UTC())
+	for _, format := range []string{"json", "yaml"} {
+		t.Run(format, func(t *testing.T) {
+			loaded, err := LoadGraph(formatIdentityEnvironment(t), serializeGraph(t, graph, format), format)
+			if err != nil {
+				t.Fatalf("LoadGraph(%s): %v", format, err)
+			}
+			annotations := loaded.Origin().Annotations()
+			for name, want := range map[string]any{
+				"run_root": "/tmp/format-identity",
+				"order":    int64(4),
+				"prune":    true,
+				"projects": []any{"alpha", "beta"},
+				"files":    map[string]any{"unit-1": map[string]any{"target": "/tmp/t", "layer": ""}},
+			} {
+				got, ok := annotations.Get(name)
+				if !ok {
+					t.Fatalf("annotation %q is missing after reload", name)
+				}
+				if !reflect.DeepEqual(got, want) {
+					t.Errorf("annotation %q = %#v (%T); want %#v (%T)", name, got, got, want, want)
+				}
+			}
+		})
+	}
+}
+
+// TestLoadGraph_ABareAnnotationIsRefused pins the strictness: an annotation has no declared type, so a value that
+// does not carry its own is a load error naming the key -- raised at decode, before the checksum is even consulted.
+func TestLoadGraph_ABareAnnotationIsRefused(t *testing.T) {
+
+	document := serializeGraph(t, formatIdentityGraph(t, time.Unix(1_700_000_000, 0).UTC()), "json")
+	enveloped := []byte(`{"$string":"/tmp/format-identity"}`)
+	if !bytes.Contains(document, enveloped) {
+		t.Fatalf("the document does not carry the enveloped run_root:\n%s", document)
+	}
+	doctored := bytes.Replace(document, enveloped, []byte(`"/tmp/format-identity"`), 1)
+
+	_, err := LoadGraph(formatIdentityEnvironment(t), doctored, "json")
+	if err == nil || !strings.Contains(err.Error(), `annotation "run_root"`) {
+		t.Fatalf("LoadGraph(bare annotation) error = %v; want a refusal naming run_root", err)
 	}
 }

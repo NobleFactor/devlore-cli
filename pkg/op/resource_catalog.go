@@ -130,7 +130,7 @@ func (c *ResourceCatalog) Clone() *ResourceCatalog {
 // (4-resource-management.md §5.4, ruled 2026-08-20).
 //
 // Returns:
-//   - `[]LedgerEntrySnapshot`: id, URI, and [Pending] per current generation; empty (never nil) when the
+//   - `[]IntentEntry`: id and URI per current generation, in mint order; empty (never nil) when the
 //     ledger holds nothing — the document's section serializes even then, mandatorily.
 func (c *ResourceCatalog) IntentEntries() []IntentEntry {
 

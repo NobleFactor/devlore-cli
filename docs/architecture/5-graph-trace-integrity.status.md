@@ -12,6 +12,7 @@
 | ssh-ed25519 signing + `writ verify` | Complete | 2026-07-18 | phase-8 step 46 |
 | Trace checksum + trust boundary | Complete | 2026-07-27 | [trace-checksum](../plans/trace-checksum.md) |
 | Terminology reconciliation (receipt → graph/trace) | Complete | 2026-08-07 | [graph-trace-integrity](../plans/graph-trace-integrity.md) |
+| Type envelope at `any` positions; canonical form covers `resources` | Complete | 2026-09-07 | [712-any-slot-types](../plans/fix/712-any-slot-types.md) |
 
 ## Document Discrepancies
 

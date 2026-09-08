@@ -3,7 +3,10 @@
 
 package op
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // Origin is tool-stamped graph metadata: the contract the framework reads and round-trips.
 //
@@ -76,22 +79,32 @@ func (o OriginBase) Tool() string { return o.tool }
 
 // region Behaviors
 
-// MarshalJSON encodes the origin to its flat {tool, scope, annotations} JSON document via [originData].
+// MarshalJSON encodes the origin to its flat {tool, scope, annotations} JSON document via [originData], each
+// annotation value enveloped (#712 phase 3, item 3).
 //
 // Returns:
 //   - `[]byte`: the JSON encoding.
-//   - `error`: any error from [json.Marshal].
+//   - `error`: an annotation value the document has no name for, or any error from [json.Marshal].
 func (o OriginBase) MarshalJSON() ([]byte, error) {
-	return json.Marshal(originData{Tool: o.tool, Scope: o.scope, Annotations: o.annotations.values})
+	annotations, err := envelopeAnnotations(o.annotations.values)
+	if err != nil {
+		return nil, fmt.Errorf("op.OriginBase.MarshalJSON: %w", err)
+	}
+	return json.Marshal(originData{Tool: o.tool, Scope: o.scope, Annotations: annotations})
 }
 
-// MarshalYAML returns the origin's flat [originData] shape for the YAML encoder.
+// MarshalYAML returns the origin's flat [originData] shape for the YAML encoder, each annotation value enveloped
+// (#712 phase 3, item 3).
 //
 // Returns:
 //   - `any`: the [originData] value.
-//   - `error`: always nil; present to satisfy the yaml.Marshaler contract.
+//   - `error`: an annotation value the document has no name for.
 func (o OriginBase) MarshalYAML() (any, error) {
-	return originData{Tool: o.tool, Scope: o.scope, Annotations: o.annotations.values}, nil
+	annotations, err := envelopeAnnotations(o.annotations.values)
+	if err != nil {
+		return nil, fmt.Errorf("op.OriginBase.MarshalYAML: %w", err)
+	}
+	return originData{Tool: o.tool, Scope: o.scope, Annotations: annotations}, nil
 }
 
 // UnmarshalJSON decodes a flat {tool, scope, annotations} JSON document into the receiver via [originData].
@@ -100,7 +113,7 @@ func (o OriginBase) MarshalYAML() (any, error) {
 //   - `data`: the JSON document.
 //
 // Returns:
-//   - `error`: any error from [json.Unmarshal].
+//   - `error`: any error from [json.Unmarshal], or an annotation value that does not carry its type.
 func (o *OriginBase) UnmarshalJSON(data []byte) error {
 
 	var d originData
@@ -108,7 +121,11 @@ func (o *OriginBase) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	o.tool, o.scope, o.annotations = d.Tool, d.Scope, NewAnnotationMap(d.Annotations)
+	annotations, err := unwrapAnnotations(d.Annotations)
+	if err != nil {
+		return fmt.Errorf("op.OriginBase.UnmarshalJSON: %w", err)
+	}
+	o.tool, o.scope, o.annotations = d.Tool, d.Scope, NewAnnotationMap(annotations)
 	return nil
 }
 
@@ -118,7 +135,7 @@ func (o *OriginBase) UnmarshalJSON(data []byte) error {
 //   - `unmarshal`: the yaml.v3 node-decoding callback.
 //
 // Returns:
-//   - `error`: any error from `unmarshal`.
+//   - `error`: any error from `unmarshal`, or an annotation value that does not carry its type.
 func (o *OriginBase) UnmarshalYAML(unmarshal func(any) error) error {
 
 	var d originData
@@ -126,7 +143,11 @@ func (o *OriginBase) UnmarshalYAML(unmarshal func(any) error) error {
 		return err
 	}
 
-	o.tool, o.scope, o.annotations = d.Tool, d.Scope, NewAnnotationMap(d.Annotations)
+	annotations, err := unwrapAnnotations(d.Annotations)
+	if err != nil {
+		return fmt.Errorf("op.OriginBase.UnmarshalYAML: %w", err)
+	}
+	o.tool, o.scope, o.annotations = d.Tool, d.Scope, NewAnnotationMap(annotations)
 	return nil
 }
 
@@ -136,8 +157,8 @@ func (o *OriginBase) UnmarshalYAML(unmarshal func(any) error) error {
 
 // originData is the unexported document DTO for [OriginBase] — the flat {tool, scope, annotations} shape with
 // exported, tagged fields. It exists only to (de)serialize OriginBase (JSON + YAML; no text form — an Origin is a
-// composite, never a scalar). Annotations is the raw map so it decodes natively; [OriginBase] unwraps its
-// [AnnotationMap] to this map for marshal and re-wraps via [NewAnnotationMap] on decode.
+// composite, never a scalar). Annotations holds one type envelope per value (#712): [OriginBase] envelopes its
+// [AnnotationMap]'s values into this map for marshal and unwraps them back through [NewAnnotationMap] on decode.
 type originData struct {
 	Tool        string         `json:"tool,omitempty"        yaml:"tool,omitempty"`
 	Scope       string         `json:"scope,omitempty"       yaml:"scope,omitempty"`

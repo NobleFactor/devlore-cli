@@ -7,23 +7,24 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
 )
 
 // TestResolveRecordedResource_HitReturnsTheCanonical pins the rearm's identity decode
-// (4-resource-management.md §5.6): a reloaded producer result — the resource's URI string — resolves
-// against the rehydrated catalog to the restored generation, never a fresh construction.
+// (4-resource-management.md §5.6, #712 decision 8): a reloaded producer result — the resource's recorded catalog
+// id — resolves against the rehydrated catalog to exactly the generation it names, never a fresh construction and
+// never whichever generation of its URI is current.
 func TestResolveRecordedResource_HitReturnsTheCanonical(t *testing.T) {
 
 	catalog := NewResourceCatalog()
 	entry := newLifecycle("test:///produced", AddressingLocation)
-	catalog.Resolve(entry)
-
+	_, id := catalog.Resolve(entry)
 	environment := &RuntimeEnvironment{ResourceCatalog: catalog}
 
-	canonical, resolved := resolveRecordedResource(environment, "test:///produced", reflect.TypeFor[*lifecycleResource]())
+	canonical, resolved := resolveRecordedResource(environment, recordedResourceID(id), reflect.TypeFor[*lifecycleResource]())
 	if !resolved {
 		t.Fatal("resolveRecordedResource(hit) did not resolve")
 	}
@@ -32,21 +33,28 @@ func TestResolveRecordedResource_HitReturnsTheCanonical(t *testing.T) {
 	}
 }
 
-// TestResolveRecordedResource_MissAndNonStringFallThrough pins the rearm's documented tolerance: an
-// unknown URI and a non-string result both fall through unresolved — the value is left as-is, and a
-// consumer that needed the concrete type meets the dispatch seam's refusal at its own dispatch.
+// TestResolveRecordedResource_MissAndNonStringFallThrough pins the rearm's documented tolerance, and #735's
+// retirement: an unknown id and a non-id result both fall through unresolved — the value is left as-is, and a
+// consumer that needed the concrete type meets the dispatch seam's refusal at its own dispatch. A URI string is a
+// non-id result now: it used to resolve to whichever generation was current, which was the defect.
 func TestResolveRecordedResource_MissAndNonStringFallThrough(t *testing.T) {
 
-	environment := &RuntimeEnvironment{ResourceCatalog: NewResourceCatalog()}
+	catalog := NewResourceCatalog()
+	produced := newLifecycle("test:///produced", AddressingLocation)
+	catalog.Resolve(produced)
+	environment := &RuntimeEnvironment{ResourceCatalog: catalog}
 	target := reflect.TypeFor[*lifecycleResource]()
 
-	if _, resolved := resolveRecordedResource(environment, "test:///unknown", target); resolved {
+	if _, resolved := resolveRecordedResource(environment, recordedResourceID("res-does-not-exist"), target); resolved {
 		t.Error("a catalog miss must fall through unresolved (the rearm tolerates, dispatch refuses)")
 	}
-	if _, resolved := resolveRecordedResource(environment, 42, target); resolved {
-		t.Error("a non-string result must fall through unresolved")
+	if _, resolved := resolveRecordedResource(environment, produced.URI(), target); resolved {
+		t.Error("a URI string must not resolve: identity is the catalog id, never the current generation of a URI (#735)")
 	}
-	if _, resolved := resolveRecordedResource(environment, "test:///x", reflect.TypeFor[string]()); resolved {
+	if _, resolved := resolveRecordedResource(environment, 42, target); resolved {
+		t.Error("a non-id result must fall through unresolved")
+	}
+	if _, resolved := resolveRecordedResource(environment, recordedResourceID("x"), reflect.TypeFor[string]()); resolved {
 		t.Error("a non-resource product type must fall through unresolved")
 	}
 }
@@ -396,4 +404,48 @@ func failStack(err error) *RecoveryStack {
 	})
 	inner.PushNested(leaf)
 	return inner
+}
+
+// TestReceiptBase_AnnotationsAreEnvelopedAndRestoredTyped pins #712 phase 3, item 3, at the receipt seam: a unit's
+// annotations leave Snapshot enveloped, both restore paths decode them back to the authored types, and a bare value
+// is refused naming its key. RestoreEncoded had not restored annotations at all before this.
+func TestReceiptBase_AnnotationsAreEnvelopedAndRestoredTyped(t *testing.T) {
+
+	enveloped, err := envelopeAnnotations(map[string]any{"order": int64(4), "tags": []string{"a"}})
+	if err != nil {
+		t.Fatalf("envelopeAnnotations: %v", err)
+	}
+	if !reflect.DeepEqual(enveloped["order"], map[string]any{typeNameInt64: "4"}) {
+		t.Fatalf("order enveloped as %#v; want a $int64 envelope", enveloped["order"])
+	}
+	held := newLifecycle("test:///held", AddressingLocation)
+	const nilTransaction = "00000000-0000-0000-0000-000000000000"
+
+	restored := NewReceiptBase(held)
+	if err := restored.Restore(ReceiptData{ResourceURI: held.URI(), TransactionID: nilTransaction, Annotations: enveloped}); err != nil {
+		t.Fatalf("Restore: %v", err)
+	}
+	encoded := NewReceiptBase(held)
+	if err := encoded.RestoreEncoded(nil, ReceiptData{Annotations: enveloped}, nil); err != nil {
+		t.Fatalf("RestoreEncoded: %v", err)
+	}
+	for name, receipt := range map[string]*ReceiptBase{"Restore": &restored, "RestoreEncoded": &encoded} {
+		order, _ := receipt.Annotations().Get("order")
+		tags, _ := receipt.Annotations().Get("tags")
+		if order != int64(4) || !reflect.DeepEqual(tags, []any{"a"}) {
+			t.Errorf("%s: annotations = order %#v (%T), tags %#v; want int64 4 and [a]", name, order, order, tags)
+		}
+		snapshot, err := receipt.Snapshot()
+		if err != nil {
+			t.Fatalf("%s: Snapshot: %v", name, err)
+		}
+		if !reflect.DeepEqual(snapshot.Annotations["order"], map[string]any{typeNameInt64: "4"}) {
+			t.Errorf("%s: Snapshot re-emitted order as %#v; want the $int64 envelope", name, snapshot.Annotations["order"])
+		}
+	}
+	bare := NewReceiptBase(held)
+	err = bare.Restore(ReceiptData{ResourceURI: held.URI(), TransactionID: nilTransaction, Annotations: map[string]any{"order": 4}})
+	if err == nil || !strings.Contains(err.Error(), `annotation "order"`) {
+		t.Errorf("Restore(bare annotation) error = %v; want a refusal naming order", err)
+	}
 }

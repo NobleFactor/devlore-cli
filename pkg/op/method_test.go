@@ -31,17 +31,17 @@ func TestResolveDispatchResource_StringKeyHitReturnsTheCanonical(t *testing.T) {
 	}
 }
 
-// TestResolveDispatchResource_ResourceValueResolvesByURI pins the captured-object half: a Resource slot
-// value resolves by its URI to the canonical, never dispatching the captured object itself — the aliasing
-// between planning catalog and run clone is severed, not load-bearing.
-func TestResolveDispatchResource_ResourceValueResolvesByURI(t *testing.T) {
+// TestResolveDispatchResource_ResourceValueResolvesByID pins the captured-object half: a Resource slot value
+// resolves by its catalog id to the run clone's canonical, never dispatching the captured object itself -- the
+// aliasing between planning catalog and run clone is severed, not load-bearing -- and never by URI, which would
+// name whichever generation is current (#735).
+func TestResolveDispatchResource_ResourceValueResolvesByID(t *testing.T) {
 
 	catalog := NewResourceCatalog()
 	canonical := newLifecycle("test:///claimed", AddressingLocation)
-	catalog.Resolve(canonical)
-
+	_, id := catalog.Resolve(canonical)
 	captured := newLifecycle("test:///claimed", AddressingLocation) // the same identity, a different object
-
+	captured.id = id
 	activation := &ActivationRecord{Graph: &Graph{}, RuntimeEnvironment: &RuntimeEnvironment{ResourceCatalog: catalog}}
 
 	resolved, applied, err := resolveDispatchResource(activation, captured, reflect.TypeFor[*lifecycleResource]())
@@ -50,6 +50,11 @@ func TestResolveDispatchResource_ResourceValueResolvesByURI(t *testing.T) {
 	}
 	if resolved != Resource(canonical) {
 		t.Errorf("resolved %p is not the canonical %p — the captured object must not dispatch", resolved, canonical)
+	}
+
+	uncataloged := newLifecycle("test:///claimed", AddressingLocation)
+	if _, applied, err := resolveDispatchResource(activation, uncataloged, reflect.TypeFor[*lifecycleResource]()); !applied || err == nil {
+		t.Errorf("an uncataloged resource (no id) must be refused, got applied %t, err %v", applied, err)
 	}
 }
 
@@ -103,3 +108,67 @@ func TestResolveDispatchResource_SessionDispatchFallsThrough(t *testing.T) {
 }
 
 // endregion
+
+// TestResolveDispatchResource_ARecordedIDResolvesByID pins the resume half of #712 item 4: a resource a paused run's
+// trace held in a variable comes back as a recorded id, and dispatch resolves it against the run catalog by that id --
+// the same seam a receipt's recorded resource uses. A miss is the catalog's verdict.
+func TestResolveDispatchResource_ARecordedIDResolvesByID(t *testing.T) {
+
+	catalog := NewResourceCatalog()
+	canonical := newLifecycle("test:///claimed", AddressingLocation)
+	_, id := catalog.Resolve(canonical)
+	activation := &ActivationRecord{Graph: &Graph{}, RuntimeEnvironment: &RuntimeEnvironment{ResourceCatalog: catalog}}
+
+	resolved, applied, err := resolveDispatchResource(activation, recordedResourceID(id), reflect.TypeFor[*lifecycleResource]())
+	if !applied || err != nil {
+		t.Fatalf("resolveDispatchResource(recorded id) = applied %t, err %v; want applied, nil", applied, err)
+	}
+	if resolved != Resource(canonical) {
+		t.Errorf("resolved %p is not the canonical %p", resolved, canonical)
+	}
+	_, applied, err = resolveDispatchResource(activation, recordedResourceID("res-404"), reflect.TypeFor[*lifecycleResource]())
+	if !applied || err == nil || !strings.Contains(err.Error(), "not in the run catalog") {
+		t.Errorf("a recorded id the run catalog lacks must be refused; got applied %t, err %v", applied, err)
+	}
+}
+
+// TestResolveDispatchResource_AResourceBindsItsOwnGenerationAfterShadow pins #735's first two acceptance criteria at
+// the dispatch seam: after a URI is re-produced -- a second generation shadows the first -- a slot written against
+// either generation resolves to that generation by id, while a run-time string key resolves to whichever generation
+// is current, which is what a key means (§5.6).
+func TestResolveDispatchResource_AResourceBindsItsOwnGenerationAfterShadow(t *testing.T) {
+
+	catalog := NewResourceCatalog()
+	first := newLifecycle("test:///versioned", AddressingLocation)
+	_, firstID := catalog.Resolve(first)
+	second := newLifecycle("test:///versioned", AddressingLocation)
+	secondID := catalog.Shadow(second, "writer")
+	if firstID == secondID {
+		t.Fatalf("Shadow minted no new generation: both ids are %s", firstID)
+	}
+	activation := &ActivationRecord{Graph: &Graph{}, RuntimeEnvironment: &RuntimeEnvironment{ResourceCatalog: catalog}}
+	target := reflect.TypeFor[*lifecycleResource]()
+
+	for _, testCase := range []struct {
+		name string
+		id   string
+		want *lifecycleResource
+	}{
+		{"the first generation", firstID, first},
+		{"the second generation", secondID, second},
+	} {
+		captured := newLifecycle("test:///versioned", AddressingLocation)
+		captured.id = testCase.id
+		resolved, applied, err := resolveDispatchResource(activation, captured, target)
+		if !applied || err != nil {
+			t.Fatalf("%s: applied %t, err %v; want applied, nil", testCase.name, applied, err)
+		}
+		if resolved != Resource(testCase.want) {
+			t.Errorf("%s: a slot written against %s resolved to %p, not its own generation %p", testCase.name, testCase.id, resolved, testCase.want)
+		}
+	}
+	resolved, applied, err := resolveDispatchResource(activation, "test:///versioned", target)
+	if !applied || err != nil || resolved != Resource(second) {
+		t.Errorf("a run-time key resolved to %v (applied %t, err %v); want the current generation %p", resolved, applied, err, second)
+	}
+}
