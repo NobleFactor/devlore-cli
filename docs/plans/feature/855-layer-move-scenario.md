@@ -3,7 +3,7 @@ title: "The layer journey as a scenario: self install, repo set, deploy, the mov
 issue: https://github.com/NobleFactor/devlore-cli/issues/855
 status: in-progress
 created: 2026-09-07
-updated: 2026-09-07
+updated: 2026-09-08
 ---
 
 # Plan: The layer journey as a scenario: self install, repo set, deploy, the move, on every platform
@@ -204,7 +204,8 @@ under Git for Windows' bash in 2.4 and 3.3. Ubuntu: `.Debian` matches through th
       the old `~/local` links remain as orphans (#845), become `missing` in the store after the hand
       cleanup (#845), the default policy accepts writ's own links, and a file outside `Home/` forces
       `--allow-dirty` (#852). Part 3 by URL skips at 3.1 on #812
-- [ ] **Acceptance:** green on the six CI legs with the same skip-list on each — the PR proves it
+- [x] **Acceptance:** green on the six CI legs with the same skip-list on each — #859's second run, 2026-09-08,
+      after its first taught #860 and the LF pin
 
 ### Phase 4a: the matrix and the record — this PR
 
@@ -215,8 +216,8 @@ under Git for Windows' bash in 2.4 and 3.3. Ubuntu: `.Debian` matches through th
       comment name the second scenario
 - [ ] #470's fixture item and #850's integration-test item point here; each skipped issue gains a comment:
       "the layer-journey scenario step <n> is your acceptance test" (#840 has its first)
-- [ ] **Acceptance:** the `scenario` job green on all six legs on the PR, the same skip-list on each; the
-      epic report at the end
+- [x] **Acceptance:** the `scenario` job green on all six legs on #859, the same skip-list on each; the
+      epic report ran at the end
 
 ### Phase 4b: real mode — the next PR under this issue
 
