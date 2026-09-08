@@ -251,12 +251,15 @@ func AnnounceResource(
 	label := fmt.Sprintf("AnnounceResource(%s)", resourceType)
 
 	// A sealed resource announces its interface; reflection needs the struct behind it, registered by the
-	// provider's own init via [RegisterResourceImplementation]. A struct announcement is its own
-	// implementation, so this is a no-op for every provider that has not been sealed yet.
+	// provider's own init via [RegisterResourceImplementation]. The shape is the contract (#646): a missing
+	// registration is refused first, then [CheckSealedShape] refuses any announcement that is not a sealed interface
+	// over an unexported struct -- here, at the one place every resource passes, so a non-conforming provider
+	// fails to start rather than waiting for a review.
 	implementation := resourceImplementationFor(resourceType)
 	assert.Truef(implementation != nil,
 		"%s: %s is an interface with no registered implementation — the provider's init must call "+
 			"op.RegisterResourceImplementation before the generated announcement runs", label, resourceType)
+	assert.NoError(label, CheckSealedShape(resourceType, implementation))
 
 	parsed, err := parseParameters(implementation, methodParameters)
 	assert.NoError(label, err)

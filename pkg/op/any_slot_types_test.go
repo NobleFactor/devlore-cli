@@ -396,13 +396,21 @@ type anySlotResource struct {
 	ResourceBase
 }
 
+// anySlotEntry is anySlotResource's sealed interface: the shape every announced resource has (#646).
+type anySlotEntry interface {
+	Resource
+	sealedAnySlot()
+}
+
+func (*anySlotResource) sealedAnySlot() {}
+
 // newAnySlotResource is the announced constructor: the identity is the tag URI's specific part.
 func newAnySlotResource(runtimeEnvironment *RuntimeEnvironment, identity any) (Resource, error) {
 	specific, ok := identity.(string)
 	if !ok {
 		return nil, fmt.Errorf("anySlotResource: expected string, got %T", identity)
 	}
-	base, err := NewResourceBase(runtimeEnvironment, specific, reflect.TypeFor[*anySlotResource]())
+	base, err := NewResourceBase(runtimeEnvironment, specific, reflect.TypeFor[anySlotEntry]())
 	if err != nil {
 		return nil, err
 	}
@@ -411,7 +419,9 @@ func newAnySlotResource(runtimeEnvironment *RuntimeEnvironment, identity any) (R
 
 // init announces the fixture resource so a document naming it can be loaded.
 func init() {
-	AnnounceResource(reflect.TypeFor[*anySlotResource](), newAnySlotResource, nil)
+	RegisterResourceImplementation(reflect.TypeFor[anySlotEntry](), reflect.TypeFor[anySlotResource]())
+	RegisterResourceMint(reflect.TypeFor[anySlotEntry](), reflect.TypeFor[*anySlotResource]())
+	AnnounceResource(reflect.TypeFor[anySlotEntry](), newAnySlotResource, nil)
 }
 
 // typedSlotFixture carries a method with a declared `bool` parameter, for the load-time refusals of #712 phase 2.

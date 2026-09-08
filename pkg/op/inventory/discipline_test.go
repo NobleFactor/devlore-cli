@@ -217,3 +217,27 @@ func TestBootDiscipline_EveryUnpackerResolvesByTypeID(t *testing.T) {
 		}
 	}
 }
+
+// TestBootDiscipline_EveryResourceTypeIsASealedInterface walks every announced resource and asserts the sealed
+// shape through the same check the announcement enforces (#646): an exported interface embedding op.Resource, sealed
+// by an unexported method, over an unexported struct in the provider's own package. The announcement refuses a type
+// that fails it; this walk is where the rule is read back over the populated registry, and what fails if the
+// enforcement is ever loosened.
+func TestBootDiscipline_EveryResourceTypeIsASealedInterface(t *testing.T) {
+
+	var resourceCount int
+	for _, rt := range op.SnapshotReceiverTypes() {
+		rrt, ok := rt.(op.ResourceReceiverType)
+		if !ok {
+			continue
+		}
+		resourceCount++
+		if err := op.CheckSealedShape(rrt.AnnouncedType(), rrt.ProviderType()); err != nil {
+			t.Errorf("%s: %v", rrt.Name(), err)
+		}
+	}
+	if resourceCount == 0 {
+		t.Fatal("no resource types announced; expected provider gen packages to register types at init")
+	}
+	t.Logf("%d announced resource types have the sealed shape", resourceCount)
+}
