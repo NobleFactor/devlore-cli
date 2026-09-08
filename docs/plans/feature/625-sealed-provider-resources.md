@@ -28,7 +28,8 @@ assertion and the design record.
 | 9 | the rule becomes structurally enforceable | [#646](https://github.com/NobleFactor/devlore-cli/issues/646) |
 | 10 | closure — the design record states the contract | [#647](https://github.com/NobleFactor/devlore-cli/issues/647) |
 
-Every remaining phase already has an issue. **#646 is next.**
+Every remaining phase already has an issue. **#646 is in progress** (opened 2026-09-08, plan
+[646-sealed-shape-enforceable.md](646-sealed-shape-enforceable.md)); #647 follows.
 
 ### The thread's other open work
 
@@ -760,7 +761,7 @@ phase found:
   interfaces, and `TestDiscover_CrossKindCollisionErrors` asserts `file.Regular` and `file.Directory`.
 - **No consumer changed.** `make check` green.
 
-#### Phase 9 — the rule becomes structurally enforceable — status: pending
+#### Phase 9 — the rule becomes structurally enforceable — status: in progress (2026-09-08; plan [646-sealed-shape-enforceable.md](646-sealed-shape-enforceable.md))
 
 1. `4.3-resource-registration.md` states the shape as **the contract** for adding a provider resource.
 2. A test asserts it structurally: every announced resource type is an interface, and the struct behind
