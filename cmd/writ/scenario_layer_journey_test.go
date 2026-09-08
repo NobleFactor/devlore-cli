@@ -77,6 +77,7 @@ const (
 	issueDirtyAtRoot             = 852
 	issueDryRunPreflight         = 853
 	issueCollisionReport         = 470
+	issueLineageChain            = 860
 )
 
 // layerFixtures maps each role to the repository name and the checked-in tree that seeds it.
@@ -498,7 +499,10 @@ func (j *journey) assertHelp(t *testing.T, path string) {
 // What each platform deploys
 // ---------------------------------------------------------------------------------------------------------
 
-// selectorsHere lists the selector suffixes this platform matches, most general first.
+// selectorsHere lists the selector suffixes this platform matches, most general first, by the ruled chain:
+// Darwin and Linux are Unix; a Linux host matches its lineage — os-release's ID_LIKE, most general first —
+// and then its own ID, each capitalized as segment/detect.go capitalizes it (#860). Today writ reads only
+// the ID, so the lineage members are asserted through lineageSelectors, which skips by #860 until it ships.
 func selectorsHere(t *testing.T) []string {
 
 	t.Helper()
@@ -507,10 +511,12 @@ func selectorsHere(t *testing.T) []string {
 	case "darwin":
 		return []string{"Unix", "Darwin"}
 	case "linux":
-		if isDebianFamily() {
-			return []string{"Unix", "Linux", "Debian"}
+		chain := []string{"Unix", "Linux"}
+		chain = append(chain, lineageSelectors()...)
+		if distro := capitalizeDistro(osRelease("ID")); distro != "" {
+			chain = append(chain, distro)
 		}
-		return []string{"Unix", "Linux"}
+		return chain
 	case "windows":
 		return []string{"Windows"}
 	default:
@@ -519,15 +525,60 @@ func selectorsHere(t *testing.T) []string {
 	}
 }
 
-// isDebianFamily reads /etc/os-release the way writ's detector does: Debian, or ID_LIKE naming it.
-func isDebianFamily() bool {
+// lineageSelectors returns the lineage members of the chain — ID_LIKE reversed, so the most general ancestor
+// comes first — empty on a host that declares none.
+func lineageSelectors() []string {
+
+	fields := strings.Fields(osRelease("ID_LIKE"))
+	var lineage []string
+	for i := len(fields) - 1; i >= 0; i-- {
+		if name := capitalizeDistro(fields[i]); name != "" {
+			lineage = append(lineage, name)
+		}
+	}
+	return lineage
+}
+
+// osRelease reads one key of /etc/os-release, unquoted; empty when absent or not on Linux.
+func osRelease(key string) string {
 
 	data, err := os.ReadFile("/etc/os-release")
 	if err != nil {
-		return false
+		return ""
 	}
-	text := strings.ToLower(string(data))
-	return strings.Contains(text, "id=debian") || strings.Contains(text, "id_like=debian") || strings.Contains(text, "id_like=\"debian") || strings.Contains(text, "debian")
+	for _, line := range strings.Split(string(data), "\n") {
+		if strings.HasPrefix(line, key+"=") {
+			return strings.Trim(strings.TrimPrefix(line, key+"="), "\"")
+		}
+	}
+	return ""
+}
+
+// capitalizeDistro mirrors writ's table in segment/detect.go.
+func capitalizeDistro(id string) string {
+
+	switch id {
+	case "debian":
+		return "Debian"
+	case "ubuntu":
+		return "Ubuntu"
+	case "fedora":
+		return "Fedora"
+	case "centos":
+		return "CentOS"
+	case "rhel":
+		return "RHEL"
+	case "arch":
+		return "Arch"
+	case "alpine":
+		return "Alpine"
+	case "opensuse", "opensuse-leap", "opensuse-tumbleweed":
+		return "OpenSUSE"
+	case "":
+		return ""
+	default:
+		return strings.ToUpper(id[:1]) + id[1:]
+	}
 }
 
 // consumersAtA lists the personal-a consumers this platform deploys, with their deployed path at commit A.
@@ -537,13 +588,22 @@ func (j *journey) consumersAtA(t *testing.T) map[string]string {
 
 	home := j.sandbox.Home
 	consumers := map[string]string{}
+	lineage := lineageSelectors()
 	for _, selector := range selectorsHere(t) {
-		if selector == "Windows" {
-			continue
+		if !contains([]string{"Darwin", "Linux", "Debian", "Unix"}, selector) {
+			continue // the fixture carries no consumer for this selector (Windows, Ubuntu, ...)
 		}
 		for _, verb := range []string{"Get", "Test"} {
 			name := verb + "-" + selector + "Scenario"
-			consumers[name] = filepath.Join(home, "local", "bin", name)
+			path := filepath.Join(home, "local", "bin", name)
+			if contains(lineage, selector) {
+				// A lineage member (Debian on Ubuntu) is expected by the ruling and absent until #860 ships;
+				// it counts here only when writ deployed it. Step 2.3b asserts or skips on that.
+				if _, err := os.Lstat(path); err != nil {
+					continue
+				}
+			}
+			consumers[name] = path
 		}
 	}
 	return consumers
@@ -660,7 +720,7 @@ func makeSelfContained(t *testing.T, path string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	text := string(data)
+	text := strings.ReplaceAll(string(data), "\r\n", "\n") // a Windows checkout may have rewritten the fixture's line endings
 	preamble := `set -o errexit -o nounset -o pipefail
 
 script_name="$(basename "$0")" && readonly script_name
@@ -948,6 +1008,22 @@ func TestWritLayerJourneyScenario_Part2_Deploy(t *testing.T) {
 		assertLinked(t, filepath.Join(home, ".local", "bin", "git-scenario"), "git-scenario")
 		assertLinked(t, filepath.Join(home, ".local", "bin", "git-a"), "git-a")
 		assertPresence(t, runtime.GOOS != "windows", filepath.Join(home, ".local", "bin", "nf-unix"))
+	})
+
+	t.Run("2.3b the lineage deploys: what deploys to Debian deploys to Ubuntu", func(t *testing.T) {
+		lineage := lineageSelectors()
+		if len(lineage) == 0 {
+			t.Skipf("%s/%s declares no lineage in os-release; nothing to assert", runtime.GOOS, runtime.GOOS)
+		}
+		for _, selector := range lineage {
+			if !contains([]string{"Darwin", "Linux", "Debian", "Unix"}, selector) {
+				continue // the fixture carries no consumer for this ancestor
+			}
+			path := filepath.Join(home, "local", "bin", "Get-"+selector+"Scenario")
+			if _, err := os.Lstat(path); err != nil {
+				j.skip(t, issueLineageChain, fmt.Sprintf("common.%s deploys on a host whose ID_LIKE names %s (here: %s)", selector, strings.ToLower(selector), capitalizeDistro(osRelease("ID"))))
+			}
+		}
 	})
 
 	t.Run("2.4 every consumer answers --help", func(t *testing.T) {

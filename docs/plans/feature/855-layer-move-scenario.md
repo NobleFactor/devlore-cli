@@ -282,6 +282,11 @@ under Git for Windows' bash in 2.4 and 3.3. Ubuntu: `.Debian` matches through th
   arm64 plan's build-only stance for every other job are untouched.
 - **The scenario lands first.** "The scenario lands first with its skip-list and the writ lane clears it."
   The skip-list — #840, #791, #792, #793, #812, #843, #850, #851 — is the lane's executable to-do list.
+- **The Linux chain follows the lineage** (2026-09-07, after the first six-leg run showed `common.Debian`
+  absent on Ubuntu): "Debian is the base for Ubuntu so what deploys to Debian should deploy to Ubuntu.
+  Similarly, Fedora is the base for RHEL so what deploys to Fedora should deploy to RHEL." Filed as #860:
+  `Unix → Linux → ID_LIKE reversed → ID`. The scenario's selector table is the ruled chain; step 2.3b
+  asserts the lineage members and skips by #860 until writ reads `ID_LIKE`. #860 joins the skip-list.
 
 ## Open Questions
 
