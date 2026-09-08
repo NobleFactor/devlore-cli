@@ -352,8 +352,10 @@ func assembleBindings(data map[string]bindingData, action Action, catalog *Resou
 //
 // A value that carries its own type is unwrapped, and the type it records is the answer -- no parameter is
 // consulted, because the document already said what the value is. A declared resource slot holds the catalog id,
-// bare, and binds to the ledger entry it names ([lookupSlotResource]). Everything else is a bare literal whose type
-// only the field can supply, which is [readAgainstField]'s job and #711's mechanism.
+// bare, and binds to the ledger entry it names ([lookupSlotResource]). A slot that carries its type by rule --
+// undeclared, or declared `any` -- holding anything but an envelope is refused: a bare value there is a malformed
+// document, not a type to infer (#712 phase 4). Everything else is a bare literal whose type only the field can
+// supply, which is [readAgainstField]'s job and #711's mechanism.
 //
 // Parameters:
 //   - `value`: the decoded document value.
@@ -363,10 +365,26 @@ func assembleBindings(data map[string]bindingData, action Action, catalog *Resou
 //
 // Returns:
 //   - `any`: the live value.
-//   - `error`: a malformed envelope, an id the ledger does not hold, or a number nothing declares.
+//   - `error`: a malformed or unknown envelope, a bare value in an `any` slot, an id the ledger does not hold, or
+//     a number nothing declares.
 func readSlotValue(value any, method *Method, name string, catalog *ResourceCatalog) (any, error) {
 	if isTypeWrapper(value) {
 		return decodeTypeWrapper(value, catalog)
+	}
+	// A slot that carries its type by rule -- undeclared, or declared `any` -- holds an envelope or nothing. A bare
+	// value here was not written by the encoder, and the reader does not infer a type from its shape: inference is
+	// what produced the defect (#712 phase 4, requirement 3). An envelope naming an unknown type is the same refusal,
+	// naming the type instead of guessing a fallback.
+	if declared, ok := slotDeclaredType(method, name); !ok || isAnyType(declared) {
+		unit := "a unit with no action"
+		if method != nil {
+			unit = method.Name()
+		}
+		if typeName, unknown := unknownEnvelopeName(value); unknown {
+			return nil, fmt.Errorf("slot %q of %s: the envelope names a type this reader does not know: %q", name, unit, typeName)
+		}
+		return nil, fmt.Errorf("slot %q of %s holds a bare %T: an `any` slot's value carries its type (#712), "+
+			"and there is nothing to read it against", name, unit, value)
 	}
 	if declared, ok := slotDeclaredType(method, name); ok && declared.Implements(resourceInterfaceType) {
 		if id, isString := value.(string); isString {
@@ -459,8 +477,8 @@ func assembleNode(p *nodeData, catalog *ResourceCatalog) (*Node, error) {
 // run catalog. Converting it here constructs at LOAD time, which the ruling forbids, and it moves the graph's
 // checksum because the canonical form is computed from these values.
 //
-// A slot with no declared type passes through as decoded. An `any` parameter has nothing to read against, and
-// the document does not yet carry the type it would need (#712).
+// A slot with no declared type, or declared `any`, never reaches here: its value carries its own type, and a bare
+// one is refused in [readSlotValue] before this step (#712 phase 4).
 //
 // A value the field cannot hold also passes through unchanged, so the failure surfaces at dispatch naming the
 // parameter and its type rather than here naming a slot the author never wrote.
@@ -620,7 +638,7 @@ func slotCarriesItsType(method *Method, name string, value any) bool {
 	if !ok {
 		return true
 	}
-	return declared.Kind() == reflect.Interface && declared.NumMethod() == 0
+	return isAnyType(declared)
 }
 
 // isNonFiniteFloat reports whether a value is an infinity or a NaN, which json cannot write as a bare number.
@@ -640,6 +658,19 @@ func isNonFiniteFloat(value any) bool {
 	}
 
 	return false
+}
+
+// isAnyType reports whether a declared type is the empty interface -- `any` -- and so declares nothing a value
+// could be read against.
+//
+// Parameters:
+//   - `declared`: the parameter's declared type.
+//
+// Returns:
+//   - `bool`: true for the empty interface.
+func isAnyType(declared reflect.Type) bool {
+
+	return declared.Kind() == reflect.Interface && declared.NumMethod() == 0
 }
 
 // endregion

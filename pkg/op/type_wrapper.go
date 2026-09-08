@@ -9,6 +9,7 @@ import (
 	"math"
 	"reflect"
 	"strconv"
+	"strings"
 )
 
 // region Constants
@@ -22,12 +23,15 @@ import (
 // The names are Go's rather than BSON's. Extended JSON spells these `$numberLong` and `$numberDouble`, which
 // would not read to anyone working in this codebase.
 const (
-	typeNameBool     = "$bool"
-	typeNameBytes    = "$bytes"
-	typeNameFloat64  = "$float64"
-	typeNameInt64    = "$int64"
-	typeNameList     = "$list"
-	typeNameMap      = "$map"
+	typeNameBool    = "$bool"
+	typeNameBytes   = "$bytes"
+	typeNameFloat64 = "$float64"
+	typeNameInt64   = "$int64"
+	typeNameList    = "$list"
+	typeNameMap     = "$map"
+	// typeNamePrefix marks a document type name; a single-key mapping whose key carries it is an envelope.
+	typeNamePrefix = "$"
+
 	typeNameNil      = "$nil"
 	typeNameResource = "$resource"
 	typeNameString   = "$string"
@@ -255,6 +259,30 @@ func isTypeWrapper(value any) bool {
 	}
 
 	return false
+}
+
+// unknownEnvelopeName reports whether a decoded value has an envelope's shape -- a single-key mapping whose key
+// carries the `$` prefix -- but names a type this reader does not know, so a reader can refuse it by name rather
+// than as an anonymous bare map (#712 phase 4).
+//
+// Parameters:
+//   - `value`: the decoded document value.
+//
+// Returns:
+//   - `string`: the unknown type name.
+//   - `bool`: true when `value` is shaped like an envelope and [isTypeWrapper] is false for it.
+func unknownEnvelopeName(value any) (string, bool) {
+
+	wrapper, isMap := value.(map[string]any)
+	if !isMap || len(wrapper) != 1 || isTypeWrapper(value) {
+		return "", false
+	}
+	for name := range wrapper {
+		if strings.HasPrefix(name, typeNamePrefix) {
+			return name, true
+		}
+	}
+	return "", false
 }
 
 // decodeTypeWrapper unwraps a value the document recorded a type for.

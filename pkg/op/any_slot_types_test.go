@@ -34,6 +34,9 @@ type anySlotFixture struct{ ProviderBase }
 //   - `error`: always nil.
 func (p *anySlotFixture) Keep(value any) error { return nil }
 
+// Weigh declares a float64 parameter: the declared float position requirement 2 must reach.
+func (p *anySlotFixture) Weigh(factor float64) error { return nil }
+
 func init() {
 
 	AnnounceProvider(reflect.TypeFor[anySlotFixture](), NewProviderFlags(SurfaceWorkflow, PlacementQualified),
@@ -41,7 +44,8 @@ func init() {
 			return &anySlotFixture{ProviderBase: NewProviderBase(runtimeEnvironment)}, nil
 		},
 		map[string]MethodMetadata{
-			"Keep": {ParameterNames: []string{"value"}},
+			"Keep":  {ParameterNames: []string{"value"}},
+			"Weigh": {ParameterNames: []string{"factor"}},
 		})
 }
 
@@ -473,6 +477,71 @@ func TestLoadGraph_ABareNumberInAnUndeclaredSlotIsRefused(t *testing.T) {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("refusal %q does not name %s", err, want)
 		}
+	}
+}
+
+// TestLoadGraph_ABareValueInAnAnySlotIsRefused is row 6 of the #712 test plan, phase 4's first box: a value in an
+// `any` slot that does not carry its type is a malformed document, refused naming the slot and what was found --
+// never a type inferred from the value's shape, which is what produced the defect.
+func TestLoadGraph_ABareValueInAnAnySlotIsRefused(t *testing.T) {
+
+	err := loadWithSlotRewritten(t, anySlotGraph(t, "kept"), `{"$string":"kept"}`, `"kept"`)
+	if err == nil {
+		t.Fatal("LoadGraph accepted a bare string in an `any` slot; want a refusal")
+	}
+	for _, want := range []string{`"value"`, "keep", "bare string", "carries its type"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("refusal %q does not name %s", err, want)
+		}
+	}
+}
+
+// TestLoadGraph_AnEnvelopeNamingAnUnknownTypeIsRefused is phase 4's second box: an envelope whose name this reader
+// does not know is refused by that name, not read as an author's map or resolved through a fallback.
+func TestLoadGraph_AnEnvelopeNamingAnUnknownTypeIsRefused(t *testing.T) {
+
+	err := loadWithSlotRewritten(t, anySlotGraph(t, int64(5)), `{"$int64":"5"}`, `{"$int128":"5"}`)
+	if err == nil {
+		t.Fatal("LoadGraph accepted an envelope naming an unknown type; want a refusal")
+	}
+	for _, want := range []string{`"value"`, "keep", `"$int128"`, "does not know"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("refusal %q does not name %s", err, want)
+		}
+	}
+}
+
+// TestSaveGraph_ANonFiniteFloatInADeclaredFloatSlotSavesAndReloads is row 17 of the #712 test plan (requirement 2):
+// a non-finite float records its type at a DECLARED float position too, because JSON cannot express one as a bare
+// number anywhere -- so +Inf in a float64 parameter saves as JSON and reloads as +Inf from both codecs.
+func TestSaveGraph_ANonFiniteFloatInADeclaredFloatSlotSavesAndReloads(t *testing.T) {
+
+	action, err := ReceiverRegistry().BuildAction("anySlotFixture.weigh")
+	if err != nil {
+		t.Fatalf("BuildAction: %v", err)
+	}
+	node, err := NewNode(NewNodeSpec().WithID("weigh").WithAction(action).WithSlot("factor", NewImmediateBinding(math.Inf(1))))
+	if err != nil {
+		t.Fatalf("NewNode: %v", err)
+	}
+	graph, err := NewGraph(NewGraphSpec().WithOrigin(NewOriginBase("test", "home", NewAnnotationMap(nil))).WithUnits(node))
+	if err != nil {
+		t.Fatalf("NewGraph: %v", err)
+	}
+	for _, format := range []string{"json", "yaml"} {
+		t.Run(format, func(t *testing.T) {
+			loaded, err := LoadGraph(formatIdentityEnvironment(t), serializeGraph(t, graph, format), format)
+			if err != nil {
+				t.Fatalf("LoadGraph(%s) with +Inf in a declared float64 slot: %v", format, err)
+			}
+			factor, bound := loaded.Nodes()[0].ResolveSlots(nil, nil)["factor"]
+			if !bound {
+				t.Fatal("the reloaded node has no \"factor\" slot")
+			}
+			if value, isFloat := factor.(float64); !isFloat || !math.IsInf(value, 1) {
+				t.Errorf("factor reloaded as %T(%v); want float64 +Inf", factor, factor)
+			}
+		})
 	}
 }
 

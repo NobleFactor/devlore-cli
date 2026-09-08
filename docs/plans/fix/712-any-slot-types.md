@@ -1,7 +1,7 @@
 ---
 title: "Slots must carry their type"
 issue: https://github.com/NobleFactor/devlore-cli/issues/712
-status: in-progress
+status: complete
 created: 2026-08-28
 updated: 2026-09-07
 ---
@@ -17,21 +17,32 @@ envelope in the document -- MongoDB Extended JSON's shape, a single `$`-prefixed
 envelopes non-finite floats wherever they appear, makes an unenveloped value a read error rather than a
 guess, and removes a `json.Number` leak that #713 introduced at the same seam.
 
+## Issue 712
+
+The plan's subject: every value in an `any` position carries its type in the document (decisions 1 through 12), a
+bare value there is refused, and the format is documented in the architecture. Closed by this plan's pull request.
+
+## Issue 735
+
+A resource-valued slot re-identified by URI, binding to whichever generation was current. Decision 8 makes the
+catalog id the identity a slot names; phase 3 writes it at both seams and dispatch resolves by it; a URI in a
+resource slot is refused by name. Closed by this plan's pull request.
+
 ## Goals
 
-- [ ] A float in an `any` slot reloads as a float; an integer reloads as an integer.
-- [ ] A `[]byte` in an `any` slot reloads as the bytes that were written.
-- [ ] A `Resource` in an `any` slot reloads as a Resource, not as its URI string.
-- [ ] A resource-valued slot binds to the generation it was written against, not the current one.
-- [ ] A non-finite float saves and reloads in both codecs, rather than failing in one, at every float
-      position rather than only in `any` slots.
-- [ ] A value whose field has a declared type is *not* enveloped; the declaration already answers.
-- [ ] An integer above 2^53 survives an `any` slot with every digit intact.
-- [ ] An unenveloped value in an `any` slot is an error, not a guess.
-- [ ] An `any` position nested in a container carries its type at every depth.
-- [ ] JSON and YAML agree, in both directions.
-- [ ] No decoder-internal type (`json.Number`) is observable to a provider, a guard, or Starlark.
-- [ ] The envelope is documented as part of the document format, not left implicit in an encoder.
+- [x] A float in an `any` slot reloads as a float; an integer reloads as an integer. (rows 1, 2)
+- [x] A `[]byte` in an `any` slot reloads as the bytes that were written. (row 3)
+- [x] A `Resource` in an `any` slot reloads as a Resource, not as its URI string. (row 14)
+- [x] A resource-valued slot binds to the generation it was written against, not the current one. (#735: the declared-slot id test, the URI refusal, dispatch by id)
+- [x] A non-finite float saves and reloads in both codecs, rather than failing in one, at every float
+      position rather than only in `any` slots. (rows 15, 16, 17; the stated limit under phase 3's box)
+- [x] A value whose field has a declared type is *not* enveloped; the declaration already answers. (`slotCarriesItsType`; row 21's pin)
+- [x] An integer above 2^53 survives an `any` slot with every digit intact. (rows 19, 20)
+- [x] An unenveloped value in an `any` slot is an error, not a guess. (row 6; phase 4)
+- [x] An `any` position nested in a container carries its type at every depth. (rows 11, 13)
+- [x] JSON and YAML agree, in both directions. (row 9: the format-identity tests, both directions)
+- [x] No decoder-internal type (`json.Number`) is observable to a provider, a guard, or Starlark. (rows 4, 5)
+- [x] The envelope is documented as part of the document format, not left implicit in an encoder. (`5-graph-trace-integrity.md` § Value Encoding)
 
 ## Current State
 
@@ -255,8 +266,10 @@ the bare id for a declared resource slot, and the retirement of `Discover(uri)` 
 5. **The providers' `Unmarshal*` constructors are not this phase's.** Thirty-six methods across the sealed
    providers construct a resource from a URI string; after (1) and (2) no slot path reaches them, and their other
    callers ([Convert]'s text step, `env_value.go`, `parameter.go`) are a sweep of their own, the shape #649 took.
-   Filed as a follow-up under #625 rather than folded in here; the plan's "retire `Discover(uri)` on unmarshal"
-   bullet is closed by the slot path no longer reaching it, and the methods' removal is that issue.
+   Filed 2026-09-07 as #854 under #625 rather than folded in here; the plan's "retire `Discover(uri)` on unmarshal"
+   bullet is closed by the slot path no longer reaching it, and the methods' removal is that issue. Enumerated there:
+   twelve resource types, 36 methods; the 24 codec unmarshalers have no caller left, the 12 `UnmarshalText` remain the
+   plan-time text-conversion step and need a ruling.
 
 **Decision 11 (2026-09-07, found by the doctored-checksum judgment scenario): the checksum covers the catalog's
 intent rows.** `CanonicalContent` serializes `children`, `edges`, `subgraphs`, `nodes`, and `origin`; the
@@ -302,8 +315,19 @@ re-emits a `recordedResourceID` as `$resource` (a resumed frame saved again keep
 `encodeReflected` for Go's natural shapes. Pins: origin annotations reload typed from both codecs and a bare one is
 refused naming its key; receipt annotations round-trip through both restore paths; trace variables reload typed with
 a resource as its recorded id, and a bare variable value is refused; a recorded id dispatches by id; nine Go shapes
-envelope as their document types and four nameless ones are refused. Next: the follow-up issue for item 5, then
-phase 4.
+envelope as their document types and four nameless ones are refused. #854 filed for item 5.
+
+**Phase 4 applied 2026-09-07; `make check` green.** `readSlotValue` refuses a bare value, or an envelope under an
+unknown name, in any slot that carries its type by rule; `isAnyType` names the predicate `slotCarriesItsType` and the
+reader share; the declared-float half of requirement 2 is pinned (row 17). Every goal but the last is ticked with its
+rows.
+
+**Phase 5 applied 2026-09-07.** The envelope is stated once, in `5-graph-trace-integrity.md`, and the two documents
+that describe the positions it applies to link there. All five phases are complete; the pull request closes #712 and
+#735. Process note: the process documents changed during this work (noblefactor-ops, 2026-09-07) -- the report is
+`star gh issues report` since #848, scripts stage by name and prove nothing is left behind, every issue ends with a
+documents table, and a plan carries an `## Issue NNN` heading per issue it serves; this plan and its issues were
+brought to that standard before the pull request.
 
 ### State as of 2026-09-01
 
@@ -862,7 +886,7 @@ Two things Phase 1 changed about the plan itself:
       if a new decoder path appears. The resolution above is the fix; this is the guard rail. `numberTruthy`;
       the numeric cases moved to `numericTruthy` to keep the switch under the complexity gate.
 
-### Phase 3: Write the envelope -- IN PROGRESS (first half landed 2026-09-06)
+### Phase 3: Write the envelope -- COMPLETE (2026-09-07)
 
 - [x] Envelope every value in an `any` slot, in JSON and in YAML, emitting the same shape in both so the two
       documents stay structurally isomorphic. **Landed:** ff33a2f, the wrapper at the slot seam; `TestGraphChecksum_IdenticalAcrossJSONAndYAMLDocuments` and
@@ -881,8 +905,12 @@ Two things Phase 1 changed about the plan itself:
       `Pending` entry is the normal case for a plan whose producing node has not run. **Landed:** `Lookup(id)` binds the document catalog's entry and never stats; the same two tests.
 - [x] Retire the URI paths for slots: `Discover(uri)` on unmarshal, and `resolveDispatchResource`. **Landed:** `resolveDispatchResource` resolves a Resource by id (e54e4168); `Discover(uri)` on unmarshal is
       unreachable from any slot path and its removal is item 5's follow-up issue.
-- [ ] Encode a non-finite float in the envelope payload, so JSON can carry what it cannot express as a
-      bare number. Apply this at **every** float position, declared or not -- not only in `any` slots.
+- [x] Encode a non-finite float in the envelope payload, so JSON can carry what it cannot express as a
+      bare number. Apply this at **every** float position, declared or not -- not only in `any` slots. **Landed:** `slotCarriesItsType` answers true for a non-finite float at any slot, declared float64 included
+      (`TestSaveGraph_ANonFiniteFloatInADeclaredFloatSlotSavesAndReloads`, row 17, both codecs); receipts, variables,
+      and annotations reach the same codec. **Stated limit:** a float field inside a provider's own result struct
+      marshals through the struct's tags, is no seam of this plan, and a NaN there fails `json.Marshal` as it always
+      did.
 - [x] Leave a value with a declared type bare. Enveloping it would duplicate what the field already says. **Landed:** `slotCarriesItsType`; `TestLoadGraph_ABareNumberInAnUndeclaredSlotIsRefused` pins the other side.
 - [x] Apply it at every seam in the finding-7 table, not only `bindingData`. **Landed:** `receipt.go` `Result`
       and `Slots` (per value), `recovery_stack.go` `Result`, through `envelopeRecorded` / `unwrapRecorded`: a value
@@ -890,16 +918,24 @@ Two things Phase 1 changed about the plan itself:
       declared-type rule says. **Landed 2026-09-07:** `variable.go` `Value` (both directions -- see item 4), `origin.go` `Annotations`, and
       `receipt.go` `Annotations`, the seam the table had not listed.
 
-### Phase 4: Refuse an unenveloped value
+### Phase 4: Refuse an unenveloped value -- COMPLETE (2026-09-07)
 
-- [ ] A bare value in an `any` slot is a read error naming the slot and what was found.
-- [ ] An envelope naming a type the reader does not know is a read error, not a fallback.
+- [x] A bare value in an `any` slot is a read error naming the slot and what was found. **Landed:** `readSlotValue` refuses a bare value in any slot that carries its type by rule -- undeclared or
+      declared `any` -- naming the slot, the unit, and the Go type found; `TestLoadGraph_ABareValueInAnAnySlotIsRefused`
+      (row 6). Phase 2's undeclared-number refusal keeps its wording and its pin.
+- [x] An envelope naming a type the reader does not know is a read error, not a fallback. **Landed:** `unknownEnvelopeName` recognizes the envelope's shape under an unknown `$name`, and the refusal names
+      it; `TestLoadGraph_AnEnvelopeNamingAnUnknownTypeIsRefused`, beside the codec-level
+      `TestTypeWrapper_AnUnknownTypeNameIsRefused`.
 
-### Phase 5: Document the format and close the loop
+### Phase 5: Document the format and close the loop -- COMPLETE (2026-09-07)
 
-- [ ] State the envelope in the document-format documentation.
-- [ ] Re-check the checksum and canonical-form question: Phase 3 changes the bytes of every document holding
-      an `any` slot. Whether it changes the *canonical* form is the open question below.
+- [x] State the envelope in the document-format documentation. **Landed:** `docs/architecture/5-graph-trace-integrity.md` § Value Encoding -- the nine envelopes, their payloads,
+      and the five rules; `2.1-typed-slots.md` states how immediates serialize; `5.2-recovery-serialization.md` states
+      the receipt seams and its sample carries `{$resource: res-a}`; the three status files gain their rows.
+- [x] Re-check the checksum and canonical-form question: Phase 3 changes the bytes of every document holding
+      an `any` slot. Whether it changes the *canonical* form is the open question below. **Answered:** decisions 9 and 11 -- the envelope is in the canonical form, and the canonical form covers the
+      catalog's intent rows; Tier 1 of `5-graph-trace-integrity.md` says both, and its "still unlegislated" list shrinks
+      to null-versus-absent.
 
 ## Test Plan
 
