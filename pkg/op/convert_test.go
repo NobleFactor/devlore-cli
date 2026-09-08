@@ -19,6 +19,14 @@ type convertResource struct {
 	Path string
 }
 
+// convertEntry is convertResource's sealed interface: the shape every announced resource has (#646).
+type convertEntry interface {
+	Resource
+	sealedConvert()
+}
+
+func (*convertResource) sealedConvert() {}
+
 func (r *convertResource) URI() string { return "test:" + r.Path }
 
 // newConvertResource matches the ResourceConstructor signature.
@@ -29,7 +37,7 @@ func newConvertResource(runtimeEnvironment *RuntimeEnvironment, identity any) (R
 		return nil, fmt.Errorf("expected string, got %T", identity)
 	}
 
-	base, err := NewResourceBase(runtimeEnvironment, "test:"+s, reflect.TypeFor[*convertResource]())
+	base, err := NewResourceBase(runtimeEnvironment, "test:"+s, reflect.TypeFor[convertEntry]())
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +80,9 @@ func (t *targetConverter) ConvertFrom(value any) (any, error) {
 
 // init registers convertResource for construction tests.
 func init() {
-	AnnounceResource(reflect.TypeFor[*convertResource](), newConvertResource, nil)
+	RegisterResourceImplementation(reflect.TypeFor[convertEntry](), reflect.TypeFor[convertResource]())
+	RegisterResourceMint(reflect.TypeFor[convertEntry](), reflect.TypeFor[*convertResource]())
+	AnnounceResource(reflect.TypeFor[convertEntry](), newConvertResource, nil)
 }
 
 // endregion
@@ -171,7 +181,7 @@ func TestConvert_ResourceConstructor(t *testing.T) {
 	runtimeEnvironment := &RuntimeEnvironment{}
 
 	val := "/etc/passwd"
-	target := reflect.TypeFor[*convertResource]()
+	target := reflect.TypeFor[convertEntry]()
 	got, err := Convert(runtimeEnvironment, val, target)
 
 	if err != nil {
@@ -186,7 +196,7 @@ func TestConvert_ResourceConstructor(t *testing.T) {
 func TestConvert_ResourceConstructor_ErrOnNilContext(t *testing.T) {
 
 	val := "/etc/passwd"
-	target := reflect.TypeFor[*convertResource]()
+	target := reflect.TypeFor[convertEntry]()
 	_, err := Convert(nil, val, target)
 
 	if err == nil {

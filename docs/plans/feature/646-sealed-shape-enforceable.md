@@ -1,7 +1,7 @@
 ---
 title: "The sealed-resource shape is enforced at announcement"
 issue: https://github.com/NobleFactor/devlore-cli/issues/646
-status: draft
+status: in-progress
 created: 2026-09-08
 updated: 2026-09-08
 ---
@@ -31,9 +31,9 @@ so it survives the next contributor without depending on review. Closed by this 
 
 ## Goals
 
-- [ ] A resource announced as a struct, as an unsealed interface, or as an interface over an exported struct is
+- [x] A resource announced as a struct, as an unsealed interface, or as an interface over an exported struct is
       refused at announcement, and the refusal names the type and the rule it broke.
-- [ ] Every announced resource type in the tree passes the check, asserted by a test that walks the populated
+- [x] Every announced resource type in the tree passes the check, asserted by a test that walks the populated
       registry.
 - [ ] `4.3-resource-registration.md` states the shape as the contract for adding a provider resource; its status
       file and the feature plan record the phase.
@@ -58,7 +58,9 @@ A single predicate, `CheckSealedShape(announced, implementation reflect.Type) er
 
 1. `announced` is an interface;
 2. it embeds `op.Resource` (`announced.Implements(Resource)`);
-3. it carries at least one unexported method — the seal — so no type outside the package can satisfy it;
+3. it declares at least one unexported method of its own -- the seal -- so no type outside the package can satisfy
+   it. `op.Resource`'s own unexported methods do not count: every resource interface embeds `op.Resource`, so counting
+   them made the first cut of this rule vacuous, which the unsealed fixture (Requirement 4) caught;
 4. `implementation` is a struct type;
 5. the struct's name is unexported;
 6. the struct is declared in the interface's package;
@@ -117,20 +119,29 @@ buys are phase 10. This plan touches `4.3` alone, because `4.3` is where the dev
 
 ## Implementation Phases
 
-### Phase 1: The check and the refusal
+### Phase 1: The check and the refusal -- COMPLETE (2026-09-08)
 
-- [ ] `CheckSealedShape` in `resource_implementation.go`, seven rules, each its own error naming the type.
-- [ ] `AnnounceResource` asserts it after resolving the implementation; `resourceImplementationFor`'s doc says the
+- [x] `CheckSealedShape` in `resource_implementation.go`, seven rules, each its own error naming the type.
+- [x] `AnnounceResource` asserts it after resolving the implementation; `resourceImplementationFor`'s doc says the
       pass-through exists so the check can name a struct announcement.
-- [ ] `TestAnnounceResource_ANonConformingShapeIsRefused`: the three fixtures, each refusal matched by message.
-- [ ] Every existing test stays green: the twelve announcements pass the check unchanged.
+- [x] `TestAnnounceResource_ANonConformingShapeIsRefused`: the three fixtures, each refusal matched by message;
+      `TestCheckSealedShape_TheContractHolds` pins the accepting side.
+- [x] Every existing test stays green: the twelve announcements pass the check unchanged. **The rule's first catch:**
+      four test fixtures announced a resource as a bare struct -- `intentProbeResource` (the catalog section),
+      `convertResource`, `anySlotResource`, and starlarkbridge's `pipelineResource` -- and the announcement refused
+      each at test-binary start. All four take the shape now (a sealed interface, the registration, the interface
+      passed to the resource base, a mint designated as every provider does, and conversion tests targeting the
+      interface as production does). A rule that only a suite read would have let them stand; this is why the
+      announcement is the right place. The same run showed rule 3's first cut was vacuous -- `op.Resource` has an
+      unexported method, so any interface embedding it "had a seal" -- and the unsealed fixture caught it; the rule now
+      requires a seal the interface declares itself.
 
 **Files:** `pkg/op/resource_implementation.go`, `pkg/op/receiver_registry.go`, `pkg/op/resource_implementation_test.go` (create).
 
-### Phase 2: The suite reads the rule
+### Phase 2: The suite reads the rule -- COMPLETE (2026-09-08)
 
-- [ ] `ResourceReceiverType.AnnouncedType()`; `resourceReceiverType` keeps the announced type.
-- [ ] `TestBootDiscipline_EveryResourceTypeIsASealedInterface` in `pkg/op/inventory/discipline_test.go`.
+- [x] `ResourceReceiverType.AnnouncedType()`; `resourceReceiverType` keeps the announced type.
+- [x] `TestBootDiscipline_EveryResourceTypeIsASealedInterface` in `pkg/op/inventory/discipline_test.go`.
 
 **Files:** `pkg/op/receiver_type.go`, `pkg/op/inventory/discipline_test.go`.
 

@@ -23,6 +23,14 @@ type pipelineResource struct {
 	Path string
 }
 
+// pipelineEntry is pipelineResource's sealed interface: the shape every announced resource has (#646).
+type pipelineEntry interface {
+	op.Resource
+	sealedPipeline()
+}
+
+func (*pipelineResource) sealedPipeline() {}
+
 // Resolve implements [op.Resource]; tests don't observe state.
 func (r *pipelineResource) Resolve() error { return nil }
 
@@ -31,7 +39,7 @@ func newPipelineResource(ctx *op.RuntimeEnvironment, identity any) (op.Resource,
 	if !ok {
 		return nil, fmt.Errorf("pipelineResource: expected string, got %T", identity)
 	}
-	base, err := op.NewResourceBase(ctx, s, reflect.TypeFor[*pipelineResource]())
+	base, err := op.NewResourceBase(ctx, s, reflect.TypeFor[pipelineEntry]())
 	if err != nil {
 		return nil, err
 	}
@@ -41,8 +49,10 @@ func newPipelineResource(ctx *op.RuntimeEnvironment, identity any) (op.Resource,
 // init registers pipelineResource with the package-global announce table at test-binary load time. The
 // init runs only when the starlarkbridge test binary builds; production code never sees it.
 func init() {
+	op.RegisterResourceImplementation(reflect.TypeFor[pipelineEntry](), reflect.TypeFor[pipelineResource]())
+	op.RegisterResourceMint(reflect.TypeFor[pipelineEntry](), reflect.TypeFor[*pipelineResource]())
 	op.AnnounceResource(
-		reflect.TypeFor[pipelineResource](),
+		reflect.TypeFor[pipelineEntry](),
 		newPipelineResource,
 		nil,
 	)
@@ -415,7 +425,7 @@ func TestStarlarkToGoTyped_NoneShortCircuit(t *testing.T) {
 	}{
 		{"target string", reflect.TypeFor[string]()},
 		{"target int", reflect.TypeFor[int]()},
-		{"target Resource", reflect.TypeFor[*pipelineResource]()},
+		{"target Resource", reflect.TypeFor[pipelineEntry]()},
 		{"target slice", reflect.TypeFor[[]string]()},
 	}
 
@@ -470,7 +480,7 @@ func TestStarlarkToGoTyped_StringToResource(t *testing.T) {
 
 	ctx := makePipelineContext(t)
 
-	got, err := StarlarkToGoTyped(ctx, starlark.String("/etc/foo"), reflect.TypeFor[*pipelineResource]())
+	got, err := StarlarkToGoTyped(ctx, starlark.String("/etc/foo"), reflect.TypeFor[pipelineEntry]())
 	if err != nil {
 		t.Fatalf("StarlarkToGoTyped: %v", err)
 	}
@@ -536,7 +546,7 @@ func TestStarlarkToGoTyped_Errors(t *testing.T) {
 
 	t.Run("Resource construction error", func(t *testing.T) {
 		// The constructor accepts string only. Pass an Int.
-		_, err := StarlarkToGoTyped(ctx, starlark.MakeInt64(1), reflect.TypeFor[*pipelineResource]())
+		_, err := StarlarkToGoTyped(ctx, starlark.MakeInt64(1), reflect.TypeFor[pipelineEntry]())
 		if err == nil {
 			t.Fatal("want error from constructor")
 		}

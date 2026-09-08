@@ -133,9 +133,12 @@ func NewProviderFlags(surfaces Surfaces, placement Placement) ProviderFlags {
 // ResourceReceiverType extends [ReceiverType] with resource-specific capabilities.
 //
 // Resources are data types that flow through starlark code or an execution graph. They are constructed by coercing a
-// raw value (e.g., a string path becomes a file.Resource).
+// raw value (e.g., a string path becomes a file.Resource). [ReceiverType.ProviderType] is the struct reflection runs
+// against; [ResourceReceiverType.AnnouncedType] is the sealed interface the resource was announced as, which is what
+// the shape check reads (#646).
 type ResourceReceiverType interface {
 	ReceiverType
+	AnnouncedType() reflect.Type
 	Construct() ResourceConstructor
 	SourceTypes() []reflect.Type
 }
@@ -331,6 +334,7 @@ func (rt *providerReceiverType) Flags() ProviderFlags { return rt.flags }
 // resourceReceiverType is the concrete descriptor for resources.
 type resourceReceiverType struct {
 	receiverType
+	announced   reflect.Type
 	construct   ResourceConstructor
 	sourceTypes []reflect.Type
 }
@@ -373,6 +377,7 @@ func NewResourceReceiverType(
 
 	return &resourceReceiverType{
 		receiverType: base,
+		announced:    resourceType,
 		construct:    construct,
 		sourceTypes:  sourceTypes,
 	}, nil
@@ -381,6 +386,13 @@ func NewResourceReceiverType(
 // region EXPORTED METHODS
 
 // region State management
+
+// AnnouncedType returns the type the resource was announced as: its sealed interface. [ReceiverType.ProviderType]
+// returns the struct behind it.
+//
+// Returns:
+//   - `reflect.Type`: the announced interface type.
+func (rt *resourceReceiverType) AnnouncedType() reflect.Type { return rt.announced }
 
 // Construct returns the resource constructor (coercion function).
 //

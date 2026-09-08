@@ -25,6 +25,14 @@ type intentProbeResource struct {
 	ResourceBase
 }
 
+// intentProbe is the probe's sealed interface: the shape every announced resource has (#646).
+type intentProbe interface {
+	Resource
+	sealedIntentProbe()
+}
+
+func (*intentProbeResource) sealedIntentProbe() {}
+
 // newIntentProbeResource constructs the probe from a path-ish string, tolerating its own emitted specific on
 // the rehydration round trip.
 func newIntentProbeResource(runtimeEnvironment *RuntimeEnvironment, value any) (Resource, error) {
@@ -32,7 +40,7 @@ func newIntentProbeResource(runtimeEnvironment *RuntimeEnvironment, value any) (
 	s, _ := value.(string)
 	s = strings.TrimPrefix(s, "probe:")
 
-	base, err := NewResourceBase(runtimeEnvironment, "probe:"+s, reflect.TypeFor[*intentProbeResource]())
+	base, err := NewResourceBase(runtimeEnvironment, "probe:"+s, reflect.TypeFor[intentProbe]())
 	if err != nil {
 		return nil, err
 	}
@@ -41,7 +49,9 @@ func newIntentProbeResource(runtimeEnvironment *RuntimeEnvironment, value any) (
 }
 
 func init() {
-	AnnounceResource(reflect.TypeFor[*intentProbeResource](), newIntentProbeResource, nil)
+	RegisterResourceImplementation(reflect.TypeFor[intentProbe](), reflect.TypeFor[intentProbeResource]())
+	RegisterResourceMint(reflect.TypeFor[intentProbe](), reflect.TypeFor[*intentProbeResource]())
+	AnnounceResource(reflect.TypeFor[intentProbe](), newIntentProbeResource, nil)
 }
 
 // TestGraphDocument_CatalogSectionIsPresentEvenEmpty pins the mandatory section: a graph with an empty
