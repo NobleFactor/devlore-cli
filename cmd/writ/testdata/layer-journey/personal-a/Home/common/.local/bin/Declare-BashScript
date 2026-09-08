@@ -1,0 +1,201 @@
+#!/usr/bin/env bash
+# shellcheck disable=SC2034 # Variables are used by scripts that source this file
+
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+
+# Declare-BashScript - Bash script argument and option parsing helper
+#
+# Scripts that source this file add, on the line above their source line:
+#
+#     # shellcheck source=Declare-BashScript
+#
+# The directive names the file, never a path. The lint gate supplies the directory with
+# `shellcheck -P` -- this repository's Home/common/.local/bin, or a consumer's deployed ~/.local/bin.
+#
+# Reference:
+#
+# 1. BSD sysexits.h exit codes
+#    https://man.freebsd.org/cgi/man.cgi?query=sysexits
+
+set -o errexit -o nounset -o pipefail
+
+###########
+# Variables
+###########
+
+script_root="$(cd "$(dirname "$1")" && pwd)" && readonly script_root
+script_name="$(basename "$1")" && readonly script_name
+script_long_options="${2:-}" && readonly script_long_options
+script_short_options="${3:-}" && readonly script_short_options
+
+shift 3 || shift 2 || shift 1 # Shift past the first three arguments to leave only the options for parsing
+
+# BSD sysexits.h exit codes (see /usr/include/sysexits.h)
+
+readonly EX_USAGE=64       # command line usage error
+readonly EX_DATAERR=65     # data format error
+readonly EX_NOINPUT=66     # cannot open input
+readonly EX_UNAVAILABLE=69 # service unavailable (missing dependency)
+readonly EX_SOFTWARE=70    # internal software error
+readonly EX_OSERR=71       # system error (e.g., can't fork)
+readonly EX_OSFILE=72      # critical OS file missing
+readonly EX_CANTCREAT=73   # can't create (user) output file
+readonly EX_IOERR=74       # input/output error
+readonly EX_TEMPFAIL=75    # temp failure; user is invited to retry
+readonly EX_PROTOCOL=76    # remote error in protocol
+readonly EX_NOPERM=77      # permission denied
+readonly EX_CONFIG=78      # configuration error (unsupported platform)
+
+# Useful for printing text to console...
+
+readonly Heavy_ballot='✘' Heavy_check_mark='✔'
+
+readonly b=$'\033[1m'   # bold
+readonly n=$'\033[0m'   # normal (reset)
+readonly u=$'\033[4m'   # underline
+readonly u_=$'\033[24m' # underline off
+
+###########
+# Functions
+###########
+
+function Set-Environment {
+    local envFile
+    local whitelist
+
+    # Optional first args: --whitelist "VAR1 VAR2 ..."
+
+    if [[ "$1" == "--whitelist" ]]; then
+        whitelist="$2"
+        shift 2
+    fi
+
+    for envFile in "$@"; do
+
+        while read -r line; do
+
+            trimmed_line="$(echo "${line}" | xargs)"
+            [[ -z ${trimmed_line:-} ]] || [[ "${trimmed_line}" =~ ^#.* ]] && continue
+
+            # Parse export VAR="value" or VAR="value"
+
+            if [[ $trimmed_line =~ ^export[[:space:]]+([^=]+)=(.*)$ ]]; then
+                name="${BASH_REMATCH[1]}"
+                value="${BASH_REMATCH[2]}"
+            else
+                IFS='=' read -r name value <<<"$trimmed_line"
+            fi
+
+            # Trim whitespace
+
+            name="${name#"${name%%[![:space:]]*}"}"
+            name="${name%"${name##*[![:space:]]}"}"
+            value="${value#"${value%%[![:space:]]*}"}"
+            value="${value%"${value##*[![:space:]]}"}"
+
+            # Strip outer quotes from value
+
+            if [[ $value =~ ^\"(.*)\"$ ]]; then
+                value="${BASH_REMATCH[1]}"
+            elif [[ $value =~ ^\'(.*)\'$ ]]; then
+                value="${BASH_REMATCH[1]}"
+            fi
+
+            # If whitelist is provided, ensure name is in whitelist
+
+            if [[ -z "$whitelist" || " $whitelist " == *" $name "* ]]; then
+                export "$name"="$value"
+                note "export $name=\"$value\""
+            fi
+
+        done <"$envFile"
+
+    done
+}
+
+function error {
+    local rc=$1
+    shift 1
+    printf '[%s] [\033[31m%s\033[0m] %s\n' "$script_name" "$Heavy_ballot" "$*" >&2
+    if ((rc != 0)); then
+        exit "$rc"
+    fi
+}
+
+function note {
+    if [[ -n ${SILENT:-} ]]; then
+        return
+    fi
+    printf "[%s] [+] %s\n" "$script_name" "$*" >&2
+}
+
+function require_darwin {
+    if [[ "$(uname -s)" != "Darwin" ]]; then
+        error $EX_CONFIG "This script requires macOS (Darwin)."
+    fi
+}
+
+function require_linux {
+    if [[ "$(uname -s)" != "Linux" ]]; then
+        error $EX_CONFIG "This script requires Linux."
+    fi
+}
+
+function require_nix {
+    case "$(uname -s)" in
+        Darwin | Linux) ;;
+        *)
+            error $EX_CONFIG "This script requires Linux or macOS (Darwin)."
+            ;;
+    esac
+}
+
+function require_root {
+    if [[ $EUID -ne 0 ]]; then
+        error $EX_NOPERM "must run as root"
+    fi
+}
+
+function success {
+    printf '[%s] [\033[32m%s\033[0m] %s\n' "$script_name" "$Heavy_check_mark" "$*" >&2
+}
+
+function usage {
+    local _synopsis="${1:-}"
+
+    # Require a synopsis so callers can provide a fallback when man is unavailable
+
+    if [[ -z "$_synopsis" ]]; then
+        printf '[%s] \033[31m%s\033[0m usage() requires a synopsis argument.\n' "$script_name" "$Heavy_ballot" >&2
+        exit 2
+    fi
+
+    # Prefer system man if available
+
+    if man -w "${script_name}" >/dev/null 2>&1; then
+        man "${script_name}"
+        exit 0
+    fi
+
+    # Fallback to share/man relative to script root
+
+    if man -M "${script_root}/../share/man" -w "${script_name}" >/dev/null 2>&1; then
+        man -M "${script_root}/../share/man" "${script_name}"
+        exit 0
+    fi
+
+    # Final fallback: print the synopsis provided by the caller
+
+    printf "%s\n" "$_synopsis"
+    exit 0
+}
+
+###########
+# Arguments
+###########
+
+if ! script_arguments=$(getopt -n "${script_name}" -o "${script_short_options}" --long "${script_long_options}" -- "$@" 2>&1); then
+    error "${EX_USAGE}" "${script_arguments}"
+fi
+readonly script_arguments

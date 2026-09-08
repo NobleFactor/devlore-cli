@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
+# nf-unix - NobleFactor tooling for Unix
+
+# shellcheck source=Declare-BashScript
+source "$(dirname "$0")/Declare-BashScript" "$0" "help" "h" "$@"
+require_nix
+
+###########
+# Arguments
+###########
+
+declare -r synopsis="nf-unix [-h|--help]"
+eval set -- "$script_arguments"
+
+while :; do
+    case $1 in
+        -h | --help)
+            usage "$synopsis" # does not return
+            ;;
+        --)
+            shift 1
+            break
+            ;;
+        *)
+            error $EX_USAGE "Unrecognized option: $1"
+            ;;
+    esac
+done
+
+###########
+# Main
+###########
+
+note "nf-unix: NobleFactor tooling for Unix"
+printf '%s\n' "personal:nf-unix"

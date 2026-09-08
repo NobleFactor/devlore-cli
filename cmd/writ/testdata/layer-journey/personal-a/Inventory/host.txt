@@ -1,0 +1,1 @@
+a file outside Home/ that a dirty check must not count (devlore-cli#852)

@@ -362,6 +362,9 @@ test-race: generate ## Run tests with race detector (TAGS=all|integration|e2e|""
 test-scenario: build ## Run every scenario: the real binaries driven end to end in a sandbox
 	# The writ-deploy scenario (docs/plans/writ-deploy-scenario.md) — writ's alone.
 	WRIT_SCENARIO_RUN=1 go test -run TestWritDeployScenario -v -count=1 -timeout 600s ./cmd/writ
+	# The layer-journey scenario (docs/plans/feature/855-layer-move-scenario.md): self install, repo set,
+	# deploy, and the move of 2026-09-07 -- the ruled interface, skipping by issue where unshipped.
+	WRIT_SCENARIO_RUN=1 go test -run TestWritLayerJourneyScenario -v -count=1 -timeout 900s ./cmd/writ
 	# Self install / uninstall, once per tool. Belongs to no single command, so it lives in cmd/scenario.
 	DEVLORE_SCENARIO_RUN=1 go test -run TestSelfInstallScenario -v -count=1 -timeout 600s ./cmd/scenario
 

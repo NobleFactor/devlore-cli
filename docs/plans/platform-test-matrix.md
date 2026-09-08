@@ -3,7 +3,7 @@ title: "Platform test matrix"
 issue: https://github.com/NobleFactor/devlore-cli/issues/373
 status: draft
 created: 2026-08-12
-updated: 2026-08-12
+updated: 2026-09-07
 ---
 
 # Plan: Platform test matrix
@@ -30,6 +30,11 @@ five contexts per job, not three.
 
 `make test-scenario` is `go test -run TestWritDeployScenario ./cmd/writ`. A green
 `scenario (windows-latest)` attests to one writ deploy scenario on Windows and nothing else.
+
+> Since 2026-09-07 `make test-scenario` also runs `TestWritLayerJourneyScenario`
+> ([feature/855-layer-move-scenario.md](./feature/855-layer-move-scenario.md)), and the `scenario` job has a
+> sixth leg, `darwin-amd64` on `macos-15-intel` — ruled for the scenario jobs alone, over
+> [arm64-build-and-test-matrix.md](./arm64-build-and-test-matrix.md)'s build-only stance.
 
 Ten platform-gated files are unit-tested nowhere, and the `_windows.go` / `_darwin.go` members
 cannot even be compiled by `quality-gate` — build constraints exclude them on ubuntu. Their only

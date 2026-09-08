@@ -3,10 +3,16 @@ title: "Writ Deploy Scenario"
 issue: https://github.com/NobleFactor/devlore-cli/issues/346
 status: complete
 created: 2026-08-08
-updated: 2026-08-10
+updated: 2026-09-07
 ---
 
 # Plan: Writ Deploy Scenario
+
+
+> **A second scenario sits beside this one since 2026-09-07:** the layer journey
+> ([feature/855-layer-move-scenario.md](./feature/855-layer-move-scenario.md)) — three layers, `self install`,
+> `repo set` in every combination, a bare `deploy`, `deploy thenobles`, and the move of 2026-09-07 — sharing
+> this harness's sandbox, runner and assertions, in its own file, on the same matrix plus darwin-amd64.
 
 ## Summary
 

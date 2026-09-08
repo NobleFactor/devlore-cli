@@ -1,0 +1,73 @@
+.\" SPDX-FileCopyrightText: 2016-2025 Noble Factor
+.\" SPDX-License-Identifier: Apache-2.0
+.TH Declare-BashScript 1 "December 2025" "Noble Factor" "User Commands"
+.SH NAME
+Declare-BashScript \- Bash script argument and option parsing helper
+.SH SYNOPSIS
+source "$(dirname "$0")/Declare-BashScript" <script_path> <long-options> <short-options> [arguments]
+.SH DESCRIPTION
+Provides argument parsing, usage, error, note, and success functions for bash scripts. Intended to be sourced at the top of other scripts. Supports long and short options, usage display, and error handling for robust script development.
+.PP
+This script provides the following key functionality:
+.IP \(bu 2
+Argument and option parsing using getopt
+.IP \(bu 2
+Automatic usage/help display via man pages
+.IP \(bu 2
+Environment variable loading from .env files
+.IP \(bu 2
+Standardized error, note, and success message functions
+.SH ARGUMENTS
+.TP
+.B <script_path>
+Path to the script being executed (usually $0).
+.TP
+.B <long-options>
+Comma-separated list of long options (e.g., "help,verbose,path:"). Options requiring arguments should end with a colon.
+.TP
+.B <short-options>
+String of short options (e.g., "hvp"). Options requiring arguments should be followed by a colon.
+.TP
+.B [arguments]
+Arguments to pass to the script.
+.SH PROVIDED FUNCTIONS
+.TP
+.B Set-Environment [--whitelist "VAR1 VAR2"] <envfile...>
+Loads environment variables from one or more .env files. Supports optional whitelist to limit which variables are exported.
+.TP
+.B usage <synopsis>
+Displays the man page for the script if available, otherwise falls back to the provided synopsis.
+.TP
+.B error <exit_code> <message>
+Prints an error message to stderr with a red ✘ symbol. Exits with the given code if non-zero.
+.TP
+.B note <message>
+Prints an informational message to stderr with a + symbol. Respects SILENT environment variable.
+.TP
+.B success <message>
+Prints a success message to stderr with a green ✔ symbol.
+.SH PROVIDED VARIABLES
+.TP
+.B script_root
+The directory containing the script.
+.TP
+.B script_name
+The basename of the script.
+.TP
+.B script_arguments
+Parsed arguments from getopt.
+.TP
+.B b, n, u, u_
+Terminal formatting codes for bold, normal, underline, and underline-off.
+.SH USAGE
+.RS
+.nf
+source "$(dirname "$0")/Declare-BashScript" "$0" "help,verbose,path:" "hvp" "$@"
+.fi
+.RE
+.SH AUTHOR
+David Noble
+.SH COPYRIGHT
+Copyright \(co 2016-2025 Noble Factor.
+.br
+Licensed under the Apache License, Version 2.0.

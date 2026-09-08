@@ -1,0 +1,14 @@
+#compdef Get-UnixScenario
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
+_Get-UnixScenario() {
+    local -a opts
+    opts=(
+        '(-h --help)'{-h,--help}'[Show usage information and exit]'
+    )
+
+    _arguments -s -S $opts
+}
+
+_Get-UnixScenario "$@"
