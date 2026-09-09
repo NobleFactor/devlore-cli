@@ -40,13 +40,12 @@ func resolveType(plat platform.Platform, prefix string) string {
 //   - `resource`: the resource to project.
 //
 // Returns:
-//   - `platform.PURL`: the purl with the canonical type, name, and requested version.
+//   - `platform.PURL`: the resource's full identity with the canonical type, plus the requested version.
 func toPURL(plat platform.Platform, resource Resource) platform.PURL {
-	return platform.PURL{
-		Type:    resolveType(plat, resource.Type()),
-		Name:    resource.Name(),
-		Version: resource.Version(),
-	}
+	projected := resource.purl()
+	projected.Type = resolveType(plat, resource.Type())
+	projected.Version = resource.Version()
+	return projected
 }
 
 // toPURLs projects each [Resource] into a [platform.PURL], preserving input order.

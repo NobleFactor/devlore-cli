@@ -326,6 +326,12 @@ func TestPkgActions(t *testing.T) {
 	runScriptDryRun(t, "test_pkg.star")
 }
 
+// TestPkgCanonicalPurl is #813: a package named by the canonical purl the provider itself emits plans, where it
+// was once refused as an unknown package manager called "pkg".
+func TestPkgCanonicalPurl(t *testing.T) {
+	runScriptDryRun(t, "test_pkg_purl.star")
+}
+
 func TestServiceActions(t *testing.T) {
 	runScriptDryRun(t, "test_service.star")
 }

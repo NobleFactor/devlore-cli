@@ -213,8 +213,12 @@ func (p *Provider) CompensatePackageMutation(activationRecord *op.ActivationReco
 	}
 
 	router := plat.PackageManager()
-	query := platform.PURL{Type: receipt.Manager, Name: resource.Name()}
-	restore := platform.PURL{Type: receipt.Manager, Name: resource.Name(), Version: receipt.PreviousVersion}
+	// The receipt names the manager that actually handled the package; the rest of the identity -- namespace and
+	// qualifiers included -- comes from the resource (#813).
+	query := resource.purl()
+	query.Type = receipt.Manager
+	restore := query
+	restore.Version = receipt.PreviousVersion
 
 	switch receipt.Kind() {
 
@@ -474,7 +478,9 @@ func receiptResource(receipt *Receipt) (Resource, bool) {
 // Returns:
 //   - `platform.PURL`: the versionless query purl.
 func toQueryPURL(plat platform.Platform, resource Resource) platform.PURL {
-	return platform.PURL{Type: resolveType(plat, resource.Type()), Name: resource.Name()}
+	projected := resource.purl()
+	projected.Type = resolveType(plat, resource.Type())
+	return projected
 }
 
 // endregion
