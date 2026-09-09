@@ -14,9 +14,9 @@
         "properties": {
           "name": {
             "type": "string",
-            "description": "Package name",
+            "description": "Package name, in any of three forms: the canonical purl the pkg provider emits and reads (pkg:{type}/{namespace}/{name}@{version}?{qualifiers}), a manager-prefixed name (brew:jq), or a bare name resolved by the platform's default manager (jq). The purl form is the only one that can express a namespace (a winget publisher, an npm scope) or a qualifier (scope=machine).",
             "minLength": 1,
-            "examples": ["gh", "jq", "ripgrep"]
+            "examples": ["gh", "jq", "ripgrep", "brew:jq", "pkg:brew/jq@1.7", "pkg:winget/Vim/Vim?scope=machine"]
           },
           "with": {
             "type": "array",

@@ -104,7 +104,8 @@ func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (Res
 //
 // Parameters:
 //   - `runtimeEnvironment`: the runtime environment; must have `Platform` set.
-//   - `value`: a string package name with an optional `manager:` prefix, or a canonical URI.
+//   - `value`: a package string in any of three forms: the canonical purl the provider itself emits
+//     (`pkg:winget/Vim/Vim?scope=machine`), a `manager:` prefixed name (`brew:jq`), or a bare name (`jq`).
 //
 // Returns:
 //   - `*resource`: the canonical catalog entry, or the unlinked candidate when no catalog is present.
@@ -135,6 +136,10 @@ func discoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*re
 	return canonical, nil
 }
 
+// purlScheme is the canonical purl's scheme, checked before the manager-prefix form: the two grammars are
+// otherwise ambiguous, since `pkg` reads as a legal manager prefix (#813).
+const purlScheme = "pkg:"
+
 // buildCandidate constructs a resource from `value` without touching the catalog.
 //
 // Validates that `value` is a string, parses any `manager:` prefix, and resolves the package URL. Shared
@@ -157,27 +162,54 @@ func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*reso
 
 	plat := runtimeEnvironment.Platform
 
-	// Parse the optional manager prefix (e.g., "brew:jq", "port:wget") into a canonical purl type.
+	// Three forms, and the canonical one is checked FIRST. `strings.Cut(raw, ":")` cannot tell a scheme from a
+	// manager prefix, and `pkg` is a legal-looking prefix -- which is why the provider could not read the URI it
+	// writes (#813). Once a string declares the scheme it IS a purl: a parse failure is reported as one and never
+	// re-read as a manager prefix, since a fallback would turn a typo into a package named after it.
 
-	var purlType string
+	var (
+		purlType   string
+		namespace  string
+		name       string
+		version    string
+		qualifiers map[string]string
+	)
 
-	if prefix, after, ok := strings.Cut(raw, ":"); ok {
-		resolved, known := plat.ResolvePurlType(prefix)
-		if !known {
-			return nil, fmt.Errorf("pkg.Resource: unknown package manager %q", prefix)
+	switch {
+	case strings.HasPrefix(raw, purlScheme):
+		parsed, err := platform.ParsePURL(raw)
+		if err != nil {
+			return nil, fmt.Errorf("pkg.Resource: %w", err)
 		}
-		purlType = resolved
-		raw = after
-	} else {
-		purlType = plat.DefaultPurlType()
+		resolved, known := plat.ResolvePurlType(parsed.Type)
+		if !known {
+			return nil, fmt.Errorf("pkg.Resource: unknown package manager %q", parsed.Type)
+		}
+		purlType, namespace, name = resolved, parsed.Namespace, parsed.Name
+		version, qualifiers = parsed.Version, parsed.Qualifiers
+
+	default:
+		// The manager-prefix form ("brew:jq", "port:wget") and the bare name, as before.
+		if prefix, after, ok := strings.Cut(raw, ":"); ok {
+			resolved, known := plat.ResolvePurlType(prefix)
+			if !known {
+				return nil, fmt.Errorf("pkg.Resource: unknown package manager %q", prefix)
+			}
+			purlType = resolved
+			raw = after
+		} else {
+			purlType = plat.DefaultPurlType()
+		}
+
+		// Split the optional requested version (e.g., "git@2.39.0") off the name. The version is mutable state on
+		// the Resource; the URI is versionless so "git" and "git@2.39.0" intern to one catalog entry.
+		name, version, _ = strings.Cut(raw, "@")
 	}
 
-	// Split the optional requested version (e.g., "git@2.39.0") off the name. The version is mutable state on the
-	// Resource; the URI is versionless so "git" and "git@2.39.0" intern to one catalog entry.
-
-	name, version, _ := strings.Cut(raw, "@")
-
-	purl := platform.PURL{Type: purlType, Name: name}
+	// The URI is the versionless identity, and it carries the namespace and the qualifiers: a purl exists to
+	// express them, and `scope=machine` and `scope=user` are two installations rather than one package requested
+	// twice. It is what the constructor reads back (`ReachabilityURI`), so the provider now reads what it writes.
+	purl := platform.PURL{Type: purlType, Namespace: namespace, Name: name, Qualifiers: qualifiers}
 
 	base, err := op.NewResourceBase(runtimeEnvironment, purl.String(), reflect.TypeFor[Resource]())
 	if err != nil {
@@ -187,8 +219,10 @@ func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*reso
 	return &resource{
 		ResourceBase: base,
 		name:         name,
+		namespace:    namespace,
 		typ:          purlType,
 		version:      version,
+		qualifiers:   qualifiers,
 	}, nil
 }
 
@@ -218,6 +252,12 @@ type Resource interface {
 	// Version returns the requested version (the purl `@version`); empty means latest. Not identity.
 	Version() string
 
+	// purl returns the resource's full, versionless identity as a [platform.PURL] -- type, namespace, name and
+	// qualifiers. Unexported because every consumer is inside this package: a workflow reads Name, Type and
+	// Version, and the namespace and qualifiers are the driver's business, carried intact rather than
+	// interpreted here (#813).
+	purl() platform.PURL
+
 	// sealedResource marks the closed set of Resource implementations: only this package can declare it, so
 	// no type outside can satisfy Resource.
 	sealedResource()
@@ -233,9 +273,11 @@ var _ Resource = (*resource)(nil)
 type resource struct {
 	op.ResourceBase
 
-	name    string // package name ("jq", "curl", "VisualStudioCode")
-	typ     string // purl type / manager ("brew", "deb", "port", "winget")
-	version string // requested version (purl @version); empty means latest
+	name       string            // package name ("jq", "curl", "Vim")
+	namespace  string            // purl namespace: the winget publisher, npm scope, Maven group; empty for most
+	typ        string            // purl type / manager ("brew", "deb", "port", "winget")
+	version    string            // requested version (purl @version); empty means latest
+	qualifiers map[string]string // purl qualifiers the driver reads ("scope=machine"); nil when none
 }
 
 // sealedResource marks resource as the member of the closed [Resource] set.
@@ -258,6 +300,20 @@ func (r *resource) Type() string { return r.typ }
 // Returns:
 //   - `string`: the purl `@version`, or "" for latest.
 func (r *resource) Version() string { return r.version }
+
+// purl returns the resource's full, versionless identity: type, namespace, name and qualifiers.
+//
+// One projection, so no dispatch path rebuilds a PURL from name and type alone. That was the second half of #813:
+// parsing a namespace changes nothing while the driver is handed a purl without one -- winget joins
+// `Namespace + "." + Name` (`pkg/platform/windows_managers.go`), so it would still be asked for "Vim" rather than
+// "Vim.Vim".
+//
+// Returns:
+//   - `platform.PURL`: the identity, without the requested version.
+func (r *resource) purl() platform.PURL {
+
+	return platform.PURL{Type: r.typ, Namespace: r.namespace, Name: r.name, Qualifiers: r.qualifiers}
+}
 
 // resolveType records which manager actually handled the package after a mutation, replacing the type
 // that was requested. The one write a sealed resource admits, in-package, with a name that says it is a
@@ -371,7 +427,7 @@ func (r *resource) Etag() (string, error) {
 		return "", fmt.Errorf("pkg.Resource: etag: no Platform in runtime")
 	}
 
-	return runtimeEnvironment.Platform.PackageManager().Version(platform.PURL{Type: r.typ, Name: r.name}), nil
+	return runtimeEnvironment.Platform.PackageManager().Version(r.purl()), nil
 }
 
 // String returns a compact JSON representation of the resource.

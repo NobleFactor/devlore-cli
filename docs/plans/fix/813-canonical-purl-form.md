@@ -1,7 +1,7 @@
 ---
 title: "pkg accepts the canonical purl form it emits"
 issue: https://github.com/NobleFactor/devlore-cli/issues/813
-status: draft
+status: complete
 created: 2026-09-08
 updated: 2026-09-08
 ---
@@ -25,11 +25,11 @@ proceeds on that and does not reopen it. Closed by this plan's pull request.
 
 ## Goals
 
-- [ ] `pkg:winget/Vim/Vim?scope=machine`, `pkg:brew/jq@1.7`, `brew:jq` and `jq` all construct.
-- [ ] A namespace and qualifiers survive from the manifest to the package manager driver.
-- [ ] The constructor round-trips its own URI.
-- [ ] A malformed purl is refused with the parser's own message.
-- [ ] The manifest schema documents every form the constructor accepts.
+- [x] `pkg:winget/Vim/Vim?scope=machine`, `pkg:brew/jq@1.7`, `brew:jq` and `jq` all construct.
+- [x] A namespace and qualifiers survive from the manifest to the package manager driver.
+- [x] The constructor round-trips its own URI.
+- [x] A malformed purl is refused with the parser's own message.
+- [x] The manifest schema documents every form the constructor accepts.
 
 ## Current State
 
@@ -46,6 +46,22 @@ Measured 2026-09-08 in the worktree, against develop at c0b6c517.
 | `schema/packages-manifest.json` | ❌ behind | `packages[].name` documented as a bare name, examples `gh`, `jq`, `ripgrep` |
 
 The driver being ready is the load-bearing fact: nothing in `pkg/platform` changes.
+
+## What the work found
+
+**The round-trip criterion names the wrong accessor, and the right one makes the two criteria one.** The issue asks
+that `DiscoverResource(env, r.URI())` yield the same entry. `URI()` is the tag-wrapped form; the contract
+`unpackCatalog` relies on is `ReachabilityURI()`, the scheme-specific part a provider emits and reads back (the file
+provider strips its own scheme prefix to honor it). For pkg that part **is** the canonical purl, so #813's parse
+criterion and its round-trip criterion are one property read twice. The test pins the reachability URI and says why.
+
+**A scenario fixture does not run unless a Go test names it.** `devlore-test`'s `data/*.star` files are not
+discovered by the suite; each is invoked by a function in `runner_test.go`. The new fixture was added, the suite
+stayed green, and it had never executed -- caught by running it explicitly rather than trusting the suite's tick.
+`TestPkgCanonicalPurl` now names it.
+
+**The Windows verification remains the user's.** Row 8 of the test plan needs the VM, which is parked; it is not a
+box this plan ticks.
 
 ## Requirements
 
@@ -107,30 +123,30 @@ feature, not a bug fix. `pkg/platform` is not touched.
 
 ## Implementation Phases
 
-### Phase 1: The failing tests
+### Phase 1: The failing tests -- COMPLETE (2026-09-08)
 
-- [ ] A unit test per form of Requirement 1's table, red before the fix.
-- [ ] A round-trip test: `DiscoverResource(env, r.URI())` yields the same catalog entry for a purl carrying a
+- [x] A unit test per form of Requirement 1's table, red before the fix.
+- [x] A round-trip test: `DiscoverResource(env, r.URI())` yields the same catalog entry for a purl carrying a
       namespace and a qualifier.
-- [ ] A projection test: the PURL handed to the driver for `pkg:winget/Vim/Vim?scope=machine` carries the namespace
+- [x] A projection test: the PURL handed to the driver for `pkg:winget/Vim/Vim?scope=machine` carries the namespace
       and the qualifier -- the assertion that fails today even with parsing in place.
-- [ ] A refusal test: a malformed `pkg:` string reports the parser's message.
+- [x] A refusal test: a malformed `pkg:` string reports the parser's message.
 
-### Phase 2: The constructor and the resource
+### Phase 2: The constructor and the resource -- COMPLETE (2026-09-08)
 
-- [ ] `buildCandidate` branches on the scheme and parses through `platform.ParsePURL`.
-- [ ] `resource` gains `namespace` and `qualifiers`; the URI carries both.
-- [ ] The doc comment on `discoverResource` names the three forms it now really accepts.
+- [x] `buildCandidate` branches on the scheme and parses through `platform.ParsePURL`.
+- [x] `resource` gains `namespace` and `qualifiers`; the URI carries both.
+- [x] The doc comment on `discoverResource` names the three forms it now really accepts.
 
-### Phase 3: The projection
+### Phase 3: The projection -- COMPLETE (2026-09-08)
 
-- [ ] `toPURL` returns every field; the four hand-built sites call it.
+- [x] `toPURL` returns every field; the four hand-built sites call it.
 
-### Phase 4: The schema and closure
+### Phase 4: The schema and closure -- COMPLETE (2026-09-08)
 
-- [ ] `schema/packages-manifest.json` documents the three forms.
-- [ ] A `devlore-test` fixture plans a purl-named package.
-- [ ] The plan's status and the issue's acceptance boxes.
+- [x] `schema/packages-manifest.json` documents the three forms.
+- [x] A `devlore-test` fixture plans a purl-named package.
+- [x] The plan's status and the issue's acceptance boxes.
 
 ## Test Plan
 
