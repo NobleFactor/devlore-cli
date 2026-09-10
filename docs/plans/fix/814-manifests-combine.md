@@ -1,9 +1,9 @@
 ---
 title: "Manifests combine; only files collide"
 issue: https://github.com/NobleFactor/devlore-cli/issues/814
-status: chartered
+status: complete
 created: 2026-09-09
-updated: 2026-09-09
+updated: 2026-09-10
 ---
 
 # Plan: Manifests combine; only files collide
@@ -242,7 +242,7 @@ rather than a costume as a manager. So lore leaves writ's path now, the registry
 ### Phase 5: The documentation and closure
 
 - [x] `docs/guides/writ/packages-manifest.md` states both rules.
-- [ ] The plan's status; the issue's boxes.
+- [x] The plan's status; the issue's boxes.
 
 ## Test Plan
 
