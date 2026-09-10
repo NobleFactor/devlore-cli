@@ -43,6 +43,12 @@ type BuildResult struct {
 
 	// Collisions are the cross-layer/specificity conflicts the tree build resolved.
 	Collisions []tree.Collision
+
+	// Duplicates are the products more than one manifest claimed, with what the merge did (#814).
+	Duplicates []Duplicate
+
+	// Deferred are the claims that resolve to registry packages, noted and not planned until #877.
+	Deferred []Deferred
 }
 
 // BuildGraphs walks the source tree and plans one immutable graph per populated target scope.
@@ -77,20 +83,29 @@ func BuildGraphs(ctx context.Context, cfg *Config, pin *PinInfo) (*BuildResult, 
 	build := &BuildResult{Collisions: result.Collisions}
 
 	if len(cfg.LayerSources) == 0 {
-		if len(result.Files) == 0 {
+		if len(result.Files) == 0 && len(result.Manifests) == 0 {
 			return build, nil
 		}
-		graph, err := buildScopeGraph(ctx, cfg, pin, "", cfg.TargetRoot, nil, result.Files)
+		graph, duplicates, deferred, err := buildScopeGraph(
+			ctx, cfg, pin, "", cfg.TargetRoot, nil, result.Files, result.Manifests)
 		if err != nil {
 			return nil, err
 		}
 		build.Graphs = append(build.Graphs, graph)
+		build.Duplicates, build.Deferred = duplicates, deferred
 		return build, nil
 	}
 
 	filesByScope := make(map[string][]*tree.FileEntry)
 	for _, f := range result.Files {
 		filesByScope[f.TargetName] = append(filesByScope[f.TargetName], f)
+	}
+
+	// Manifests group by scope the same way, keeping the contribution order [tree.BuildResult.Manifests] put them
+	// in (#814).
+	manifestsByScope := make(map[string][]*tree.FileEntry)
+	for _, m := range result.Manifests {
+		manifestsByScope[m.TargetName] = append(manifestsByScope[m.TargetName], m)
 	}
 
 	scopeTargetRoots := make(map[string]string)
@@ -102,18 +117,25 @@ func BuildGraphs(ctx context.Context, cfg *Config, pin *PinInfo) (*BuildResult, 
 	for scope := range filesByScope {
 		scopes = append(scopes, scope)
 	}
+	for scope := range manifestsByScope {
+		if _, seen := filesByScope[scope]; !seen {
+			scopes = append(scopes, scope)
+		}
+	}
 	sort.Strings(scopes)
 
 	for _, scope := range scopes {
-		graph, err := buildScopeGraph(
+		graph, duplicates, deferred, err := buildScopeGraph(
 			ctx, cfg, pin,
 			strings.ToLower(scope), scopeTargetRoots[scope],
-			scopeLayers(cfg.LayerSources, scope), filesByScope[scope],
+			scopeLayers(cfg.LayerSources, scope), filesByScope[scope], manifestsByScope[scope],
 		)
 		if err != nil {
 			return nil, err
 		}
 		build.Graphs = append(build.Graphs, graph)
+		build.Duplicates = append(build.Duplicates, duplicates...)
+		build.Deferred = append(build.Deferred, deferred...)
 	}
 
 	return build, nil
@@ -305,32 +327,43 @@ func CommonAncestor(a, b string) string {
 //
 // Returns:
 //   - `*op.Graph`: the assembled scope graph.
+//   - `[]Duplicate`: the products more than one of the scope's manifests claimed.
+//   - `[]Deferred`: the scope's claims that resolve to registry packages.
 //   - `error`: non-nil when planning or assembly fails.
 func buildScopeGraph(
 	ctx context.Context, cfg *Config, pin *PinInfo,
-	scope, targetRoot string, layers []string, files []*tree.FileEntry,
-) (*op.Graph, error) {
+	scope, targetRoot string, layers []string, files, manifests []*tree.FileEntry,
+) (*op.Graph, []Duplicate, []Deferred, error) {
 
 	runRoot := runRootFor(cfg, targetRoot, files)
 
 	spec := deploySpec(runRoot, cfg.DryRun, cfg.Conflict)
 
-	return op.Plan(ctx, spec, func(environment *op.RuntimeEnvironment) (*op.Graph, error) {
+	var (
+		duplicates []Duplicate
+		deferred   []Deferred
+	)
+
+	graph, err := op.Plan(ctx, spec, func(environment *op.RuntimeEnvironment) (*op.Graph, error) {
 
 		provider := plan.NewProvider(environment)
 
-		manifests, chains := splitManifests(files)
-
-		units, err := planManifests(cfg, provider, environment, manifests)
+		packages, scopeDuplicates, scopeDeferred, err := planManifests(cfg, provider, environment, scope, manifests)
 		if err != nil {
 			return nil, err
 		}
+		duplicates, deferred = scopeDuplicates, scopeDeferred
 
-		if err := planParentDirectories(provider, chains); err != nil {
+		var units []op.ExecutableUnit
+		if packages != nil {
+			units = append(units, packages)
+		}
+
+		if err := planParentDirectories(provider, files); err != nil {
 			return nil, err
 		}
 
-		fileMetas, err := planChains(provider, chains, templateData(cfg))
+		fileMetas, err := planChains(provider, files, templateData(cfg))
 		if err != nil {
 			return nil, err
 		}
@@ -360,6 +393,8 @@ func buildScopeGraph(
 		}
 		return graph, nil
 	})
+
+	return graph, duplicates, deferred, err
 }
 
 // planParentDirectories plans one deduplicated `file.mkdir` per distinct target parent directory.
@@ -467,68 +502,6 @@ func runSpec(graph *op.Graph, dryRun bool, conflict op.ConflictPolicy) (*op.Runt
 	}
 
 	return deploySpec(root, dryRun, conflict), nil
-}
-
-// splitManifests partitions the file entries into packages-manifest sources and file chains.
-//
-// Manifest-resolved package units plan first: their planner drains its own invocations into phase
-// subgraphs, so they must plan before the file chains land in the shared registry.
-//
-// Parameters:
-//   - `files`: the scope's file entries.
-//
-// Returns:
-//   - `manifests`: the packages-manifest source paths.
-//   - `chains`: the remaining file-chain entries.
-func splitManifests(files []*tree.FileEntry) (manifests []string, chains []*tree.FileEntry) {
-
-	for _, f := range files {
-		if len(f.Operations) == 1 && f.Operations[0] == "manifest.resolve" {
-			manifests = append(manifests, f.Source)
-			continue
-		}
-		chains = append(chains, f)
-	}
-
-	return manifests, chains
-}
-
-// planManifests plans the package units for every manifest through the configured manifest planner.
-//
-// With no planner configured the manifests are skipped with a note — file chains still deploy.
-//
-// Parameters:
-//   - `cfg`: the deploy configuration carrying the planner.
-//   - `provider`: the scope's plan provider.
-//   - `environment`: the planning runtime environment.
-//   - `manifests`: the packages-manifest source paths.
-//
-// Returns:
-//   - `[]op.ExecutableUnit`: the planned package units, in manifest order.
-//   - `error`: non-nil when any manifest fails to plan.
-func planManifests(
-	cfg *Config, provider *plan.Provider, environment *op.RuntimeEnvironment, manifests []string,
-) ([]op.ExecutableUnit, error) {
-
-	if len(manifests) == 0 {
-		return nil, nil
-	}
-
-	if cfg.ManifestPlanner == nil {
-		cli.Note("Skipping %d packages-manifest file(s): no manifest planner configured", len(manifests))
-		return nil, nil
-	}
-
-	var units []op.ExecutableUnit
-	for _, m := range manifests {
-		_, packageUnits, err := cfg.ManifestPlanner.PlanPackages(provider, environment, m)
-		if err != nil {
-			return nil, fmt.Errorf("manifest %s: %w", m, err)
-		}
-		units = append(units, packageUnits...)
-	}
-
-	return units, nil
 }
 
 // planChains plans every file chain and collects the per-target file metadata for the graph origin.

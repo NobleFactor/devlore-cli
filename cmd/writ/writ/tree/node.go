@@ -8,6 +8,11 @@ import (
 	"strings"
 )
 
+// manifestResolveOperation is the whole pipeline a package manifest carries. It is the discriminator the tree
+// builder reads to keep manifests out of collision resolution (#814): a manifest lands nowhere, so the overlay
+// rule has nothing to arbitrate.
+const manifestResolveOperation = "manifest.resolve"
+
 // PackagesManifestFiles are filenames that contain package specifications.
 // These files are processed by the PkgPath Graph Builder to produce package
 // installation nodes in the execution graph.
@@ -33,7 +38,7 @@ func ProcessingPipeline(filename string) (targetName string, actions []string) {
 	// packages-manifest → manifest.resolve
 	for _, pf := range PackagesManifestFiles {
 		if baseName == pf {
-			return name, []string{"manifest.resolve"}
+			return name, []string{manifestResolveOperation}
 		}
 	}
 

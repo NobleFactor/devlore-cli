@@ -102,6 +102,10 @@ registry contains full lifecycle manifests with:
 You don't specify *how* to install packages in the manifest—that knowledge
 lives in the registry.
 
+Until the devlore provider lands (devlore-cli#877), a manifest entry that names
+a registry package is noted in the deploy's output and not deployed; native
+packages deploy as before.
+
 ### Package manager preference
 
 On macOS, where both Homebrew and MacPorts are common, set your preference in
@@ -116,19 +120,65 @@ lore:
 
 ## Layer merging
 
-When multiple layers (base, team, personal) contain package manifests, they
-merge with precedence:
+Manifests **combine**; only files collide. A file lands at one target path, so
+when two layers or two variant directories provide it, the most specific one
+wins and the rest are set aside — the overlay rule described under
+[Platform Awareness](/guides/writ/platform-awareness/). A manifest lands
+nowhere. It is a set of package claims, and every claim from every layer and
+every variant directory contributes:
 
 ```
 base/packages-manifest.yaml      →  foundational packages
   ↓
-team/packages-manifest.yaml      →  team-specific additions
+team/packages-manifest.yaml      →  team additions
   ↓
-personal/packages-manifest.yaml  →  personal overrides
+personal/packages-manifest.yaml  →  personal additions
 ```
 
-Packages are deduplicated by name. A package in a higher layer (personal)
-overrides the same package from a lower layer (base), including its features.
+No manifest overrides another. When two claims name the same package, writ
+merges them by these rules, and says what it decided as a note in the deploy's
+output — a note, because nothing is wrong; you simply cannot see one manifest's
+claims from another.
+
+**Each claim goes to one package manager first.** A bare name (`jq`) goes to
+your preferred manager for the platform (see *Package manager preference*
+above). A prefixed name (`brew:jq`) goes to that manager, and is refused if the
+manager is not available. Claims that went to different managers are different
+packages: `brew:jq` and `port:jq` are two packages, and a plain `jq` is
+whichever of them your preference picked.
+
+**A prefixed claim satisfies a plain one.** `jq` in one manifest and `brew:jq`
+in another install brew's jq, once. The plain claim asked for jq and got it; the
+prefixed claim asked for brew's and got that.
+
+**Two prefixed claims on two managers both install.** `brew:jq` and `port:jq`
+were each written on purpose, so both are installed. Two managers then provide
+one command name, and `writ reconcile` reports the pair, since which one you
+get depends on your `PATH`.
+
+**Features add up.** A package claimed plainly in one manifest and with a
+feature in another is installed with that feature. A later claim adds to an
+earlier one; it never replaces it.
+
+**Two versions of one package are settled by the package manager.** If you
+claim `jq@1.6` in one manifest and `jq@1.7` in another, writ asks the manager
+whether two versions of jq can be installed together here. Where they can, both
+are installed. Where they cannot, that is a version conflict: the deploy stops
+and names both manifests, rather than choosing one for you. A plain `jq` beside
+a `jq@1.7` is not a conflict — the plain claim accepts any version, and the pin
+satisfies it. Today writ does not yet ask the manager: two different pins are
+refused on every manager, naming both manifests, until the pkg provider's
+broker lands (devlore-cli#868).
+
+**Already installed means nothing to do.** Your preference says what to install
+when something must be installed. A plain claim already met by any manager on
+the machine installs nothing. A prefixed claim is met only by its own manager:
+`brew:jq` with port's jq present installs brew's jq beside it. "Installed" means
+installed at a version that satisfies the claim; `jq@1.7` with 1.6 present is
+not met.
+
+**A deploy never uninstalls.** Nothing here removes a package another manager
+provided. That is `writ decommission`'s job, by name.
 
 ## Platform variants
 

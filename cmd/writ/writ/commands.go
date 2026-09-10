@@ -4,11 +4,12 @@
 package writ
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/NobleFactor/devlore-cli/cmd/lore/lore"
+	"github.com/NobleFactor/devlore-cli/cmd/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/pkg/xdg"
 
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/decommission"
@@ -68,20 +69,25 @@ func runDeployV2(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// The manifest planner defaults its platform token (via platform.DetectToken) and its registry client;
-	// writ supplies only the flags that are writ's to know.
+	// The registry answers one question at plan time, whether a manifest claim names a registry package; the
+	// packages themselves plan through the pkg provider (#814).
+	registryClient, err := lorepackage.NewRegistry()
+	if err != nil {
+		return fmt.Errorf("registry client: %w", err)
+	}
+
 	graphs, err := deploy.Execute(cmd.Context(), &deploy.Config{
-		SourceRoot:      cfg.SourceRoot,
-		TargetRoot:      cfg.TargetRoot,
-		LayerSources:    cfg.LayerSources,
-		Projects:        cfg.Projects,
-		Segments:        cfg.Segments,
-		Vars:            cfg.TemplateData,
-		Conflict:        cfg.ConflictPolicy,
-		ManifestPlanner: &lore.Planner{DryRun: cfg.DryRun},
-		AllowDirty:      cfg.AllowDirty,
-		DryRun:          cfg.DryRun,
-		Verbose:         cfg.Verbose,
+		SourceRoot:   cfg.SourceRoot,
+		TargetRoot:   cfg.TargetRoot,
+		LayerSources: cfg.LayerSources,
+		Projects:     cfg.Projects,
+		Segments:     cfg.Segments,
+		Vars:         cfg.TemplateData,
+		Conflict:     cfg.ConflictPolicy,
+		Registry:     registryClient,
+		AllowDirty:   cfg.AllowDirty,
+		DryRun:       cfg.DryRun,
+		Verbose:      cfg.Verbose,
 	})
 	if err != nil {
 		return err
