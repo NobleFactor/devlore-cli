@@ -21,7 +21,7 @@ import (
 	"strings"
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
-	"github.com/NobleFactor/devlore-cli/cmd/lore/lore"
+	"github.com/NobleFactor/devlore-cli/cmd/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/readback"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/segment"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/snapshot"
@@ -57,9 +57,10 @@ type Config struct {
 	// hand the per-target decision to the file provider's write seam.
 	Conflict op.ConflictPolicy
 
-	// ManifestPlanner resolves packages-manifest files into package units; nil skips manifest resolution
-	// with a note.
-	ManifestPlanner *lore.Planner
+	// Registry answers one question at plan time: does a manifest claim name a registry package. Those are
+	// deferred to the devlore provider (#877); every other claim plans `pkg.install` (#814). Nil skips manifest
+	// planning with a note.
+	Registry *lorepackage.Registry
 
 	// AllowDirty permits planning against layers with uncommitted changes.
 	AllowDirty bool
@@ -114,6 +115,9 @@ func Execute(ctx context.Context, cfg *Config) (graphs []*op.Graph, err error) {
 	}
 	if len(build.Collisions) > 0 {
 		reportCollisions(cfg, build.Collisions)
+	}
+	if len(build.Duplicates) > 0 || len(build.Deferred) > 0 {
+		reportManifests(build.Duplicates, build.Deferred)
 	}
 
 	if cfg.DryRun {

@@ -140,9 +140,13 @@ When multiple variants provide the same file, writ uses the most specific match:
 2. Platform-only match
 3. Base project (no suffix)
 
-For `packages-manifest.yaml` files, variants are **merged** rather than replaced.
-This lets you define common packages in the base and platform-specific packages
-in variants.
+These precedence rules are for **files**, which land at one target path.
+
+For `packages-manifest.yaml` files, variants are **combined** rather than
+replaced, and so are layers: a manifest lands nowhere in the filesystem, so
+there is no target path to arbitrate. How claims from several manifests are
+merged is the [Packages Manifest](/guides/writ/packages-manifest/) guide's
+subject; this guide only says that they are.
 
 ## The `common` project
 

@@ -4,6 +4,8 @@
 package deploy
 
 import (
+	"strings"
+
 	"fmt"
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
@@ -54,6 +56,25 @@ func reportCollisions(cfg *Config, collisions []tree.Collision) {
 	for _, c := range collisions {
 		cli.Warn("  %s: using %s (specificity %d) over %s (specificity %d)",
 			c.Target, c.Winner, c.WinnerSpecificity, c.Loser, c.LoserSpecificity)
+	}
+}
+
+// reportManifests narrates the manifest merge's decisions at note level: every product more than one manifest
+// claimed, with what the merge did, and every registry package deferred to the devlore provider (#877). A note is a
+// decision the reader can act on but need not; the merge reports the fact and does not recommend (#814).
+//
+// Parameters:
+//   - `duplicates`: the products more than one manifest claimed.
+//   - `deferred`: the claims that resolve to registry packages.
+func reportManifests(duplicates []Duplicate, deferred []Deferred) {
+
+	for _, d := range duplicates {
+		cli.Note("%s: claimed by %s; %s", d.Package, strings.Join(d.Manifests, ", "), strings.Join(d.Decisions, "; "))
+	}
+
+	for _, d := range deferred {
+		cli.Note("%s is a devlore package, claimed by %s: writ does not deploy devlore packages yet (#877)",
+			d.Package, strings.Join(d.Manifests, ", "))
 	}
 }
 

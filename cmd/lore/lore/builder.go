@@ -209,6 +209,24 @@ func (p *Planner) PlanPackages(
 		return nil, nil, fmt.Errorf("parsing manifest: %w", err)
 	}
 
+	return p.planEntries(provider, sharedEnvironment, loaded.Packages)
+}
+
+// planEntries plans every entry's phases into `provider`: the loop [Planner.PlanPackages] runs.
+//
+// Parameters:
+//   - `provider`: the plan provider.
+//   - `sharedEnvironment`: the planning environment.
+//   - `entries`: the package entries, in the order they are planned.
+//
+// Returns:
+//   - `[]string`: the package names planned.
+//   - `[]op.ExecutableUnit`: the planned phases.
+//   - `error`: resolution or build failure, naming the package.
+func (p *Planner) planEntries(
+	provider *plan.Provider, sharedEnvironment *op.RuntimeEnvironment, entries []manifest.PackageEntry,
+) ([]string, []op.ExecutableUnit, error) {
+
 	targetPlatform, registryClient, err := p.resolve()
 	if err != nil {
 		return nil, nil, err
@@ -217,7 +235,7 @@ func (p *Planner) PlanPackages(
 	var names []string
 	var phases []op.ExecutableUnit
 
-	for _, entry := range loaded.Packages {
+	for _, entry := range entries {
 		release, err := registryClient.Resolve(entry.Name, targetPlatform)
 		if err != nil {
 			return nil, nil, fmt.Errorf("resolving package %q: %w", entry.Name, err)

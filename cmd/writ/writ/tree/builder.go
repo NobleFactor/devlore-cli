@@ -84,6 +84,18 @@ type BuildResult struct {
 
 	// Collisions are files where a more specific source overrode a less specific one.
 	Collisions []Collision
+
+	// Manifests are the package manifests every layer and every suffix directory contributed, in contribution
+	// order: layer (base → team → personal), then specificity ascending, then source path. They are NOT in
+	// [BuildResult.Files] and never collide (#814): a manifest lands nowhere in the filesystem, so the overlay rule
+	// -- one target path, one source -- has nothing to arbitrate. Two sets of package claims combine.
+	//
+	// The order is explicit rather than the walk's, for two narrow reasons. A graph's identity is a checksum over
+	// its content, so the merged claims must be deterministic; and where two claims disagree on something a union
+	// cannot combine -- a version pin -- the later, more specific claim wins, which requires that "later" mean what
+	// a reader expects. [segment.MatchDirectories] returns the most specific directory FIRST, so walk order is the
+	// reverse of contribution order and a naive last-wins would hand the win to the general claim.
+	Manifests []*FileEntry
 }
 
 // Collision records when a more specific file overrides a less specific one.
@@ -131,6 +143,54 @@ type BuildConfig struct {
 	Segments segment.Segments
 }
 
+// isManifest reports whether an entry is a package manifest -- an entry whose whole pipeline is `manifest.resolve`,
+// as [processingPipeline] assigns to `packages-manifest.yaml` and `.json`.
+//
+// Parameters:
+//   - `entry`: the walked entry.
+//
+// Returns:
+//   - `bool`: true when the entry is a manifest and must bypass collision resolution (#814).
+func isManifest(entry *FileEntry) bool {
+
+	return len(entry.Operations) == 1 && entry.Operations[0] == manifestResolveOperation
+}
+
+// manifestWithOrder carries a manifest with the two keys contribution order is defined by.
+type manifestWithOrder struct {
+	entry       *FileEntry
+	layerOrder  int
+	specificity int
+}
+
+// sortManifests puts manifests in contribution order: layer, then specificity ascending, then source path. The
+// last key is for determinism when two directories tie, which the checksum requires (#814).
+//
+// Parameters:
+//   - `collected`: the manifests as walked.
+//
+// Returns:
+//   - `[]*FileEntry`: the entries in contribution order.
+func sortManifests(collected []manifestWithOrder) []*FileEntry {
+
+	sort.Slice(collected, func(i, j int) bool {
+		switch {
+		case collected[i].layerOrder != collected[j].layerOrder:
+			return collected[i].layerOrder < collected[j].layerOrder
+		case collected[i].specificity != collected[j].specificity:
+			return collected[i].specificity < collected[j].specificity
+		default:
+			return collected[i].entry.Source < collected[j].entry.Source
+		}
+	})
+
+	ordered := make([]*FileEntry, 0, len(collected))
+	for _, held := range collected {
+		ordered = append(ordered, held.entry)
+	}
+	return ordered
+}
+
 // fileEntryWithMeta tracks a file entry with its layer and specificity for collision detection.
 type fileEntryWithMeta struct {
 	entry       *FileEntry
@@ -166,6 +226,7 @@ func buildSingleSource(cfg BuildConfig) (*BuildResult, error) {
 	}
 
 	entriesByTarget := make(map[string]fileEntryWithMeta)
+	var manifests []manifestWithOrder
 
 	for _, match := range matches {
 		// Single-source mode reads the origin directly — one LayerSource with OriginRoot defaulting.
@@ -176,6 +237,12 @@ func buildSingleSource(cfg BuildConfig) (*BuildResult, error) {
 
 		specificity := len(match.Suffixes)
 		for _, entry := range entries {
+			// Manifests combine; only files collide (#814).
+			if isManifest(entry) {
+				manifests = append(manifests, manifestWithOrder{entry: entry, specificity: specificity})
+				continue
+			}
+
 			existing, exists := entriesByTarget[entry.ID]
 			if !exists {
 				entriesByTarget[entry.ID] = fileEntryWithMeta{entry: entry, specificity: specificity}
@@ -222,6 +289,7 @@ func buildSingleSource(cfg BuildConfig) (*BuildResult, error) {
 	sort.Slice(result.Files, func(i, j int) bool {
 		return result.Files[i].ID < result.Files[j].ID
 	})
+	result.Manifests = sortManifests(manifests)
 
 	return result, nil
 }
@@ -237,6 +305,7 @@ func buildMultiSource(cfg BuildConfig) (*BuildResult, error) { //nolint:gocognit
 	}
 
 	entriesByTarget := make(map[string]fileEntryWithMeta)
+	var manifests []manifestWithOrder
 
 	// Process sources in order (base → team → personal)
 	for _, source := range cfg.Sources {
@@ -258,6 +327,16 @@ func buildMultiSource(cfg BuildConfig) (*BuildResult, error) { //nolint:gocognit
 				// Store layer and target scope in entry
 				entry.Layer = source.Layer
 				entry.TargetName = source.TargetName
+
+				// Manifests combine; only files collide (#814).
+				if isManifest(entry) {
+					manifests = append(manifests, manifestWithOrder{
+						entry:       entry,
+						layerOrder:  source.Order,
+						specificity: specificity,
+					})
+					continue
+				}
 
 				existing, exists := entriesByTarget[entry.ID]
 				if !exists {
@@ -320,6 +399,7 @@ func buildMultiSource(cfg BuildConfig) (*BuildResult, error) { //nolint:gocognit
 	sort.Slice(result.Files, func(i, j int) bool {
 		return result.Files[i].ID < result.Files[j].ID
 	})
+	result.Manifests = sortManifests(manifests)
 
 	return result, nil
 }

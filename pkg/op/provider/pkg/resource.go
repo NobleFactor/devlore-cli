@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
-	"strings"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/platform"
@@ -136,22 +135,18 @@ func discoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*re
 	return canonical, nil
 }
 
-// purlScheme is the canonical purl's scheme, checked before the manager-prefix form: the two grammars are
-// otherwise ambiguous, since `pkg` reads as a legal manager prefix (#813).
-const purlScheme = "pkg:"
-
 // buildCandidate constructs a resource from `value` without touching the catalog.
 //
-// Validates that `value` is a string, parses any `manager:` prefix, and resolves the package URL. Shared
-// by [NewResource] and [DiscoverResource].
+// Validates that `value` is a string, parses it with [platform.ParseIdentifier], and builds the versionless
+// identity. Shared by [NewResource] and [DiscoverResource].
 //
 // Parameters:
 //   - `runtimeEnvironment`: the runtime environment; must have `Platform` set.
-//   - `value`: a string package name with an optional `manager:` prefix.
+//   - `value`: a string package identifier: a purl, a `manager:name`, or a bare name.
 //
 // Returns:
 //   - `Resource`: the constructed candidate, not yet interned in the catalog.
-//   - `error`: if `value` is not a string or the manager prefix is unknown.
+//   - `error`: if `value` is not a string, the purl is malformed, or its type or manager prefix is unknown.
 func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*resource, error) {
 
 	raw, ok := value.(string)
@@ -160,56 +155,18 @@ func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*reso
 		return nil, fmt.Errorf("pkg.Resource: expected string, got %T", value)
 	}
 
-	plat := runtimeEnvironment.Platform
-
-	// Three forms, and the canonical one is checked FIRST. `strings.Cut(raw, ":")` cannot tell a scheme from a
-	// manager prefix, and `pkg` is a legal-looking prefix -- which is why the provider could not read the URI it
-	// writes (#813). Once a string declares the scheme it IS a purl: a parse failure is reported as one and never
-	// re-read as a manager prefix, since a fallback would turn a typo into a package named after it.
-
-	var (
-		purlType   string
-		namespace  string
-		name       string
-		version    string
-		qualifiers map[string]string
-	)
-
-	switch {
-	case strings.HasPrefix(raw, purlScheme):
-		parsed, err := platform.ParsePURL(raw)
-		if err != nil {
-			return nil, fmt.Errorf("pkg.Resource: %w", err)
-		}
-		resolved, known := plat.ResolvePurlType(parsed.Type)
-		if !known {
-			return nil, fmt.Errorf("pkg.Resource: unknown package manager %q", parsed.Type)
-		}
-		purlType, namespace, name = resolved, parsed.Namespace, parsed.Name
-		version, qualifiers = parsed.Version, parsed.Qualifiers
-
-	default:
-		// The manager-prefix form ("brew:jq", "port:wget") and the bare name, as before.
-		if prefix, after, ok := strings.Cut(raw, ":"); ok {
-			resolved, known := plat.ResolvePurlType(prefix)
-			if !known {
-				return nil, fmt.Errorf("pkg.Resource: unknown package manager %q", prefix)
-			}
-			purlType = resolved
-			raw = after
-		} else {
-			purlType = plat.DefaultPurlType()
-		}
-
-		// Split the optional requested version (e.g., "git@2.39.0") off the name. The version is mutable state on
-		// the Resource; the URI is versionless so "git" and "git@2.39.0" intern to one catalog entry.
-		name, version, _ = strings.Cut(raw, "@")
+	// One grammar for the three forms, shared with writ's manifest merge, so what is planned and what is compared
+	// are the same parse (#814). Why the scheme is checked before the manager prefix is that function's story (#813).
+	parsed, err := platform.ParseIdentifier(runtimeEnvironment.Platform, raw)
+	if err != nil {
+		return nil, fmt.Errorf("pkg.Resource: %w", err)
 	}
 
 	// The URI is the versionless identity, and it carries the namespace and the qualifiers: a purl exists to
 	// express them, and `scope=machine` and `scope=user` are two installations rather than one package requested
 	// twice. It is what the constructor reads back (`ReachabilityURI`), so the provider now reads what it writes.
-	purl := platform.PURL{Type: purlType, Namespace: namespace, Name: name, Qualifiers: qualifiers}
+	// The version is mutable state on the Resource, so "git" and "git@2.39.0" intern to one catalog entry.
+	purl := platform.PURL{Type: parsed.Type, Namespace: parsed.Namespace, Name: parsed.Name, Qualifiers: parsed.Qualifiers}
 
 	base, err := op.NewResourceBase(runtimeEnvironment, purl.String(), reflect.TypeFor[Resource]())
 	if err != nil {
@@ -218,11 +175,11 @@ func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*reso
 
 	return &resource{
 		ResourceBase: base,
-		name:         name,
-		namespace:    namespace,
-		typ:          purlType,
-		version:      version,
-		qualifiers:   qualifiers,
+		name:         parsed.Name,
+		namespace:    parsed.Namespace,
+		typ:          parsed.Type,
+		version:      parsed.Version,
+		qualifiers:   parsed.Qualifiers,
 	}, nil
 }
 
