@@ -1,6 +1,7 @@
 # Command Line Interface — One Convention, Every App
 
-> **Status:** design (draft, 2026-08-28). Specifies the command-line surface every binary in the suite
+> **Status:** design (draft, 2026-08-28; last ruling 2026-09-11). Specifies the command-line surface every
+> binary in the suite
 > presents: the command grammar, the flag set, and above all where output goes. No implementation.
 > Companion: [`10-command-line-interface.status.md`](10-command-line-interface.status.md).
 > Epic: [#740](https://github.com/NobleFactor/devlore-cli/issues/740).
@@ -70,7 +71,7 @@ it was excluded by a construction choice made elsewhere, and discovered by measu
 future repair in `cmd/internal/cli` has the same reach and the same silence.
 
 **Ruled 2026-09-02: the shared root's commands are one set, and a program's additions attach beside them.**
-`config`, `man`, `self` and `version` come from [NewRootCmd], identical on all four programs. A program with
+`config`, `man`, `self`, `version` and `workflow` come from [NewRootCmd], identical on all four programs. A program with
 commands of its own under one of those names attaches them beneath the shared command -- `star config show`
 and `star config sync` sit beside `get` and `set` -- and there is never a second command carrying a shared
 name. What a program needs at install time rides `RootConfig` hooks (star's extensions), not a private
@@ -257,11 +258,16 @@ stdout.
 The third stream is not an output directory. It is a **store**, with a layout, a cardinality rule, and an
 index, defined in [`cmd/internal/cli/store.go`](../../cmd/internal/cli/store.go):
 
-- A **definition** (`op.Graph` today, `Definition` after the workflow rename) is the immutable plan. It
-  persists **once**, under `GraphsDir()`, keyed by its checksum.
-- A **trace** is one execution's serialized executor state. It persists **per run**, under `TracesDir()`, in a
-  per-definition subdirectory, tied back through `Trace.GraphChecksum`.
+- A **workflow definition** (`op.Graph` today, `Definition` after the rename,
+  [#451](https://github.com/NobleFactor/devlore-cli/issues/451)) is the immutable plan. It persists **once**,
+  under `GraphsDir()`, keyed by its checksum.
+- An **execution trace** is one run's serialized executor state. It persists **per run**, under `TracesDir()`,
+  in a per-definition subdirectory, tied back through `Trace.GraphChecksum`.
 - The cardinality is one definition to many traces, and a per-definition run index records them.
+
+A workflow, then, is what the store holds documents *of*: one definition and the execution traces of its runs.
+The two words are the user's vocabulary wherever a document is named -- help, results, this document -- and
+"graph" is the code's until #451 retires it there too.
 
 That structure is what makes a trace useful beyond the run that produced it: reconciliation, troubleshooting,
 dependency analysis, and — the reason it must be durable rather than incidental — pausing a run and resuming
@@ -273,6 +279,34 @@ implemented this flag — it has broken the tie between a trace and the definiti
 
 The store is not new, and it is already user-visible: `writ secret`'s help says "graph and trace persist to
 the execution store with receipts recorded." What has never existed is a way to point at a different one.
+
+### `workflow`: the store's documents, by name
+
+**Ruled 2026-09-11.** The only name a document has on disk is its checksum: `graphs/sha256-<hex>.yaml`, and
+`traces/sha256-<hex>/<time>.yaml` beneath it. The name a person uses -- writ's Home scope, yesterday's run --
+lives in the run index (`index.ndjson`: tool, scope, checksum, time) and in the document's origin. So the store
+is addressed through the index, by the shared root's `workflow` group, identical on every program:
+
+```
+<program> workflow list
+<program> workflow verify [--tool <name>] [--scope <name>] [--kind definition|trace] [--latest] [<document>...]
+```
+
+- **`list`** reads the index and returns one record per workflow: `tool`, `scope`, the definition's checksum, the
+  run count and the latest run's time. A result like any other: `-o table` for a person, `--jq` to select.
+- **`verify`** selects documents from the index and verifies each: the definition and every execution trace of
+  the selected workflows, one [Report] per document. `--kind` narrows to one kind; `--latest` keeps only the
+  newest trace per definition. The signing-policy ladder and `--allowed-signers` are the verifier's and are
+  unchanged.
+- **Selectors default to the invoking program.** `writ workflow list` lists writ's workflows; `--tool lore` asks
+  for another program's. `--scope` and `--kind` default to all.
+- **A path operand names a document from outside the store**, and is the form for one that arrived by other
+  means: `workflow verify --signing-policy=reject_external ~/Downloads/shared-plan.yaml`. Operands and selectors
+  do not mix in one invocation; the refusal names both.
+
+`writ verify` retires into `writ workflow verify` by deletion (§13). The old spelling was a verb at the root
+beside the lifecycle verbs, which all act on the deployment; a reader reaching for "check my environment" chose
+it and was wrong ([#782](https://github.com/NobleFactor/devlore-cli/issues/782)). The noun says what it acts on.
 
 **Why not `--output`.** `az` and `kubectl` both use `--output` / `-o` for the *format*; `docker build` uses it
 for a destination. The name is ambiguous across the very tools this suite borrowed from, and the meaning most
@@ -901,6 +935,16 @@ No deviation is sanctioned. Every row above is work, tracked by the plan in
 
 9. **`man` is the one route to man pages.** `star docs man` and `star docs markdown` went; `star docs
    starlark` stayed as star's own. Same shape as 7: the shared route, plus what only that program has.
+
+**Settled 2026-09-11** (raised reviewing the rename of `writ verify`):
+
+10. **The store's documents are addressed by workflow, through a shared-root `workflow` group.** The store is
+    one store for all four programs and its documents are named on disk by checksum alone, so the index is the
+    only place a person's name for a document exists, and reading it is the shared root's job, not one
+    program's. `workflow list` and `workflow verify` come from [NewRootCmd]; selectors default to the invoking
+    program; a path operand remains the form for a document from outside the store. The noun is `workflow`, not
+    `document`: the selection is by workflow, and `--kind` picks which of its documents. `document` was
+    weighed as the generic and declined for the same reason `--format` was: the less precise word.
 
 ## 16. Divergences from clig.dev
 
