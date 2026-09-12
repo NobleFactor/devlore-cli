@@ -1,15 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Noble Factor. All rights reserved.
 
-// Package verify implements `writ verify` — publisher-signature verification for graph and trace documents
-// (phase-8 step 46).
-//
-// Each document is decoded (a graph loads through [op.LoadGraph], whose integrity check also validates the
-// checksum; a trace decodes directly), re-canonicalized, and verified under the settled model: a raw
-// ssh-ed25519 signature over the namespace-prefixed canonical bytes, the publisher resolved against the
-// verifier's `allowed_signers`. What happens to each outcome is the [signing.Policy] ladder — the command
-// reports every verdict and exits non-zero only when the policy rejects a document.
-package verify
+package cli
 
 import (
 	"context"
@@ -20,7 +12,6 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
 	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/iox"
@@ -28,8 +19,17 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/signing"
 )
 
-// Config carries the resolved settings for one verify invocation.
-type Config struct {
+// region SUPPORTING TYPES
+
+// VerifyConfig carries the resolved settings for one verification: the documents, the policy and the trust list.
+//
+// Each document is decoded (a definition loads through [op.LoadGraph], whose integrity check also validates the
+// checksum; a trace decodes directly), re-canonicalized, and verified under the settled model: a raw ssh-ed25519
+// signature over the namespace-prefixed canonical bytes, the publisher resolved against the verifier's
+// `allowed_signers`. What happens to each outcome is the [signing.Policy] ladder: every verdict is reported, and
+// the exit status is non-zero only when the policy rejects a document (phase-8 step 46; the shared `workflow
+// verify` since #782).
+type VerifyConfig struct {
 
 	// Paths are the documents to verify.
 	Paths []string
@@ -39,17 +39,15 @@ type Config struct {
 
 	// AllowedSigners overrides the trust-list path; "" uses the default (`<config>/devlore/allowed_signers`).
 	AllowedSigners string
-
-	// JSON emits the reports as JSON instead of human-readable text.
 }
 
-// Report is one document's verification report.
-type Report struct {
+// VerifyReport is one document's verification report.
+type VerifyReport struct {
 
 	// Path is the document as given.
 	Path string `json:"path"`
 
-	// Kind is "graph" or "trace".
+	// Kind is "definition" or "trace": a workflow's definition, or one of its execution traces.
 	Kind string `json:"kind"`
 
 	// Outcome is the verification classification.
@@ -68,18 +66,24 @@ type Report struct {
 	Rejected bool `json:"rejected,omitempty"`
 }
 
-// Execute verifies every document and presents the reports.
+// endregion
+
+// region EXPORTED FUNCTIONS
+
+// VerifyDocuments verifies every document in `cfg.Paths` and returns one report per document.
 //
 // Parameters:
-//   - `ctx`: the context for graph loading.
-//   - `cfg`: the resolved verify configuration.
+//   - `ctx`: the context for definition loading.
+//   - `cfg`: the resolved verification configuration.
 //
 // Returns:
-//   - `[]Report`: one report per verified document, for the caller to render.
-//   - `error`: non-nil when a document cannot be read/decoded, or when the policy rejects any document.
-func Execute(ctx context.Context, cfg *Config) ([]Report, error) {
+//   - `[]VerifyReport`: one report per verified document, in input order, for the caller to render.
+//   - `error`: non-nil when a document cannot be read or decoded, or when the policy rejects any document; the
+//     reports are returned alongside a rejection, since a rejection is the answer and not a reason to withhold it.
+func VerifyDocuments(ctx context.Context, cfg *VerifyConfig) ([]VerifyReport, error) {
 
-	var reports []Report
+	// Empty, never nil: an empty selection is an empty result, and `-o json` renders `[]`, not `null` (§8, S8).
+	reports := make([]VerifyReport, 0, len(cfg.Paths))
 	var rejections []error
 
 	for _, path := range cfg.Paths {
@@ -105,26 +109,28 @@ func Execute(ctx context.Context, cfg *Config) ([]Report, error) {
 	return reports, nil
 }
 
+// endregion
+
 // region HELPER FUNCTIONS
 
 // verifyDocument decodes one document, re-canonicalizes it, and verifies its signature.
 //
 // Parameters:
-//   - `ctx`: the context for the graph-loading environment.
-//   - `cfg`: the verify configuration (trust-list override).
+//   - `ctx`: the context for the loading environment.
+//   - `cfg`: the verification configuration (trust-list override).
 //   - `path`: the document to verify.
 //
 // Returns:
-//   - `Report`: the verification report.
-//   - `error`: non-nil when the document cannot be read or decoded as a graph or trace.
-func verifyDocument(ctx context.Context, cfg *Config, path string) (Report, error) {
+//   - `VerifyReport`: the verification report.
+//   - `error`: non-nil when the document cannot be read or decoded as a definition or a trace.
+func verifyDocument(ctx context.Context, cfg *VerifyConfig, path string) (VerifyReport, error) {
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return Report{}, err
+		return VerifyReport{}, err
 	}
 
-	report := Report{
+	report := VerifyReport{
 		Path:     path,
 		External: signing.External(path, devlore.StateHome()),
 	}
@@ -136,7 +142,7 @@ func verifyDocument(ctx context.Context, cfg *Config, path string) (Report, erro
 		} `yaml:"run_status"`
 	}
 	if err := yaml.Unmarshal(data, &sniff); err != nil {
-		return Report{}, fmt.Errorf("%s: not a YAML document: %w", path, err)
+		return VerifyReport{}, fmt.Errorf("%s: not a YAML document: %w", path, err)
 	}
 
 	var signature *op.Signature
@@ -145,13 +151,13 @@ func verifyDocument(ctx context.Context, cfg *Config, path string) (Report, erro
 
 	switch {
 	case sniff.Kind == op.GraphKind:
-		report.Kind = "graph"
+		report.Kind = "definition"
 		namespace = signing.NamespaceGraph
 
-		graph, err := loadGraph(ctx, data)
+		graph, err := loadDefinition(ctx, data)
 		if err != nil {
-			// The load path's integrity check refuses altered documents before any signature look — that IS
-			// an invalid verdict, not a command failure.
+			// The load path's integrity check refuses altered documents before any signature look; that IS an
+			// invalid verdict, not a command failure.
 			report.Outcome = signing.OutcomeInvalid.String()
 			report.Detail = err.Error()
 			//nolint:nilerr // an integrity-refused document IS the invalid verdict, not a command failure.
@@ -159,28 +165,29 @@ func verifyDocument(ctx context.Context, cfg *Config, path string) (Report, erro
 		}
 		signature = graph.Signature()
 		if canonical, err = graph.CanonicalContent(); err != nil {
-			return Report{}, err
+			return VerifyReport{}, err
 		}
 
 	case sniff.RunStatus != nil:
 		report.Kind = "trace"
 		namespace = signing.NamespaceTrace
 
-		// Only the signature field decodes through the struct; the canonical bytes come from the RAW document
-		// (the typed trace decode is lossy — custom stack unmarshaling — and must not feed canonicalization).
+		// Only the signature field decodes through the struct; the canonical bytes come from the RAW document (the
+		// typed trace decode is lossy, with custom stack unmarshaling, and must not feed canonicalization).
 		var envelope struct {
 			Signature *op.Signature `yaml:"signature"`
 		}
 		if err := yaml.Unmarshal(data, &envelope); err != nil {
-			return Report{}, fmt.Errorf("%s: not a trace document: %w", path, err)
+			return VerifyReport{}, fmt.Errorf("%s: not a trace document: %w", path, err)
 		}
 		signature = envelope.Signature
 		if canonical, err = signing.CanonicalDocument(data); err != nil {
-			return Report{}, err
+			return VerifyReport{}, err
 		}
 
 	default:
-		return Report{}, fmt.Errorf("%s: neither a graph (kind %q) nor a trace document", path, sniff.Kind)
+		return VerifyReport{}, fmt.Errorf(
+			"%s: neither a workflow definition (kind %q) nor an execution trace", path, sniff.Kind)
 	}
 
 	verdict := signing.Verify(signature, namespace, canonical, cfg.AllowedSigners)
@@ -194,7 +201,13 @@ func verifyDocument(ctx context.Context, cfg *Config, path string) (Report, erro
 }
 
 // verdictOf reconstructs the [signing.Verdict] a report was built from, for policy judgment.
-func verdictOf(report Report) signing.Verdict {
+//
+// Parameters:
+//   - `report`: the report.
+//
+// Returns:
+//   - `signing.Verdict`: the verdict the report carries.
+func verdictOf(report VerifyReport) signing.Verdict {
 
 	outcome := signing.OutcomeInvalid
 	switch report.Outcome {
@@ -208,23 +221,23 @@ func verdictOf(report Report) signing.Verdict {
 	return signing.Verdict{Outcome: outcome, Principal: report.Principal, Detail: report.Detail}
 }
 
-// loadGraph loads a graph document through the sealed load path (integrity-checked).
+// loadDefinition loads a workflow definition through the sealed load path, integrity-checked.
 //
 // Parameters:
 //   - `ctx`: the context for the loading environment.
 //   - `data`: the document bytes.
 //
 // Returns:
-//   - `*op.Graph`: the loaded graph.
-//   - `error`: non-nil when loading (including the checksum integrity check) fails.
-func loadGraph(ctx context.Context, data []byte) (graph *op.Graph, err error) {
+//   - `*op.Graph`: the loaded definition.
+//   - `error`: non-nil when loading, including the checksum integrity check, fails.
+func loadDefinition(ctx context.Context, data []byte) (graph *op.Graph, err error) {
 
 	var environment *op.RuntimeEnvironment
 
-	environment, err = op.NewRuntimeEnvironment(ctx, op.NewRuntimeEnvironmentSpec("writ").
-		WithStatus(cli.UI()).
+	environment, err = op.NewRuntimeEnvironment(ctx, op.NewRuntimeEnvironmentSpec("verify").
+		WithStatus(UI()).
 		WithRoot(string(filepath.Separator)).
-		WithApplication(&application.Application{Name: "writ"}))
+		WithApplication(&application.Application{Name: "verify"}))
 	if err != nil {
 		return nil, err
 	}

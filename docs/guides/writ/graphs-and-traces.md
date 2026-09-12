@@ -70,21 +70,32 @@ the run's recorded content identity, and every finding names the command that re
 | M Modified | Target edited out-of-band | `writ upgrade --force` |
 | M Modified-or-stale | Differs, but the run predates recorded content identity — attribution indeterminate | `writ upgrade` |
 
-## Verification: `writ verify`
+## Verification: `writ workflow verify`
 
-Integrity is automatic: every document carries a checksum, and any load — status, upgrade,
+Integrity is automatic: every document carries a checksum, and any load — reconcile, upgrade,
 resume — refuses a document whose checksum is missing or wrong. There is no unverified
 read path.
 
-Authenticity is `writ verify`. Documents are signed automatically at persist time when a
-signing key resolves (your SSH key, `~/.ssh/id_ed25519`, or a generated local key);
-verification checks the ssh-ed25519 signature and resolves the publisher's key against
-your `allowed_signers` trust list:
+Authenticity is `writ workflow verify`. A workflow's documents are its definition and the
+execution traces of its runs, and they are signed automatically at persist time when a
+signing key resolves (your SSH key, `~/.ssh/id_ed25519`, or a generated local key).
+Verification checks the ssh-ed25519 signature and resolves the publisher's key against
+your `allowed_signers` trust list.
+
+The store names a document by its checksum, so you name it by workflow instead: which
+program planned it, for which scope. `writ workflow list` shows what the store holds, and
+`verify` selects from the same index:
 
 ```bash
-writ verify ~/.local/state/devlore/graphs/*.yaml
-writ verify --signing-policy=reject_external ~/Downloads/shared-plan.yaml
+writ workflow list                                   # tool, scope, definition, runs, latest run
+writ workflow verify                                 # every document of writ's workflows
+writ workflow verify --scope home                    # the Home workflow: definition and every trace
+writ workflow verify --scope home --kind trace --latest
+writ workflow verify --signing-policy=reject_external ~/Downloads/shared-plan.yaml
 ```
+
+A path names a document from outside the store, such as one shared with you; paths and
+selectors do not mix in one invocation.
 
 The `--signing-policy` ladder decides what a verification outcome does to the exit status:
 
@@ -109,7 +120,8 @@ load is refused. Re-run the deployment to persist a fresh graph and trace.
 ### Unsigned documents
 
 Signing is best-effort: with no resolvable key, documents persist unsigned and
-`writ verify` reports the fact. Under the default `report` policy this never fails a run.
+`writ workflow verify` reports the fact. Under the default `report` policy this never
+fails a run.
 
 ### "run index" errors from `writ reconcile`
 

@@ -134,6 +134,7 @@ func NewRootCmd(cfg RootConfig) *cobra.Command {
 	rootCmd.AddCommand(NewVersionCmd(versionInfo))
 	rootCmd.AddCommand(NewManCmd(rootCmd, manHeader))
 	rootCmd.AddCommand(NewConfigCmd(configInfo))
+	rootCmd.AddCommand(NewWorkflowCmd(cfg.Name))
 	rootCmd.AddCommand(NewSelfCmd(rootCmd, SelfInstallInfo{
 		Name:               cfg.Name,
 		Version:            cfg.Version,

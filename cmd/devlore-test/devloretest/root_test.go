@@ -29,6 +29,9 @@ func TestRoot_KeepsTheOutputConvention(t *testing.T) {
 	if v := cli.CheckSharedSetOnRoot(root); len(v) > 0 {
 		t.Errorf("the root's set is not the shared root's:\n%s", strings.Join(v, "\n"))
 	}
+	if v := cli.CheckGroupsTakeNoAction(root); len(v) > 0 {
+		t.Errorf("a group acts when invoked bare:\n%s", strings.Join(v, "\n"))
+	}
 }
 
 // TestRoot_HelpWrapsLikeTheOthers pins what #757 was filed on: at COLUMNS=70 the longest flag line of

@@ -127,7 +127,8 @@ func TestCheckNoOwnOutputFlag_IsRedOnASyntheticTree(t *testing.T) {
 		t.Errorf("a private -o passed; got:\n%s", strings.Join(violations, "\n"))
 	}
 	if len(violations) != 5 {
-		t.Errorf("expected -o plus the four missing inherits, 5 violations; got %d:\n%s", len(violations), strings.Join(violations, "\n"))
+		t.Errorf("expected -o plus the four missing inherits, 5 violations; got %d:\n%s",
+			len(violations), strings.Join(violations, "\n"))
 	}
 }
 
@@ -151,6 +152,26 @@ func TestCheckSharedSetOnRoot_IsRedOnAHandRolledRoot(t *testing.T) {
 	}
 }
 
+// TestCheckGroupsTakeNoAction_IsRedOnABareActingGroup shows the group checker can fail: a group that acts when
+// invoked bare is reported by its path, a leaf that acts is not, and the shared root passes its own check.
+func TestCheckGroupsTakeNoAction_IsRedOnABareActingGroup(t *testing.T) {
+
+	if v := CheckGroupsTakeNoAction(sharedRoot("probe")); len(v) != 0 {
+		t.Errorf("the shared root fails its own check:\n%s", strings.Join(v, "\n"))
+	}
+
+	root := &cobra.Command{Use: "probe"}
+	group := &cobra.Command{Use: "repo", RunE: func(*cobra.Command, []string) error { return nil }}
+	group.AddCommand(&cobra.Command{Use: "list", RunE: func(*cobra.Command, []string) error { return nil }})
+	root.AddCommand(group)
+	root.AddCommand(&cobra.Command{Use: "leaf", Run: func(*cobra.Command, []string) {}})
+
+	v := CheckGroupsTakeNoAction(root)
+	if len(v) != 1 || !strings.Contains(v[0], "probe repo") {
+		t.Errorf("expected the one bare-acting group, probe repo; got %d:\n%s", len(v), strings.Join(v, "\n"))
+	}
+}
+
 // sharedRoot builds a root the way every program does: the shared constructor, which carries the common
 // set by construction.
 func sharedRoot(name string) *cobra.Command {
@@ -165,7 +186,8 @@ func TestRunInteractive_RefusesWithoutATerminal(t *testing.T) {
 	isTerminal = func(*os.File) bool { return false }
 	t.Cleanup(func() { isTerminal = previous })
 
-	err := RunInteractive(exec.CommandContext(context.Background(), "vi"), "run `probe config path` and open the file yourself")
+	err := RunInteractive(exec.CommandContext(context.Background(), "vi"),
+		"run `probe config path` and open the file yourself")
 	if err == nil {
 		t.Fatal("RunInteractive launched an editor with no terminal")
 	}

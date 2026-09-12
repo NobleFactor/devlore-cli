@@ -664,23 +664,6 @@ func (g *Graph) Checksum() string { return g.checksum }
 //   - `[]Edge`: a copy of the root-level dependency edges, in insertion order.
 func (g *Graph) Edges() []Edge { return slices.Clone(g.root.edges) }
 
-// Filename returns the standard filename for this graph.
-//
-// Format: "<timestamp>.yaml", or "<scope>-<timestamp>.yaml" when [Origin.Scope] is set.
-//
-// Returns:
-//   - `string`: the formatted filename.
-func (g *Graph) Filename() string {
-
-	ts := g.timestamp.Format("2006-01-02T15-04-05")
-
-	if g.origin.Scope() != "" {
-		return fmt.Sprintf("%s-%s.yaml", g.origin.Scope(), ts)
-	}
-
-	return fmt.Sprintf("%s.yaml", ts)
-}
-
 // Kind returns the canonical identifier of this graph's artifact type.
 //
 // Stamped at construction from [GraphKind]. Paired with [Graph.SerialVersion] (the numeric schema version), it serves

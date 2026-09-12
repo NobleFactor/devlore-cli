@@ -139,7 +139,7 @@ The signing model is publisher identity with verifier-side trust (`pkg/signing`,
 
 Signing at persist time is **best effort** (`signArtifact`, `cmd/internal/cli/store.go`): when no signer
 resolves, the document writes unsigned and verification reports the fact — persistence never fails on
-signing. `writ verify` performs signature verification against the verifier's trust file.
+signing. `writ workflow verify` performs signature verification against the verifier's trust file.
 
 ## The Execution Store
 
@@ -176,7 +176,7 @@ Every read path funnels through the trust boundary:
 - **Traces**: `cli.LoadTrace` → `op.LoadTrace`, same refusal; `cli.LoadLatestTrace` resolves the
   per-graph `latest.yaml` first.
 - **Signatures**: `pkg/signing` verifies the ssh-ed25519 signature over the namespace-prefixed canonical
-  bytes and resolves the publisher's key against `allowed_signers`; surfaced through `writ verify`.
+  bytes and resolves the publisher's key against `allowed_signers`; surfaced through `writ workflow verify`.
 
 ## Security Considerations
 

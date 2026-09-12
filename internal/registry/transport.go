@@ -2,6 +2,10 @@
 // Copyright Noble Factor. All rights reserved.
 
 // Package registry provides the transport abstraction for devlore registry access.
+//
+// It lives at the repository root's internal/ deliberately, and not under cmd/internal (#742): the devlore
+// provider (#877) takes lorepackage and this transport toward pkg/, and a move into cmd/internal now would move
+// it twice.
 // The Transport interface decouples registry consumers from the underlying protocol
 // (git, OCI, HTTP). Today only git is implemented; the design accommodates future
 // transports without changing callers.

@@ -15,8 +15,8 @@ import (
 	"os"
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
+	"github.com/NobleFactor/devlore-cli/cmd/internal/credentials"
 	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
-	"github.com/NobleFactor/devlore-cli/internal/credentials"
 	"github.com/NobleFactor/devlore-cli/pkg/document"
 )
 

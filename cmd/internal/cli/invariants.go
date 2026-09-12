@@ -80,11 +80,13 @@ func checkCommandFlags(cmd *cobra.Command, inherited *pflag.FlagSet) []string {
 	})
 	for _, name := range ReservedOutputFlagNames {
 		if local := own.Lookup(name); local != nil && inherited.Lookup(name) != local {
-			violations = append(violations, fmt.Sprintf("%s binds --%s itself; the common set owns that name", cmd.CommandPath(), name))
+			violations = append(violations,
+				fmt.Sprintf("%s binds --%s itself; the common set owns that name", cmd.CommandPath(), name))
 		}
 	}
 	if local := own.ShorthandLookup("o"); local != nil && inherited.ShorthandLookup("o") == nil {
-		violations = append(violations, fmt.Sprintf("%s binds -o itself, as --%s; -o is --output", cmd.CommandPath(), local.Name))
+		violations = append(violations,
+			fmt.Sprintf("%s binds -o itself, as --%s; -o is --output", cmd.CommandPath(), local.Name))
 	}
 	for _, name := range CommonSetFlagNames {
 		if inherited.Lookup(name) == nil {
@@ -155,11 +157,15 @@ func ownFlags(cmd *cobra.Command) *pflag.FlagSet {
 func reportShadow(violations *[]string, cmd *cobra.Command, local *pflag.Flag, inherited *pflag.FlagSet) {
 
 	if taken := inherited.Lookup(local.Name); taken != nil && taken != local {
-		*violations = append(*violations, fmt.Sprintf("%s redefines --%s, which it inherits; cobra would let the local one win silently", cmd.CommandPath(), local.Name))
+		*violations = append(*violations, fmt.Sprintf(
+			"%s redefines --%s, which it inherits; cobra would let the local one win silently",
+			cmd.CommandPath(), local.Name))
 	}
 	if local.Shorthand != "" {
 		if taken := inherited.ShorthandLookup(local.Shorthand); taken != nil && taken != local && taken.Name != local.Name {
-			*violations = append(*violations, fmt.Sprintf("%s binds -%s as --%s, but -%s is --%s on an ancestor; cobra would panic when the command runs", cmd.CommandPath(), local.Shorthand, local.Name, local.Shorthand, taken.Name))
+			*violations = append(*violations, fmt.Sprintf(
+				"%s binds -%s as --%s, but -%s is --%s on an ancestor; cobra would panic when the command runs",
+				cmd.CommandPath(), local.Shorthand, local.Name, local.Shorthand, taken.Name))
 		}
 	}
 }
@@ -182,9 +188,40 @@ func CheckSharedSetOnRoot(root *cobra.Command) []string {
 		case flag == nil:
 			violations = append(violations, fmt.Sprintf("%s does not register --%s on its root", root.Name(), name))
 		case flag.Usage != usage:
-			violations = append(violations, fmt.Sprintf("%s registers --%s with its own usage text; the set is the shared root's", root.Name(), name))
+			violations = append(violations, fmt.Sprintf(
+				"%s registers --%s with its own usage text; the set is the shared root's", root.Name(), name))
 		}
 	}
+	slices.Sort(violations)
+
+	return violations
+}
+
+// CheckGroupsTakeNoAction reports every command in the tree that has subcommands and an action of its own: a
+// subcommand group is a noun, takes no action, and prints help when invoked bare (10-command-line-interface.md
+// §3). `writ repo` once listed registrations when bare, so `repo` was both a noun and a verb, and a reader could
+// not tell from the tree which commands act.
+//
+// Parameters:
+//   - `root`: the program's root command; the root itself is exempt, since cobra runs its own help there.
+//
+// Returns:
+//   - `[]string`: one line per group that acts, naming the command path.
+func CheckGroupsTakeNoAction(root *cobra.Command) []string {
+
+	var violations []string
+
+	var walk func(cmd *cobra.Command)
+	walk = func(cmd *cobra.Command) {
+		for _, child := range cmd.Commands() {
+			if child.HasSubCommands() && (child.Run != nil || child.RunE != nil) {
+				violations = append(violations, fmt.Sprintf(
+					"%s has subcommands and an action of its own; a group prints help", child.CommandPath()))
+			}
+			walk(child)
+		}
+	}
+	walk(root)
 	slices.Sort(violations)
 
 	return violations
@@ -248,7 +285,8 @@ func NoPrivatePipeline(dirs ...string) ([]string, error) {
 		}
 		for _, imp := range file.Imports {
 			if path, err := strconv.Unquote(imp.Path.Value); err == nil && path == resultImportPath {
-				violations = append(violations, fmt.Sprintf("%s: imports pkg/result; render through cli.Emit", fset.Position(imp.Pos())))
+				violations = append(violations,
+					fmt.Sprintf("%s: imports pkg/result; render through cli.Emit", fset.Position(imp.Pos())))
 			}
 		}
 	})
@@ -302,7 +340,8 @@ func callWrite(call *ast.CallExpr) string {
 		switch {
 		case isIdent(fun.X, "fmt") && strings.HasPrefix(fun.Sel.Name, "Print"):
 			return "fmt." + fun.Sel.Name + " writes to stdout"
-		case isIdent(fun.X, "fmt") && strings.HasPrefix(fun.Sel.Name, "Fprint") && len(call.Args) > 0 && isOSStdout(call.Args[0]):
+		case isIdent(fun.X, "fmt") && strings.HasPrefix(fun.Sel.Name, "Fprint") &&
+			len(call.Args) > 0 && isOSStdout(call.Args[0]):
 			return "fmt." + fun.Sel.Name + "(os.Stdout, ...) writes to stdout"
 		case isOSStdout(fun.X) && strings.HasPrefix(fun.Sel.Name, "Write"):
 			return "os.Stdout." + fun.Sel.Name + " writes to stdout"
