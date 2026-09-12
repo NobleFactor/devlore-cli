@@ -16,13 +16,11 @@ import (
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/deploy"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/reconcile"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/upgrade"
-	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/verify"
 	"github.com/spf13/cobra"
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
-	"github.com/NobleFactor/devlore-cli/pkg/signing"
 )
 
 func newDeployCmd() *cobra.Command {
@@ -267,61 +265,6 @@ func runReconcile(cmd *cobra.Command, args []string) error {
 	// The report is the result. Rendering is the pipeline's, so every --output value, --jq and --filter
 	// apply to it exactly as they do to any other command's result.
 	return cli.Emit(cmd, report)
-}
-
-func newVerifyCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "verify <document>...",
-		Short: "Verify the publisher signatures of graph and trace documents",
-		Long: `Verify the publisher signatures of graph and trace documents.
-
-Each document is re-canonicalized and its raw ssh-ed25519 signature checked over
-the namespace-prefixed canonical bytes; the publisher key resolves against the
-verifier's allowed_signers trust list. What each outcome does to the exit status
-is the signing policy ladder:
-
-  ignore           No verification at all
-  report           (default) Report every outcome; never fail
-  reject_external  Reject unsigned/invalid/untrusted documents from OUTSIDE this
-                   machine's own store; own-store documents only report
-  reject           Reject anything that is not valid`,
-		Example: `  writ verify ~/.local/state/devlore/graphs/*.yaml
-  writ verify --signing-policy=reject_external ~/Downloads/shared-plan.yaml
-  writ verify -o table --signing-policy=reject trace.yaml`,
-		Args: cobra.MinimumNArgs(1),
-		RunE: runVerify,
-	}
-
-	cmd.Flags().String("signing-policy", "report", "Verification policy: ignore, report, reject_external, reject")
-	cmd.Flags().String("allowed-signers", "", "Trust-list path (default: <config>/devlore/allowed_signers)")
-
-	return cmd
-}
-
-// runVerify implements the verify command on the verify package (phase-8 step 46).
-func runVerify(cmd *cobra.Command, args []string) error {
-
-	policyValue, _ := cmd.Flags().GetString("signing-policy") //nolint:errcheck // flag registered above
-	policy, err := signing.ParsePolicy(policyValue)
-	if err != nil {
-		return err
-	}
-
-	allowedSigners, _ := cmd.Flags().GetString("allowed-signers") //nolint:errcheck // flag registered above
-
-	reports, err := verify.Execute(cmd.Context(), &verify.Config{
-		Paths:          args,
-		Policy:         policy,
-		AllowedSigners: allowedSigners,
-	})
-
-	// The reports are the result and are emitted whether or not the policy rejected: a rejection is the
-	// answer to the question, not a reason to withhold it.
-	if emitErr := cli.Emit(cmd, reports); emitErr != nil {
-		return emitErr
-	}
-
-	return err
 }
 
 // getConfiguredRepo returns the path for a layer, or empty string if it doesn't exist.
