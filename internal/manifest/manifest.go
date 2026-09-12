@@ -2,6 +2,10 @@
 // Copyright Noble Factor. All rights reserved.
 
 // Package manifest provides loading and validation for packages-manifest files.
+//
+// It lives at the repository root's internal/ deliberately, and not under cmd/internal (#742): a document format
+// is domain, not command-line presentation. lore and writ are its readers today, and a pkg/ reader of the same
+// format would be legitimate; cmd/internal would forbid it for no reason the format supplies.
 package manifest
 
 import (

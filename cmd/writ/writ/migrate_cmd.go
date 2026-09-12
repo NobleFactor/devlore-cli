@@ -12,11 +12,11 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
+	"github.com/NobleFactor/devlore-cli/cmd/internal/console"
 	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
 	"github.com/NobleFactor/devlore-cli/cmd/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/cmd/internal/model"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/migrate"
-	"github.com/NobleFactor/devlore-cli/internal/console"
 	"github.com/NobleFactor/devlore-cli/internal/registry"
 )
 

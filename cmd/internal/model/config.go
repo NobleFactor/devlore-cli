@@ -83,7 +83,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
 	"github.com/NobleFactor/devlore-cli/cmd/internal/config"
-	"github.com/NobleFactor/devlore-cli/internal/credentials"
+	"github.com/NobleFactor/devlore-cli/cmd/internal/credentials"
 )
 
 // CLIFlags holds model configuration from command-line flags.
