@@ -33,14 +33,10 @@ func newRepoCmd() *cobra.Command {
 
 A layer (base, team, or personal) is registered by a symlink in the writ layers
 directory (XDG_DATA_HOME/devlore/writ/layers) pointing at the repository. This is
-packaging, not configuration: registrations never appear in config.yaml.
-
-With no subcommand, repo lists the registrations.`,
+packaging, not configuration: registrations never appear in config.yaml.`,
 		Example: `  writ repo add personal ~/Workspace/Personal
-  writ repo                       # list registrations
+  writ repo list
   writ repo remove team`,
-		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error { return runRepoList(cmd) },
 	}
 
 	cmd.AddCommand(newRepoAddCmd())
