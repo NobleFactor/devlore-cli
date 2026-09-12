@@ -123,7 +123,7 @@ Two documents, two roles:
 1. **The graph document** — the plan. `Graph.Serialize(encoder)` / `MarshalJSON` / `MarshalYAML` emit the document
    form (kind `com.noblefactor.DevLore.Graph`, `Graph.Filename()` naming); `op.LoadGraph` reconstructs a sealed graph
    from it — the `plan.save` / `plan.load` round trip. The checksum covers `CanonicalContent`; the signature (when
-   present) is verified by `writ verify` against the signing policy ladder.
+   present) is verified by `writ workflow verify` against the signing policy ladder.
 2. **The trace** — the execution record: the `RunStatus`, the recovery stack of per-dispatch receipts (audit +
    compensation), the catalog snapshot with content identity (Etag + Digest), and the transition journal
    ([5.2 recovery serialization](5.2-recovery-serialization.md)).

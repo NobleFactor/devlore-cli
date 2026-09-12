@@ -1,7 +1,7 @@
 ---
 title: "Command naming and package layout: the workflow group on the shared root, groups that take no action, and cmd/internal"
 issue: https://github.com/NobleFactor/devlore-cli/issues/782
-status: chartered
+status: complete
 created: 2026-09-10
 updated: 2026-09-11
 ---
@@ -101,12 +101,12 @@ after    "github.com/NobleFactor/devlore-cli/cmd/internal/console"
 
 ## Goals
 
-- [ ] The `workflow` group, `list` and `verify`, on the shared root of all four programs; `writ verify` gone (row 8).
-- [ ] `writ repo` invoked bare prints help; `repo list` lists (row 7).
-- [ ] `internal/console` and `internal/credentials` live under `cmd/internal`; `manifest` and `registry` state
+- [x] The `workflow` group, `list` and `verify`, on the shared root of all four programs; `writ verify` gone (row 8).
+- [x] `writ repo` invoked bare prints help; `repo list` lists (row 7).
+- [x] `internal/console` and `internal/credentials` live under `cmd/internal`; `manifest` and `registry` state
       why they stay (row 9).
-- [ ] A mechanical check that a group takes no action, called from the roots whose trees satisfy it.
-- [ ] Design and user documentation updated: the specification now, the user documentation in the last commit,
+- [x] A mechanical check that a group takes no action, called from the roots whose trees satisfy it.
+- [x] Design and user documentation updated: the specification now, the user documentation in the last commit,
       alongside completion (ruled 2026-09-11).
 
 ## Current State
@@ -209,34 +209,35 @@ satisfy.
 
 ### Phase 1: The plan and the ruling
 
-- [ ] This document and the specification's §2, §6 and decision 10, the branch's first commit; `status: chartered`
+- [x] This document and the specification's §2, §6 and decision 10, the branch's first commit; `status: chartered`
       on the review; the ledger's row 8 on #740 notes the ruling.
 
 ### Phase 2: The workflow group (row 8)
 
-- [ ] The verifier moves to `cmd/internal/cli` with its integration test; `writ verify` and `Graph.Filename()` are
-      deleted.
-- [ ] `workflow list` over the index; the record type; the sort.
-- [ ] `workflow verify`: selectors, resolution from the index, the mixing refusal, the path operand path.
-- [ ] `NewRootCmd` registers the group; every root test sees `workflow list` and `workflow verify`.
+- [x] The verifier moves to `cmd/internal/cli`; its integration test rehomes in writ, whose deploy builds the
+      fixture, and drives the shared root; `writ verify` and `Graph.Filename()` are deleted.
+- [x] `workflow list` over the index; the record type; the sort.
+- [x] `workflow verify`: selectors, resolution from the index, the mixing refusal, the path operand path.
+- [x] `NewRootCmd` registers the group; every root test sees `workflow list` and `workflow verify`.
 
 ### Phase 3: A group takes no action (row 7)
 
-- [ ] `writ repo`: `RunE`, `Args`, the sentence and the bare example removed.
-- [ ] `CheckGroupsTakeNoAction` in `invariants.go`, red on a fixture, called from three root tests.
-- [ ] §14 gains invariant 7; #841 gains the note that star's root test calls the checker when it lands.
+- [x] `writ repo`: `RunE`, `Args`, the sentence and the bare example removed.
+- [x] `CheckGroupsTakeNoAction` in `invariants.go`, red on a fixture, called from three root tests.
+- [x] §14 gains invariant 7 (the specification commits once, in the last commit); #841 gains the note that
+      star's root test calls the checker when it lands (posted by the commit script).
 
 ### Phase 4: The layout (row 9)
 
-- [ ] `console` and `credentials` under `cmd/internal`; imports rewritten; `make build` green.
-- [ ] `manifest` and `registry` doc comments carry the reason they stay.
+- [x] `console` and `credentials` under `cmd/internal`; imports rewritten; `make build` green.
+- [x] `manifest` and `registry` doc comments carry the reason they stay.
 
 ### Phase 5: User documentation and closure, one commit
 
-- [ ] The guide's §Verification: heading, vocabulary, the example commands including `workflow list`.
-- [ ] The five architecture documents and the two status files; §15's `internal/console` sentence.
-- [ ] `make docs` regenerates `docs/cli/*/workflow*.md`; `writ/verify.md` is gone.
-- [ ] #782, #742 acceptance boxes ticked; rows 7, 8, 9 marked done on #740; this plan `complete`.
+- [x] The guide's §Verification: heading, vocabulary, the example commands including `workflow list`.
+- [x] The five architecture documents and the two status files; §10's and §15's `internal/console` mentions.
+- [x] `make docs` regenerates `docs/cli/writ/workflow/` and `docs/cli/lore/workflow/`; `writ/verify.md` is gone.
+- [x] #782, #742 acceptance boxes ticked; rows 7, 8, 9 marked done on #740; this plan `complete`.
 
 ## Test Plan
 
@@ -252,17 +253,17 @@ satisfy.
 | 8 | `CheckGroupsTakeNoAction` is red on a fixture with a bare-acting group | unit, cli | the walk misses RunE |
 | 9 | writ, lore, devlore-test roots pass the check | unit, root tests | a group acts |
 | 10 | `make build`, `make test` green after the moves | build | an import path was missed |
-| 11 | `grep -rn 'writ verify' docs --include='*.md' \| grep -v docs/plans` returns nothing | doc gate | a document was missed |
+| 11 | `` grep -rn '`writ verify`' docs --include='*.md' `` returns only the specification's own record of the retirement (§6, decision 10) and closed plans | doc gate | a document was missed |
 
 ## Files to Create/Modify
 
 | File | Action | Purpose |
 | --- | --- | --- |
 | `docs/plans/feature/782-writ-workflow-verify.md` | Create | this plan |
-| `docs/architecture/10-command-line-interface.md` | Modify | §2, §6, decision 10 now; §14, §15 in the last commit |
+| `docs/architecture/10-command-line-interface.md` | Modify | §2, §6, decision 10 in the first commit; §10, §14, §15 in the last |
 | `cmd/internal/cli/workflow.go` | Create | the group, `list`, `verify`'s selectors and resolution |
 | `cmd/internal/cli/verify.go` (from `cmd/writ/writ/verify/verify.go`) | Move | the verifier, unchanged |
-| `cmd/internal/cli/verify_integration_test.go` (from `cmd/writ/writ/verify/`) | Move | drives the shared root |
+| `cmd/writ/writ/workflow_verify_integration_test.go` (from `cmd/writ/writ/verify/`) | Move | drives writ's root; writ's deploy builds the fixture, so `cli` cannot host it |
 | `cmd/internal/cli/workflow_test.go` | Create | rows 2 through 5 |
 | `cmd/internal/cli/root.go` | Modify | registers `workflow` |
 | `cmd/writ/writ/commands.go` | Modify | `verify` removed |

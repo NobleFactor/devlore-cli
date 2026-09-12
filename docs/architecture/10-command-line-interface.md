@@ -607,7 +607,7 @@ enforcement walk (§14) allows `os.Stdout` in that function and nowhere else.
 
 An interactive command -- onboarding and migration first -- works the way an agent's terminal does:
 
-1. It is interactive only when a TTY is present, through `internal/console`; without one, `--unattended`
+1. It is interactive only when a TTY is present, through `cmd/internal/console`; without one, `--unattended`
    runs on defaults, `--from <answers>` replays a recorded set, and anything still undecided fails naming
    the flag.
 2. Each decision is one question with a short menu and a default, asked once, and never about something a
@@ -746,6 +746,7 @@ Each rule below is greppable, and each has a test. These are the reason the docu
 | 4 | `--store` relocates both subdirectories and the run index together | a store round-trip test |
 | 5 | Narration is absent from stdout under every format | a test capturing both streams |
 | 6 | Help strings read as published prose; they ship unreviewed | `make docs` and read it, in the flag-changing work |
+| 7 | A subcommand group takes no action; it prints help when invoked bare (§3) | [CheckGroupsTakeNoAction], from every root test whose tree satisfies it: writ, lore, devlore-test; star's when #841 lets an extension declare a group |
 
 Invariants 1 to 3 are the ones that prevent regression, because all three are mechanical. Invariants 1 and 2
 were red when this was written; they went green with #774, #775 and #743, and invariant 1 went red once more
@@ -800,10 +801,11 @@ took star's `text/tabwriter` approach and joined it to the delimited formats' co
 version carried a third implementation of column selection, so `cmd/star/cli` was deletable whole rather
 than half salvaged, and it was.
 
-**CLI code also lives outside `cmd/`.** Every package under the repository-root `internal/` is imported only
-by `cmd/`, and `internal/console` is a Bubble Tea terminal UI. Root `internal/` is importable by the whole
-module, so nothing prevents a `pkg/` package from importing CLI presentation
-([#742](https://github.com/NobleFactor/devlore-cli/issues/742)).
+**CLI code also lived outside `cmd/`.** Every package under the repository-root `internal/` was imported only
+by `cmd/`, and `internal/console` was a Bubble Tea terminal UI there, where nothing prevented a `pkg/` package
+from importing CLI presentation. [#742](https://github.com/NobleFactor/devlore-cli/issues/742) moved `console`
+and `credentials` under `cmd/internal`, where that import is a compile error; `manifest` and `registry` stay at
+root `internal/` on purpose, and each says why in its package comment.
 
 **Adoption has gone backwards.** [`extract-output-package.md`](../plans/extract-output-package.md) recorded
 `AddOutputFlags` as used at two call sites — `lore inspect` and `writ snapshot`. `writ snapshot` no longer

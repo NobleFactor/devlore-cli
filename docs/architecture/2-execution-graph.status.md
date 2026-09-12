@@ -15,7 +15,7 @@ was verified against the tree on 2026-07-21 (`pkg/op/graph.go`, `binding.go`, `v
 | Sealed `op.Graph` model (spec-based construction, unit tree, bindings, edges, toposort, checksum) | Complete | 2026-07 (phase-8) | phase-8 branch |
 | `op.GraphExecutor` (per-run environment, child executors, result contract, resume paths) | Complete | 2026-07 (phase-8) | phase-8 branch |
 | Graph document + trace persistence, run index | Complete | 2026-07-16 (step 47) | phase-8 branch |
-| Signing (`pkg/signing`, `writ verify`) | Complete | 2026-07-16 (step 46) | phase-8 branch |
+| Signing (`pkg/signing`, `writ workflow verify`) | Complete | 2026-07-16 (step 46) | phase-8 branch |
 | Document rewrite onto the landed model | Complete | 2026-07-21 (step 34 slice A) | phase-8 branch |
 
 ## Document Discrepancies
