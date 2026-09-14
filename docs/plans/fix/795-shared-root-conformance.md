@@ -184,6 +184,7 @@ lanes 1 through 4.
 | --- | --- | --- |
 | `docs/plans/fix/795-shared-root-conformance.md` | — | Create |
 | `cmd/internal/cli/version.go`, `version_test.go` | 1 | Modify |
+| `Makefile` | 1 | Modify: its version-stamp check reads `version --short`, which lane 1 turned into a result |
 | `cmd/internal/cli/invariants.go`, `invariants_test.go` | 2 | Modify |
 | `cmd/writ/writ/repo_cmd.go`, `repo_cmd_test.go` | 2 | Modify |
 | `cmd/star/main.go` | 3, 4 | Modify |

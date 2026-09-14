@@ -309,7 +309,10 @@ build: generate ## Build every product for PLATFORM (default: this machine; `all
 	if [ ! -x "$(HOST_DIR)/writ$(HOST_GOEXE)" ]; then
 		echo "$(HOST_GOOS)/$(HOST_GOARCH) is not in PLATFORM: skipping the version-stamp check (nothing built here can run here)"
 	else
-		stamped="$$($(HOST_DIR)/writ$(HOST_GOEXE) version --short)"
+		# `--output value` is how a scalar result reaches a consumer raw (10-command-line-interface.md §7).
+		# Without it the default rendering is json and the version arrives quoted, which is what broke this
+		# check when `version` became a result (#795).
+		stamped="$$($(HOST_DIR)/writ$(HOST_GOEXE) version --short --output value)"
 		if [ "$$stamped" != "$(VERSION)" ]; then
 			echo "ERROR: version stamp did not bind."
 			echo "  build computed: $(VERSION)"

@@ -5,7 +5,8 @@ package cli
 
 import (
 	"bytes"
-	"os"
+	"encoding/json"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -67,94 +68,101 @@ func TestAddVersionFlag_IsNotBoundToShorthandV(t *testing.T) {
 	}
 }
 
-// captureStdout runs fn and returns what it wrote to os.Stdout.
-func captureStdout(t *testing.T, fn func()) string {
+// --- NewVersionCmd ---
+
+// versionProbe runs `version` with the arguments through a shared root carrying the build stamps, and returns
+// what reached stdout. The root is the shared one because [Emit] renders through the common set the root
+// registers; a command built standalone has no set to render with.
+func versionProbe(t *testing.T, info VersionInfo, args ...string) string {
 	t.Helper()
 
-	r, w, err := os.Pipe()
-	if err != nil {
-		t.Fatalf("os.Pipe: %v", err)
-	}
-
-	orig := os.Stdout
-	os.Stdout = w
-
-	fn()
-
-	w.Close()
-	os.Stdout = orig
-
-	buf := make([]byte, 4096)
-	n, _ := r.Read(buf)
-	r.Close()
-
-	return string(buf[:n])
-}
-
-func TestNewVersionCmd_FullOutput(t *testing.T) {
-	info := VersionInfo{
-		Version:   "1.2.3",
-		Commit:    "abc1234",
-		BuildDate: "2026-03-17T00:00:00Z",
-	}
-
-	cmd := NewVersionCmd(info)
-	cmd.SetArgs(nil)
-
-	output := captureStdout(t, func() {
-		if err := cmd.Execute(); err != nil {
-			t.Fatalf("Execute() error = %v", err)
-		}
+	root := NewRootCmd(RootConfig{
+		Name:      "probe",
+		Short:     "a probe",
+		Version:   info.Version,
+		Commit:    info.Commit,
+		BuildDate: info.BuildDate,
 	})
 
-	for _, want := range []string{"1.2.3", "abc1234", "2026-03-17T00:00:00Z", "Go version:", "OS/Arch:"} {
-		if !strings.Contains(output, want) {
-			t.Errorf("output missing %q, got:\n%s", want, output)
-		}
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(new(bytes.Buffer))
+	root.SetArgs(append([]string{"version"}, args...))
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("version %s: %v", strings.Join(args, " "), err)
 	}
+
+	return out.String()
 }
 
-func TestNewVersionCmd_ShortFlag(t *testing.T) {
-	info := VersionInfo{
-		Version:   "1.2.3",
-		Commit:    "abc1234",
-		BuildDate: "2026-03-17T00:00:00Z",
+// stamps is the build metadata every test in this block reports.
+func stamps() VersionInfo {
+	return VersionInfo{Version: "1.2.3", Commit: "abc1234", BuildDate: "2026-03-17T00:00:00Z"}
+}
+
+// TestNewVersionCmd_IsAResult is #795: the version is data, so it renders through the pipeline like every other
+// result. Under the json default it parses, and every stamp survives the round trip with the field names the
+// struct tags declare.
+func TestNewVersionCmd_IsAResult(t *testing.T) {
+
+	var report VersionReport
+	if err := json.Unmarshal([]byte(versionProbe(t, stamps())), &report); err != nil {
+		t.Fatalf("the default rendering is not json: %v", err)
 	}
 
-	cmd := NewVersionCmd(info)
-	cmd.SetArgs([]string{"--short"})
-
-	output := captureStdout(t, func() {
-		if err := cmd.Execute(); err != nil {
-			t.Fatalf("Execute() error = %v", err)
-		}
-	})
-
-	trimmed := strings.TrimSpace(output)
-	if trimmed != "1.2.3" {
-		t.Errorf("short output = %q, want '1.2.3'", trimmed)
+	want := VersionReport{
+		Version: "1.2.3", Commit: "abc1234", Built: "2026-03-17T00:00:00Z",
+		Go: runtime.Version(), OS: runtime.GOOS, Arch: runtime.GOARCH,
+	}
+	if report != want {
+		t.Errorf("report = %+v; want %+v", report, want)
 	}
 }
 
-func TestNewVersionCmd_DefaultsAreVisible(t *testing.T) {
-	info := VersionInfo{
-		Version:   "dev",
-		Commit:    "none",
-		BuildDate: "unknown",
+// TestNewVersionCmd_EveryRenderingRenders pins the whole set: a result renders under all eight, and `none`
+// prints nothing at all, which is the contract that told #754 apart from a working flag.
+func TestNewVersionCmd_EveryRenderingRenders(t *testing.T) {
+
+	for _, format := range []string{"csv", "json", "list", "table", "value", "yaml", "template={{.version}}"} {
+		t.Run(format, func(t *testing.T) {
+			if out := versionProbe(t, stamps(), "--output", format); !strings.Contains(out, "1.2.3") {
+				t.Errorf("--output %s rendered %q; the version is missing", format, out)
+			}
+		})
 	}
 
-	cmd := NewVersionCmd(info)
-	cmd.SetArgs(nil)
+	if out := versionProbe(t, stamps(), "--output", "none"); out != "" {
+		t.Errorf("--output none rendered %q; its whole contract is silence", out)
+	}
+}
 
-	output := captureStdout(t, func() {
-		if err := cmd.Execute(); err != nil {
-			t.Fatalf("Execute() error = %v", err)
-		}
-	})
+// TestNewVersionCmd_ShortIsTheVersionAlone pins `--short` and its `-s` shorthand: the scriptable form is the
+// version string and nothing else, under either spelling.
+func TestNewVersionCmd_ShortIsTheVersionAlone(t *testing.T) {
 
-	for _, want := range []string{"dev", "none", "unknown"} {
-		if !strings.Contains(output, want) {
-			t.Errorf("output missing default %q, got:\n%s", want, output)
-		}
+	for _, spelling := range []string{"--short", "-s"} {
+		t.Run(spelling, func(t *testing.T) {
+			out := versionProbe(t, stamps(), spelling, "--output", "value")
+			if strings.TrimSpace(out) != "1.2.3" {
+				t.Errorf("version %s --output value = %q; want the version alone", spelling, out)
+			}
+		})
+	}
+}
+
+// TestNewVersionCmd_DefaultStampsSurvive pins the unstamped build: `dev`, `none` and `unknown` are values like
+// any other and reach the result rather than being elided.
+func TestNewVersionCmd_DefaultStampsSurvive(t *testing.T) {
+
+	info := VersionInfo{Version: "dev", Commit: "none", BuildDate: "unknown"}
+
+	var report VersionReport
+	if err := json.Unmarshal([]byte(versionProbe(t, info)), &report); err != nil {
+		t.Fatalf("the default rendering is not json: %v", err)
+	}
+
+	if report.Version != "dev" || report.Commit != "none" || report.Built != "unknown" {
+		t.Errorf("report = %+v; want the default stamps verbatim", report)
 	}
 }
