@@ -5,6 +5,7 @@ package writ
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -70,17 +71,46 @@ func isolatedGitEnv(t *testing.T) []string {
 }
 
 // runRepo executes the repo command family against a sandboxed layers directory and returns its output.
+//
+// The command runs through writ's real root: the registrations are a result, and [cli.Emit] renders through the
+// common set the root registers, so a command built standalone has no set to render with.
 func runRepo(t *testing.T, args ...string) (string, error) {
 
 	t.Helper()
 
-	cmd := newRepoCmd()
+	root := NewRootCmd()
 	var out strings.Builder
-	cmd.SetOut(&out)
-	cmd.SetErr(&out)
-	cmd.SetArgs(args)
-	err := cmd.Execute()
+	root.SetOut(&out)
+	root.SetErr(&out)
+	root.SetArgs(append([]string{"repo"}, args...))
+	err := root.Execute()
 	return out.String(), err
+}
+
+// registrations decodes what `repo list` returned.
+func registrations(t *testing.T, out string) []RepoRegistration {
+
+	t.Helper()
+
+	var decoded []RepoRegistration
+	if err := json.Unmarshal([]byte(out), &decoded); err != nil {
+		t.Fatalf("repo list is not json: %v\n%s", err, out)
+	}
+	return decoded
+}
+
+// stateOf returns the layer's state and root from a decoded listing.
+func stateOf(t *testing.T, out, layer string) RepoRegistration {
+
+	t.Helper()
+
+	for _, registration := range registrations(t, out) {
+		if registration.Layer == layer {
+			return registration
+		}
+	}
+	t.Fatalf("layer %q is absent from the listing:\n%s", layer, out)
+	return RepoRegistration{}
 }
 
 func TestRepo_AddListRemove_RoundTrip(t *testing.T) {
@@ -96,11 +126,11 @@ func TestRepo_AddListRemove_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("list: %v", err)
 	}
-	if !strings.Contains(listed, "personal") || !strings.Contains(listed, repo) {
-		t.Fatalf("list output missing the registration:\n%s", listed)
+	if got := stateOf(t, listed, "personal"); got.State != repoStateRegistered || got.Root != repo {
+		t.Fatalf("personal = %+v; want registered at %s", got, repo)
 	}
-	if !strings.Contains(listed, "base     (not registered)") {
-		t.Fatalf("list output missing the unregistered marker:\n%s", listed)
+	if got := stateOf(t, listed, "base"); got.State != repoStateUnregistered {
+		t.Fatalf("base = %+v; want unregistered", got)
 	}
 
 	if _, err := runRepo(t, "remove", "personal"); err != nil {
@@ -110,23 +140,45 @@ func TestRepo_AddListRemove_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(listed, "personal (not registered)") {
-		t.Fatalf("expected personal unregistered after remove:\n%s", listed)
+	if got := stateOf(t, listed, "personal"); got.State != repoStateUnregistered {
+		t.Fatalf("personal = %+v after remove; want unregistered", got)
 	}
 }
 
-func TestRepo_BareInvocation_Lists(t *testing.T) {
+// TestRepo_BareInvocation_PrintsHelp pins the group's contract: `repo` is a noun and takes no action, so it
+// prints help and lists nothing (10-command-line-interface.md §3, invariant 7). Until this assertion, the test
+// here matched layer names in that very help text and passed for the wrong reason.
+func TestRepo_BareInvocation_PrintsHelp(t *testing.T) {
 
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 
-	listed, err := runRepo(t)
+	out, err := runRepo(t)
 	if err != nil {
 		t.Fatalf("bare repo: %v", err)
 	}
+
+	if !strings.Contains(out, "Usage:") || !strings.Contains(out, "writ repo") {
+		t.Errorf("bare repo did not print help:\n%s", out)
+	}
+	if strings.Contains(out, `"state"`) {
+		t.Errorf("bare repo listed the registrations; a group takes no action:\n%s", out)
+	}
+}
+
+// TestRepo_List_ReportsEveryLayer pins the listing itself: one record per layer, whatever its state.
+func TestRepo_List_ReportsEveryLayer(t *testing.T) {
+
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+
+	listed, err := runRepo(t, "list")
+	if err != nil {
+		t.Fatalf("repo list: %v", err)
+	}
+	if got := len(registrations(t, listed)); got != len(LayerOrder) {
+		t.Fatalf("listing has %d layers; want %d", got, len(LayerOrder))
+	}
 	for _, layer := range LayerOrder {
-		if !strings.Contains(listed, layer) {
-			t.Fatalf("bare listing missing layer %s:\n%s", layer, listed)
-		}
+		stateOf(t, listed, layer)
 	}
 }
 
@@ -142,8 +194,8 @@ func TestRepo_Aliases_RmAndLs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ls alias: %v", err)
 	}
-	if !strings.Contains(listed, "team") || !strings.Contains(listed, repo) {
-		t.Fatalf("ls output missing the registration:\n%s", listed)
+	if got := stateOf(t, listed, "team"); got.State != repoStateRegistered || got.Root != repo {
+		t.Fatalf("team = %+v; want registered at %s", got, repo)
 	}
 	if _, err := runRepo(t, "rm", "team"); err != nil {
 		t.Fatalf("rm alias: %v", err)
@@ -204,8 +256,8 @@ func TestRepo_List_MarksBrokenLink(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(listed, "(broken)") {
-		t.Fatalf("expected broken marker after target removal:\n%s", listed)
+	if got := stateOf(t, listed, "personal"); got.State != repoStateBroken {
+		t.Fatalf("personal = %+v after its target was removed; want broken", got)
 	}
 }
 

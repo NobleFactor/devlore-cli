@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
 	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
 )
 
@@ -107,6 +108,23 @@ func newRepoListCmd() *cobra.Command {
 	}
 }
 
+// RepoRegistration is a layer's registration as the `repo` commands report it: which layer, the working-tree
+// root it points at, and what state the registration is in. A result like any other, so `--output json` feeds a
+// script and `--output table` scans (10-command-line-interface.md §5).
+type RepoRegistration struct {
+	Layer string `json:"layer"`
+	Root  string `json:"root,omitempty"`
+	State string `json:"state"`
+}
+
+// The states a registration can be in, as [RepoRegistration.State] reports them.
+const (
+	repoStateRegistered   = "registered"
+	repoStateUnregistered = "unregistered"
+	repoStateBroken       = "broken"
+	repoStateUnreadable   = "unreadable"
+)
+
 // runRepoAdd registers `layer` from `location` — a working-tree-root, or a repository URL cloned to
 // `destination` (the writ-owned home when empty).
 //
@@ -146,8 +164,7 @@ func runRepoAdd(cmd *cobra.Command, layer, location, destination, branch string)
 		return err
 	}
 
-	_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s -> %s\n", layer, root)
-	return err
+	return cli.Emit(cmd, RepoRegistration{Layer: layer, Root: root, State: repoStateRegistered})
 }
 
 // resolveWorkingTreeRoot produces the layer's working-tree-root from the location operand: the validated
@@ -292,8 +309,7 @@ func runRepoRemove(cmd *cobra.Command, layer string) error {
 		return err
 	}
 
-	_, err := fmt.Fprintf(cmd.OutOrStdout(), "%s unregistered\n", layer)
-	return err
+	return cli.Emit(cmd, RepoRegistration{Layer: layer, State: repoStateUnregistered})
 }
 
 // runRepoList prints every layer in order with its registration state.
@@ -305,45 +321,40 @@ func runRepoRemove(cmd *cobra.Command, layer string) error {
 //   - `error`: a write failure on the output stream.
 func runRepoList(cmd *cobra.Command) error {
 
-	out := cmd.OutOrStdout()
-
+	registrations := make([]RepoRegistration, 0, len(LayerOrder))
 	for _, layer := range LayerOrder {
-
-		line := repoListLine(layer)
-		if _, err := fmt.Fprint(out, line); err != nil {
-			return err
-		}
+		registrations = append(registrations, repoRegistration(layer))
 	}
 
-	return nil
+	return cli.Emit(cmd, registrations)
 }
 
 // repoListLine renders one layer's registration line for the list report.
 //
 // Parameters:
-//   - `layer`: the layer name to render.
+//   - `layer`: the layer name to report on.
 //
 // Returns:
-//   - `string`: the newline-terminated report line.
-func repoListLine(layer string) string {
+//   - `RepoRegistration`: the layer, the root it points at when there is one, and its state.
+func repoRegistration(layer string) RepoRegistration {
 
 	link := filepath.Join(devlore.WritLayersDir(), layer)
 
 	info, err := os.Lstat(link)
 	if err != nil {
-		return fmt.Sprintf("%-8s (not registered)\n", layer)
+		return RepoRegistration{Layer: layer, State: repoStateUnregistered}
 	}
 
 	target := link
 	if info.Mode()&os.ModeSymlink != 0 {
 		if target, err = os.Readlink(link); err != nil {
-			return fmt.Sprintf("%-8s (unreadable link)\n", layer)
+			return RepoRegistration{Layer: layer, State: repoStateUnreadable}
 		}
 	}
 
 	if _, err := filepath.EvalSymlinks(link); err != nil {
-		return fmt.Sprintf("%-8s -> %s (broken)\n", layer, target)
+		return RepoRegistration{Layer: layer, Root: target, State: repoStateBroken}
 	}
 
-	return fmt.Sprintf("%-8s -> %s\n", layer, target)
+	return RepoRegistration{Layer: layer, Root: target, State: repoStateRegistered}
 }

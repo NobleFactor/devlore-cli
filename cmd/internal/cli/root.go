@@ -82,6 +82,16 @@ func NewRootCmd(cfg RootConfig) *cobra.Command {
 		},
 	}
 
+	// `--silent` takes effect immediately, which means before cobra parses anything: a program that narrates
+	// while building its command tree -- star, loading its extensions -- would otherwise speak through a
+	// narrator that has not been told to be silent. The pre-run below installs the narrator again from the
+	// parsed flag, so this is the same decision made twice rather than two decisions (#828).
+	if SilentRequested(os.Args[1:]) {
+		SetUI(status.NewNarrator(cfg.Name, sink.Discard()))
+	} else {
+		SetUI(status.NewNarrator(cfg.Name, sink.Stderr()))
+	}
+
 	wrapHelp(rootCmd)
 
 	// The common set, on the root: every command of every program accepts every flag, and the shared

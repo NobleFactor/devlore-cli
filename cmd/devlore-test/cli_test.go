@@ -125,14 +125,16 @@ func TestCLI_NoArgs(t *testing.T) {
 	assertContains(t, stdout, "devlore-test [command]")
 }
 
+// A command line the program cannot run exits EX_USAGE, 64, not the generic 1 (#884, ruled 2026-09-12).
+
 func TestCLI_RunNoScript(t *testing.T) {
 	_, _, code := run("run")
-	assertExit(t, 1, code)
+	assertExit(t, 64, code)
 }
 
 func TestCLI_RunTooManyArgs(t *testing.T) {
 	_, _, code := run("run", "a.star", "b.star")
-	assertExit(t, 1, code)
+	assertExit(t, 64, code)
 }
 
 func TestCLI_RunMissingFile(t *testing.T) {
@@ -304,20 +306,39 @@ func TestCLI_UncreatableStore(t *testing.T) {
 
 func TestCLI_UnknownFlag(t *testing.T) {
 	_, _, code := run("run", "--foobar", scriptPath)
-	assertExit(t, 1, code)
+	assertExit(t, 64, code)
 }
 
 func TestCLI_UnknownCommand(t *testing.T) {
 	_, _, code := run("foobar")
-	assertExit(t, 1, code)
+	assertExit(t, 64, code)
+}
+
+// TestCLI_UnknownOutputFormat pins the ruling of 2026-09-13: a value --output does not accept is a command line
+// the program cannot run, so it exits EX_USAGE like any other refusal of the arguments.
+func TestCLI_UnknownOutputFormat(t *testing.T) {
+	_, _, code := run("--output", "bogus", "version")
+	assertExit(t, 64, code)
 }
 
 // --- Shared commands ---
 
+// TestCLI_Version pins the version as a result rather than text (#795): the default rendering is json, it
+// parses, and it carries the build stamps under the names the report declares.
 func TestCLI_Version(t *testing.T) {
 	stdout, _, code := run("version")
 	assertExit(t, 0, code)
-	assertContains(t, stdout, "Version:")
+
+	var report struct {
+		Version string `json:"version"`
+		Go      string `json:"go"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &report); err != nil {
+		t.Fatalf("version is not json: %v\n%s", err, stdout)
+	}
+	if report.Version == "" || report.Go == "" {
+		t.Errorf("version = %+v; want the build stamps", report)
+	}
 }
 
 func TestCLI_Help(t *testing.T) {

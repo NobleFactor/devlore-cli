@@ -80,10 +80,14 @@ func NewApplication(rootCmd *cobra.Command) *Application {
 	app := application.NewApplication("star", rootCmd)
 	registry := op.ReceiverRegistry()
 
+	// The narrator is the one the shared root installed before this point, so the module-surface report this
+	// spec's runtime emits honors `--silent` (#828). Without it the environment defaults to a narrator over
+	// stderr, and the report escapes the flag.
 	spec := op.NewRuntimeEnvironmentSpec("star").
 		WithApplication(app).
 		WithModules(registry.Scripts()...).
-		WithRoot(wd)
+		WithRoot(wd).
+		WithStatus(cli.UI())
 
 	runtimeEnvironment, err := op.NewRuntimeEnvironment(context.Background(), spec)
 	assert.NoError("op.NewRuntimeEnvironment", err)

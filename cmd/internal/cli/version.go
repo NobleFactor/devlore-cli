@@ -10,6 +10,18 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// VersionReport is `version`'s result: the build stamps this binary carries and the toolchain and platform it
+// was built with. A result like any other, so `--output json` feeds a script, `--output yaml` reads by eye, and
+// `--output value` gives the six values alone (10-command-line-interface.md §5, §7).
+type VersionReport struct {
+	Version string `json:"version"`
+	Commit  string `json:"commit"`
+	Built   string `json:"built"`
+	Go      string `json:"go"`
+	OS      string `json:"os"`
+	Arch    string `json:"arch"`
+}
+
 // The two version surfaces, split the way docker splits them: `--version` answers in one line and
 // `version` prints the detail. `version --short` is the scriptable form of the first, which is why all three
 // are built here rather than drifting apart in separate files.
@@ -40,10 +52,12 @@ func AddVersionFlag(rootCmd *cobra.Command, info VersionInfo) {
 	rootCmd.SetVersionTemplate(fmt.Sprintf("%s version %s, build %s\n", rootCmd.Name(), info.Version, info.Commit))
 }
 
-// NewVersionCmd creates the version command, which prints the full build detail.
+// NewVersionCmd creates the version command, whose result is the build detail.
 //
-// Output goes through [cobra.Command.OutOrStdout] rather than to [os.Stdout] directly, so a caller that
-// redirects the command's output captures this like any other command's.
+// The report goes through [Emit] like every other result, so the renderings and the filter stage apply to it:
+// `--output json` parses, `--output yaml` reads, `--output value` gives the six values, `--output none` prints
+// nothing. `--short` narrows the result to the version string alone, which is the scriptable form; the
+// `--version` flag keeps cobra's one-line answer, which is not a result (#795).
 //
 // Parameters:
 //   - `info`: the build-time metadata to report.
@@ -56,18 +70,20 @@ func NewVersionCmd(info VersionInfo) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "version",
 		Short: "Print version information",
-		Run: func(cmd *cobra.Command, _ []string) {
-
-			out := cmd.OutOrStdout()
+		RunE: func(cmd *cobra.Command, _ []string) error {
 
 			if short {
-				_, _ = fmt.Fprintln(out, info.Version) //nolint:errcheck // diagnose-ignored-error: a failed write to the command's own output has nowhere left to report; see docs/architecture/2.8-eventing-infrastructure.md
-				return
+				return Emit(cmd, info.Version)
 			}
 
-			//nolint:errcheck // diagnose-ignored-error: as above; see docs/architecture/2.8-eventing-infrastructure.md
-			_, _ = fmt.Fprintf(out, "Version:    %s\nCommit:     %s\nBuilt:      %s\nGo version: %s\nOS/Arch:    %s/%s\n",
-				info.Version, info.Commit, info.BuildDate, runtime.Version(), runtime.GOOS, runtime.GOARCH)
+			return Emit(cmd, VersionReport{
+				Version: info.Version,
+				Commit:  info.Commit,
+				Built:   info.BuildDate,
+				Go:      runtime.Version(),
+				OS:      runtime.GOOS,
+				Arch:    runtime.GOARCH,
+			})
 		},
 	}
 

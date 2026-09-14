@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 
 	"github.com/spf13/cobra"
@@ -20,18 +21,28 @@ import (
 // Exit Codes (BSD sysexits.h)
 // =============================================================================
 
-// Exit codes follow BSD sysexits.h conventions for portable process status.
+// The suite's exit codes are the BSD sysexits set, the same thirteen `Declare-BashScript` defines for the shell
+// scripts beside these programs, so a status means one thing across the whole toolchain (ruled 2026-09-12).
+//
+// Zero and one are the two outside that set and the two most used: success, and "the command ran and the answer
+// is failure" -- a verification that failed, drift that was found. Everything else says the command could not run
+// as asked, and which way.
 const (
 	ExitOK          = 0  // Success
-	ExitError       = 1  // Generic error
-	ExitUsage       = 64 // Bad CLI syntax
-	ExitDataErr     = 65 // Invalid manifest/config
-	ExitNoInput     = 66 // File not found
-	ExitUnavailable = 69 // Registry unreachable
-	ExitSoftware    = 70 // Internal error (bug)
-	ExitCantCreate  = 73 // Can't create file/symlink
-	ExitIOErr       = 74 // Read/write failure
-	ExitNoPerm      = 77 // Permission denied
+	ExitError       = 1  // The command ran; the answer is failure
+	ExitUsage       = 64 // EX_USAGE: command line usage error
+	ExitDataErr     = 65 // EX_DATAERR: data format error
+	ExitNoInput     = 66 // EX_NOINPUT: cannot open input
+	ExitUnavailable = 69 // EX_UNAVAILABLE: service unavailable, or a missing dependency
+	ExitSoftware    = 70 // EX_SOFTWARE: internal software error
+	ExitOSErr       = 71 // EX_OSERR: system error, such as a failure to fork
+	ExitOSFile      = 72 // EX_OSFILE: a critical operating-system file is missing
+	ExitCantCreate  = 73 // EX_CANTCREAT: cannot create an output file
+	ExitIOErr       = 74 // EX_IOERR: input or output error
+	ExitTempFail    = 75 // EX_TEMPFAIL: temporary failure; the user is invited to retry
+	ExitProtocol    = 76 // EX_PROTOCOL: remote error in protocol
+	ExitNoPerm      = 77 // EX_NOPERM: permission denied
+	ExitConfig      = 78 // EX_CONFIG: configuration error, such as an unsupported platform
 )
 
 // =============================================================================
@@ -52,16 +63,68 @@ func ExitWith(code int, err error) error {
 	return &exitError{code: code, err: err}
 }
 
-// ExitCode extracts the exit code from an error.
-// Returns the wrapped code if present, or ExitError (1) for plain errors.
+// ExitCode is the status a program exits with for an error.
+//
+// A coded error carries its own, from [ExitWith]. Cobra's own refusals -- an unknown flag, an unknown command, a
+// wrong argument count, a flag value the command does not accept -- are usage errors and exit [ExitUsage],
+// because the command could not run as asked. Everything else is [ExitError]: the command ran and the answer is
+// failure.
+//
+// Parameters:
+//   - `err`: the error a command returned, or nil.
+//
+// Returns:
+//   - `int`: the process status.
 func ExitCode(err error) int {
+
 	if err == nil {
 		return ExitOK
 	}
+
 	if coded, ok := errors.AsType[*exitError](err); ok {
 		return coded.code
 	}
+
+	if isUsageError(err) {
+		return ExitUsage
+	}
+
 	return ExitError
+}
+
+// isUsageError reports whether an error is cobra's own refusal of the command line.
+//
+// Cobra returns these as plain errors with no type to test, so the message is what there is to read. The
+// alternative, wrapping every one at its source, means editing a dependency; the alternative to that is a flag
+// value the shared root validates itself, which is what [AddOutputFlags] already does for `--output` and why
+// that one arrives here already coded.
+//
+// Parameters:
+//   - `err`: a non-nil error.
+//
+// Returns:
+//   - `bool`: true when cobra refused the command line rather than a command failing.
+func isUsageError(err error) bool {
+
+	message := err.Error()
+
+	for _, refusal := range []string{
+		"unknown command",
+		"unknown flag",
+		"unknown shorthand flag",
+		"flag needs an argument",
+		"invalid argument",
+		"accepts ",
+		"requires at least",
+		"requires at most",
+		"unknown help topic",
+	} {
+		if strings.Contains(message, refusal) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // =============================================================================
@@ -147,7 +210,9 @@ func addOutputFlags(cmd *cobra.Command, opts *SinkOptions) {
 		}
 
 		if _, err := result.FormatterByName(opts.Format); err != nil {
-			return err
+			// A value the flag does not accept is a command line the program cannot run, so it exits
+			// EX_USAGE like any other refusal of the arguments (ruled 2026-09-13).
+			return ExitWith(ExitUsage, err)
 		}
 
 		if opts.Store != "" {
@@ -248,6 +313,37 @@ func UI() *status.Narrator {
 func AddSilentFlag(cmd *cobra.Command) {
 	cmd.PersistentFlags().Bool("silent", false,
 		`Suppress all status messages (stderr)`)
+}
+
+// SilentRequested reports whether `--silent` appears in the arguments, read before cobra parses them.
+//
+// `--silent` is documented to take effect immediately, and a program that narrates while building its command
+// tree narrates before any flag is parsed: star must load its extensions to register their commands, and
+// assembling that runtime reports the module surface. Cobra cannot help at that point, so the flag is read from
+// the raw arguments (#828).
+//
+// Parsing is cobra's own for a boolean: the bare `--silent`, and `--silent=false` to refuse it. A `--` ends the
+// flags, so anything after it is an operand and is not read.
+//
+// Parameters:
+//   - `args`: the raw arguments, normally `os.Args[1:]`.
+//
+// Returns:
+//   - `bool`: true when the arguments ask for silence.
+func SilentRequested(args []string) bool {
+
+	for _, arg := range args {
+		switch {
+		case arg == "--":
+			return false
+		case arg == "--silent":
+			return true
+		case strings.HasPrefix(arg, "--silent="):
+			return strings.TrimPrefix(arg, "--silent=") == "true"
+		}
+	}
+
+	return false
 }
 
 // Note prints an informational message via the installed narrator.

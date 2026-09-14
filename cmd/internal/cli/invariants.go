@@ -229,10 +229,12 @@ func CheckGroupsTakeNoAction(root *cobra.Command) []string {
 
 // NoDirectStdout parses every non-test Go file under the directories and reports each write to stdout that
 // bypasses the sink: `fmt.Print*`, `fmt.Fprint*` with `os.Stdout` as its writer, `os.Stdout.Write*`, the
-// `print` and `println` builtins, and any statement that hands `os.Stdout` to something else -- which is
-// how a child process inherits the terminal. Reading `os.Stdout` -- `Fd()`, `Stat()` -- is not a write and
-// is not reported. The one place allowed to hand the terminal over is [RunInteractive], the seam every
-// interactive child goes through (10-command-line-interface.md §10).
+// `print` and `println` builtins, any statement that hands `os.Stdout` to something else -- which is how a
+// child process inherits the terminal -- and any call to `OutOrStdout`, which is the command's stdout under
+// another name and is how a hand-shaped write escaped this walk (#794). Reading `os.Stdout` -- `Fd()`,
+// `Stat()` -- is not a write and is not reported. Two functions are exempt and only two: [RunInteractive],
+// the seam every interactive child goes through, and [Emit], which calls `OutOrStdout` to build the pipeline
+// every result renders through (10-command-line-interface.md §5, §10).
 //
 // Parameters:
 //   - `dirs`: package directories to walk, recursively; `testdata` directories are skipped.
@@ -244,14 +246,7 @@ func NoDirectStdout(dirs ...string) ([]string, error) {
 
 	var violations []string
 	err := walkGoFiles(dirs, func(filename string, file *ast.File, fset *token.FileSet) {
-		exempt := map[ast.Node]bool{}
-		if file.Name.Name == "cli" {
-			for _, decl := range file.Decls {
-				if fn, ok := decl.(*ast.FuncDecl); ok && fn.Name.Name == "RunInteractive" && fn.Body != nil {
-					exempt[fn.Body] = true
-				}
-			}
-		}
+		exempt := exemptBodies(file)
 		ast.Inspect(file, func(node ast.Node) bool {
 			if exempt[node] {
 				return false
@@ -294,6 +289,39 @@ func NoPrivatePipeline(dirs ...string) ([]string, error) {
 	return violations, err
 }
 
+// exemptBodies returns the function bodies this walk does not look inside.
+//
+// Two seams, and only these two: [RunInteractive] hands a child process the terminal, and [Emit] is the one
+// caller of `OutOrStdout`, because every result reaches stdout through the pipeline it builds
+// (10-command-line-interface.md §5, §10). Both live in package `cli`, so a function of either name anywhere
+// else is reported like any other.
+//
+// Parameters:
+//   - `file`: the parsed file.
+//
+// Returns:
+//   - `map[ast.Node]bool`: the bodies to skip; empty for every file outside package `cli`.
+func exemptBodies(file *ast.File) map[ast.Node]bool {
+
+	exempt := map[ast.Node]bool{}
+
+	if file.Name.Name != "cli" {
+		return exempt
+	}
+
+	for _, decl := range file.Decls {
+		fn, ok := decl.(*ast.FuncDecl)
+		if !ok || fn.Body == nil {
+			continue
+		}
+		if fn.Name.Name == "RunInteractive" || fn.Name.Name == "Emit" {
+			exempt[fn.Body] = true
+		}
+	}
+
+	return exempt
+}
+
 // stdoutWrite classifies one AST node: the description of the write it is, or "" when it is not one.
 //
 // Parameters:
@@ -321,8 +349,8 @@ func stdoutWrite(node ast.Node) string {
 	return ""
 }
 
-// callWrite classifies a call: a print builtin, a fmt.Print*, a fmt.Fprint* aimed at os.Stdout, or a
-// method on os.Stdout that writes.
+// callWrite classifies a call: a print builtin, a fmt.Print*, a fmt.Fprint* aimed at os.Stdout, a method on
+// os.Stdout that writes, or a call to OutOrStdout, which is the command's stdout under another name.
 //
 // Parameters:
 //   - `call`: the call expression.
@@ -345,6 +373,8 @@ func callWrite(call *ast.CallExpr) string {
 			return "fmt." + fun.Sel.Name + "(os.Stdout, ...) writes to stdout"
 		case isOSStdout(fun.X) && strings.HasPrefix(fun.Sel.Name, "Write"):
 			return "os.Stdout." + fun.Sel.Name + " writes to stdout"
+		case fun.Sel.Name == "OutOrStdout":
+			return "OutOrStdout() is stdout under another name; a result reaches it through cli.Emit"
 		}
 	}
 

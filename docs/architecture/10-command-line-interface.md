@@ -575,9 +575,40 @@ keep that promise.
 
 ## 9. Errors and exit codes
 
-- `0` — success.
-- `1` — the command ran and the answer is failure (a verification failed, a package is missing).
-- `2` — the command could not run as asked (bad flag, unreadable input, unknown subcommand).
+**The suite reports the BSD sysexits set** — the same thirteen `Declare-BashScript` defines for the shell
+scripts beside these programs, so a status means one thing across the whole toolchain (ruled 2026-09-12).
+
+Two codes sit outside that set and carry the most traffic:
+
+| Code | Meaning |
+| --- | --- |
+| `0` | success |
+| `1` | the command ran and the answer is failure: a verification failed, drift was found, a package is missing |
+
+The rest say the command could not run as asked, and which way:
+
+| Code | Name | Meaning |
+| --- | --- | --- |
+| `64` | `EX_USAGE` | command line usage error |
+| `65` | `EX_DATAERR` | data format error |
+| `66` | `EX_NOINPUT` | cannot open input |
+| `69` | `EX_UNAVAILABLE` | service unavailable, or a missing dependency |
+| `70` | `EX_SOFTWARE` | internal software error |
+| `71` | `EX_OSERR` | system error, such as a failure to fork |
+| `72` | `EX_OSFILE` | a critical operating-system file is missing |
+| `73` | `EX_CANTCREAT` | cannot create an output file |
+| `74` | `EX_IOERR` | input or output error |
+| `75` | `EX_TEMPFAIL` | temporary failure; the user is invited to retry |
+| `76` | `EX_PROTOCOL` | remote error in protocol |
+| `77` | `EX_NOPERM` | permission denied |
+| `78` | `EX_CONFIG` | configuration error, such as an unsupported platform |
+
+**The mapping rule.** A command returns an error; [ExitCode] turns it into a status. An error carrying its own
+code, from [ExitWith], keeps it. Cobra's own refusals of the command line — an unknown flag, an unknown command,
+a wrong argument count, a flag value the command does not accept — are usage errors and exit `64`, because the
+command could not run as asked; **a value `--output` does not accept is one of them** (ruled 2026-09-13: the
+value arrives on the command line and never from a file, and the flag layer rejects it before any command runs).
+A missing input is `66`, an internal error `70`. Everything else is `1`.
 
 An error message names what failed, what was expected, and what the user can do. It goes to stderr. Technical
 errors are rewritten at the boundary rather than surfaced raw; a Go error string is a diagnostic, not a

@@ -144,7 +144,7 @@ Generate YAML index:
 
 func main() {
 	if err := run(); err != nil {
-		os.Exit(1)
+		os.Exit(cli.ExitCode(err))
 	}
 }
 
