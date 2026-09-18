@@ -118,6 +118,14 @@ func isUsageError(err error) bool {
 		"requires at least",
 		"requires at most",
 		"unknown help topic",
+
+		// Cobra's three flag-group refusals (`flag_groups.go`). A group is a usage rule -- these flags
+		// together, this one of them, not both -- so breaking one is a usage error like any other. Found
+		// 2026-09-18 measuring `--interactive --unattended`, which exited 1 where §9 says 64; the pair has
+		// been marked mutually exclusive on the shared root since long before that measurement.
+		"are set they must all be set",
+		"are set none of the others can be",
+		"is required",
 	} {
 		if strings.Contains(message, refusal) {
 			return true
@@ -134,10 +142,12 @@ func isUsageError(err error) bool {
 // SinkOptions captures the populated values from [AddOutputFlags]. The struct is the input to
 // [BuildPipeline], which composes a [result.Pipeline] from the flag values.
 type SinkOptions struct {
-	Format  string // bound to --output; the field names the concept, the flag names what users type
-	Filters []string
-	JQ      string
-	Store   string
+	Format   string // bound to --output; the field names the concept, the flag names what users type
+	Filters  []string
+	JQ       string
+	Store    string
+	Paginate bool // bound to --paginate; page whatever the rendering, when stdout is a terminal
+	NoPager  bool // bound to --no-pager; never page
 }
 
 // restoreStoreRoot undoes the root's `--store` selection when the command tree finishes. A package-level
@@ -151,22 +161,119 @@ var restoreStoreRoot func()
 // rather than to a width guessed here. The rendering list is one line each, because those carry a name
 // column that wrapping hangs under -- a shape pflag's own wrapper flattens.
 //
-// The prose orders the renderings by usefulness; the list is alphabetical, matching
-// [result.FormatterByName]'s error and §7 of the specification. Everyday use wants to find a name.
+// outputUsage is what a terminal shows: each rendering names itself on one line and describes itself on
+// the next, so nothing depends on a column that wrapping can break.
+//
+// The prose orders the renderings by usefulness. Below it they are grouped by the reader each serves, the
+// groups alphabetical and the names alphabetical within each, matching [result.Group] and §7 of the
+// specification. A flat list of ten names answers what exists and never which one you want.
+//
+// The man page shows [outputUsageMan] instead -- same content, markdown, so roff lays it out as a man page
+// rather than as filled prose.
 const outputUsage = "Output rendering. json is the default and the native format; every other rendering " +
-	"presents that JSON rather than the Go value behind it. Reach for yaml to read a large result, table " +
-	"or list to scan one, csv or value to feed another program, template when you need a shape none of " +
-	"these produce, and none when you want the exit code and the side effects alone.\n" +
+	"presents that JSON rather than the Go value behind it. Reach for terminal to read a report and markdown " +
+	"to paste one, table or list to scan a result, yaml to read a large one, csv or json to feed a program, " +
+	"template when you need a shape none of these produce, and none when you want the exit code and the side " +
+	"effects alone.\n" +
 	"\n" +
-	"The renderings, alphabetically, each closing with what it is for:\n" +
-	"csv            quoted and parseable; when a spreadsheet or a data tool reads it\n" +
-	"json           the native format, nothing elided; when a script consumes it\n" +
-	"list           one field per line; when a record is wide, or records differ\n" +
-	"none           nothing at all; when you want the exit code, not the output\n" +
-	"table          aligned columns, one row per record; when scanning many rows\n" +
-	"template=BODY  a Go template; when you need a shape none of the others give\n" +
-	"value          raw, tab-separated, no header; when cut or awk consumes it\n" +
-	"yaml           the same content as json; when reading a large result by eye"
+	"The renderings, by the reader each serves:\n" +
+	"\n" +
+	"Composed -- you chose the shape, in the filter stage\n" +
+	"  template=BODY\n" +
+	"    a Go template; when you need a shape none of the others give\n" +
+	"  value\n" +
+	"    raw, tab-separated, no header; when cut or awk consumes it\n" +
+	"\n" +
+	"Document -- a report, rather than data\n" +
+	"  markdown\n" +
+	"    the document as markdown; when GitHub reads it, or you paste it\n" +
+	"  terminal\n" +
+	"    the document rendered, with bold and italic; when you read it\n" +
+	"\n" +
+	"Nothing\n" +
+	"  none\n" +
+	"    nothing at all; when you want the exit code, not the output\n" +
+	"\n" +
+	"Records -- laid out for a person\n" +
+	"  list\n" +
+	"    one field per line; when a record is wide, or records differ\n" +
+	"  table\n" +
+	"    aligned columns, one row per record; when scanning many rows\n" +
+	"\n" +
+	"Serialized -- lossless; a library reads it back\n" +
+	"  csv\n" +
+	"    quoted and parseable; when a spreadsheet or a data tool reads it\n" +
+	"  json\n" +
+	"    the native format, nothing elided; when a script consumes it\n" +
+	"  yaml\n" +
+	"    the same content as json, in a shape that reads by eye"
+
+// outputUsageMan is the same content as [outputUsage], written as markdown for the man page.
+//
+// cobra generates a man page by writing markdown and handing it to md2man, which turns a block quote
+// into `.PP` `.RS` ... `.RE` -- an indented block roff fills on its own terms. That is the shape
+// `git-clone(1)` has: the name on its line, the description indented under it, continuations staying at
+// the indent. Handing roff the terminal text instead gives one filled paragraph, because roff fills
+// unless told otherwise, and the layout collapses.
+//
+// [withManUsage] installs this on the flag for the length of generation.
+const outputUsageMan = "Output rendering. json is the default and the native format; every other rendering " +
+	"presents that JSON rather than the Go value behind it. Reach for terminal to read a report and markdown " +
+	"to paste one, table or list to scan a result, yaml to read a large one, csv or json to feed a program, " +
+	"template when you need a shape none of these produce, and none when you want the exit code and the side " +
+	"effects alone.\n" +
+	"\n" +
+	"The renderings, by the reader each serves:\n" +
+	"\n" +
+	"**Composed -- you chose the shape, in the filter stage**\n" +
+	"\n" +
+	"**template=BODY**\n" +
+	"\n" +
+	"> a Go template; when you need a shape none of the others give\n" +
+	"\n" +
+	"**value**\n" +
+	"\n" +
+	"> raw, tab-separated, no header; when cut or awk consumes it\n" +
+	"\n" +
+	"**Document -- a report, rather than data**\n" +
+	"\n" +
+	"**markdown**\n" +
+	"\n" +
+	"> the document as markdown; when GitHub reads it, or you paste it\n" +
+	"\n" +
+	"**terminal**\n" +
+	"\n" +
+	"> the document rendered, with bold and italic; when you read it\n" +
+	"\n" +
+	"**Nothing**\n" +
+	"\n" +
+	"**none**\n" +
+	"\n" +
+	"> nothing at all; when you want the exit code, not the output\n" +
+	"\n" +
+	"**Records -- laid out for a person**\n" +
+	"\n" +
+	"**list**\n" +
+	"\n" +
+	"> one field per line; when a record is wide, or records differ\n" +
+	"\n" +
+	"**table**\n" +
+	"\n" +
+	"> aligned columns, one row per record; when scanning many rows\n" +
+	"\n" +
+	"**Serialized -- lossless; a library reads it back**\n" +
+	"\n" +
+	"**csv**\n" +
+	"\n" +
+	"> quoted and parseable; when a spreadsheet or a data tool reads it\n" +
+	"\n" +
+	"**json**\n" +
+	"\n" +
+	"> the native format, nothing elided; when a script consumes it\n" +
+	"\n" +
+	"**yaml**\n" +
+	"\n" +
+	"> the same content as json, in a shape that reads by eye\n"
 
 // addOutputFlags binds the common set -- --filter, --jq, --output/-o, and --store -- to opts.
 //
@@ -234,12 +341,22 @@ func addOutputFlags(cmd *cobra.Command, opts *SinkOptions) {
 			restoreStoreRoot = nil
 		}
 
+		if err := closeActivePager(); err != nil {
+			return err
+		}
+
 		if previousPost != nil {
 			return previousPost(c, args)
 		}
 		return nil
 	}
 
+	// Not mutually exclusive, because git's are not: `git -p -P log` and `git -P -p log` both exit 0, and
+	// `git.c` assigns `use_pager` sequentially so the last one wins. Refusing the pair would also be the only
+	// usage error in the suite that cobra reports through a message [isUsageError] does not match, so it would
+	// exit 1 where §9 says 64. [shouldPage] settles the pair instead: `--no-pager` wins.
+	cmd.PersistentFlags().BoolVarP(&opts.Paginate, "paginate", "p", false, paginateUsage)
+	cmd.PersistentFlags().BoolVarP(&opts.NoPager, "no-pager", "P", false, noPagerUsage)
 	cmd.PersistentFlags().StringVarP(&opts.Format, "output", "o", "json", commonSetUsage["output"])
 	cmd.PersistentFlags().StringArrayVar(&opts.Filters, "filter", nil, commonSetUsage["filter"])
 	cmd.PersistentFlags().StringVar(&opts.JQ, "jq", "", commonSetUsage["jq"])
@@ -255,6 +372,18 @@ var commonSetUsage = map[string]string{
 	"store":  `Execution store root, holding definitions and traces (default: the XDG state path)`,
 }
 
+// The pager's two switches, which are deliberately not part of the common set.
+//
+// The common set is §4's four flags of the result pipeline, and §14's invariants police it: a program binds
+// all four on its root with this usage text, and every subcommand inherits all four. These two take no value
+// and change no rendering -- they are behavioral switches, like `--dry-run` -- so putting them in the set
+// would enlarge a specification concept to house a convenience. A subcommand that binds `-p` for itself is
+// still caught, because [CheckNoOwnOutputFlag] reports a shorthand an ancestor already carries.
+const (
+	paginateUsage = `Page the result whenever stdout is a terminal, whatever its rendering`
+	noPagerUsage  = `Never page the result, whatever its rendering and wherever it is going`
+)
+
 // BuildPipeline composes a [result.Pipeline] from the populated [SinkOptions] writing through w.
 // Filters compose in --filter-then--jq order; the formatter is selected by [result.FormatterByName].
 // The writer is wrapped in a [sink.Sink] via [sink.New] internally.
@@ -266,6 +395,13 @@ func BuildPipeline(opts SinkOptions, w io.Writer) (*result.Pipeline, error) {
 	formatter, err := result.FormatterByName(opts.Format)
 	if err != nil {
 		return nil, err
+	}
+
+	// The width belongs to the environment, and [result] cannot read this package's answer to it: the
+	// dependency runs the other way. So the one formatter that wraps is told here, where it is constructed.
+	if terminal, wraps := formatter.(result.TerminalFormatter); wraps {
+		terminal.WordWrap = displayWidth()
+		formatter = terminal
 	}
 
 	filter, err := result.FilterByExprs(opts.Filters, opts.JQ)
@@ -396,6 +532,47 @@ func registerRootOptions(root *cobra.Command, opts *SinkOptions) {
 	rootOptions[root] = opts
 }
 
+// emitWriter returns where a result is written: the command's own output, or a pager in front of it.
+//
+// The formatter is built here only to ask its group, which is what decides whether a person is reading this
+// result; [BuildPipeline] builds its own from the same name, so a bad name fails identically either way.
+//
+// The pager is opened once per command invocation and closed in the post-run [addOutputFlags] installs, since
+// a command may Emit more than once and each result belongs on the same screen.
+//
+// Parameters:
+//   - `writer`: where the result was bound for; [Emit] takes it from the command, because §14 allows that
+//     call in [Emit] and nowhere else.
+//   - `opts`: the root's options.
+//   - `program`: the program's name, for the configuration section the pager reads.
+//
+// Returns:
+//   - `io.Writer`: the destination, paged or not.
+//   - `error`: the rendering name is unknown.
+func emitWriter(writer io.Writer, opts SinkOptions, program string) (io.Writer, error) {
+
+	formatter, err := result.FormatterByName(opts.Format)
+	if err != nil {
+		return nil, err
+	}
+
+	if !shouldPage(sink.New(writer).IsTTY(), formatter.Group(), opts.Paginate, opts.NoPager) {
+		return writer, nil
+	}
+
+	if activePager == nil {
+		// A pager that will not start is not worth failing a command over: the result still reaches the
+		// terminal, unpaged, which is what a reader on a machine without `less` gets anyway.
+		pager, err := openPager(writer, program)
+		if err != nil {
+			return writer, nil //nolint:nilerr // the result is worth more than the pager
+		}
+		activePager = pager
+	}
+
+	return activePager, nil
+}
+
 // Emit renders a command's result to stdout through the shared pipeline, with the options the command's
 // root binds: `--output` selects the rendering, `--filter` and `--jq` narrow it. It is the one render path
 // for every program on the shared root and for the shared commands alike (10-command-line-interface.md §8;
@@ -417,7 +594,12 @@ func Emit(cmd *cobra.Command, value any) error {
 		return fmt.Errorf("%s: the root was not built by cli.NewRootCmd, so it carries no common set to render with", cmd.CommandPath())
 	}
 
-	pipeline, err := BuildPipeline(*opts, cmd.OutOrStdout())
+	writer, err := emitWriter(cmd.OutOrStdout(), *opts, cmd.Root().Name())
+	if err != nil {
+		return err
+	}
+
+	pipeline, err := BuildPipeline(*opts, writer)
 	if err != nil {
 		return err
 	}

@@ -6,13 +6,11 @@ package cli
 import (
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
-	"golang.org/x/term"
 
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/sink"
@@ -197,12 +195,6 @@ func initRootConfig(cmd *cobra.Command, name string) error {
 
 // region Help wrapping
 
-// helpFallbackWidth is the width used when neither COLUMNS nor the terminal answers.
-//
-// Chosen over pflag's zero, which means "do not wrap at all": a pipe or a CI log has no width to report,
-// and an unwrapped line there is a wall of text rather than a deliberate choice.
-const helpFallbackWidth = 100
-
 // helpMinimumTextWidth is the narrowest column of text worth hanging under.
 //
 // Below it, honoring a hanging indent leaves a sliver too narrow to read, so the line falls back to its
@@ -216,8 +208,8 @@ const helpMinimumTextWidth = 24
 // on a terminal at least as wide as the constant they guessed (#755).
 //
 // pflag's own wrapping is not the answer either. It indents every continuation to the flag's description
-// column, having one indent level and no notion of structure, so a two-column usage -- `--output`'s eight
-// renderings, each with a name and a sentence -- collapses the moment it wraps:
+// column, having one indent level and no notion of structure, so a two-column usage -- `--output`'s ten
+// renderings, each a name and a sentence under its group's heading -- collapses the moment it wraps:
 //
 //	csv            quoted and parseable; when
 //	a spreadsheet or a data tool reads it
@@ -229,7 +221,7 @@ const helpMinimumTextWidth = 24
 func wrapHelp(cmd *cobra.Command) {
 
 	cobra.AddTemplateFunc("wrappedFlagUsages", func(flags *pflag.FlagSet) string {
-		return wrapUsage(flags.FlagUsages(), helpWidth())
+		return wrapUsage(flags.FlagUsages(), displayWidth())
 	})
 
 	template := cmd.UsageTemplate()
@@ -339,27 +331,6 @@ func usageTextColumn(line string) int {
 	}
 
 	return leading
-}
-
-// helpWidth reports the column count help text should wrap to.
-//
-// COLUMNS wins when it is set and sane: a user who exports it has said what they want, and it is the only
-// answer available when stdout is a pipe. The terminal is asked next, and [helpFallbackWidth] answers when
-// neither does.
-//
-// Returns:
-//   - `int`: the wrap width in columns.
-func helpWidth() int {
-
-	if columns, err := strconv.Atoi(os.Getenv("COLUMNS")); err == nil && columns > 0 {
-		return columns
-	}
-
-	if width, _, err := term.GetSize(int(os.Stdout.Fd())); err == nil && width > 0 {
-		return width
-	}
-
-	return helpFallbackWidth
 }
 
 // endregion

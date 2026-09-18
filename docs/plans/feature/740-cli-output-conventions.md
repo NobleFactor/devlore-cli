@@ -435,6 +435,7 @@ governing principle forbids.
 
 ## Open Questions
 
-- [ ] `lore list` defaults to `table` today while the convention defaults to `json`. Settled in the spec as
-      json-always; confirm no command needs an exception before Phase 4 converts `list`.
+- [x] `lore list` defaults to `table` today while the convention defaults to `json`. Settled 2026-09-18:
+      json-always holds, no command takes an exception, and a domain rendering is an app-specific flag
+      outside the common set (§7). `lore list` is a stub, so nothing in code changes.
 - [ ] Do `--filter` and `--jq` belong on every command, or only on those emitting collections?

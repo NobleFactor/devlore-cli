@@ -6,10 +6,11 @@
 // that carries categorized narration.
 //
 // The pipeline shape is `value → result.Filter → result.Formatter → sink.Sink`. [NewPipeline]
-// composes the three stages; callers Emit values through it. Three formatters ship today
-// ([JSONFormatter], [YAMLFormatter], [CSVFormatter]) plus [TemplateFormatter] for caller-supplied
-// Go templates. Three filters ship: [NoOpFilter] pass-through, [FieldFilter] selection,
-// [JQFilter] for jq expressions.
+// composes the three stages; callers Emit values through it. Ten renderings ship, in the five
+// groups [Group] names: csv, json and yaml serialize; list and table lay out records; markdown and
+// terminal produce a document; template and value carry a shape the caller composed; none emits
+// nothing. Three filters ship: [NoOpFilter] pass-through, [FieldFilter] selection, [JQFilter] for
+// jq expressions.
 package result
 
 import (
@@ -39,6 +40,9 @@ type Formatter interface {
 
 	// Format renders value to w in the implementation's format (JSON, YAML, CSV, template, etc.).
 	Format(value any, w io.Writer) error
+
+	// Group reports the kind of reader this rendering serves. See [Group].
+	Group() Group
 }
 
 // Pipeline composes a [Filter] and a [Formatter] against a [sink.Sink]. Callers Emit values; the
