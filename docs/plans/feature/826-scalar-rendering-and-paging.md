@@ -396,30 +396,52 @@ ran, beyond the group the formatter names.
       the transcripts are the session's.
 - [x] The three numbers, and the thin spots named rather than hidden -- see the table above.
 - [x] **End to end on the virtual machines**, ruled 2026-09-18 and required of every plan from now on. On
-      `danoble-ud24-1.local` (linux/arm64) and `danoble-wd11-3.local` (windows, through Git Bash), in this
-      order: snapshot the Parallels virtual machine; bundle the built binaries and copy them; `writ self
+      `danoble-ud24-1.local` (linux/arm64) and `danoble-wd11-3.local` (windows/arm64, through Git Bash), in
+      this order: snapshot the Parallels virtual machine; bundle the built binaries and copy them; `writ self
       install`; register base, team and personal by URL and by path; `writ deploy`; `writ upgrade`.
 
-      Run 2026-09-18. Both machines snapshotted first (`prlctl snapshot`), both reachable over **IPv6**
-      only -- `ping` without `-6` fails on the Windows machine, whose IPv4 address is APIPA. Both installed
-      the branch build, commit `9cbddea3`, and rendered `markdown`, `terminal` and the grouped help
-      identically to darwin.
+      Run 2026-09-18, and **what ran differs by machine**. Both were snapshotted first
+      (`DANOBLE-UD24-1` `{31f9799e}`, `DANOBLE-WD11-3` `{5a290151}`), and both are reachable over **IPv6
+      only** -- plain `ping` fails on the Windows machine, whose IPv4 address is APIPA.
 
-      | What ran | Result |
-      | --- | --- |
-      | `writ self install`, both machines | clean |
-      | the three renderings, both machines | as on darwin |
-      | the man page, linux | git's shape, so `tidyManRoff` holds on a second platform |
-      | `repo add base <url>`, linux | exit 1: the orphaned clone at `repos/base` -- [#792](https://github.com/NobleFactor/devlore-cli/issues/792) |
-      | `writ deploy`, bare, linux | exit 64, `requires at least 1 arg(s)` -- [#843](https://github.com/NobleFactor/devlore-cli/issues/843) |
-      | `writ deploy common`, linux | exit 1, refusing to overwrite `.zshenv` and `.zshrc` without `--conflict` |
-      | `writ upgrade`, linux | exit 1, no run index -- [#756](https://github.com/NobleFactor/devlore-cli/issues/756) |
+      | Step | linux/arm64 | windows/arm64 |
+      | --- | --- | --- |
+      | snapshot | taken | taken |
+      | `self install` | clean | clean |
+      | the renderings and the grouped help | as on darwin | as on darwin |
+      | the man page | git's shape | not generated |
+      | `repo remove` × 3 | exit 0 each | exit 0 each |
+      | `repo add` by URL × 3 | exit 1 each: the clone destination exists ([#792](https://github.com/NobleFactor/devlore-cli/issues/792)) | exit 1 each: `Could not resolve host: github.com` |
+      | `repo add` by path × 3 | exit 0 each; all three registered | impossible: nothing on disk to point at |
+      | `deploy`, bare | exit 64 ([#843](https://github.com/NobleFactor/devlore-cli/issues/843)) | not run |
+      | `deploy common` | exit 1, refusing over 16 occupied targets under `stop` | not run |
+      | `deploy common --conflict=replace` | exit 1 at `file.mkdir-4` ([#822](https://github.com/NobleFactor/devlore-cli/issues/822)) | not run |
+      | `upgrade` | exit 1 with no run index, then exit 0 once one existed ([#756](https://github.com/NobleFactor/devlore-cli/issues/756)) | not run |
 
-      **One defect was this lane's, found only because the run happened**: on Windows, `--output terminal`
-      printed `C:\Users\david-noble.local\share` where `--output markdown` printed
-      `C:\Users\david-noble\.local\share`. `markdown` is source and goldmark reads a backslash as an
-      escape, so a cell has to carry its backslashes doubled. Fixed in `escapeMarkdownText`, which runs
-      before `escapeControlCharacters` rather than after, and pinned by a test.
+      **The Windows machine ends unregistered**, and that is mine: its three registrations pointed at empty
+      `layers\` directories -- the [#840](https://github.com/NobleFactor/devlore-cli/issues/840) shape, with
+      `base` already `broken` -- and my removes took them while every re-registration failed for want of DNS.
+      The sequence now sits there as `C:\Users\david-noble\writ-e2e.ps1`, to run when its networking is
+      fixed; the snapshot restores the prior state if that is wanted instead.
+
+      **What the runs found, none of it this lane's:**
+
+      - [#822](https://github.com/NobleFactor/devlore-cli/issues/822), `Severity:High`, `Priority:P1`:
+        `file.mkdir` ignores `--conflict`, so a dangling symlink at a directory target fails the deploy under
+        every policy. Reproduced exactly: `file.mkdir: /home/david-noble/.Personal-secrets/gnupg exists, but
+        is not a directory`, with `--conflict=replace` given. It was on no schedule; ruled onto
+        [#894](https://github.com/NobleFactor/devlore-cli/issues/894) the same day as lane 11, **before**
+        [#831](https://github.com/NobleFactor/devlore-cli/issues/831), since listing a target that
+        `file.mkdir` still refuses to replace would name the failure without fixing it.
+      - [#831](https://github.com/NobleFactor/devlore-cli/issues/831) evidenced rather than argued: the
+        pre-flight listed 16 occupied targets and missed the one that stopped the run.
+      - [#756](https://github.com/NobleFactor/devlore-cli/issues/756) confirmed: `upgrade` errored on an
+        unwritten store, and exited 0 with "No copied files to upgrade" once a run had written one.
+      - [#792](https://github.com/NobleFactor/devlore-cli/issues/792) on every layer: an existing clone in
+        writ's own home blocks re-registration by URL.
+      - Adjacent to [#883](https://github.com/NobleFactor/devlore-cli/issues/883): the occupant that stopped
+        the deploy was a dangling symlink writ did not make, so `occupantIsOurs` is not what governs it.
+
 - [ ] **The owner's row, not mine, and the one step left:** `writ deploy` or `writ upgrade` converges the
       machine before the pull request opens. Handed over as a command, never run here. This plan is otherwise
       complete; the pull request script waits on it.
