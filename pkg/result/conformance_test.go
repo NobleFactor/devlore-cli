@@ -106,12 +106,13 @@ func TestConformance_CSVKeepsAnEmbeddedNewlineInsideQuotes(t *testing.T) {
 //
 // `none` is excluded because it emits nothing by definition, and `template` because its output is whatever
 // the caller's template says. Every other formatter presents the same JSON and must agree on the names.
+// `terminal` styles text a token at a time, so its escape codes are removed before the names are compared.
 func TestConformance_EveryFormatterUsesTheJSONNames(t *testing.T) {
 
-	for _, format := range []string{"csv", "json", "list", "table", "value", "yaml"} {
+	for _, format := range []string{"csv", "json", "list", "markdown", "table", "terminal", "value", "yaml"} {
 		t.Run(format, func(t *testing.T) {
 
-			got := emit(t, format, fixture())
+			got := escapeSequence.ReplaceAllString(emit(t, format, fixture()), "")
 
 			// Case-insensitive: `table` upper-cases its headers, matching aws and kubectl. What matters is
 			// the separator -- "layer_name" is the json tag, "layername" is the Go identifier flattened.
@@ -134,10 +135,10 @@ func TestConformance_EveryFormatterUsesTheJSONNames(t *testing.T) {
 // the defect issue #712 records against the document codec.
 func TestConformance_EveryFormatterKeepsIntegerPrecision(t *testing.T) {
 
-	for _, format := range []string{"csv", "json", "list", "table", "value", "yaml"} {
+	for _, format := range []string{"csv", "json", "list", "markdown", "table", "terminal", "value", "yaml"} {
 		t.Run(format, func(t *testing.T) {
 
-			got := emit(t, format, fixture())
+			got := escapeSequence.ReplaceAllString(emit(t, format, fixture()), "")
 
 			if !strings.Contains(got, "9007199254740993") {
 				t.Errorf("integer was rounded:\n%s", got)
@@ -169,13 +170,13 @@ func TestConformance_ANumberIsANumberInEveryDocumentFormat(t *testing.T) {
 // TestConformance_NestedValuesAreCompactJSON pins the S4 rule across the presenters that lay data out.
 //
 // `json` and `yaml` render structure natively and are excluded; `value` is raw and carries the same cell
-// text as `csv`.
+// text as `csv`. `markdown` and `terminal` lay a record out as a table, so they answer to the same rule.
 func TestConformance_NestedValuesAreCompactJSON(t *testing.T) {
 
-	for _, format := range []string{"csv", "list", "table", "value"} {
+	for _, format := range []string{"csv", "list", "markdown", "table", "terminal", "value"} {
 		t.Run(format, func(t *testing.T) {
 
-			got := emit(t, format, fixture())
+			got := escapeSequence.ReplaceAllString(emit(t, format, fixture()), "")
 
 			if !strings.Contains(got, `{"runs":3}`) && !strings.Contains(got, `{""runs"":3}`) {
 				t.Errorf("nested object did not render as compact JSON:\n%s", got)

@@ -317,8 +317,32 @@ than a direction.
 ## 7. `--output`: how the result is rendered
 
 `--output` / `-o` selects the rendering. Its value is a format name, or `NAME=ARGUMENT` for a format that
-needs one (§8). The set, alphabetically: `csv`, `json`, `list`, `none`, `table`, `template=<body>`, `value`,
-`yaml`.
+needs one (§8). The set, alphabetically: `csv`, `json`, `list`, `markdown`, `none`, `table`,
+`template=<body>`, `terminal`, `value`, `yaml`.
+
+**Ten names in one list answer "what exists" and never "which one do I want", so each rendering declares the
+reader it serves.** The group is a property of the formatter -- `result.Formatter` answers `Group()` -- rather
+than a table kept beside the set, because a table is a second place that knows the renderings and drifts the
+first time one is added.
+
+| Group | Renderings | What it is |
+| --- | --- | --- |
+| Composed | `template=<body>`, `value` | you chose the shape, in the filter stage |
+| Document | `markdown`, `terminal` | a document; its source, or that document rendered |
+| Nothing | `none` | the exit code and the side effects are the result |
+| Records | `list`, `table` | records laid out for a person |
+| Serialized | `csv`, `json`, `yaml` | lossless; a library reads it back |
+
+The groups are how §10 decides what goes to a pager, and they are the headings under which `--output`'s own
+help and the generated man pages list the renderings. **`yaml` is serialization, not a human rendering**: all
+three serialized renderings round-trip, and that yaml is pleasanter to read than json is a property of yaml,
+not a different job.
+
+**The two Document renderings are a chain.** `markdown` derives a document from the normalized JSON; `terminal`
+renders that document for a screen, consuming the markup and re-emitting it as bold, italic, colour, indented
+blocks and box-drawn tables. It is the one formatter that presents another formatter's output rather than the
+JSON, and the only one that emits escape codes -- always, piped or not, so §10's rule holds. A caller who wants
+no escape codes asks for `markdown`.
 
 Reshaping is not a rendering. Selecting fields, mapping, and interpolating happen in the filter stage
 (`--filter`, `--jq`), which composes with every format. `aws`, `az`, and `gcloud` all take this shape: a
@@ -366,17 +390,24 @@ flag:
               ┌──────────┐  ┌────────┐        ┌──────────────────────┐
  result ─────►│ --filter │─►│  --jq  │───────►│      --output        │──► sink ──► stdout
   value       │ field=v  │  │  gojq  │        │                      │
-              └──────────┘  └────────┘        │  csv                 │
-                                              │  json                │
-                                              │  list                │
-               reshape: select, map,          │  none                │
-               project, interpolate           │  table               │
-               composable, any order          │  value               │
-                                              │  yaml                │
-                                              │  template=<body>     │
+              └──────────┘  └────────┘        │ Serialized           │
+                                              │   csv json yaml      │
+               reshape: select, map,          │ Records              │
+               project, interpolate           │   list table         │
+               composable, any order          │ Document             │
+                                              │   markdown ──┐       │
+                                              │   terminal ◄─┘       │
+                                              │ Composed             │
+                                              │   template=<body>    │
+                                              │   value              │
+                                              │ Nothing              │
+                                              │   none               │
                                               └──────────────────────┘
                                                  pick exactly one
 ```
+
+`terminal` is the arrow inside the box: it renders what `markdown` produced, rather than the JSON. Every other
+rendering presents the JSON directly.
 
 **Reshaping is not rendering.** Choosing which fields appear, mapping over a list, and building a string are
 the filter stage's work, and they compose with every format. `aws`, `az`, and `gcloud` all take this shape --
@@ -449,16 +480,22 @@ What differs is whether records share a schema.
   every record fills it, leaving holes where a key is absent.
 - `list` gives each record **its own** keys. That is what makes it right for S6.
 
-| Shape | `table` / `csv` / `value` | `list` |
-| --- | --- | --- |
-| S1 | one row, one column, no header | the value alone, no key |
-| S2 | one column, one row per element | one value per line |
-| S3 | one row | `key : value` per field |
-| S4 | one row; nested values as compact JSON | as S3, nested values as compact JSON |
-| S5 | one row per element; columns = union | one block per element, blank line between |
-| S6 | as S5; absent keys render empty | as S5 -- each block shows only its own keys |
-| S7 | one row per inner array, positional, no header | one block per inner array, values unkeyed |
-| S8 | nothing, exit 0 | nothing, exit 0 |
+| Shape | `table` / `csv` / `value` | `list` | `markdown` |
+| --- | --- | --- | --- |
+| S1 | one row, one column, no header | the value alone, no key | a string is the document, verbatim; any other scalar alone |
+| S2 | one column, one row per element | one value per line | a bullet list |
+| S3 | one row | `key : value` per field | a GFM table: header row, one row |
+| S4 | one row; nested values as compact JSON | as S3, nested values as compact JSON | as S3; nested values as compact JSON |
+| S5 | one row per element; columns = union | one block per element, blank line between | a GFM table, columns = union |
+| S6 | as S5; absent keys render empty | as S5 -- each block shows only its own keys | as S5; absent keys render empty |
+| S7 | one row per inner array, positional, no header | one block per inner array, values unkeyed | a bullet list, each inner array compact JSON |
+| S8 | nothing, exit 0 | nothing, exit 0 | nothing, exit 0 |
+
+**`markdown` gives a GFM table where the key derivation yields headers and a bullet list where it does not.**
+GitHub-flavored markdown has no headerless table -- the delimiter row is required -- and synthesizing column
+names would name fields the data does not have. A scalar string passes through untouched, because a command
+whose result is prose is returning the document itself; `terminal` then renders whichever of those `markdown`
+produced.
 
 **A non-scalar cell renders as compact JSON.** `{"runs":3}`, `["a","b","c"]`, at any depth, never
 truncated. Three reasons over the alternatives:
@@ -652,6 +689,102 @@ An interactive command -- onboarding and migration first -- works the way an age
 
 A `!` prefix, so the user can run a shell command mid-flow and have its output land in the flow, is an
 open question, raised 2026-09-03 and not yet designed.
+
+### Paging and color answer to the environment
+
+Researched and ruled 2026-09-14. Both are settings a user makes once for every program on the machine, so a
+program that ignores them is the odd one out. Both are inputs rather than probes, so honoring them keeps §7's
+rule that a rendering does not change when it is observed.
+
+#### Paging
+
+A long rendering a person reads goes to a pager, as `git` does it. All four conditions, or none:
+
+1. **stdout is a TTY.** Piped or redirected output never pages, so `--output json > file` is the same bytes with
+   or without a terminal.
+2. **The rendering is in the Records or Document group**: `list`, `table`, `markdown`, `terminal`. Serialized,
+   Composed and Nothing never page on their own.
+3. **The output does not fit on one screen.** `less -FRX` semantics: quit if it fits, keep color, do not clear
+   on exit.
+4. **Nothing refused it.**
+
+Two flags on the shared root, both git's:
+
+| Flag | Effect |
+| --- | --- |
+| `--no-pager` | never page |
+| `--paginate` | page whenever stdout is a TTY, including a short result and a Serialized or Composed rendering |
+
+**Given both, `--no-pager` wins.** They are not mutually exclusive, because git's are not: `git -p -P log` and
+`git -P -p log` both exit 0, git taking the last one given. Refusing the pair would mean a usage error, and
+cobra words that refusal in a way §9's mapping does not recognize, so it would exit 1 where a usage error is
+64 -- a defect manufactured by the refusal itself.
+
+**Neither joins the common set.** §4's set is the four flags of the result pipeline, and §14's invariants hold
+every program to binding all four with the shared root's own usage text. These two take no value and change no
+rendering -- they are behavioral switches, as `--dry-run` is -- so the set stays at four. A subcommand that
+binds `-p` for itself is still reported, because the no-own-output-flag walk catches a shorthand an ancestor
+already carries.
+
+**Which pager runs and whether to page are two questions**, as they are in git, and nothing answers both.
+
+*Which*: `$DEVLORE_PAGER`, then the `pager` configuration key, then `$PAGER`, then `less -FRX` -- git's order
+with `core.pager` in the middle. `$DEVLORE_PAGER` is to this suite what `$GIT_PAGER` is to git: a pager for
+these programs that differs from the one everything else uses. An empty value anywhere in the chain disables
+paging outright, as `GIT_PAGER=` and `core.pager=` do. No flag names a pager; git has none either.
+
+*Whether*: the two flags above and the group rule. `--no-pager` refuses this invocation and leaves the
+configured pager alone for the next one; `--paginate` insists, whatever the group; neither changes `pager`.
+
+A boolean that disables paging in configuration is deliberately absent, as it is in git: empty the command, or
+refuse per invocation.
+
+| Source | What it says |
+| --- | --- |
+| POSIX, `man` | `PAGER`: "Determine an output filtering command for writing the output to a terminal. … If the *PAGER* variable is null or not set, the command shall be either *more* or another paginator utility documented in the system documentation." |
+| git, `git-var` | `GIT_PAGER`: "The order of preference is `$GIT_PAGER`, then the value of `core.pager` configuration, then `$PAGER`, and then the default chosen at compile time (usually `less`)." |
+| git, `git` | `--paginate`: "Pipe all output into less (or if set, $PAGER) if standard output is a terminal." `--no-pager`: "Do not pipe Git output into a pager." No option takes a pager command. `GIT_PAGER` set empty or to `cat` launches no pager. |
+
+`less` itself is not POSIX; it is Mark Nudelman's, copyright 1984. POSIX's own fallback is `more`.
+
+#### Color
+
+**`NO_COLOR` is honored everywhere the suite adds color.** The rule, from no-color.org:
+
+> Command-line software which adds ANSI color to its output by default should check for a `NO_COLOR` environment
+> variable that, when present and not an empty string (regardless of its value), prevents the addition of ANSI
+> color.
+
+It is a convention, not a standard, and no standards body stands behind it. The site credits no author; its
+repository, `github.com/jcs/no_color`, was created by joshua stein on 2017-08-25. POSIX says nothing about color,
+and git does not document the variable.
+
+The case for honoring it is adoption and consistency, not authority. Measured 2026-09-14:
+
+| Adopter | Evidence |
+| --- | --- |
+| `gh` | `gh help environment` documents `NO_COLOR` |
+| Homebrew | `man brew` documents it |
+| termenv, Charm's terminal library | `termenv.go:100`: `EnvColorProfile` returns no color when the variable is set |
+| lipgloss, and so `cmd/internal/console` | `renderer.go:74` takes its color profile from termenv's `EnvColorProfile` |
+
+no-color.org lists hundreds more, among them npm, Deno, PowerShell, .NET's `System.Console`, pytest, ripgrep,
+bat and fd. Those were not verified here.
+
+What decided it is that the suite already disagreed with itself:
+
+| Path | Under `NO_COLOR=1` |
+| --- | --- |
+| `cmd/internal/console` | color off, through lipgloss and termenv, without the suite asking |
+| `pkg/status` narrator | color on: hardcoded escape codes, keyed only off `IsTTY` |
+| `--output terminal` | color on: glamour's color profile is fixed to TrueColor |
+
+A convention honored by accident in one place and ignored in two is worse than either consistent answer, and
+honoring it costs one environment check per path.
+
+**It suppresses color, not styling.** no-color.org's FAQ: the variable "only signals the user's intention
+regarding adding ANSI color to text output." Under `NO_COLOR`, `--output terminal` keeps bold, italic and
+underline. A caller who wants no escape codes at all asks for `markdown`.
 
 ## 11. Configuration precedence
 

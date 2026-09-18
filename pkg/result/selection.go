@@ -16,8 +16,10 @@ import (
 // this makes the conflict impossible by construction. `kubectl` ships the same form -- `-o go-template=`,
 // `-o jsonpath=`, `-o custom-columns=`.
 //
-// The names are "csv", "json", "list", "none", "table", "template=BODY", "value", and "yaml". Reshaping a
-// value is the filter stage's job -- see [FilterByExprs] -- so only "template" takes an argument.
+// The names are "csv", "json", "list", "markdown", "none", "table", "template=BODY", "terminal", "value", and
+// "yaml".
+// Reshaping a value is the filter stage's job -- see [FilterByExprs] -- so only "template" takes an
+// argument.
 //
 // "csv" and "value" are the delimited pair, and the split is by consumer rather than by separator: "csv"
 // quotes, so a parser can round-trip it; "value" does not, so a shell reads exactly what was composed. A
@@ -31,15 +33,9 @@ import (
 //   - `error`: when the name is unknown, or an argument is required and missing, or given and unwanted.
 func FormatterByName(spec string) (Formatter, error) {
 
-	name, argument, hasArgument := strings.Cut(strings.TrimSpace(spec), "=")
-	name = strings.ToLower(strings.TrimSpace(name))
-
-	if hasArgument && argument == "" {
-		return nil, fmt.Errorf("result.FormatterByName: %q gives an empty argument; drop the '=' or supply one", spec)
-	}
-
-	if hasArgument && name != "template" {
-		return nil, fmt.Errorf("result.FormatterByName: %q takes no argument", name)
+	name, argument, hasArgument, err := parseFormatSpec(spec)
+	if err != nil {
+		return nil, err
 	}
 
 	switch name {
@@ -56,11 +52,17 @@ func FormatterByName(spec string) (Formatter, error) {
 	case "list":
 		return NewListFormatter(), nil
 
+	case "markdown":
+		return NewMarkdownFormatter(), nil
+
 	case "none":
 		return NoneFormatter{}, nil
 
 	case "table":
 		return NewTableFormatter(), nil
+
+	case "terminal":
+		return NewTerminalFormatter(), nil
 
 	case "value":
 		return NewValueFormatter(), nil
@@ -73,9 +75,39 @@ func FormatterByName(spec string) (Formatter, error) {
 
 	default:
 		return nil, fmt.Errorf(
-			"result.FormatterByName: unknown formatter %q; expected one of csv, json, list, none, "+
-				"table, template=BODY, value, yaml", name)
+			"result.FormatterByName: unknown formatter %q; expected one of csv, json, list, markdown, "+
+				"none, table, template=BODY, terminal, value, yaml", name)
 	}
+}
+
+// parseFormatSpec splits a `--output` value into its name and optional argument.
+//
+// The split is on the FIRST `=`, so an argument containing `=` survives intact, and only "template" may carry
+// one. Separated from [FormatterByName] so that the registry there is a list of names and nothing else.
+//
+// Parameters:
+//   - `spec`: the format name, or `NAME=ARGUMENT`; the name is case-insensitive.
+//
+// Returns:
+//   - `string`: the lower-cased name.
+//   - `string`: the argument, empty when none was given.
+//   - `bool`: whether an argument was given.
+//   - `error`: an empty argument, or an argument on a name that takes none.
+func parseFormatSpec(spec string) (name, argument string, hasArgument bool, err error) {
+
+	name, argument, hasArgument = strings.Cut(strings.TrimSpace(spec), "=")
+	name = strings.ToLower(strings.TrimSpace(name))
+
+	if hasArgument && argument == "" {
+		return "", "", false, fmt.Errorf(
+			"result.FormatterByName: %q gives an empty argument; drop the '=' or supply one", spec)
+	}
+
+	if hasArgument && name != "template" {
+		return "", "", false, fmt.Errorf("result.FormatterByName: %q takes no argument", name)
+	}
+
+	return name, argument, hasArgument, nil
 }
 
 // FilterByExprs returns a composed [Filter] from optional `field=value` expressions and an optional

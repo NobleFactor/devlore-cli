@@ -328,6 +328,22 @@ func TestExitCode_CobrasRefusalsAreUsageErrors(t *testing.T) {
 		{"a bad flag value", errors.New(`invalid argument "bogus" for "--output"`), ExitUsage},
 		{"too many arguments", errors.New("accepts 1 arg(s), received 3"), ExitUsage},
 		{"too few arguments", errors.New("requires at least 1 arg(s), only received 0"), ExitUsage},
+		{
+			"mutually exclusive flags",
+			errors.New("if any flags in the group [interactive unattended] are set none of the others can be; " +
+				"[interactive unattended] were all set"),
+			ExitUsage,
+		},
+		{
+			"flags that must come together",
+			errors.New("if any flags in the group [a b] are set they must all be set; missing [b]"),
+			ExitUsage,
+		},
+		{
+			"a group needing one of its flags",
+			errors.New("at least one of the flags in the group [a b] is required"),
+			ExitUsage,
+		},
 		{"a coded error keeps its code", ExitWith(ExitDataErr, errors.New("key not found")), ExitDataErr},
 		{"a command that ran and failed", errors.New("verification failed for two documents"), ExitError},
 	}

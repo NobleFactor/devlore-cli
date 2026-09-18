@@ -146,8 +146,9 @@ recorded in the commit, one line per call, so a reviewer can disagree with a spe
 **Write the failing test first.** Row 3 is red on the current tree by construction, and it is the test
 that decides whether #741 closes.
 
-**Not covered:** whether `lore list` should default to `table`. That is the epic's open question about
-exceptions to the json-always default, and this plan does not settle it.
+**Settled 2026-09-18, not here:** whether `lore list` should default to `table`. §7 answers it for every
+command -- json is the default everywhere, and a domain rendering is an app-specific flag outside the common
+set, never a value added to the shared list. `lore list` takes no exception.
 
 ## Acceptance criteria
 
@@ -212,4 +213,5 @@ the release note.
 
 ## Open Questions
 
-- [ ] Does `lore list` keep a `table` default? The epic records the question; this plan carries it.
+- [x] Does `lore list` keep a `table` default? No, answered 2026-09-18 by §7: json is the default everywhere
+      and a domain rendering is an app-specific flag, never a value in the shared set.

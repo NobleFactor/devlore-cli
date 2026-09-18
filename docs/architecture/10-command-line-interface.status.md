@@ -87,7 +87,6 @@ and three of four programs landed by 2026-09-01. `devlore-test`, `lore` and `wri
 
 ## Outstanding work
 
-- Whether any command needs an exception to the json-always default. `lore list` defaults to `table` today.
 - Whether `value` should require a projection, as `gcloud` requires one for `csv` and `value`. Applied to a
   whole nested struct it prints every field, pointer addresses included. §7 states the expectation; nothing
   enforces it.
