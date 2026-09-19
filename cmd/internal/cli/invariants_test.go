@@ -93,7 +93,7 @@ func TestCheckNoOwnOutputFlag_IsRedOnASyntheticTree(t *testing.T) {
 
 	// A private --format under the shared root: the leaf shadows nothing, so cobra lets it through and the
 	// checker is what catches it.
-	root := sharedRoot("probe")
+	root := sharedRoot()
 	own := &cobra.Command{Use: "own", Run: func(*cobra.Command, []string) {}}
 	own.Flags().String("format", "", "a private rendering")
 	own.Flags().Bool("verbose", false, "a shadow of the root's --verbose; cobra would let it win silently")
@@ -136,7 +136,7 @@ func TestCheckNoOwnOutputFlag_IsRedOnASyntheticTree(t *testing.T) {
 // four names with usage text of its own is not on the shared set.
 func TestCheckSharedSetOnRoot_IsRedOnAHandRolledRoot(t *testing.T) {
 
-	if v := CheckSharedSetOnRoot(sharedRoot("probe")); len(v) != 0 {
+	if v := CheckSharedSetOnRoot(sharedRoot()); len(v) != 0 {
 		t.Errorf("the shared root fails its own check:\n%s", strings.Join(v, "\n"))
 	}
 
@@ -156,7 +156,7 @@ func TestCheckSharedSetOnRoot_IsRedOnAHandRolledRoot(t *testing.T) {
 // invoked bare is reported by its path, a leaf that acts is not, and the shared root passes its own check.
 func TestCheckGroupsTakeNoAction_IsRedOnABareActingGroup(t *testing.T) {
 
-	if v := CheckGroupsTakeNoAction(sharedRoot("probe")); len(v) != 0 {
+	if v := CheckGroupsTakeNoAction(sharedRoot()); len(v) != 0 {
 		t.Errorf("the shared root fails its own check:\n%s", strings.Join(v, "\n"))
 	}
 
@@ -174,8 +174,11 @@ func TestCheckGroupsTakeNoAction_IsRedOnABareActingGroup(t *testing.T) {
 
 // sharedRoot builds a root the way every program does: the shared constructor, which carries the common
 // set by construction.
-func sharedRoot(name string) *cobra.Command {
-	return NewRootCmd(RootConfig{Name: name, Short: "a probe"})
+//
+// It takes no name. Every caller wanted the same one, and a parameter with a single value is a parameter a
+// reader has to check before trusting what a test asserts.
+func sharedRoot() *cobra.Command {
+	return NewRootCmd(RootConfig{Name: "probe", Short: "a probe"})
 }
 
 // TestRunInteractive_RefusesWithoutATerminal pins the seam's refusal: no terminal, no launch, and the

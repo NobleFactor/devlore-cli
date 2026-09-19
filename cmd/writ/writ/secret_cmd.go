@@ -52,7 +52,7 @@ refuses — encrypt never overwrites — and the plaintext source is never
 deleted; removal belongs to the caller.
 
 Every argument must lie inside a registered layer's working tree; register a
-repository with 'writ repo add'. The run rides the standard pipeline: the
+repository with 'writ repo set'. The run rides the standard pipeline: the
 graph and trace persist to the execution store with receipts recorded.`,
 		Example: `  writ secret encrypt Home/noblefactor/.config/service/credentials.yaml
   writ secret encrypt Home/common/.ssh/id_ed25519 Home/common/.ssh/id_rsa

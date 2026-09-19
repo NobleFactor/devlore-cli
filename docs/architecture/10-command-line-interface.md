@@ -85,11 +85,31 @@ Commands are `<binary> <noun> <verb>` or `<binary> <verb>` where the noun is imp
 manifest create` is noun-verb; `lore deploy` is a verb whose noun is the binary's whole subject.
 
 - A subcommand group is a noun. It takes no action of its own and prints help when invoked bare.
+- **A group refuses a verb it does not have.** `writ repo nosuchverb` is a usage error and exits 64
+  (§9), as `writ nosuchverb` does. Printing help and exiting 0 would make a typo indistinguishable from
+  success, and a retired verb silent about having moved.
 - A leaf is a verb. It does exactly one thing.
 - Names are lowercase, hyphenated when compound, never abbreviated (`decommission`, not `decom`).
+- **A keyed registration is `set` and `unset`, on every program.** A key has exactly one value, so setting
+  it again replaces the value rather than failing, and unsetting what is not set succeeds. `config set` and
+  `config unset` are the precedent; `writ repo set` and `unset` follow it (#791, ruled 2026-09-04). `add`
+  and `remove` are not spellings of these verbs.
 
 This is the same rule the Starlark surface follows for `devlore.<noun>.<verb>`; the two trees are separate
 namespaces with one naming convention.
+
+**Refusing takes a pre-flight, because cobra cannot.** Its resolver checks unknown commands at the root and
+nowhere else -- `legacyArgs` returns nil for anything with a parent -- and its executor abandons a command it
+cannot run *before* validating arguments: `if !c.Runnable() { return flag.ErrHelp }` precedes `ValidateArgs`,
+and `ErrHelp` becomes help and a nil error. Setting `Args` on a group makes this worse rather than better: the
+resolver consults `legacyArgs` only when `Args == nil`, so a validator there disables the root's check and is
+itself never reached. Giving a group a `RunE` would work and would break the rule above.
+
+So each program validates before it executes, which is the order this specification assumes throughout: parse,
+validate, run. [cli.ValidateCommandLine] resolves with cobra's own exported `Find`, refuses an operand standing
+where a verb belongs using cobra's own `NoArgs`, and prints the refusal in cobra's own words with its
+suggestions -- so a reader meets one message, whether the unknown verb was typed at the root or under a group
+([#897](https://github.com/NobleFactor/devlore-cli/issues/897)).
 
 ### The lifecycle is named once
 
@@ -911,6 +931,7 @@ Each rule below is greppable, and each has a test. These are the reason the docu
 | 5 | Narration is absent from stdout under every format | a test capturing both streams |
 | 6 | Help strings read as published prose; they ship unreviewed | `make docs` and read it, in the flag-changing work |
 | 7 | A subcommand group takes no action; it prints help when invoked bare (§3) | [CheckGroupsTakeNoAction], from every root test whose tree satisfies it: writ, lore, devlore-test; star's when #841 lets an extension declare a group |
+| 8 | A group refuses a verb it does not have, exiting 64 (§3, §9) | every program calls [cli.ValidateCommandLine] before [cobra.Command.Execute]; `TestValidateCommandLine_*` in `cmd/internal/cli` pin the refusal, the bare group, and the flag that is not a verb |
 
 Invariants 1 to 3 are the ones that prevent regression, because all three are mechanical. Invariants 1 and 2
 were red when this was written; they went green with #774, #775 and #743, and invariant 1 went red once more

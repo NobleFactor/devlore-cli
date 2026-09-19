@@ -118,7 +118,7 @@ func StatePath(elem ...string) string { return xdg.StatePath(append([]string{"de
 //   - `string`: `devlore/writ/layers` beneath [xdg.DataHome].
 func WritLayersDir() string { return xdg.DataPath("devlore", "writ", "layers") }
 
-// WritReposDir returns the writ-owned repository home, the default clone destination for `writ repo add`.
+// WritReposDir returns the writ-owned repository home, the default clone destination for `writ repo set`.
 //
 // Returns:
 //   - `string`: `devlore/writ/repos` beneath [xdg.DataHome].
