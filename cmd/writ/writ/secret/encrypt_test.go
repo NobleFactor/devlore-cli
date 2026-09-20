@@ -123,8 +123,8 @@ func TestExecuteEncrypt_RefusesOutsideLayer(t *testing.T) {
 	mustWriteFile(t, outside, "credential: hello\n")
 
 	_, err := ExecuteEncrypt(context.Background(), &EncryptConfig{Files: []string{outside}})
-	if err == nil || !strings.Contains(err.Error(), "writ repo add") {
-		t.Fatalf("expected containment refusal naming writ repo add, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "writ repo set") {
+		t.Fatalf("expected containment refusal naming writ repo set, got %v", err)
 	}
 }
 

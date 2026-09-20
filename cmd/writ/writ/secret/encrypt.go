@@ -92,7 +92,7 @@ func ExecuteEncrypt(ctx context.Context, cfg *EncryptConfig) ([]*op.Graph, error
 // assignToLayers canonicalizes the files and groups them by the registered layer containing each.
 //
 // The longest matching layer root wins when registrations nest. A file outside every registered layer is an
-// error naming `writ repo add` — the layer-scoping ruling (2026-08-10).
+// error naming `writ repo set` — the layer-scoping ruling (2026-08-10).
 //
 // Parameters:
 //   - `files`: the argument paths, absolute or relative.
@@ -118,7 +118,7 @@ func assignToLayers(files []string) ([]layerGroup, error) {
 		name, root := containingLayer(layers, canonical)
 		if root == "" {
 			return nil, fmt.Errorf(
-				"%s is not inside a registered layer; register its repository with 'writ repo add'", file)
+				"%s is not inside a registered layer; register its repository with 'writ repo set'", file)
 		}
 
 		group, ok := byRoot[root]

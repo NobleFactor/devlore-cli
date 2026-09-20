@@ -79,8 +79,8 @@ func newScenarioSandbox(t *testing.T) *scenarioSandbox {
 
 	// Register the personal layer through the real command — the fresh-user path, dogfooded on every
 	// platform the scenario runs on.
-	if stdout, stderr, err := runWrit(t, sandbox, "repo", "add", "personal", repo); err != nil {
-		t.Fatalf("writ repo add failed: %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
+	if stdout, stderr, err := runWrit(t, sandbox, "repo", "set", "personal", repo); err != nil {
+		t.Fatalf("writ repo set failed: %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
 	}
 
 	return sandbox

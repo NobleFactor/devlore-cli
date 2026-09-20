@@ -160,6 +160,12 @@ func run() (err error) {
 	rootCmd, runtime := newRootCmd()
 	defer iox.Close(&err, runtime)
 
+	// Parse, validate, then run -- after the extensions have contributed their commands, since their groups
+	// are part of the tree this validates (#897).
+	if err := cli.ValidateCommandLine(rootCmd, os.Args[1:]); err != nil {
+		return err // already on stderr; returning it carries the exit code through run's defer
+	}
+
 	return rootCmd.Execute()
 }
 
