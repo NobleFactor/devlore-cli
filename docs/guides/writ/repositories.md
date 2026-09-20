@@ -37,7 +37,7 @@ grammar: the optional trailing working-tree-root is the destination):
 
 ```bash
 writ repo set personal ~/Workspace/Personal              # register an existing working tree
-writ repo set team git@github.com:acme/team-env.git      # clone to the writ-owned home
+writ repo set team git@github.com:acme/team-env.git      # clone to the writ-owned home, repos/team-env
 writ repo set personal git@github.com:me/env.git ~/Workspace/Personal
 writ repo set personal git@github.com:me/env.git ~/Workspace/Personal --branch writ-layout
 writ repo set personal ~/env                             # re-point: "personal: was …, now ~/env"
@@ -48,18 +48,25 @@ writ repo unset team                                     # unregister; safe to r
 Setting a layer to the root it already has says `unchanged` and exits 0. Unsetting
 a layer that is not registered exits 0 too: it is the state you asked for.
 
-Without a destination, a URL clones to `XDG_DATA_HOME/devlore/writ/repos/<layer>` —
-right for consume-only base and team layers; your personal layer usually names the
-working tree you edit. **After placement the repository is entirely yours**: writ
-performs no hidden git operations, ever — updating layer content is `git pull`
-followed by `writ upgrade`.
+Without a destination, a URL clones into the writ-owned home,
+`XDG_DATA_HOME/devlore/writ/repos/`, under the name `git clone` would give it: the
+URL's last path component with a trailing `/` and a `.git` suffix stripped, so
+`git@github.com:acme/team-env.git` lands at `repos/team-env`. The directory says
+which repository it holds — `base`, `team` and `personal` are the layers, not the
+repositories — and `writ repo list` reads layer, repository and path in one line.
+Two layers whose repositories share a name would clone to one directory: git
+refuses to clone into an existing one, and writ refuses first, naming both layers,
+before anything is cloned. The writ-owned home is right for consume-only base and
+team layers; your personal layer usually names the working tree you edit. **After
+placement the repository is entirely yours**: writ performs no hidden git
+operations, ever — updating layer content is `git pull` followed by `writ upgrade`.
 
 A registration is a symlink in the writ layers directory
 (`XDG_DATA_HOME/devlore/writ/layers/<layer>`) pointing at the working tree —
 packaging, not configuration. Registrations never appear in `config.yaml`.
 
 **Which trees writ removes, and which it never touches.** A clone writ made in its
-own home — `XDG_DATA_HOME/devlore/writ/repos/<layer>`, where a URL without a
+own home — `XDG_DATA_HOME/devlore/writ/repos/<repository>`, where a URL without a
 destination lands — is writ's, and goes with its registration: `writ repo unset`
 removes it, and so does a `writ repo set` that re-points the layer elsewhere. A
 working tree you registered by path, anywhere else on disk, is yours; unsetting it

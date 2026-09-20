@@ -22,8 +22,8 @@ import (
 // newRepoCmd builds the repo command family: layer-repository registration through the layers directory.
 //
 // Registration is packaging, not configuration (the settled config-vs-layers separation): a layer is a
-// symlink under [devlore.WritLayersDir], never a config.yaml key. Bare `writ repo` lists, matching git-remote's
-// idiom; `rm` and `ls` alias `remove` and `list`, matching docker's.
+// symlink under [devlore.WritLayersDir], never a config.yaml key. The verbs are `set`, `unset` and `list`, with
+// no aliases (#791); bare `writ repo` prints the group's help, as every group does.
 //
 // Returns:
 //   - `*cobra.Command`: the assembled repo command.
@@ -63,9 +63,11 @@ func newRepoSetCmd() *cobra.Command {
 
 The location is a local working-tree-root, or a repository URL — which triggers a
 git clone (git-clone's own grammar: the optional trailing working-tree-root is the
-clone destination, defaulting to the writ-owned home under
-XDG_DATA_HOME/devlore/writ/repos). After placement the repository is entirely
-yours: writ performs no hidden git operations, ever.`,
+clone destination). Without one, the clone lands in the writ-owned home under
+XDG_DATA_HOME/devlore/writ/repos, named as git clone names it: acme/team-env.git
+clones to repos/team-env. Two layers whose repositories share a name are refused.
+After placement the repository is entirely yours: writ performs no hidden git
+operations, ever.`,
 		Example: `  writ repo set personal ~/Workspace/Personal
   writ repo set team git@github.com:acme/team-env.git
   writ repo set personal git@github.com:me/personal.git ~/Workspace/Personal
@@ -188,15 +190,15 @@ const (
 //   - `branch`: the branch to clone; URL form only.
 //
 // Returns:
-//   - `error`: an unknown layer, a malformed combination, a failed clone, a non-working-tree root, or a
-//     filesystem failure.
+//   - `error`: an unknown layer, a malformed combination, a clone name another layer already holds, a failed
+//     clone, a non-working-tree root, or a filesystem failure.
 func runRepoSet(cmd *cobra.Command, layer, location, destination, branch string) error {
 
 	if !slices.Contains(LayerOrder, layer) {
 		return fmt.Errorf("unknown layer %q (layers: base, team, personal)", layer)
 	}
 
-	root, clone, err := plannedRoot(layer, location, destination, branch)
+	root, clone, err := settledRoot(cmd.Context(), layer, location, destination, branch)
 	if err != nil {
 		return err
 	}
@@ -308,13 +310,12 @@ func narrateSet(layer, root string, previous RepoRegistration, dryRun bool) {
 	}
 }
 
-// plannedRoot answers where the layer's working tree will be, and whether getting it there needs a clone.
-//
-// Nothing here touches the network or the filesystem beyond resolving a path: it exists so that every refusal
-// this command can make happens before a clone rather than after one.
+// settledRoot is the root `set` will use, settled before anything is cloned: [plannedRoot]'s answer, refused
+// when another layer's registration already holds it (#793).
 //
 // Parameters:
-//   - `layer`: the layer name; names the writ-owned default clone destination.
+//   - `ctx`: for the git invocations that resolve the other registrations.
+//   - `layer`: the layer being set.
 //   - `location`: the polymorphic location operand.
 //   - `destination`: the URL form's optional clone destination.
 //   - `branch`: the URL form's optional branch.
@@ -322,12 +323,42 @@ func narrateSet(layer, root string, previous RepoRegistration, dryRun bool) {
 // Returns:
 //   - `string`: the absolute working-tree-root the registration will point at.
 //   - `bool`: whether that root has to be cloned into being.
-//   - `error`: a malformed combination of operands.
-func plannedRoot(layer, location, destination, branch string) (root string, clone bool, err error) {
+//   - `error`: [plannedRoot]'s refusals, or a clone destination another layer holds.
+func settledRoot(ctx context.Context, layer, location, destination, branch string) (root string, clone bool, err error) {
+
+	root, clone, err = plannedRoot(location, destination, branch)
+	if err == nil && clone {
+		err = sharedCloneRefusal(ctx, root, layer)
+	}
+
+	return root, clone, err
+}
+
+// plannedRoot answers where the layer's working tree will be, and whether getting it there needs a clone.
+//
+// Nothing here touches the network or the filesystem beyond resolving a path: it exists so that every refusal
+// this command can make happens before a clone rather than after one. A URL without a destination clones into
+// the writ-owned home under the name `git clone` would give it (#793): `repos/noblefactor-ops`, never
+// `repos/base`, so the directory says which repository it holds.
+//
+// Parameters:
+//   - `location`: the polymorphic location operand.
+//   - `destination`: the URL form's optional clone destination.
+//   - `branch`: the URL form's optional branch.
+//
+// Returns:
+//   - `string`: the absolute working-tree-root the registration will point at.
+//   - `bool`: whether that root has to be cloned into being.
+//   - `error`: a malformed combination of operands, or a URL that yields no directory name.
+func plannedRoot(location, destination, branch string) (root string, clone bool, err error) {
 
 	if isRepositoryURL(location) {
 		if destination == "" {
-			destination = filepath.Join(devlore.WritReposDir(), layer)
+			name, err := humanishName(location)
+			if err != nil {
+				return "", false, err
+			}
+			destination = filepath.Join(devlore.WritReposDir(), name)
 		}
 		absolute, err := filepath.Abs(expandPath(destination))
 		if err != nil {
@@ -398,6 +429,69 @@ func isRepositoryURL(location string) bool {
 	}
 	slash := strings.IndexAny(location, `/\`)
 	return slash == -1 || colon < slash
+}
+
+// humanishName is the directory `git clone <url>` would create: the URL's last path component, with a trailing
+// `/` and a `.git` suffix stripped -- git's own `guess_dir_name`, reduced to the URL forms [isRepositoryURL]
+// admits (#793, ruled 2026-09-04).
+//
+// `git@github.com:NobleFactor/noblefactor-ops.git` names `noblefactor-ops`; `https://host/x/personal/` names
+// `personal`; the scp-like `host:env`, with no slash, names `env`.
+//
+// Parameters:
+//   - `url`: the repository URL.
+//
+// Returns:
+//   - `string`: the directory name.
+//   - `error`: the URL yields no name, which git refuses the same way.
+func humanishName(url string) (string, error) {
+
+	// Both separators, as [isRepositoryURL] reads them: git's `is_dir_sep` admits `\` on Windows, and the
+	// tests there clone `file://C:\...`.
+	name := strings.TrimRight(url, `/\`)
+	name = strings.TrimSuffix(name, ".git")
+	name = strings.TrimRight(name, `/\`)
+
+	if separator := strings.LastIndexAny(name, `/\`); separator >= 0 {
+		name = name[separator+1:]
+	} else if colon := strings.LastIndex(name, ":"); colon >= 0 {
+		name = name[colon+1:]
+	}
+
+	if name == "" || name == "." || name == ".." {
+		return "", fmt.Errorf("no directory name can be derived from %q; name the clone destination", url)
+	}
+
+	return name, nil
+}
+
+// sharedCloneRefusal refuses a clone destination another layer's registration already points at.
+//
+// Two layers whose repositories share a name would clone to one directory. git refuses to clone into an
+// existing one; writ refuses first, before the clone, and names both layers (#793). The layer being set is
+// exempt: re-pointing it to the clone it already holds is `unchanged`, decided by the caller.
+//
+// Parameters:
+//   - `ctx`: for the git invocations that resolve each registration.
+//   - `root`: the clone destination about to be used.
+//   - `layer`: the layer being set.
+//
+// Returns:
+//   - `error`: another layer holds `root`.
+func sharedCloneRefusal(ctx context.Context, root, layer string) error {
+
+	for _, other := range LayerOrder {
+		if other == layer {
+			continue
+		}
+		registration := repoRegistration(ctx, other)
+		if registration.State != repoStateUnregistered && registration.Root == root {
+			return fmt.Errorf("%s and %s resolve to the same clone, %s: two layers cannot share one repository name",
+				layer, other, root)
+		}
+	}
+
+	return nil
 }
 
 // cloneRepository clones `url` to `destination` and returns the destination as an absolute path.

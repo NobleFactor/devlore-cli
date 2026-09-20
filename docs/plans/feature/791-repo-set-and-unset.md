@@ -1,26 +1,26 @@
 ---
-title: "Lanes 8 and 9: repo set and unset, and the clone that goes with its registration"
+title: "Lanes 8 to 11: a group refuses a verb, repo set and unset, the clone that goes with its registration, and the clone's name"
 issue: https://github.com/NobleFactor/devlore-cli/issues/791
 status: complete
 created: 2026-09-19
-updated: 2026-09-19
+updated: 2026-09-20
 ---
 
-# Plan: Lanes 8 and 9 of the command line schedule
+# Plan: Lanes 8 to 11 of the command line schedule
 
 ## Summary
 
-Lanes 8 and 9 of [#887](https://github.com/NobleFactor/devlore-cli/issues/887), in one pull request. A layer
+Lanes 8 to 11 of [#887](https://github.com/NobleFactor/devlore-cli/issues/887), in one pull request, [#898](https://github.com/NobleFactor/devlore-cli/pull/898). A layer
 has exactly one registration, so re-pointing it is the obvious intent behind registering it again — and today
 that is refused, after the clone has already completed. The verbs become `set` and `unset`, the vocabulary the
 shared root already uses for a keyed value, and unsetting a layer takes the clone writ made for it.
 
-**This plan covers these two lanes and nothing else.** Anything found while working them stops the work and
+**This plan covers these four lanes and nothing else.** Anything found while working them stops the work and
 goes to the owner for placement.
 
 ## Issue 791
 
-Lane 8. `writ repo add` refuses a layer that is already registered and names `writ repo remove` in the
+Lane 9. `writ repo add` refuses a layer that is already registered and names `writ repo remove` in the
 refusal; re-pointing a layer is therefore two commands, and the refusal arrives after a clone has been made.
 Ruled 2026-09-04: a keyed registration is `set` and `unset`. Four further rulings, 2026-09-18: `unset` is
 idempotent, `set` to the target a layer already has narrates `unchanged`, `--branch` stays on the URL form,
@@ -28,7 +28,7 @@ and the result record carries what changed.
 
 ## Issue 792
 
-Lane 9. `repo add <layer> <url>` clones into `XDG_DATA_HOME/devlore/writ/repos/<layer>`; `repo remove` drops
+Lane 10. `repo add <layer> <url>` clones into `XDG_DATA_HOME/devlore/writ/repos/<layer>`; `repo remove` drops
 the registration and leaves that clone behind, so the next `add` from a URL finds the directory occupied and
 the operator is cleaning up writ's own state by hand. Ruled 2026-09-04: a clone writ made in its own home is
 writ's to remove; a working tree the user registered by path is never touched.
@@ -36,14 +36,25 @@ writ's to remove; a working tree the user registered by path is never touched.
 Measured on `danoble-ud24-1.local`, 2026-09-18: every one of base, team and personal failed re-registration by
 URL with `clone destination … already exists`, from orphans a previous session's `remove` left behind.
 
+## Issue 793
+
+Lane 11, added 2026-09-19. `repo set <layer> <url>` clones into `XDG_DATA_HOME/devlore/writ/repos/<layer>`: three
+directories named `base`, `team` and `personal`, whatever repositories they hold. Ruled 2026-09-04: the clone
+takes the name `git clone` gives it -- the last path component, with a trailing `/` and a `.git` suffix stripped
+-- and two layers resolving to one name are refused, naming both. Ruled into this pull request 2026-09-19: the
+layer-journey scenario, skipped on `develop` for want of `repo set`, ran on #898's first CI and asserted #793 in
+the same step as #791, on all six legs. The scenario is the ruled interface; the code follows it.
+
 ## Goals
 
-- [x] Lane 8: `writ repo set` registers or re-points a layer in one command; `writ repo unset` removes a
+- [x] Lane 9: `writ repo set` registers or re-points a layer in one command; `writ repo unset` removes a
       registration and is safe to run twice; `add`, `remove`, `rm` and `ls` are unknown commands.
-- [x] Lane 9: unsetting or displacing a writ-owned clone removes it and says so; a path-registered working
+- [x] Lane 10: unsetting or displacing a writ-owned clone removes it and says so; a path-registered working
       tree is never touched; `--dry-run` says what would go.
 - [x] The result record carries `layer`, `state`, `source`, `root`, `owner`, `branch` and `previous`, and
       `repo list` carries `source` and `owner` on every row.
+- [x] Lane 11: a URL clones to `repos/<repository>`, the name git gives it; two layers resolving to one name are
+      refused before anything is cloned; the guide says where a clone lands and why.
 
 ## Current State
 
@@ -52,22 +63,22 @@ merge of pull request #896.
 
 | Component | Lane | Status | Notes |
 | --- | --- | --- | --- |
-| `newRepoAddCmd` (`repo_cmd.go:51`) | 8 | ❌ | `add`, with a three-argument clone grammar and `--branch` |
-| `newRepoRemoveCmd` (`repo_cmd.go:84`) | 8 | ❌ | `remove`, aliased `rm` |
-| `newRepoListCmd` (`repo_cmd.go:98`) | 8 | ✅ | `list`, aliased `ls`; the alias goes with the others |
-| `runRepoAdd` (`repo_cmd.go:142`) | 8 | ❌ | refuses an existing registration, after `resolveWorkingTreeRoot` has cloned |
-| `runRepoRemove` (`repo_cmd.go:297`) | 8, 9 | ❌ | removes the symlink; errors when unregistered; leaves any clone |
-| `repoRegistration` (`repo_cmd.go:339`) | 8 | ❌ | emits `{layer, root, state}`; no `source`, no `owner` |
-| `cloneRepository` (`repo_cmd.go:258`) | 9 | ✅ | shells to `git` directly; the precedent for reading a remote |
-| `devlore.WritReposDir()` | 9 | ✅ | the writ-owned home; the whole test for `owner` |
-| anything reading a remote's URL | 8 | ❌ | nothing in the tree does: `source` needs a mechanism |
-| `config set` / `config unset` (`config.go:122`, `:170`) | 8 | ✅ | the vocabulary this rename adopts, already shipping |
-| §3 of the specification | 8 | ❌ | #791 says it records the set/unset rule; it does not. The rule is added there |
-| `docs/guides/writ/repositories.md:54` | 9 | ❌ | "`writ repo remove` never deletes repository files" — which #792 reverses for writ-owned clones |
+| `newRepoAddCmd` (`repo_cmd.go:51`) | 9 | ❌ | `add`, with a three-argument clone grammar and `--branch` |
+| `newRepoRemoveCmd` (`repo_cmd.go:84`) | 9 | ❌ | `remove`, aliased `rm` |
+| `newRepoListCmd` (`repo_cmd.go:98`) | 9 | ✅ | `list`, aliased `ls`; the alias goes with the others |
+| `runRepoAdd` (`repo_cmd.go:142`) | 9 | ❌ | refuses an existing registration, after `resolveWorkingTreeRoot` has cloned |
+| `runRepoRemove` (`repo_cmd.go:297`) | 9, 10 | ❌ | removes the symlink; errors when unregistered; leaves any clone |
+| `repoRegistration` (`repo_cmd.go:339`) | 9 | ❌ | emits `{layer, root, state}`; no `source`, no `owner` |
+| `cloneRepository` (`repo_cmd.go:258`) | 10 | ✅ | shells to `git` directly; the precedent for reading a remote |
+| `devlore.WritReposDir()` | 10 | ✅ | the writ-owned home; the whole test for `owner` |
+| anything reading a remote's URL | 9 | ❌ | nothing in the tree does: `source` needs a mechanism |
+| `config set` / `config unset` (`config.go:122`, `:170`) | 9 | ✅ | the vocabulary this rename adopts, already shipping |
+| §3 of the specification | 9 | ❌ | #791 says it records the set/unset rule; it does not. The rule is added there |
+| `docs/guides/writ/repositories.md:54` | 10 | ❌ | "`writ repo remove` never deletes repository files" — which #792 reverses for writ-owned clones |
 
 ## Requirements
 
-### Requirement 1: the verbs are `set` and `unset` (lane 8)
+### Requirement 1: the verbs are `set` and `unset` (lane 9)
 
 `writ repo set <layer> <working-tree-root>|<repository-url> [<working-tree-root>]` registers or re-points.
 `writ repo unset <layer>` removes a registration. `writ repo list` stays. `add`, `remove`, `rm` and `ls` are
@@ -75,7 +86,7 @@ gone, not aliased: this is a greenfield product and there is no legacy to keep.
 
 `--branch` stays, on the repository-url form only, refused on the path form as it is today.
 
-### Requirement 2: `set` re-points, and says what changed (lane 8)
+### Requirement 2: `set` re-points, and says what changed (lane 9)
 
 Registering a layer that is already registered is a replacement, not an error. It narrates what changed —
 `personal: was ~/Workspace/Personal, now ~/env` — and emits the record of Requirement 4.
@@ -87,7 +98,7 @@ silent.
 refusal this command can make — an unknown layer, a malformed argument combination, `--branch` on the path
 form — is decided before any network or filesystem work.
 
-### Requirement 3: `unset` is idempotent, and takes writ's own clone with it (lanes 8 and 9)
+### Requirement 3: `unset` is idempotent, and takes writ's own clone with it (lanes 9 and 10)
 
 Unsetting a layer that is not registered succeeds and emits `state: "unregistered"`. A command that is safe to
 run twice is a command a script can use.
@@ -99,7 +110,7 @@ registration.
 
 `--dry-run` emits the record it would have emitted and removes nothing.
 
-### Requirement 4: the record says what changed (lanes 8 and 9)
+### Requirement 4: the record says what changed (lanes 9 and 10)
 
 ```json
 {
@@ -133,7 +144,7 @@ removed clone is always `previous.root` with `previous.owner == "writ"`.
 
 `repo list` gains `source` and `owner` on every row.
 
-### Requirement 5: `source` and `owner` are derived, not stored (lane 8)
+### Requirement 5: `source` and `owner` are derived, not stored (lane 9)
 
 **`owner`** is `writ` when the root lies under `devlore.WritReposDir()` and `user` otherwise, decided with
 `filepath.Rel` so a path that merely begins with the same characters does not qualify.
@@ -149,7 +160,7 @@ Then `git -C <root> remote get-url <remote>`. Empty is a real answer, not a fail
 `git init` and never pushed has no remote, and writ's own refusal text tells the user to create exactly that.
 A tree that is not readable by git leaves `source` empty rather than failing the command.
 
-### Requirement 6: the documents say set and unset (lanes 8 and 9)
+### Requirement 6: the documents say set and unset (lanes 9 and 10)
 
 - **§3 of the specification** gains the rule `#791` claims it already carries: a keyed registration is `set`
   and `unset`, on every program, and `config set`/`config unset` are its precedent.
@@ -161,12 +172,29 @@ A tree that is not readable by git leaves `source` empty rather than failing the
   done, and rewriting history to match today's vocabulary would make them lie about what shipped. Stated here
   for the owner's approval rather than done silently.
 
+### Requirement 7: the clone takes git's name (lane 11)
+
+Without a destination, a URL clones to `devlore.WritReposDir()/<name>`, where `<name>` is what `git clone`
+would choose: the URL with a trailing `/` stripped, then a `.git` suffix stripped, then the last component
+after `/` -- or after `:` for the scp-like form that has no slash.
+`git@github.com:NobleFactor/noblefactor-ops.git` clones to `repos/noblefactor-ops`; `https://host/x/personal/`
+to `repos/personal`; `file:///tmp/env` to `repos/env`. A URL that yields no name is refused.
+
+Two layers resolving to one name would clone to one directory. git refuses to clone into an existing one, and
+writ refuses first, naming both layers -- before the clone, like every other refusal this command makes. A
+layer re-pointed to a URL whose clone it already holds is `unchanged`, as before.
+
+`owner` is unaffected: the clone is still under the writ home. `repo list` says which repository a layer is in
+`source`; that column is taken to satisfy #793's "layer, repository and path", and the owner can rule
+otherwise.
+
 ## Design
 
 ```
   writ repo set <layer> <location> [<destination>]
         |
-        |  1. validate: layer, argument shape, --branch placement        <- every refusal lives here
+        |  1. validate: layer, argument shape, --branch placement,       <- every refusal lives here
+        |     the clone's name, and a name another layer already holds
         |  2. read the current registration, if any                      <- becomes `previous`
         |  3. resolve the root: a path, or a clone made now
         |  4. write the symlink, replacing any that was there
@@ -283,40 +311,68 @@ A tree that is not readable by git leaves `source` empty rather than failing the
 
 ### Phase 8: Closure
 
-- [x] #791's, #792's and #897's acceptance boxes ticked 2026-09-19; lanes 8, 9 and 10 close when the pull
+- [x] #791's, #792's and #897's acceptance boxes ticked 2026-09-19; lanes 8 to 11 close when the pull
       request's `Closes` lines close them; this plan `complete` in the last commit under noblefactor-ops#199.
+
+### Phase 9: The clone's name (lane 11, added 2026-09-19)
+
+- [x] `humanishName` derives the directory from the URL as `git clone` does; `plannedRoot` no longer takes the
+      layer; `runRepoSet` refuses a name another layer's registration already holds, before the clone. `settledRoot` composes
+      the two refusals so `runRepoSet` stays at 14; the first shape went to 16 and the lint gate said so.
+- [x] Tests: the three URL forms and the scp-like form on `humanishName`, and a URL that yields no name; the
+      default home lands at `repos/<name>`; two layers, one name, refused naming both with nothing cloned; the
+      four tests that assumed `repos/<layer>` follow the contract. `sourceRepositoryNamed` lets a test say what git will name
+      the clone; the four follow it through `filepath.Base(source)`.
+- [x] The guide says where a clone lands and why; `repo set --help` says the same; `newRepoCmd`'s doc comment,
+      which still described the retired aliases, is corrected.
+- [x] Gates: `make check` **and `make test-scenario`** -- the scenario job is CI's sixth command, and the first
+      run of the pull request script ran the other five. The layer-journey scenario is #793's end-to-end test,
+      on six platforms. Both exit 0 on darwin, 2026-09-19, and the
+      script runs both.
+- [x] The three numbers, re-measured 2026-09-20. Coverage: `cmd/internal/cli` 68.3%, `cmd/writ/writ` 42.6%, total 62.7%;
+      `humanishName`, `sharedCloneRefusal` and `settledRoot` 100%, `runRepoSet` 91.7%, `plannedRoot` 83.3%. Complexity:
+      `runRepoSet` 14, `operandsOf` 11, `runRepoUnset` 9, nothing else over 8. Size: 1,997 lines across `repo_cmd.go`
+      (754), `repo_cmd_test.go` (903), `groups.go` (187), `groups_test.go` (153). Installed and exercised on darwin
+      2026-09-20: `version` names `aa852bd8-dirty`; `list` shows the three real registrations with source and owner;
+      `set personal <its root>` says `unchanged`; `repo add` exits 64.
+- [x] #793's four acceptance boxes ticked 2026-09-20 with evidence; #887 gains lane 11 (#759 and #787 become 12 and 13,
+      a second amendment paragraph records why); #894 drops #793 and renumbers 4-15, its waits-on lane numbers shifted.
 
 ## Test Plan
 
 | # | Lane | What it proves | Level | Fails when |
 | --- | --- | --- | --- | --- |
-| 1 | 8 | `set` registers a layer that was not registered | unit, `writ` | the new verb does not work at all |
-| 2 | 8 | `set` re-points a registered layer and reports `previous` | unit, `writ` | re-pointing still refuses |
-| 3 | 8 | `set` to the same target narrates `unchanged` and exits 0 | unit, `writ` | it errors, or says nothing |
-| 4 | 8 | `unset` twice: both exit 0, both emit `unregistered` | unit, `writ` | the second run errors |
-| 5 | 8 | `add`, `remove`, `rm`, `ls` are unknown commands, exit 64 | subprocess, `writ` | an alias survives |
-| 6 | 8 | `--branch` on the path form is refused before anything is written | unit, `writ` | it clones, then refuses |
-| 7 | 8 | `source` is the upstream's remote, else `origin`, else empty | unit, `writ` | a no-remote tree fails the command |
-| 8 | 8 | `owner` is `writ` under the writ home and `user` elsewhere, by `filepath.Rel` | unit, `writ` | a sibling path is misread as writ's |
-| 9 | 9 | `unset` of a URL-registered layer removes the clone and narrates it | unit, `writ` | the orphan of #792 survives |
-| 10 | 9 | `unset` of a path-registered layer leaves the tree | unit, `writ` | a user's working tree is deleted |
-| 11 | 9 | a displacing `set` removes the displaced writ-owned clone only | unit, `writ` | replacement orphans or over-deletes |
-| 12 | 9 | `--dry-run` emits the record and removes nothing | unit, `writ` | the dry run acts |
-| 13 | 8 | `repo list` carries `source` and `owner` | unit, `writ` | the row shape drifts from `set`'s |
+| 1 | 9 | `set` registers a layer that was not registered | unit, `writ` | the new verb does not work at all |
+| 2 | 9 | `set` re-points a registered layer and reports `previous` | unit, `writ` | re-pointing still refuses |
+| 3 | 9 | `set` to the same target narrates `unchanged` and exits 0 | unit, `writ` | it errors, or says nothing |
+| 4 | 9 | `unset` twice: both exit 0, both emit `unregistered` | unit, `writ` | the second run errors |
+| 5 | 9 | `add`, `remove`, `rm`, `ls` are unknown commands, exit 64 | subprocess, `writ` | an alias survives |
+| 6 | 9 | `--branch` on the path form is refused before anything is written | unit, `writ` | it clones, then refuses |
+| 7 | 9 | `source` is the upstream's remote, else `origin`, else empty | unit, `writ` | a no-remote tree fails the command |
+| 8 | 9 | `owner` is `writ` under the writ home and `user` elsewhere, by `filepath.Rel` | unit, `writ` | a sibling path is misread as writ's |
+| 9 | 10 | `unset` of a URL-registered layer removes the clone and narrates it | unit, `writ` | the orphan of #792 survives |
+| 10 | 10 | `unset` of a path-registered layer leaves the tree | unit, `writ` | a user's working tree is deleted |
+| 11 | 10 | a displacing `set` removes the displaced writ-owned clone only | unit, `writ` | replacement orphans or over-deletes |
+| 12 | 10 | `--dry-run` emits the record and removes nothing | unit, `writ` | the dry run acts |
+| 13 | 9 | `repo list` carries `source` and `owner` | unit, `writ` | the row shape drifts from `set`'s |
+| 14 | 11 | `humanishName`: `.git`, trailing `/`, bare, scp-like, and a URL with no name | unit, `writ` | a clone lands under the wrong name |
+| 15 | 11 | `set <url>` without a destination lands at `repos/<name>` | unit, `writ` | the default home is still `repos/<layer>` |
+| 16 | 11 | two layers resolving to one name: refused naming both, nothing cloned | unit, `writ` | the second clone fails inside git, or overwrites |
+| 17 | 11 | the layer-journey scenario, step 1.2 | scenario, six platforms | CI is red where it was red on the first run |
 
 ## Files to Create/Modify
 
 | File | Lane | Action |
 | --- | --- | --- |
 | `docs/plans/feature/791-repo-set-and-unset.md` | — | Create |
-| `cmd/writ/writ/repo_cmd.go` | 8, 9 | Modify: the verbs, the record, the clone |
-| `cmd/writ/writ/repo_cmd_test.go` | 8, 9 | Modify: read first, then follow |
-| `cmd/writ/writ/secret_cmd.go`, `secret/encrypt.go`, `secret/encrypt_test.go` | 8 | Modify: the refusal names `repo set` |
-| `cmd/writ/scenario_integration_test.go` | 8 | Modify |
-| `cmd/internal/devlore/devlore.go` | 8 | Modify: one comment |
-| `docs/architecture/10-command-line-interface.md` | 8 | Modify, §3 |
-| `docs/guides/writ/repositories.md` | 8, 9 | Modify |
-| `docs/architecture/2.4-hermeticity-guarantees.status.md` | 8 | Modify |
+| `cmd/writ/writ/repo_cmd.go` | 9, 10, 11 | Modify: the verbs, the record, the clone, the clone's name |
+| `cmd/writ/writ/repo_cmd_test.go` | 9, 10, 11 | Modify: read first, then follow |
+| `cmd/writ/writ/secret_cmd.go`, `secret/encrypt.go`, `secret/encrypt_test.go` | 9 | Modify: the refusal names `repo set` |
+| `cmd/writ/scenario_integration_test.go` | 9 | Modify |
+| `cmd/internal/devlore/devlore.go` | 9 | Modify: one comment |
+| `docs/architecture/10-command-line-interface.md` | 9 | Modify, §3 |
+| `docs/guides/writ/repositories.md` | 9, 10, 11 | Modify |
+| `docs/architecture/2.4-hermeticity-guarantees.status.md` | 9 | Modify |
 
 Measured 2026-09-19: 59 sites in 18 files name `repo add`, `repo remove` or `repo rm`. Nine of those files are
 plan documents recording past work and are left alone (Requirement 6).
@@ -397,7 +453,9 @@ star's groups include the ones its extensions contribute, since `run` validates 
 
 ## Related Documents
 
-- [#887](https://github.com/NobleFactor/devlore-cli/issues/887) — the schedule; this plan is lanes 8 and 9
+- [#887](https://github.com/NobleFactor/devlore-cli/issues/887) — the schedule; this plan is lanes 8 to 11
+- [#793](https://github.com/NobleFactor/devlore-cli/issues/793) — the clone's name, lane 11, pulled forward from [#894](https://github.com/NobleFactor/devlore-cli/issues/894) on 2026-09-19
+- [#898](https://github.com/NobleFactor/devlore-cli/pull/898) — the pull request
 - [#791](https://github.com/NobleFactor/devlore-cli/issues/791), [#792](https://github.com/NobleFactor/devlore-cli/issues/792) — the lanes
 - [#463](https://github.com/NobleFactor/devlore-cli/issues/463) — the feature both belong to
 - [#840](https://github.com/NobleFactor/devlore-cli/issues/840) — the phantom registrations `set` must not be fooled by; lane 1 of #894

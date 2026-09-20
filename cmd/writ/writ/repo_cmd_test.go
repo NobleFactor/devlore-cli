@@ -32,7 +32,22 @@ func sourceRepository(t *testing.T) string {
 
 	t.Helper()
 
+	return sourceRepositoryNamed(t, "")
+}
+
+// sourceRepositoryNamed is [sourceRepository] with the repository's directory named, so a test can say what
+// `git clone` will name the clone (#793). Empty names the temporary directory itself.
+func sourceRepositoryNamed(t *testing.T, name string) string {
+
+	t.Helper()
+
 	root := t.TempDir()
+	if name != "" {
+		root = filepath.Join(root, name)
+		if err := os.Mkdir(root, 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
 	env := isolatedGitEnv(t)
 
 	for _, args := range [][]string{
@@ -432,10 +447,11 @@ func TestRepo_Unset_TakesTheCloneWritMade(t *testing.T) {
 	dataHome := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", dataHome)
 
-	if _, err := runRepoResult(t, "set", "team", "file://"+sourceRepository(t)); err != nil {
+	source := sourceRepository(t)
+	if _, err := runRepoResult(t, "set", "team", "file://"+source); err != nil {
 		t.Fatalf("set by url: %v", err)
 	}
-	clone := filepath.Join(dataHome, "devlore", "writ", "repos", "team")
+	clone := filepath.Join(dataHome, "devlore", "writ", "repos", filepath.Base(source))
 	if _, err := os.Stat(filepath.Join(clone, ".git")); err != nil {
 		t.Fatalf("no clone at %s: %v", clone, err)
 	}
@@ -486,10 +502,11 @@ func TestRepo_Set_TakesTheCloneItDisplaces(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", dataHome)
 	yours := workingTree(t)
 
-	if _, err := runRepoResult(t, "set", "team", "file://"+sourceRepository(t)); err != nil {
+	source := sourceRepository(t)
+	if _, err := runRepoResult(t, "set", "team", "file://"+source); err != nil {
 		t.Fatal(err)
 	}
-	clone := filepath.Join(dataHome, "devlore", "writ", "repos", "team")
+	clone := filepath.Join(dataHome, "devlore", "writ", "repos", filepath.Base(source))
 
 	out, err := runRepoResult(t, "set", "team", yours)
 	if err != nil {
@@ -519,10 +536,11 @@ func TestRepo_DryRun_EmitsAndDoesNothing(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", dataHome)
 	yours, other := workingTree(t), workingTree(t)
 
-	if _, err := runRepoResult(t, "set", "team", "file://"+sourceRepository(t)); err != nil {
+	source := sourceRepository(t)
+	if _, err := runRepoResult(t, "set", "team", "file://"+source); err != nil {
 		t.Fatal(err)
 	}
-	clone := filepath.Join(dataHome, "devlore", "writ", "repos", "team")
+	clone := filepath.Join(dataHome, "devlore", "writ", "repos", filepath.Base(source))
 	if _, err := runRepoResult(t, "set", "personal", yours); err != nil {
 		t.Fatal(err)
 	}
@@ -563,10 +581,11 @@ func TestRepo_DryRun_EmitsAndDoesNothing(t *testing.T) {
 	}
 
 	// set by url, dry: nothing is cloned.
-	if _, err := runRepoResult(t, "set", "base", "file://"+sourceRepository(t), "--dry-run"); err != nil {
+	another := sourceRepository(t)
+	if _, err := runRepoResult(t, "set", "base", "file://"+another, "--dry-run"); err != nil {
 		t.Fatalf("dry set by url: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dataHome, "devlore", "writ", "repos", "base")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dataHome, "devlore", "writ", "repos", filepath.Base(another))); !os.IsNotExist(err) {
 		t.Errorf("a dry set cloned: %v", err)
 	}
 }
@@ -765,18 +784,52 @@ func TestIsRepositoryURL_Table(t *testing.T) {
 	}
 }
 
+// TestHumanishName_Table pins #793's rule on the URL forms writ admits: a `.git` suffix, a trailing `/`, the
+// bare form, the scp-like form with no slash, and a URL that yields no name.
+func TestHumanishName_Table(t *testing.T) {
+
+	cases := []struct {
+		url  string
+		name string
+	}{
+		{"git@github.com:NobleFactor/noblefactor-ops.git", "noblefactor-ops"},
+		{"https://github.com/David-Noble-at-work/personal/", "personal"},
+		{"file:///tmp/env", "env"},
+		{"ssh://git@host/x/y.git/", "y"},
+		{"host:env.git", "env"},
+	}
+	for _, c := range cases {
+		got, err := humanishName(c.url)
+		if err != nil {
+			t.Errorf("humanishName(%q): %v", c.url, err)
+			continue
+		}
+		if got != c.name {
+			t.Errorf("humanishName(%q) = %q, want %q", c.url, got, c.name)
+		}
+	}
+
+	for _, url := range []string{"https://", "file:///", "host:"} {
+		if got, err := humanishName(url); err == nil {
+			t.Errorf("humanishName(%q) = %q; want a refusal, as git gives", url, got)
+		}
+	}
+}
+
+// TestRepo_Set_ClonesURL_DefaultHome is #793 through the command: a URL without a destination clones into the
+// writ-owned home under the name git gives it -- `team-env`, from `team-env.git` -- and not under its layer.
 func TestRepo_Set_ClonesURL_DefaultHome(t *testing.T) {
 
 	dataHome := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", dataHome)
-	source := sourceRepository(t)
+	source := sourceRepositoryNamed(t, "team-env.git")
 
 	out, err := runRepoResult(t, "set", "team", "file://"+source)
 	if err != nil {
 		t.Fatalf("set url: %v", err)
 	}
 
-	expected := filepath.Join(dataHome, "devlore", "writ", "repos", "team")
+	expected := filepath.Join(dataHome, "devlore", "writ", "repos", "team-env")
 
 	var record RepoRegistration
 	if err := json.Unmarshal([]byte(out), &record); err != nil {
@@ -787,6 +840,44 @@ func TestRepo_Set_ClonesURL_DefaultHome(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(expected, ".git")); err != nil {
 		t.Fatalf("clone missing at default home: %v", err)
+	}
+}
+
+// TestRepo_Set_RefusesTwoLayersOneName is #793's other half: two repositories with one name would clone to one
+// directory, so the second layer is refused, naming both, before anything is cloned.
+func TestRepo_Set_RefusesTwoLayersOneName(t *testing.T) {
+
+	dataHome := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dataHome)
+	first, second := sourceRepositoryNamed(t, "env.git"), sourceRepositoryNamed(t, "env.git")
+
+	if _, err := runRepoResult(t, "set", "base", "file://"+first); err != nil {
+		t.Fatal(err)
+	}
+	clone := filepath.Join(dataHome, "devlore", "writ", "repos", "env")
+
+	_, narration, err := runRepoStreams(t, "set", "team", "file://"+second)
+	if err == nil {
+		t.Fatal("a second layer resolving to the same clone name was accepted")
+	}
+	for _, name := range []string{"base", "team"} {
+		if !strings.Contains(err.Error(), name) {
+			t.Errorf("the refusal does not name %s: %v", name, err)
+		}
+	}
+	if strings.Contains(narration, "Cloning into") {
+		t.Errorf("the refusal came after a clone was attempted:\n%s", narration)
+	}
+
+	listed, err := runRepoResult(t, "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := stateOf(t, listed, "team"); got.State != repoStateUnregistered {
+		t.Errorf("team was registered despite the refusal: %+v", got)
+	}
+	if got := stateOf(t, listed, "base"); got.Root != clone {
+		t.Errorf("base's clone moved: %+v", got)
 	}
 }
 
