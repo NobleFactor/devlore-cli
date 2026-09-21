@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package star_test
+package extension_test
 
 import (
 	"io/fs"
@@ -13,7 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/NobleFactor/devlore-cli/cmd/star/star"
+	"github.com/NobleFactor/devlore-cli/cmd/star/extension"
 
 	_ "github.com/NobleFactor/devlore-cli/cmd/star/inventory"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/inventory"
@@ -31,7 +31,7 @@ func TestLifecycle_DiscoverRegisterActivate(t *testing.T) {
 	}
 
 	// Create a loader pointed at the real extensions directory (no embedded FS).
-	loader := star.NewExtensionLoader(nil)
+	loader := extension.NewLoader(nil)
 
 	// Step 1: Discover.
 	exts, err := loader.DiscoverAll()
@@ -58,7 +58,7 @@ func TestLifecycle_DiscoverRegisterActivate(t *testing.T) {
 	}
 
 	// Step 2+3: register and Activate via DiscoverAndLoad on a fresh runtime.
-	runtime := star.NewApplication(&cobra.Command{Use: "star"})
+	runtime := extension.NewApplication(&cobra.Command{Use: "star"})
 	if err := runtime.DiscoverAndLoad(loader); err != nil {
 		t.Fatalf("DiscoverAndLoad() error: %v", err)
 	}
@@ -102,8 +102,8 @@ func TestLifecycle_EmbeddedExtensions(t *testing.T) {
 
 	embeddedFS := os.DirFS(extDir)
 
-	loader := star.NewExtensionLoader(embeddedFS)
-	runtime := star.NewApplication(&cobra.Command{Use: "star"})
+	loader := extension.NewLoader(embeddedFS)
+	runtime := extension.NewApplication(&cobra.Command{Use: "star"})
 
 	if err := runtime.DiscoverAndLoad(loader); err != nil {
 		t.Fatalf("DiscoverAndLoad() error: %v", err)
@@ -156,7 +156,7 @@ commands:
 	embeddedFS := os.DirFS(realExtDir)
 
 	// Loader: project-local (tmpDir) is searched before embedded.
-	loader := star.NewExtensionLoaderWithPaths([]string{tmpDir}, embeddedFS)
+	loader := extension.NewLoaderWithPaths([]string{tmpDir}, embeddedFS)
 
 	exts, err := loader.DiscoverAll()
 	if err != nil {
@@ -164,7 +164,7 @@ commands:
 	}
 
 	// Find the LintAll extension — should be the project-local one.
-	var lintAll *star.Extension
+	var lintAll *extension.Extension
 	for _, ext := range exts {
 		if ext.Name == extName {
 			lintAll = ext
@@ -180,7 +180,7 @@ commands:
 		t.Errorf("expected project-local override, got description %q", lintAll.Description)
 	}
 
-	if lintAll.Source != star.SourceProjectLocal {
+	if lintAll.Source != extension.SourceProjectLocal {
 		t.Errorf("expected SourceProjectLocal, got %s", lintAll.Source)
 	}
 }

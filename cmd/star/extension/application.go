@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Noble Factor. All rights reserved.
 
-// Package star provides the runtime types and execution engine for the star CLI.
-package star
+// Package extension provides the runtime types and execution engine for the star CLI.
+package extension
 
 import (
 	"context"
@@ -41,7 +41,7 @@ type Application struct {
 	commands map[string]*Command
 	config   *config.Config         // Unified config for builtin and extension config.
 	env      *op.RuntimeEnvironment // session-scoped env owned by this Application; Close releases it.
-	registry *ExtensionRegistry
+	registry *Registry
 	star     *starlarkbridge.Runtime
 }
 
@@ -96,7 +96,7 @@ func NewApplication(rootCmd *cobra.Command) *Application {
 
 	starApp := &Application{
 		commands: make(map[string]*Command),
-		registry: NewExtensionRegistry(),
+		registry: NewRegistry(),
 		star:     bridge,
 		app:      app,
 		env:      runtimeEnvironment,
@@ -146,8 +146,8 @@ func (r *Application) Environment() *op.RuntimeEnvironment {
 // Registry returns the extension registry.
 //
 // Returns:
-//   - *ExtensionRegistry: the extension registry.
-func (r *Application) Registry() *ExtensionRegistry {
+//   - *Registry: the extension registry.
+func (r *Application) Registry() *Registry {
 	return r.registry
 }
 
@@ -190,7 +190,7 @@ func (r *Application) Refresh(cmd *cobra.Command) {
 //
 // Returns:
 //   - error: non-nil if discovery, registration, config loading, or activation fails.
-func (r *Application) DiscoverAndLoad(loader *ExtensionLoader) error {
+func (r *Application) DiscoverAndLoad(loader *Loader) error {
 
 	extensions, err := loader.DiscoverAll()
 	if err != nil {
@@ -238,7 +238,7 @@ func (r *Application) DiscoverAndLoad(loader *ExtensionLoader) error {
 //   - error: non-nil if discovery, config registration, config loading, or activation fails.
 func (r *Application) LoadExtensionsFrom(dir string) error {
 
-	loader := &ExtensionLoader{
+	loader := &Loader{
 		searchPaths: []string{dir},
 	}
 

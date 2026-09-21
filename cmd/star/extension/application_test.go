@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Noble Factor. All rights reserved.
 
-package star
+package extension
 
 import (
 	"io/fs"
@@ -24,7 +24,7 @@ import (
 func TestRuntime_DiscoverAndLoad(t *testing.T) {
 	t.Run("empty embedded FS loads without error", func(t *testing.T) {
 		r := NewApplication(&cobra.Command{Use: "star"})
-		loader := NewExtensionLoader(fstest.MapFS{})
+		loader := NewLoader(fstest.MapFS{})
 
 		err := r.DiscoverAndLoad(loader)
 		if err != nil {
@@ -34,7 +34,7 @@ func TestRuntime_DiscoverAndLoad(t *testing.T) {
 
 	t.Run("loads embedded extensions", func(t *testing.T) {
 		r := NewApplication(&cobra.Command{Use: "star"})
-		loader := NewExtensionLoader(buildTestEmbeddedFS(t))
+		loader := NewLoader(buildTestEmbeddedFS(t))
 
 		err := r.DiscoverAndLoad(loader)
 		if err != nil {

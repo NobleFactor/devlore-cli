@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package star
+package extension
 
 import (
 	"fmt"
@@ -40,7 +40,7 @@ func TestConfigIntegration(t *testing.T) {
 	}
 	extDir := filepath.Join(projectRoot, "cmd", "star", "extensions")
 
-	loader := &ExtensionLoader{searchPaths: []string{extDir}}
+	loader := &Loader{searchPaths: []string{extDir}}
 	allExts, err := loader.DiscoverAll()
 	if err != nil {
 		t.Fatalf("DiscoverAll(%s): %v", extDir, err)

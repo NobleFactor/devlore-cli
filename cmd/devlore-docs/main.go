@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Noble Factor. All rights reserved.
 
-// Command docgen generates Docker-style CLI reference documentation
-// for the writ and lore commands.
+// Command devlore-docs generates the CLI reference: one markdown page per command, for every program in the
+// suite -- writ, lore, star and devlore-test (#787). Each program's tree is built in-process from its
+// `NewRootCmd`, so the pages say what the binaries say.
 package main
 
 import (
@@ -12,8 +13,11 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/NobleFactor/devlore-cli/cmd/devlore-test/devloretest"
 	"github.com/NobleFactor/devlore-cli/cmd/lore/lore"
+	"github.com/NobleFactor/devlore-cli/cmd/star/star"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ"
+	"github.com/NobleFactor/devlore-cli/pkg/iox"
 )
 
 func main() {
@@ -27,24 +31,34 @@ func main() {
 	}
 }
 
-func run(outputDir, version string) error {
+func run(outputDir, version string) (err error) {
 	fmt.Println("Generating CLI reference documentation...")
 
-	writCmd := writ.NewRootCmd()
-	fmt.Printf("\nwrit (%d commands):\n", countCommands(writCmd))
-	if err := GenerateTree(writCmd, outputDir, "writ", version); err != nil {
-		return fmt.Errorf("generating writ docs: %w", err)
-	}
+	// star's root comes with the session its extension commands run in; the walk needs only the tree.
+	starCmd, starApplication := star.NewRootCmd()
+	defer iox.Close(&err, starApplication)
 
-	loreCmd := lore.NewRootCmd()
-	fmt.Printf("\nlore (%d commands):\n", countCommands(loreCmd))
-	if err := GenerateTree(loreCmd, outputDir, "lore", version); err != nil {
-		return fmt.Errorf("generating lore docs: %w", err)
+	for _, program := range []struct {
+		name string
+		root *cobra.Command
+	}{
+		{"writ", writ.NewRootCmd()},
+		{"lore", lore.NewRootCmd()},
+		{"star", starCmd},
+		{"devlore-test", devloretest.NewRootCmd()},
+	} {
+		fmt.Printf("\n%s (%d commands):\n", program.name, countCommands(program.root))
+		if err := GenerateTree(program.root, outputDir, program.name, version); err != nil {
+			return fmt.Errorf("generating %s docs: %w", program.name, err)
+		}
 	}
 
 	fmt.Println("\nDone.")
 	return nil
 }
+
+// programs are the suite's four, in the order the reference lists them; the test of #787 reads this list.
+var programs = []string{"writ", "lore", "star", "devlore-test"}
 
 func countCommands(cmd *cobra.Command) int {
 	count := 0
