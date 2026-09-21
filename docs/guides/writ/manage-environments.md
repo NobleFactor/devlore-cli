@@ -31,16 +31,13 @@ When a target file already exists and isn't a writ-managed symlink, you have
 four strategies:
 
 ```bash
-# Stop on first conflict (default)
+# Refuse when a target is occupied, listing the occupants (the default)
 writ deploy noblefactor
 
-# Back up conflicting files with timestamps
-writ deploy --conflict=backup noblefactor
+# Archive each occupant to the recovery site, then write; restorable
+writ deploy --conflict=replace noblefactor
 
-# Overwrite without backup
-writ deploy --conflict=overwrite noblefactor
-
-# Skip conflicting files and continue
+# Leave every occupied target untouched and continue
 writ deploy --conflict=skip noblefactor
 ```
 

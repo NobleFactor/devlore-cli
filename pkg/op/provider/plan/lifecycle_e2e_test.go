@@ -228,9 +228,13 @@ plan.run(loaded, plan.spec())
 func newLifecycleEnv(t *testing.T, tmp string) (*op.RuntimeEnvironment, *plan.Provider) {
 	t.Helper()
 
+	// The conflict policy is `stop`, inherited by every spec made with nil flags: the fail-and-rollback scenarios
+	// inject their failure by occupying an mkdir's path, and under `stop` that is the seam's refusal (#822 -- under
+	// the `replace` floor the occupant would be archived and the run would succeed). The unoccupied scenarios never
+	// consult the policy.
 	environment, err := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
 		WithRoot(tmp).
-		WithApplication(&application.Application{Name: "test"}))
+		WithApplication(&application.Application{Name: "test", Flags: map[string]any{"conflict": op.ConflictStop}}))
 	if err != nil {
 		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
 	}

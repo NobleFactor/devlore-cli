@@ -369,7 +369,7 @@ kv section variant stores the tagged values directly.
 Each section announces a **constructor that returns it pre-floored** — OpenTelemetry's `CreateDefaultConfig()`. The
 builtin floor ("the values you get with no `config.yaml`") is therefore a real, typed, constructed value, not an
 untyped defaults map: `NewRuntimeEnvironmentConfig()` sets `BackupSuffix: ".devlore-backup"` and
-`ConflictPolicy: ConflictStop` directly — the floor is a *compiled-in* default set in code, not defaulting logic
+`ConflictPolicy: ConflictReplace` directly — the floor is a *compiled-in* default set in code, not defaulting logic
 scattered at the point of use. When resolution instantiates a `Config`, it calls each constructor, then the loader
 overlays the resolved values.
 

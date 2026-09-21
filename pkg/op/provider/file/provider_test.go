@@ -1487,6 +1487,144 @@ func TestMkdir_Idempotent(t *testing.T) {
 	}
 }
 
+// TestMkdir_Stop_RefusesAnOccupant is #822's first row: a regular file, a live symlink and a dangling symlink at the
+// path are occupied targets, and under `stop` the call refuses in the seam's words, archiving nothing and creating
+// nothing.
+func TestMkdir_Stop_RefusesAnOccupant(t *testing.T) {
+
+	for _, kind := range mkdirOccupantKinds {
+		t.Run(kind, func(t *testing.T) {
+
+			tmp := t.TempDir()
+			target := occupyForMkdir(t, tmp, kind)
+			p := testProvider(t, tmp)
+			p.RuntimeEnvironment().Application.Flags = map[string]any{"conflict": op.ConflictStop}
+
+			product, receipt, err := p.Mkdir(testActivation(t, p.RuntimeEnvironment()), target, 0o755, "", "")
+			if err == nil || !strings.Contains(err.Error(), "conflict policy is stop") {
+				t.Fatalf("Mkdir() over a %s under stop: err = %v; want the seam's refusal", kind, err)
+			}
+			if product != nil || receipt != nil {
+				t.Errorf("a refusal returned product %v and receipt %v", product, receipt)
+			}
+			assertOccupantIntact(t, tmp, target, kind)
+			assertNothingArchived(t, tmp)
+		})
+	}
+}
+
+// TestMkdir_Skip_LeavesAnOccupant is the second row: under `skip` the call returns nothing and changes nothing.
+func TestMkdir_Skip_LeavesAnOccupant(t *testing.T) {
+
+	for _, kind := range mkdirOccupantKinds {
+		t.Run(kind, func(t *testing.T) {
+
+			tmp := t.TempDir()
+			target := occupyForMkdir(t, tmp, kind)
+			p := testProvider(t, tmp)
+			p.RuntimeEnvironment().Application.Flags = map[string]any{"conflict": op.ConflictSkip}
+
+			product, receipt, err := p.Mkdir(testActivation(t, p.RuntimeEnvironment()), target, 0o755, "", "")
+			if err != nil {
+				t.Fatalf("Mkdir() over a %s under skip: %v", kind, err)
+			}
+			if product != nil || receipt != nil {
+				t.Errorf("a skip returned product %v and receipt %v", product, receipt)
+			}
+			assertOccupantIntact(t, tmp, target, kind)
+			assertNothingArchived(t, tmp)
+		})
+	}
+}
+
+// TestMkdir_Replace_ArchivesAnOccupantAndCreates is the third row: under `replace` the occupant is moved to the
+// recovery site, the directory is created, and the receipt says both -- `create_dir`, with the archive's id, and a
+// digest for the file (a symlink's is the zero value, as archiveAndPrune documents).
+func TestMkdir_Replace_ArchivesAnOccupantAndCreates(t *testing.T) {
+
+	for _, kind := range mkdirOccupantKinds {
+		t.Run(kind, func(t *testing.T) {
+
+			tmp := t.TempDir()
+			target := occupyForMkdir(t, tmp, kind)
+			p := testProvider(t, tmp)
+			p.RuntimeEnvironment().Application.Flags = map[string]any{"conflict": op.ConflictReplace}
+
+			product, receipt, err := p.Mkdir(testActivation(t, p.RuntimeEnvironment()), target, 0o755, "", "")
+			if err != nil {
+				t.Fatalf("Mkdir() over a %s under replace: %v", kind, err)
+			}
+			if product == nil || product.Path().Abs() != target {
+				t.Fatalf("product = %v; want the directory at %s", product, target)
+			}
+			if info, err := os.Lstat(target); err != nil || !info.IsDir() {
+				t.Fatalf("after replace, %s is not a directory: info %v, err %v", target, info, err)
+			}
+			if receipt == nil {
+				t.Fatal("a replacing mkdir returned no receipt")
+			}
+			if receipt.Kind() != MutationCreateDir {
+				t.Errorf("receipt.Kind() = %q, want %q", receipt.Kind(), MutationCreateDir)
+			}
+			id := receipt.RecoveryID()
+			if id == "" {
+				t.Fatal("the receipt carries no recovery id; the occupant cannot be restored")
+			}
+			if _, err := os.Lstat(filepath.Join(tmp, ".devlore", "recovery", id)); err != nil {
+				t.Errorf("the occupant is not in recovery under %s: %v", id, err)
+			}
+			if hasDigest := len(receipt.RecoveryDigest().Bytes) != 0; hasDigest != (kind == "file") {
+				t.Errorf("recovery digest present = %v for a %s; a file digests and a symlink does not", hasDigest, kind)
+			}
+		})
+	}
+}
+
+// TestMkdir_Replace_CompensationRestoresTheOccupant is the round trip: forward under `replace`, then
+// CompensateFileMutation, and the directory is gone and the occupant is back as it was.
+func TestMkdir_Replace_CompensationRestoresTheOccupant(t *testing.T) {
+
+	for _, kind := range mkdirOccupantKinds {
+		t.Run(kind, func(t *testing.T) {
+
+			tmp := t.TempDir()
+			target := occupyForMkdir(t, tmp, kind)
+			p := testProvider(t, tmp)
+			p.RuntimeEnvironment().Application.Flags = map[string]any{"conflict": op.ConflictReplace}
+
+			_, receipt, err := p.Mkdir(testActivation(t, p.RuntimeEnvironment()), target, 0o755, "", "")
+			if err != nil {
+				t.Fatalf("Mkdir() over a %s under replace: %v", kind, err)
+			}
+			if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), receipt); err != nil {
+				t.Fatalf("CompensateFileMutation(): %v", err)
+			}
+			assertOccupantIntact(t, tmp, target, kind)
+		})
+	}
+}
+
+// TestMkdir_ADirectoryIsNeverAConflict pins the idempotent case: a directory at the path under `stop` is not a
+// refusal -- the directory comes back with a nil receipt, and the policy is never consulted.
+func TestMkdir_ADirectoryIsNeverAConflict(t *testing.T) {
+
+	tmp := t.TempDir()
+	target := filepath.Join(tmp, "occupied")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p := testProvider(t, tmp)
+	p.RuntimeEnvironment().Application.Flags = map[string]any{"conflict": op.ConflictStop}
+
+	product, receipt, err := p.Mkdir(testActivation(t, p.RuntimeEnvironment()), target, 0o755, "", "")
+	if err != nil {
+		t.Fatalf("Mkdir() over a directory under stop: %v", err)
+	}
+	if product == nil || receipt != nil {
+		t.Errorf("product = %v, receipt = %v; want the directory and no receipt", product, receipt)
+	}
+}
+
 // --- ReadText ---
 
 func TestReadText_ReturnsFileContents(t *testing.T) {
@@ -2392,22 +2530,6 @@ func TestCompensateMkdir_AlreadyExists_NoOp(t *testing.T) {
 	}
 }
 
-func TestCompensateMkdir_NotADirectory_ReturnsError(t *testing.T) {
-
-	tmp := t.TempDir()
-	writeTestFile(t, tmp, "regular", "content")
-	target := filepath.Join(tmp, "regular")
-	p := testProvider(t, tmp)
-
-	_, _, err := p.Mkdir(testActivation(t, p.RuntimeEnvironment()), target, 0o755, "", "")
-	if err == nil {
-		t.Fatal("Mkdir() on a regular file should error")
-	}
-	if !strings.Contains(err.Error(), "is not a directory") {
-		t.Errorf("error = %v, want substring \"is not a directory\"", err)
-	}
-}
-
 func TestCompensateMkdir_TamperedBoundary_Errors(t *testing.T) {
 
 	tmp := t.TempDir()
@@ -2623,4 +2745,71 @@ func concrete[S Resource](t *testing.T, r Resource) S {
 		t.Fatalf("resource is %T, want %T", r, want)
 	}
 	return c
+}
+
+// mkdirOccupantKinds are the three occupants #822 names: a regular file, a live symlink, a dangling symlink.
+var mkdirOccupantKinds = []string{"file", "link", "dangling"}
+
+// occupyForMkdir puts an occupant of `kind` at `<dir>/occupied` and returns that path: a regular file holding
+// "occupant", a symlink to `<dir>/referent`, or a symlink to `<dir>/gone`, which does not exist.
+func occupyForMkdir(t *testing.T, dir, kind string) string {
+
+	t.Helper()
+
+	target := filepath.Join(dir, "occupied")
+	switch kind {
+	case "file":
+		writeTestFile(t, dir, "occupied", "occupant")
+	case "link":
+		writeTestFile(t, dir, "referent", "referent")
+		if err := os.Symlink(filepath.Join(dir, "referent"), target); err != nil {
+			t.Fatal(err)
+		}
+	case "dangling":
+		if err := os.Symlink(filepath.Join(dir, "gone"), target); err != nil {
+			t.Fatal(err)
+		}
+	default:
+		t.Fatalf("unknown occupant kind %q", kind)
+	}
+	return target
+}
+
+// assertOccupantIntact fails unless the occupant occupyForMkdir placed at `target` is there as it was.
+func assertOccupantIntact(t *testing.T, dir, target, kind string) {
+
+	t.Helper()
+
+	info, err := os.Lstat(target)
+	if err != nil {
+		t.Fatalf("the %s occupant is gone from %s: %v", kind, target, err)
+	}
+	switch kind {
+	case "file":
+		if !info.Mode().IsRegular() {
+			t.Fatalf("the file occupant is now %v", info.Mode())
+		}
+		if content, err := os.ReadFile(target); err != nil || string(content) != "occupant" {
+			t.Fatalf("the file occupant's content is %q, err %v; want \"occupant\"", content, err)
+		}
+	default:
+		if info.Mode()&os.ModeSymlink == 0 {
+			t.Fatalf("the %s occupant is now %v, not a symlink", kind, info.Mode())
+		}
+		want := filepath.Join(dir, map[string]string{"link": "referent", "dangling": "gone"}[kind])
+		if referent, err := os.Readlink(target); err != nil || referent != want {
+			t.Fatalf("the %s occupant points at %q, err %v; want %q", kind, referent, err, want)
+		}
+	}
+}
+
+// assertNothingArchived fails when the recovery site under `dir` holds anything: a refusal and a skip archive nothing.
+func assertNothingArchived(t *testing.T, dir string) {
+
+	t.Helper()
+
+	entries, err := os.ReadDir(filepath.Join(dir, ".devlore", "recovery"))
+	if err == nil && len(entries) != 0 {
+		t.Errorf("%d entries in recovery; want none", len(entries))
+	}
 }

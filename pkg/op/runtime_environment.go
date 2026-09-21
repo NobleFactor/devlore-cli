@@ -55,7 +55,8 @@ type RuntimeEnvironment struct {
 	// [application.Application.DryRun].
 	Application *application.Application
 
-	// BackupSuffix is appended to back up filenames during conflict resolution.
+	// BackupSuffix is the suffix the `backup` action appends to the copy it leaves beside a file. Conflict
+	// resolution never suffixes: an occupant is archived to the recovery site, whole.
 	BackupSuffix string
 
 	// Context carries a deadline, a cancellation signal, and other values across API boundaries.
@@ -786,7 +787,8 @@ func (p ConflictPolicy) String() string {
 // ParseConflictPolicy parses a flag/serialized policy name.
 //
 // Parameters:
-//   - `value`: "stop", "skip", or "replace"; "" parses as the [ConflictStop] floor.
+//   - `value`: "stop", "skip", or "replace". "" is the flag's zero value and parses as [ConflictStop], the command
+//     line's default; the write seam's floor is [ConflictReplace], from [NewRuntimeEnvironmentConfig].
 //
 // Returns:
 //   - `ConflictPolicy`: the parsed policy.
@@ -816,7 +818,8 @@ func ParseConflictPolicy(value string) (ConflictPolicy, error) {
 type RuntimeEnvironmentConfig struct {
 	devconfig.SectionBase
 
-	// BackupSuffix is appended to back up filenames during conflict resolution.
+	// BackupSuffix is the suffix the `backup` action appends to the copy it leaves beside a file. Conflict
+	// resolution never suffixes: an occupant is archived to the recovery site, whole.
 	BackupSuffix string
 
 	// ConflictPolicy chooses how preflight conflicts are handled.
