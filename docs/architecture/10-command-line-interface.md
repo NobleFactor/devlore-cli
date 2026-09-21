@@ -867,8 +867,11 @@ them under the prefix. `star docs man` duplicated that route and `star docs mark
 both are removed in [#743](https://github.com/NobleFactor/devlore-cli/issues/743). `star docs starlark`, the
 authoring guide, is star's own and stays.
 
-`docs/cli/**` is generated from the command tree by `devlore-docs`. It is **gitignored in this repository and
-published from it**: `.github/workflows/docs-publish.yaml` runs `make docs` on every push to `develop`,
+`docs/cli/**` is generated from the command trees of all four programs by `devlore-docs`, which builds each
+tree in-process from its `NewRootCmd` — star's included, extensions and all, since #787 made star's root an
+importable package like the other three — and `make build` generates it on every build, so a checkout that
+built has a current reference. It is **gitignored in this repository and published from it**:
+`.github/workflows/docs-publish.yaml` runs `make docs` on every push to `develop`,
 `main`, or `release/*`, copies `docs/cli/` and `docs/guides/` into `NobleFactor/devlore.noblefactor.com`, and
 **opens and merges** the site PR unattended.
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Noble Factor. All rights reserved.
 
-package main
+package star
 
 import (
 	"bytes"
@@ -14,7 +14,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
-	starruntime "github.com/NobleFactor/devlore-cli/cmd/star/star"
+	"github.com/NobleFactor/devlore-cli/cmd/star/extension"
 )
 
 // TestRoot_KeepsTheOutputConvention pins the root registration through the shared checkers: every command
@@ -26,7 +26,7 @@ import (
 // own, which the loader now refuses.
 func TestRoot_KeepsTheOutputConvention(t *testing.T) {
 
-	root, runtime := newRootCmd()
+	root, runtime := NewRootCmd()
 	defer closeQuietly(t, runtime)
 	if len(root.Commands()) == 0 {
 		t.Fatal("the root has no subcommands; nothing to check")
@@ -44,7 +44,7 @@ func TestRoot_KeepsTheOutputConvention(t *testing.T) {
 // it rather than under a second `config` of their own.
 func TestRoot_ConfigIsTheSharedSetPlusShowAndSync(t *testing.T) {
 
-	root, runtime := newRootCmd()
+	root, runtime := NewRootCmd()
 	defer closeQuietly(t, runtime)
 
 	var configs []*cobra.Command
@@ -72,7 +72,7 @@ func TestRoot_ConfigIsTheSharedSetPlusShowAndSync(t *testing.T) {
 // is the one route, and star's `docs` group carries only what no other program has.
 func TestRoot_DocsHasStarlarkAloneAndManIsShared(t *testing.T) {
 
-	root, runtime := newRootCmd()
+	root, runtime := NewRootCmd()
 	defer closeQuietly(t, runtime)
 
 	if !hasCommand(root, "man") {
@@ -95,7 +95,7 @@ func TestRoot_DocsHasStarlarkAloneAndManIsShared(t *testing.T) {
 // and cobra honors the root's setting for every command beneath.
 func TestRoot_SilencesUsage(t *testing.T) {
 
-	root, runtime := newRootCmd()
+	root, runtime := NewRootCmd()
 	defer closeQuietly(t, runtime)
 
 	if !root.SilenceUsage {
@@ -104,12 +104,12 @@ func TestRoot_SilencesUsage(t *testing.T) {
 }
 
 // TestRoot_DryRunReachesTheRuntime pins the wrapper: the shared `--dry-run` is copied into
-// starruntime.DryRun at dispatch, where star's scripts read it as `dry_run`.
+// extension.DryRun at dispatch, where star's scripts read it as `dry_run`.
 func TestRoot_DryRunReachesTheRuntime(t *testing.T) {
 
-	root, runtime := newRootCmd()
+	root, runtime := NewRootCmd()
 	defer closeQuietly(t, runtime)
-	t.Cleanup(func() { starruntime.DryRun = false })
+	t.Cleanup(func() { extension.DryRun = false })
 
 	var out bytes.Buffer
 	root.SetOut(&out)
@@ -118,8 +118,8 @@ func TestRoot_DryRunReachesTheRuntime(t *testing.T) {
 	if err := root.Execute(); err != nil {
 		t.Fatalf("star --dry-run version: %v\n%s", err, out.String())
 	}
-	if !starruntime.DryRun {
-		t.Error("--dry-run was parsed but starruntime.DryRun is still false")
+	if !extension.DryRun {
+		t.Error("--dry-run was parsed but extension.DryRun is still false")
 	}
 }
 
@@ -127,7 +127,7 @@ func TestRoot_DryRunReachesTheRuntime(t *testing.T) {
 // is the narrator the shared pre-run built, so one --silent gate covers cli.Note and ui.note() alike.
 func TestRoot_SilentWiresOneNarrator(t *testing.T) {
 
-	root, runtime := newRootCmd()
+	root, runtime := NewRootCmd()
 	defer closeQuietly(t, runtime)
 
 	var out bytes.Buffer
@@ -151,9 +151,9 @@ func TestRoot_SelfInstallInstallsTheExtensions(t *testing.T) {
 	for _, name := range []string{"XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME"} {
 		t.Setenv(name, t.TempDir())
 	}
-	t.Chdir(filepath.Join("..", "..")) // the extensions hook finds star/extensions at the repository root
+	t.Chdir(filepath.Join("..", "..", "..")) // the repository root, three up from cmd/star/star // the extensions hook finds star/extensions at the repository root
 
-	root, runtime := newRootCmd()
+	root, runtime := NewRootCmd()
 	defer closeQuietly(t, runtime)
 
 	prefix := t.TempDir()
@@ -173,7 +173,7 @@ func TestRoot_SelfInstallInstallsTheExtensions(t *testing.T) {
 
 // closeQuietly closes the session and reports, rather than fails on, a close error: the tests above are
 // about the command tree, and a close error is a different finding.
-func closeQuietly(t *testing.T, runtime *starruntime.Application) {
+func closeQuietly(t *testing.T, runtime *extension.Application) {
 	t.Helper()
 	if err := runtime.Close(); err != nil {
 		t.Logf("closing the runtime: %v", err)
@@ -202,10 +202,10 @@ func TestRegisterStarlarkCommand_RefusesReservedFlagNames(t *testing.T) {
 
 	for _, name := range []string{"filter", "format", "jq", "json", "output", "store"} {
 		root := &cobra.Command{Use: "star"}
-		cmd := &starruntime.Command{
+		cmd := &extension.Command{
 			Name:      "probe.leaf",
-			Extension: &starruntime.Extension{Name: "probe"},
-			Flags:     []starruntime.Flag{{Name: name, Type: "string"}},
+			Extension: &extension.Extension{Name: "probe"},
+			Flags:     []extension.Flag{{Name: name, Type: "string"}},
 		}
 		err := registerStarlarkCommand(root, cmd)
 		if err == nil {
@@ -218,10 +218,10 @@ func TestRegisterStarlarkCommand_RefusesReservedFlagNames(t *testing.T) {
 	}
 
 	root := &cobra.Command{Use: "star"}
-	cmd := &starruntime.Command{
+	cmd := &extension.Command{
 		Name:      "probe.leaf",
-		Extension: &starruntime.Extension{Name: "probe"},
-		Flags:     []starruntime.Flag{{Name: "source", Type: "string"}},
+		Extension: &extension.Extension{Name: "probe"},
+		Flags:     []extension.Flag{{Name: "source", Type: "string"}},
 	}
 	if err := registerStarlarkCommand(root, cmd); err != nil {
 		t.Errorf("--source is not reserved, yet it was refused: %v", err)
@@ -231,10 +231,10 @@ func TestRegisterStarlarkCommand_RefusesReservedFlagNames(t *testing.T) {
 	// before the convention refused every shadow.
 	shadowing := &cobra.Command{Use: "star"}
 	shadowing.PersistentFlags().Bool("verbose", false, "the root's")
-	cmd = &starruntime.Command{
+	cmd = &extension.Command{
 		Name:      "probe.leaf",
-		Extension: &starruntime.Extension{Name: "probe"},
-		Flags:     []starruntime.Flag{{Name: "verbose", Type: "bool"}},
+		Extension: &extension.Extension{Name: "probe"},
+		Flags:     []extension.Flag{{Name: "verbose", Type: "bool"}},
 	}
 	if err := registerStarlarkCommand(shadowing, cmd); err == nil || !strings.Contains(err.Error(), "shadows") {
 		t.Errorf("a flag shadowing the root's --verbose was accepted: %v", err)
@@ -247,8 +247,8 @@ func TestRegisterStarlarkCommand_RefusesReservedFlagNames(t *testing.T) {
 // booleans the script required to be true, are gone with them.
 func TestRoot_GenerateTakesThePackageAlone(t *testing.T) {
 
-	t.Chdir(filepath.Join("..", "..")) // the devlore.* extensions load from the repository root
-	root, runtime := newRootCmd()
+	t.Chdir(filepath.Join("..", "..", "..")) // the repository root, three up from cmd/star/star // the devlore.* extensions load from the repository root
+	root, runtime := NewRootCmd()
 	defer closeQuietly(t, runtime)
 
 	generate := findPath(root, "devlore", "actions", "generate")
@@ -270,10 +270,10 @@ func TestRoot_GenerateTakesThePackageAlone(t *testing.T) {
 // byte for byte before and after.
 func TestRoot_GenerateDryRunWritesNothing(t *testing.T) {
 
-	t.Chdir(filepath.Join("..", ".."))
-	root, runtime := newRootCmd()
+	t.Chdir(filepath.Join("..", "..", "..")) // the repository root, three up from cmd/star/star
+	root, runtime := NewRootCmd()
 	defer closeQuietly(t, runtime)
-	t.Cleanup(func() { starruntime.DryRun = false })
+	t.Cleanup(func() { extension.DryRun = false })
 
 	// The operand is a Go package path, slash-separated on every platform; the generator writes it into
 	// the package clause. Only the files are read through the platform's separator.
@@ -335,7 +335,7 @@ func snapshot(t *testing.T, pkg string) map[string]string {
 // stdout through the pipeline, so `-o value` prints the prose and the json default quotes it.
 func TestRoot_DocsStarlarkIsAResult(t *testing.T) {
 
-	root, runtime := newRootCmd()
+	root, runtime := NewRootCmd()
 	defer closeQuietly(t, runtime)
 
 	var out bytes.Buffer
@@ -355,7 +355,7 @@ func TestRoot_DocsStarlarkIsAResult(t *testing.T) {
 func TestRoot_UnimplementedKeyCommandsFail(t *testing.T) {
 
 	for _, leaf := range []string{"generate", "list", "rotate"} {
-		root, runtime := newRootCmd()
+		root, runtime := NewRootCmd()
 		var out bytes.Buffer
 		root.SetOut(&out)
 		root.SetErr(&out)

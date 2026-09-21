@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Noble Factor. All rights reserved.
 
-package star
+package extension
 
 import (
 	"fmt"
@@ -9,23 +9,23 @@ import (
 	"sync"
 )
 
-// ExtensionRegistry holds registered extensions. Used for debugging and
+// Registry holds registered extensions. Used for debugging and
 // listing loaded extensions from the command line.
-type ExtensionRegistry struct {
+type Registry struct {
 	mu   sync.RWMutex
 	exts map[string]*Extension
 }
 
-// NewExtensionRegistry creates an empty registry.
-func NewExtensionRegistry() *ExtensionRegistry {
-	return &ExtensionRegistry{
+// NewRegistry creates an empty registry.
+func NewRegistry() *Registry {
+	return &Registry{
 		exts: make(map[string]*Extension),
 	}
 }
 
 // Register adds an extension to the registry.
 // Returns an error if an extension with the same name is already registered.
-func (r *ExtensionRegistry) Register(ext *Extension) error {
+func (r *Registry) Register(ext *Extension) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -38,7 +38,7 @@ func (r *ExtensionRegistry) Register(ext *Extension) error {
 }
 
 // Get returns an extension by name, or nil if not found.
-func (r *ExtensionRegistry) Get(name string) *Extension {
+func (r *Registry) Get(name string) *Extension {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -46,7 +46,7 @@ func (r *ExtensionRegistry) Get(name string) *Extension {
 }
 
 // All returns a copy of all registered extensions.
-func (r *ExtensionRegistry) All() map[string]*Extension {
+func (r *Registry) All() map[string]*Extension {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -58,7 +58,7 @@ func (r *ExtensionRegistry) All() map[string]*Extension {
 }
 
 // Names returns a sorted list of registered extension names.
-func (r *ExtensionRegistry) Names() []string {
+func (r *Registry) Names() []string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -71,7 +71,7 @@ func (r *ExtensionRegistry) Names() []string {
 }
 
 // Count returns the number of registered extensions.
-func (r *ExtensionRegistry) Count() int {
+func (r *Registry) Count() int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
@@ -79,7 +79,7 @@ func (r *ExtensionRegistry) Count() int {
 }
 
 // Clear removes all extensions from the registry.
-func (r *ExtensionRegistry) Clear() {
+func (r *Registry) Clear() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 

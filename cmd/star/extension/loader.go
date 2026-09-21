@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Noble Factor. All rights reserved.
 
-package star
+package extension
 
 import (
 	"fmt"
@@ -14,34 +14,34 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/xdg"
 )
 
-// ExtensionLoader discovers, parses, and deduplicates extensions from the
+// Loader discovers, parses, and deduplicates extensions from the
 // filesystem and embedded sources. It holds the search paths and embedded FS
 // as state.
-type ExtensionLoader struct {
+type Loader struct {
 	searchPaths []string
 	embeddedFS  fs.FS
 }
 
-// NewExtensionLoader creates a loader with the given embedded FS and default
+// NewLoader creates a loader with the given embedded FS and default
 // search paths.
-func NewExtensionLoader(embeddedFS fs.FS) *ExtensionLoader {
-	return &ExtensionLoader{
+func NewLoader(embeddedFS fs.FS) *Loader {
+	return &Loader{
 		searchPaths: defaultSearchPaths(),
 		embeddedFS:  embeddedFS,
 	}
 }
 
-// NewExtensionLoaderWithPaths creates a loader with explicit search paths and
+// NewLoaderWithPaths creates a loader with explicit search paths and
 // the given embedded FS. Used by tests that need to control the search order.
-func NewExtensionLoaderWithPaths(searchPaths []string, embeddedFS fs.FS) *ExtensionLoader {
-	return &ExtensionLoader{
+func NewLoaderWithPaths(searchPaths []string, embeddedFS fs.FS) *Loader {
+	return &Loader{
 		searchPaths: searchPaths,
 		embeddedFS:  embeddedFS,
 	}
 }
 
 // DefaultSearchPaths returns the search paths this loader will use.
-func (l *ExtensionLoader) DefaultSearchPaths() []string {
+func (l *Loader) DefaultSearchPaths() []string {
 	return l.searchPaths
 }
 
@@ -49,7 +49,7 @@ func (l *ExtensionLoader) DefaultSearchPaths() []string {
 // Searches the loader's search paths and returns the path to the extension
 // directory. Extension directories use the extension name directly (reverse
 // domain format).
-func (l *ExtensionLoader) FindExtensionDir(name string) (string, error) {
+func (l *Loader) FindExtensionDir(name string) (string, error) {
 	for _, searchPath := range l.searchPaths {
 		dir := filepath.Join(searchPath, name)
 		yamlPath := filepath.Join(dir, "extension.yaml")
@@ -70,7 +70,7 @@ func (l *ExtensionLoader) FindExtensionDir(name string) (string, error) {
 // DiscoverAll walks all search paths and embedded sources in priority order,
 // parses each extension.yaml into *Extension, and deduplicates by name (first
 // seen wins). Returns an ordered slice of the winners.
-func (l *ExtensionLoader) DiscoverAll() ([]*Extension, error) {
+func (l *Loader) DiscoverAll() ([]*Extension, error) {
 	seen := make(map[string]bool)
 	var result []*Extension
 
@@ -113,7 +113,7 @@ func (l *ExtensionLoader) DiscoverAll() ([]*Extension, error) {
 
 // discoverDir scans a filesystem directory for extension.yaml files and parses
 // each into an *Extension. Nonexistent directories are silently skipped.
-func (l *ExtensionLoader) discoverDir(dir string, source Source) ([]*Extension, error) {
+func (l *Loader) discoverDir(dir string, source Source) ([]*Extension, error) {
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
 		return nil, nil
 	}
@@ -165,7 +165,7 @@ func (l *ExtensionLoader) discoverDir(dir string, source Source) ([]*Extension, 
 
 // discoverEmbedded scans the embedded FS for extension.yaml files and parses
 // each into an *Extension.
-func (l *ExtensionLoader) discoverEmbedded() ([]*Extension, error) {
+func (l *Loader) discoverEmbedded() ([]*Extension, error) {
 	var exts []*Extension
 
 	err := fs.WalkDir(l.embeddedFS, ".", func(path string, d fs.DirEntry, err error) error {

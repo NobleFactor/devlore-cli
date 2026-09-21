@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/cmd/star/config"
+	"github.com/NobleFactor/devlore-cli/cmd/star/extension"
 	"github.com/NobleFactor/devlore-cli/cmd/star/provider/goast/doctaxonomy"
-	"github.com/NobleFactor/devlore-cli/cmd/star/star"
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/document"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
@@ -19,11 +19,11 @@ import (
 const lintGoStyleExtensionYAML = "../../.." +
 	"/star/extensions/com.noblefactor.star.LintGoStyle/extension.yaml"
 
-// loadTestExtension reads an extension.yaml into a star.Extension using document.Read.
-func loadTestExtension(t *testing.T, path string) *star.Extension {
+// loadTestExtension reads an extension.yaml into a extension.Extension using document.Read.
+func loadTestExtension(t *testing.T, path string) *extension.Extension {
 	t.Helper()
 
-	ext, err := document.ReadFile[star.Extension](path)
+	ext, err := document.ReadFile[extension.Extension](path)
 	if err != nil {
 		t.Fatalf("document.ReadFile(%s): %v", path, err)
 	}
@@ -32,7 +32,7 @@ func loadTestExtension(t *testing.T, path string) *star.Extension {
 
 // registryFromConfig registers the extension config, populates defaults, navigates to
 // comment_schemas, and converts to a SchemaRegistry.
-func registryFromConfig(t *testing.T, ext *star.Extension, configYAML string) *doctaxonomy.SchemaRegistry {
+func registryFromConfig(t *testing.T, ext *extension.Extension, configYAML string) *doctaxonomy.SchemaRegistry {
 	t.Helper()
 
 	config.ClearTypeCache()

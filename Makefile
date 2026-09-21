@@ -276,7 +276,7 @@ star-lkg: star ## Snapshot build/star as last-known-good (run after a green buil
 # GOEXE is ".exe" on Windows and empty elsewhere — binaries must carry it to be executable there.
 GOEXE := $(shell go env GOEXE)
 
-build: generate ## Build every product for PLATFORM (default: this machine; `all` for every platform)
+build: generate ## Build every product for PLATFORM (default: this machine; `all` for every platform), and the CLI reference
 	# The build comes to the machine: one host produces every platform's binaries, and installing
 	# anywhere is a copy. The codebase is pure Go — zero `import "C"` — so the whole matrix
 	# cross-compiles from here with GOOS/GOARCH alone, no per-platform toolchains and no build VMs.
@@ -298,6 +298,10 @@ build: generate ## Build every product for PLATFORM (default: this machine; `all
 	for tool in $(TOOLS) $(HOST_COPIES); do
 		$(HOST_GO) build $(LDFLAGS) -o build/$$tool$(HOST_GOEXE) ./cmd/$$tool
 	done
+	# The build builds the reference (#787, ruled 2026-09-21): a checkout that built has a current docs/cli/,
+	# generated from the same trees the binaries carry, and never as a step someone forgets. `docs` remains
+	# the standalone target docs-publish.yaml calls. The tools always build for the host, so this always runs.
+	build/devlore-docs$(HOST_GOEXE) --output-dir=docs/cli --version=$(VERSION)
 	# The stamp must reach the binary. `-X` against a symbol that does not exist is NOT an error —
 	# the linker ignores it and the binary reports its compiled-in default. Every release before
 	# 2026-08-16 shipped that way, unnoticed, because nothing compared the two. See
@@ -491,7 +495,7 @@ dev: ## Activate git hooks
 	git config core.hooksPath .githooks
 	echo "Hooks activated: .githooks/pre-commit"
 
-docs: build ## Generate CLI documentation
+docs: build ## Generate the CLI reference for writ, lore, star and devlore-test into docs/cli (build does this too)
 	build/devlore-docs$(HOST_GOEXE) --output-dir=docs/cli --version=$(VERSION)
 
 ##@ Distribution

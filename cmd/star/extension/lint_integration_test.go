@@ -3,7 +3,7 @@
 
 //go:build integration
 
-package star
+package extension
 
 import (
 	"os"
