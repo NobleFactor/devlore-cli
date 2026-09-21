@@ -42,8 +42,8 @@ Conflict handling (--conflict) — occupied targets (phase-8 step 49):
   replace  Archive each occupant to the recovery site and overwrite (restorable)`,
 		Example: `  writ deploy noblefactor
   writ deploy all noblefactor thenobles
-  writ deploy --conflict=backup noblefactor
-  writ deploy --conflict=overwrite noblefactor
+  writ deploy --conflict=replace noblefactor
+  writ deploy --conflict=skip noblefactor
   writ deploy -s ROLE=desktop noblefactor`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: runDeployV2,

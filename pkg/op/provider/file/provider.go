@@ -331,6 +331,11 @@ func (p *Provider) archiveOccupant(product SymbolicLink) (*Receipt, error) {
 // the call do NOT have their ownership changed, since their role is "existed before this call" rather than
 // "created here."
 //
+// An occupied path -- a regular file, or a symlink, live or dangling -- is the write seam's concern (#822): under
+// `stop` the call refuses, under `skip` it returns nothing and changes nothing, under `replace` it archives the
+// occupant to the recovery site and creates, and the receipt restores the occupant on compensation. A directory
+// at `path` is the idempotent case: nothing to do, and the policy is never consulted.
+//
 // Parameters:
 //   - `activationRecord`: the dispatch activation; its `Unit` stamps the produced [Directory]'s producerID.
 //   - `path`: the directory path to create.
@@ -340,9 +345,11 @@ func (p *Provider) archiveOccupant(product SymbolicLink) (*Receipt, error) {
 //
 // Returns:
 //   - `Directory`: the created directory resource, resolved; a nil receipt accompanies an already-existing
-//     directory.
-//   - `*Receipt`: the compensation receipt recording the creation boundary for undo.
-//   - `error`: non-nil when `path` exists as a non-directory, or on construction, mkdir, ownership, or resolve failure.
+//     directory; nil, with a nil receipt, when an occupant was left under the skip policy.
+//   - `*Receipt`: the compensation receipt recording the creation boundary for undo, and the recovery archive of
+//     a replaced occupant.
+//   - `error`: non-nil when an occupant is refused under the stop policy, or on archive, construction, mkdir,
+//     ownership, or resolve failure.
 //
 // +devlore:defaults mode={{ umask 0o777 }}, user="", group=""
 //
@@ -357,10 +364,24 @@ func (p *Provider) Mkdir(
 
 	leaf := p.RuntimeEnvironment().Root().NewPath(path).Abs()
 
-	// Observe before claiming: an occupant of another kind gets the plain refusal rather than the catalog's
-	// cross-kind collision (the claim below would collide with the occupant's discovered entry).
+	// Observe before claiming. A directory is the idempotent case and the policy is never consulted; anything else
+	// is an occupied target and the write-seam conflict policy governs (#822), decided here, before the claim, so a
+	// refusal never reaches the catalog's cross-kind collision and a replaced occupant is gone before the claim.
+	var recoveryID string
+	var digest op.Digest
 	if info, statErr := p.lstat(leaf); statErr == nil && !info.IsDir() {
-		return nil, nil, fmt.Errorf("%s exists, but is not a directory", path)
+		switch p.conflictPolicy() {
+		case op.ConflictStop:
+			return nil, nil, fmt.Errorf(
+				"target %s is occupied and the conflict policy is stop (replace archives and overwrites; skip leaves it)",
+				leaf)
+		case op.ConflictSkip:
+			return nil, nil, nil // Occupied target left untouched per the skip policy.
+		case op.ConflictReplace:
+		}
+		if recoveryID, digest, err = p.archiveMkdirOccupant(activationRecord, leaf, info.Mode()); err != nil {
+			return nil, nil, err
+		}
 	}
 
 	product, err = NewDirectory(p.RuntimeEnvironment(), activationRecord.CallerID, path)
@@ -368,19 +389,20 @@ func (p *Provider) Mkdir(
 		return nil, nil, err
 	}
 
-	boundary, info, err := p.findClosestExistingDir(leaf)
+	boundary, _, err := p.findClosestExistingDir(leaf)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	if boundary.Path().Abs() == leaf {
-		if info.IsDir() {
-			return product, nil, nil // directory exists and there's nothing to compensate
-		}
-		return nil, nil, fmt.Errorf("%s exists, but is not a directory", path)
+		return product, nil, nil // the directory exists, and there is nothing to compensate
 	}
 
-	receipt = NewReceipt(NewReceiptSpec(product, MutationCreateDir).WithBoundary(boundary))
+	spec := NewReceiptSpec(product, MutationCreateDir).WithBoundary(boundary)
+	if recoveryID != "" {
+		spec = spec.WithRecovery(recoveryID, digest)
+	}
+	receipt = NewReceipt(spec)
 
 	if err := p.mkdirAll(leaf, mode); err != nil {
 		return nil, receipt, err
@@ -397,10 +419,46 @@ func (p *Provider) Mkdir(
 	return product, receipt, nil
 }
 
+// archiveMkdirOccupant moves whatever occupies `leaf` -- a regular file, or a symlink, live or dangling -- to the
+// recovery site ahead of a replacing [Provider.Mkdir], and tells the catalog it is gone so the directory's claim
+// revives the path rather than colliding with the occupant's entry (#822).
+//
+// Parameters:
+//   - `activationRecord`: the dispatch activation; its caller stamps the catalog's gone transition.
+//   - `leaf`: the occupied absolute path.
+//   - `mode`: the occupant's observed mode, from the caller's lstat.
+//
+// Returns:
+//   - `string`: the recovery-site identifier of the archived occupant.
+//   - `op.Digest`: its pre-archive digest; the zero value for a symlink, as [Provider.archiveAndPrune] documents.
+//   - `error`: an unsupported entry kind, or an archive failure.
+func (p *Provider) archiveMkdirOccupant(
+	activationRecord *op.ActivationRecord,
+	leaf string,
+	mode os.FileMode,
+) (recoveryID string, digest op.Digest, err error) {
+
+	occupant, err := p.discoverEntryOfMode(leaf, mode)
+	if err != nil {
+		return "", op.Digest{}, err
+	}
+
+	recoveryID, digest, err = p.archiveAndPrune(occupant, false, "")
+	if err != nil {
+		return "", op.Digest{}, err
+	}
+
+	p.markEntryGone(activationRecord, occupant)
+
+	return recoveryID, digest, nil
+}
+
 // compensateMakeDir inverts a directory-create mutation by removing the directory subtree it created.
 //
 // Walks up from the receipt's resource, removing each entry until it reaches the boundary recorded on the receipt
-// (exclusive). A non-empty directory encountered along the way (a sibling adopted it) stops the unwind without error.
+// (exclusive). A non-empty directory encountered along the way (a sibling adopted it) stops the unwind without error
+// -- and without restoring a displaced occupant, which cannot return to a path that is still a directory. When the
+// receipt carries a recovery archive (a replacing mkdir, #822), the occupant is restored once the directory is gone.
 // [Provider.CompensateFileMutation] dispatches here for [MutationCreateDir].
 //
 // Parameters:
@@ -452,6 +510,31 @@ func (p *Provider) compensateMakeDir(receipt *Receipt) (err error) {
 		}
 
 		current = parent
+	}
+
+	return p.restoreDisplacedOccupant(receipt, resource)
+}
+
+// restoreDisplacedOccupant brings back the entry a replacing [Provider.Mkdir] archived, once the directory it gave way
+// to is gone (#822). A receipt with no recovery archive is a no-op; a missing recovery source is tolerated, as
+// [Provider.compensateWrite] tolerates it.
+//
+// Parameters:
+//   - `receipt`: the directory-create receipt.
+//   - `resource`: the receipt's resource, whose path the occupant returns to.
+//
+// Returns:
+//   - `error`: a restore failure other than a missing source.
+func (p *Provider) restoreDisplacedOccupant(receipt *Receipt, resource Resource) error {
+
+	recoveryID := receipt.RecoveryID()
+	if recoveryID == "" {
+		return nil
+	}
+
+	err := p.RuntimeEnvironment().RecoverySite.RestoreFile(resource.Path(), recoveryID)
+	if err != nil && !errors.Is(err, op.ErrRecoverySourceNotFound) {
+		return err
 	}
 
 	return nil
@@ -2056,7 +2139,7 @@ var errConflictSkip = errors.New("conflict policy skip: occupied target left unt
 //
 // Interim channel (the dry-run precedent): the application flag map carries the typed value
 // (`Flags["conflict"]`, an [op.ConflictPolicy]) until the config loader delivers the cli source; absent, the
-// announced runtime section's floor applies ([op.ConflictStop]).
+// announced runtime section's floor applies ([op.ConflictReplace]).
 //
 // Returns:
 //   - `op.ConflictPolicy`: the policy governing occupied write targets in this run.

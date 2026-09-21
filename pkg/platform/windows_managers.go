@@ -3,6 +3,8 @@
 
 package platform
 
+import "strings"
+
 // Windows managers (winget, Service Control Manager) split across three files for cross-host build support:
 //
 //   - windows_managers.go          types + identity + driver wiring (this file, always compiled)
@@ -101,5 +103,36 @@ func (m *wingetManager) token(p PURL) string {
 }
 
 // endregion
+
+// endregion
+
+// region HELPER FUNCTIONS
+
+// wingetListedVersion reads the version of `id` from a `winget list` output, matching the id as winget does:
+// case-insensitively. Winget prints the catalog's casing (`vim.vim` for a query of `Vim.Vim`), and a case-sensitive
+// scan read an installed package as absent, failing every install at the post-state check (#900).
+//
+// A row is `Name… Id Version Source`; the Id column is the field equal to `id` under [strings.EqualFold], and the
+// Version is the field after it. The header, the rule, and rows for other packages never match.
+//
+// Parameters:
+//   - `stdout`: the listing as winget printed it.
+//   - `id`: the winget id queried, as the manifest spelled it.
+//
+// Returns:
+//   - `string`: the installed version, or "" when no row names `id`.
+func wingetListedVersion(stdout, id string) string {
+
+	for _, line := range strings.Split(stdout, "\n") {
+		fields := strings.Fields(line)
+		for i := 0; i+1 < len(fields); i++ {
+			if strings.EqualFold(fields[i], id) {
+				return fields[i+1]
+			}
+		}
+	}
+
+	return ""
+}
 
 // endregion

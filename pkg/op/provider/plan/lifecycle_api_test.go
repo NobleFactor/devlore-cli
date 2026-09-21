@@ -409,9 +409,11 @@ func resumeThenFailRollsBack(t *testing.T, format string) {
 
 	tmp := t.TempDir()
 
+	// The failure is injected by occupying the un-run mkdir's path; under `stop` that is the seam's refusal (#822 --
+	// under the `replace` floor the occupant would be archived and the resumed run would succeed).
 	environment, err := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
 		WithRoot(tmp).
-		WithApplication(&application.Application{Name: "test"}))
+		WithApplication(&application.Application{Name: "test", Flags: map[string]any{"conflict": op.ConflictStop}}))
 	if err != nil {
 		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
 	}

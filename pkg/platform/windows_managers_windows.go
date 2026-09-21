@@ -170,10 +170,10 @@ func (m *wingetManager) installRaw(names []string, _ map[string]any) Result {
 //   - `name`: the winget id to query.
 //
 // Returns:
-//   - `bool`: true when `winget list` lists the id.
+//   - `bool`: true when `winget list` lists the id, compared as winget compares it, case-insensitively (#900).
 func (m *wingetManager) installed(name string) bool {
 	result := runWindowsCommand("winget list --id "+name, false)
-	return result.OK && strings.Contains(result.Stdout, name)
+	return result.OK && wingetListedVersion(result.Stdout, name) != ""
 }
 
 // removeRaw uninstalls the named packages by id.
@@ -232,6 +232,9 @@ func (m *wingetManager) searchRaw(query string, limit int) []SearchResult {
 
 // version returns the installed version of the named package, or "" when it is not installed.
 //
+// The id is compared as winget compares it, case-insensitively: winget prints the catalog's casing, and reading
+// it case-sensitively reported an installed package as absent (#900).
+//
 // Parameters:
 //   - `name`: the winget id to query.
 //
@@ -242,15 +245,7 @@ func (m *wingetManager) version(name string) string {
 	if !result.OK {
 		return ""
 	}
-	for _, line := range strings.Split(result.Stdout, "\n") {
-		if strings.Contains(line, name) {
-			fields := strings.Fields(line)
-			if len(fields) >= 2 {
-				return fields[len(fields)-2]
-			}
-		}
-	}
-	return ""
+	return wingetListedVersion(result.Stdout, name)
 }
 
 // endregion
