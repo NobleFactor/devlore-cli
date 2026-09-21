@@ -852,6 +852,15 @@ does not.
 Help text is the specification a user reads. It states what the command does, what its flags mean, and what
 its output is — including, for a multi-artifact command, the names of the artifacts it writes.
 
+**Help wraps to the terminal, and an indent means "keep this line".** Flag usage reflows to the width the
+program reports — `COLUMNS`, else the terminal capped at 120, else 100 — with continuations hanging under the
+text they continue ([#755](https://github.com/NobleFactor/devlore-cli/issues/755)). A command's `Long` reflows
+under one convention ([#759](https://github.com/NobleFactor/devlore-cli/issues/759)): an unindented line is
+prose and joins its neighbors into a paragraph; an indented line is structure — a policy ladder, a table, a
+list, an example — and keeps its break and its indent, wrapping only if it is itself too long. Authored breaks
+in prose are not load-bearing; an author who wants a line kept indents it. Man pages and the generated
+reference read `Long` as authored.
+
 **`man` is the one route to man pages (ruled 2026-09-02).** The shared `man [command]` from [NewRootCmd]
 generates the pages and displays or installs them, the same on all four programs, and `self install` writes
 them under the prefix. `star docs man` duplicated that route and `star docs markdown` duplicated `make docs`;

@@ -201,11 +201,13 @@ func initRootConfig(cmd *cobra.Command, name string) error {
 // leading indent and gives the text the whole width instead.
 const helpMinimumTextWidth = 24
 
-// wrapHelp makes flag usage wrap to the terminal, keeping any column structure the usage text has.
+// wrapHelp makes flag usage and a command's `Long` wrap to the terminal, keeping any structure the text has.
 //
 // Cobra's default template calls [pflag.FlagSet.FlagUsages], which is `FlagUsagesWrapped(0)`, and zero means
 // no wrapping at all -- so without this every line's width is the author's to maintain by hand, correct only
-// on a terminal at least as wide as the constant they guessed (#755).
+// on a terminal at least as wide as the constant they guessed (#755). Its help template prints `Long` verbatim
+// the same way (#759); [wrapLong] reflows it under one convention: an unindented line is prose and reflows
+// with its neighbors, an indented line is structure and keeps its break.
 //
 // pflag's own wrapping is not the answer either. It indents every continuation to the flag's description
 // column, having one indent level and no notion of structure, so a two-column usage -- `--output`'s ten
@@ -228,6 +230,14 @@ func wrapHelp(cmd *cobra.Command) {
 	template = strings.ReplaceAll(template, ".LocalFlags.FlagUsages", "wrappedFlagUsages .LocalFlags")
 	template = strings.ReplaceAll(template, ".InheritedFlags.FlagUsages", "wrappedFlagUsages .InheritedFlags")
 	cmd.SetUsageTemplate(template)
+
+	cobra.AddTemplateFunc("wrappedLong", func(long string) string {
+		return wrapLong(long, displayWidth())
+	})
+
+	help := cmd.HelpTemplate()
+	help = strings.ReplaceAll(help, "{{. | trimTrailingWhitespaces}}", "{{. | wrappedLong | trimTrailingWhitespaces}}")
+	cmd.SetHelpTemplate(help)
 }
 
 // wrapUsage wraps pflag's laid-out usage block to width, line by line.
@@ -331,6 +341,84 @@ func usageTextColumn(line string) int {
 	}
 
 	return leading
+}
+
+// wrapLong reflows a command's `Long` to width under the help convention (#759).
+//
+// A `Long` is blocks separated by blank lines. Within a block, a line whose first character is not whitespace
+// is prose: consecutive prose lines are one paragraph, joined on single spaces and wrapped to width. A line that
+// begins with whitespace is structure -- a policy ladder, a table, a list, an example -- and keeps its break and
+// its indent; only when it is itself too long does it wrap, as [wrapUsageLine] wraps a usage line. Authored
+// breaks in prose are therefore not load-bearing, which is the point: an author who wants a line kept indents it.
+//
+// Parameters:
+//   - `long`: the command's `Long`, as authored.
+//   - `width`: the column count to wrap to; zero or less leaves the text untouched.
+//
+// Returns:
+//   - `string`: the reflowed text, with every line right-trimmed.
+func wrapLong(long string, width int) string {
+
+	if width <= 0 {
+		return long
+	}
+
+	var lines []string
+	var paragraph []string
+	flush := func() {
+		if len(paragraph) > 0 {
+			lines = append(lines, wrapProse(strings.Join(paragraph, " "), width)...)
+			paragraph = nil
+		}
+	}
+
+	for _, line := range strings.Split(long, "\n") {
+		line = strings.TrimRight(line, " \t")
+		switch {
+		case line == "":
+			flush()
+			lines = append(lines, "")
+		case line[0] == ' ' || line[0] == '\t':
+			flush()
+			lines = append(lines, wrapUsageLine(line, width))
+		default:
+			paragraph = append(paragraph, line)
+		}
+	}
+	flush()
+
+	return strings.Join(lines, "\n")
+}
+
+// wrapProse word-wraps one paragraph to width, measuring in runes.
+//
+// Parameters:
+//   - `text`: the paragraph; runs of whitespace collapse to one space.
+//   - `width`: the column count to wrap to.
+//
+// Returns:
+//   - `[]string`: the paragraph's lines, none over width unless a single word is.
+func wrapProse(text string, width int) []string {
+
+	var lines []string
+	current := ""
+
+	for _, word := range strings.Fields(text) {
+		switch {
+		case current == "":
+			current = word
+		case len([]rune(current))+1+len([]rune(word)) > width:
+			lines = append(lines, current)
+			current = word
+		default:
+			current += " " + word
+		}
+	}
+	if current != "" {
+		lines = append(lines, current)
+	}
+
+	return lines
 }
 
 // endregion
