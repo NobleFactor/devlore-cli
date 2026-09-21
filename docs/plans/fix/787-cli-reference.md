@@ -132,7 +132,12 @@ Makefile's `build` and `docs` help lines say so too.
 - [x] `build` runs the generator after the tools loop (they always build for the host, so no guard); the help
       lines of `build` and `docs`.
 - [x] The test of Requirement 4: `TestRun_EveryProgramHasATree` in `cmd/devlore-docs/main_test.go`, the four names
-      from `programs`, and `star/gh/issues/report.md` as the extension page.
+      from `programs`, and `star/lint/go.md` as the extension page -- a **bundled** one. The first commit named
+      `star/gh/issues/report.md` and CI failed it on every leg: `gh` is `com.noblefactor.ops.GitHub`, deployed on this
+      machine from noblefactor-ops, and star's root loads the machine's deployed extensions beside the bundled ones.
+      Finding, for the record: the generated reference carries whatever extensions the generating machine has
+      deployed, so a local `make docs` and the published site differ where noblefactor-ops is deployed; the site,
+      generated in CI, carries the bundled set.
 
 ### Phase 4: The words
 
