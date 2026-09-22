@@ -204,6 +204,37 @@ A scope declares that it requires elevation; `elevation.Provider` satisfies it, 
 Administrator on Windows. The provider is a draft (`6.1-privilege-elevation.md`); `ScopeSpec` gains the
 field now so the requirement is expressible.
 
+### Requirement 10: The record (ruled 2026-09-22, #913)
+
+The four operations are defined by what each does to **the record**, the deployment's record of what is deployed:
+
+| Operation | Effect on the record |
+| --- | --- |
+| `deploy` | **replaces** it: the new deployment is the record; what the previous record held and this one does not is gone from it |
+| `upgrade` | **updates** it: the same deployment, refreshed |
+| `decommission` | **removes** it |
+| `reconcile` | **restores** it: brings the system back to what the record says -- `git diff`, then one day a merge tool |
+
+**Each deploy is one lifetime.** Its receipts stack and fold naturally -- the deploy, then the upgrades and
+reconciliations that follow it -- and the record is that stack, watched ebb and flow until a later deploy replaces
+it or a decommission removes it:
+
+```
+  deploy ──┬── upgrade ── reconcile ── upgrade ── ... ──┬── deploy        (replaced: a new lifetime)
+           │            one lifetime: receipts stack,   │
+           │            the record is their fold        └── decommission  (removed)
+```
+
+A machine sees many lifetimes, one per deploy, and the store keeps them all; one will eventually want to prune
+them. Pruning is housekeeping on the store, not a fifth verb: the four operations act on the current lifetime's
+record, and pruning retires lifetimes that are no longer current. Not yet designed.
+
+Today's `readback.Fold` folds every lifetime the machine has ever had into one record, so a file that left the
+checkout stays in the record and `reconcile` calls it `orphan` or `missing`. **Chartered here, not built:**
+the fold bounded to the current lifetime, so a deploy replaces the record; `upgrade` updates it; `decommission`
+removes it; `reconcile`'s classification reads the checkout as the desired state. The documents carry the
+ruling as of 2026-09-22 (#913); the code lanes are named on #762's list and not scheduled.
+
 ## Implementation Phases
 
 ### Phase 1: Documents — tracked by #766
