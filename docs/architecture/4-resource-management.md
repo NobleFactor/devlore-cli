@@ -520,6 +520,20 @@ is uniform: `p.RuntimeEnvironment()` for the root, catalog, platform, recovery s
     service resource yields `*service.resource`, and its type id and URI say `service.Resource`. The two are
     deliberately different strings; matching one against the other is wrong by construction. Provider code and
     tests compare types against the interface, never against `%T`'s text.
+20. **The ledger snapshot compares before it hashes** (ruled 2026-09-21,
+    [#904](https://github.com/NobleFactor/devlore-cli/issues/904)) — `ResourceCatalog.Snapshot(prior)` records every Active entry's etag (one lstat) and carries the prior's
+    digest forward when the prior holds the same id at the same etag; only an entry the prior never saw, or one
+    whose etag moved, or one whose prior digest errored, is hashed. The ladder is `verifyLocationFreshness`'s,
+    applied to the capture. The executor's `Run` and `ResumeUnwind` defers capture once per run, against the
+    rehydrated ledger on a resume; `Trace()` after `Run` projects that capture and hashes nothing.
+21. **A tree the run only found records its etag; a tree the run made keeps its digest** (ruled 2026-09-21,
+    [#904](https://github.com/NobleFactor/devlore-cli/issues/904)) — a directory's digest is a Merkle root over
+    everything beneath it (ruling 5d, no skips), which is the right answer for a directory that is a product and
+    the wrong question for a creation boundary the run discovered: `~` cataloged as a boundary walked the home
+    directory. The `Tree` contract in `pkg/op` names the kind; `file.Directory` implements it; the snapshot records
+    no digest for a `Tree` with no producer and both tiers for one with a producer, so a later move or reconcile
+    can still ask whether the directory it made changed. Nothing reads a boundary's digest: readback keys its
+    identities by deployed target and source file.
 
 ## 10. Open Questions
 

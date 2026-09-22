@@ -641,7 +641,7 @@ func TestResourceLedgerRehydrate_PreservesIDs(t *testing.T) {
 		t.Fatalf("file.NewRegular: %v", err)
 	}
 
-	snapshot := environment.ResourceCatalog.Snapshot()
+	snapshot := environment.ResourceCatalog.Snapshot(nil)
 	if len(snapshot.Entries) == 0 {
 		t.Fatalf("Snapshot: want a non-empty ledger, got none")
 	}

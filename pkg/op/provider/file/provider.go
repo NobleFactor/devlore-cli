@@ -336,16 +336,21 @@ func (p *Provider) archiveOccupant(product SymbolicLink) (*Receipt, error) {
 // occupant to the recovery site and creates, and the receipt restores the occupant on compensation. A directory
 // at `path` is the idempotent case: nothing to do, and the policy is never consulted.
 //
+// The claim tells the truth (#907): a directory that already exists is returned as a discovery -- no producer, no
+// receipt -- because the call made nothing; only a directory the call creates is its product, stamped with the
+// caller and undone by its receipt. Every parent `writ deploy` plans a mkdir for, the home directory included,
+// therefore enters the catalog as found, and the ledger records its etag alone (#904).
+//
 // Parameters:
-//   - `activationRecord`: the dispatch activation; its `Unit` stamps the produced [Directory]'s producerID.
+//   - `activationRecord`: the dispatch activation; its `Unit` stamps a created [Directory]'s producerID.
 //   - `path`: the directory path to create.
 //   - `mode`: the [os.FileMode] applied to the leaf directory.
 //   - `user`: the owner applied to the leaf directory, by name or decimal uid; empty leaves it unchanged.
 //   - `group`: the group applied to the leaf directory, by name or decimal gid; empty leaves it unchanged.
 //
 // Returns:
-//   - `Directory`: the created directory resource, resolved; a nil receipt accompanies an already-existing
-//     directory; nil, with a nil receipt, when an occupant was left under the skip policy.
+//   - `Directory`: the created directory resource, resolved; the discovered one, with a nil receipt, when the
+//     directory already existed; nil, with a nil receipt, when an occupant was left under the skip policy.
 //   - `*Receipt`: the compensation receipt recording the creation boundary for undo, and the recovery archive of
 //     a replaced occupant.
 //   - `error`: non-nil when an occupant is refused under the stop policy, or on archive, construction, mkdir,
@@ -384,18 +389,20 @@ func (p *Provider) Mkdir(
 		}
 	}
 
-	product, err = NewDirectory(p.RuntimeEnvironment(), activationRecord.CallerID, path)
-	if err != nil {
-		return nil, nil, err
-	}
-
 	boundary, _, err := p.findClosestExistingDir(leaf)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	if boundary.Path().Abs() == leaf {
-		return product, nil, nil // the directory exists, and there is nothing to compensate
+		// The directory exists: the call made nothing, so it claims nothing -- a discovery, and no receipt.
+		found, err := p.foundDirectory(boundary)
+		return found, nil, err
+	}
+
+	product, err = NewDirectory(p.RuntimeEnvironment(), activationRecord.CallerID, path)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	spec := NewReceiptSpec(product, MutationCreateDir).WithBoundary(boundary)
@@ -1977,6 +1984,35 @@ func (p *Provider) findClosestExistingDir(path string) (ancestor Resource, info 
 
 		current = filepath.Dir(current)
 	}
+}
+
+// foundDirectory is the discovery half of [Provider.Mkdir]'s claim (#907): the boundary walk discovered the
+// directory at the leaf itself, so the call made nothing and returns what it found, verified.
+//
+// It was observed, so it is Active and the ledger records its etag; left Pending, nothing would ever verify it,
+// because no unit consumes a mkdir's product.
+//
+// Parameters:
+//   - `boundary`: the entry [Provider.findClosestExistingDir] discovered at the leaf.
+//
+// Returns:
+//   - `Directory`: the discovered directory, Active in the catalog.
+//   - `error`: non-nil when the entry is not a directory, or verification fails.
+func (p *Provider) foundDirectory(boundary Resource) (Directory, error) {
+
+	found, ok := boundary.(Directory)
+	if !ok {
+		return nil, fmt.Errorf("file.Mkdir: %s exists but was discovered as %T, not a directory",
+			boundary.Path().Abs(), boundary)
+	}
+
+	if catalog := p.RuntimeEnvironment().ResourceCatalog; catalog != nil {
+		if err := catalog.VerifyExistence(found); err != nil {
+			return nil, err
+		}
+	}
+
+	return found, nil
 }
 
 // markEntryGone records a successful deletion on the catalog when one is present and the entry was interned.
