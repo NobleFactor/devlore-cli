@@ -1,7 +1,7 @@
 ---
 title: "star self uninstall removes only the extensions it installed"
 issue: https://github.com/NobleFactor/devlore-cli/issues/917
-status: active
+status: complete
 created: 2026-09-22
 updated: 2026-09-22
 ---
