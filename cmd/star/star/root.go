@@ -182,8 +182,10 @@ Generate shell completions with:
 		Version:            version,
 		Commit:             commit,
 		BuildDate:          buildDate,
-		PostInstallHooks:   []func(string) []string{installStarExtensions},
-		PostUninstallHooks: []func(string) error{uninstallStarExtensions},
+		// No post-uninstall hook: the extensions are in the manifest, so the generic uninstall removes exactly the
+		// files this install placed, skips any that changed, and prunes the directories that empty. The hook that
+		// used to be here removed the whole shared extensions directory (#917).
+		PostInstallHooks: []func(string) []string{installStarExtensions},
 	})
 
 	runtime := extension.NewApplication(rootCmd)
@@ -302,6 +304,11 @@ func errNotImplemented(operation, pointer string) error {
 
 // installStarExtensions copies the star/extensions/ directory to <prefix>/share/star/extensions/.
 // Returns the list of installed file paths relative to prefix.
+//
+// The list is built from the SOURCE, one entry per file copied, never from the target directory. The target is
+// shared: the loader probes one extensions directory (extension/loader.go), so whatever anyone installs -- writ
+// deploying the base layer's com.noblefactor.ops.GitHub, say -- lives beside star's own. Reading the target back
+// recorded those foreign files in star's manifest as star's, and `self uninstall` then deleted them (#917).
 func installStarExtensions(prefix string) []string {
 	srcExtDir := findExtensionsDir()
 	if srcExtDir == "" {
@@ -325,16 +332,40 @@ func installStarExtensions(prefix string) []string {
 		return nil
 	}
 
-	return cli.CollectFiles(prefix, targetExtDir.Abs())
+	return copiedExtensionFiles(srcExtDir, targetExtDir.Rel())
 }
 
-// uninstallStarExtensions removes the star extensions directory.
-func uninstallStarExtensions(prefix string) error {
-	targetExtDir := filepath.Join(prefix, "share", "star", "extensions")
-	if err := os.RemoveAll(targetExtDir); err != nil && !os.IsNotExist(err) {
-		return fmt.Errorf("failed to remove extensions: %w", err)
+// copiedExtensionFiles lists what a copy of srcExtDir placed under targetRel, as paths relative to the prefix.
+//
+// Parameters:
+//   - `srcExtDir`: the directory that was copied.
+//   - `targetRel`: where it was copied to, relative to the install prefix.
+//
+// Returns:
+//   - `[]string`: one prefix-relative path per file in the source, in walk order; nil when the source cannot be
+//     walked, which leaves the manifest without entries rather than with wrong ones.
+func copiedExtensionFiles(srcExtDir, targetRel string) []string {
+	var files []string
+
+	if err := filepath.WalkDir(srcExtDir, func(path string, entry os.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return err
+		}
+
+		relative, err := filepath.Rel(srcExtDir, path)
+		if err != nil {
+			return err
+		}
+
+		files = append(files, filepath.Join(targetRel, relative))
+
+		return nil
+	}); err != nil {
+		cli.Warn("Failed to list the extensions installed: %v", err)
+		return nil
 	}
-	return nil
+
+	return files
 }
 
 // findExtensionsDir looks for the star/extensions/ directory.
