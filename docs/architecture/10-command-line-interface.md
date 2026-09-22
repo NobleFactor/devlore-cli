@@ -116,6 +116,33 @@ suggestions -- so a reader meets one message, whether the unknown verb was typed
 `lore` manages devlore packages; `writ` manages engineering environments. They run the same lifecycle over
 different subjects, so they carry the same four verbs, and nothing else may be called by these names.
 
+**The four operations are defined by what each does to the record** (ruled 2026-09-22,
+[#913](https://github.com/NobleFactor/devlore-cli/issues/913)) -- the deployment's record of what is deployed,
+the receipts the program leaves:
+
+| Operation | Effect on the record |
+| --- | --- |
+| `deploy` | **replaces** it: the new deployment is the record; what the previous record held and this one does not is gone from it |
+| `upgrade` | **updates** it: the same deployment, refreshed |
+| `decommission` | **removes** it |
+| `reconcile` | **restores** it: brings the system back to what the record says -- `git diff`, then one day a merge tool |
+
+**Each deploy is one lifetime.** Its receipts stack and fold naturally -- the deploy, then the upgrades and
+reconciliations that follow it -- and the record is that stack, watched ebb and flow until a later deploy replaces
+it or a decommission removes it:
+
+```
+  deploy ──┬── upgrade ── reconcile ── upgrade ── ... ──┬── deploy        (replaced: a new lifetime)
+           │            one lifetime: receipts stack,   │
+           │            the record is their fold        └── decommission  (removed)
+```
+
+A machine sees many lifetimes, one per deploy, and the store keeps them all; one will eventually want to prune
+them. Pruning is housekeeping on the store, not a fifth verb: the four operations act on the current lifetime's
+record, and pruning retires lifetimes that are no longer current. Not yet designed.
+
+The mechanics, per program:
+
 | Verb | `lore` -- a package | `writ` -- an environment |
 | --- | --- | --- |
 | `deploy` | install the package's lifecycle pipelines | link, write, and create files under each scope |

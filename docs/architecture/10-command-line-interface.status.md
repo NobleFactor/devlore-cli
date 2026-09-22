@@ -73,6 +73,11 @@ and three of four programs landed by 2026-09-01. `devlore-test`, `lore` and `wri
   `TestNoPrivatePipeline_InScope`). Each shown red on a fixture; the first was red on the shared package's
   own thirteen writes at phase 1 and green at phase 2. The epic's convention box is closed.
 
+**Revised 2026-09-22 (#913):** §3.1 opens with the ruling that the four lifecycle operations are defined by what each
+does to the record, and the lifetime model -- a deploy opens one, its receipts stack and fold, a later deploy
+replaces it or a decommission removes it, pruning is store housekeeping and undesigned -- ahead of the per-program
+mechanics.
+
 ## Document discrepancies
 
 - ~~`extract-output-package.md` is marked complete while describing absent code.~~ **Corrected 2026-08-30**
