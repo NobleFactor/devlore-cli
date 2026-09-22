@@ -178,10 +178,10 @@ Generate shell completions with:
   star completion bash > /etc/bash_completion.d/star
   star completion zsh > "${fpath[1]}/_star"
   star completion fish > ~/.config/fish/completions/star.fish`,
-		DefaultConfig:      schema.StarDefaultConfig,
-		Version:            version,
-		Commit:             commit,
-		BuildDate:          buildDate,
+		DefaultConfig: schema.StarDefaultConfig,
+		Version:       version,
+		Commit:        commit,
+		BuildDate:     buildDate,
 		// No post-uninstall hook: the extensions are in the manifest, so the generic uninstall removes exactly the
 		// files this install placed, skips any that changed, and prunes the directories that empty. The hook that
 		// used to be here removed the whole shared extensions directory (#917).
