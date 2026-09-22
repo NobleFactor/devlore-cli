@@ -55,6 +55,21 @@ func digestOf(t *testing.T, root, path string) op.Digest {
 	return digest
 }
 
+// TestDirectory_IsTree pins #904's kind contract: a Directory answers [op.Tree] true through the sealed value, so
+// the ledger can tell a Merkle-rooted resource from one that hashes its own bytes.
+func TestDirectory_IsTree(t *testing.T) {
+
+	tmp := t.TempDir()
+
+	tree, ok := discoveredDirectory(t, tmp, tmp).(op.Tree)
+	if !ok {
+		t.Fatal("Directory does not implement op.Tree")
+	}
+	if !tree.IsTree() {
+		t.Error("IsTree() = false, want true")
+	}
+}
+
 // TestDirectoryDigest_IdenticalTreesAgree pins location independence: two identically shaped trees at different
 // absolute paths produce the same Merkle root — only the tree's own shape and content participate.
 func TestDirectoryDigest_IdenticalTreesAgree(t *testing.T) {

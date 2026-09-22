@@ -1429,18 +1429,30 @@ func TestParent_ReturnsContainingDir(t *testing.T) {
 
 // --- Mkdir ---
 
+// TestMkdir_CreatesDirectory pins the production half of #907's claim: a directory the call creates is its product,
+// stamped with the caller, and the receipt names the creation boundary for undo.
 func TestMkdir_CreatesDirectory(t *testing.T) {
 
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "newdir")
 
 	p := testProvider(t, tmp)
-	product, _, err := p.Mkdir(testActivation(t, p.RuntimeEnvironment()), path, 0o755, "", "")
+	product, receipt, err := p.Mkdir(op.NewActivationRecord(nil, "mkdir-step", p.RuntimeEnvironment()),
+		path, 0o755, "", "")
 	if err != nil {
 		t.Fatalf("Mkdir() error = %v", err)
 	}
 	if product.Path().Abs() != path {
 		t.Errorf("product.Path().Abs() = %q, want %q", product.Path().Abs(), path)
+	}
+	if got := product.ProducerID(); got != "mkdir-step" {
+		t.Errorf("producerID = %q, want the caller's %q (the call made the directory)", got, "mkdir-step")
+	}
+	if receipt == nil {
+		t.Fatal("receipt = nil, want the creation receipt")
+	}
+	if receipt.Kind() != MutationCreateDir || receipt.Boundary() == nil || receipt.Boundary().Path().Abs() != tmp {
+		t.Errorf("receipt = {kind %v, boundary %v}, want create-dir bounded at %s", receipt.Kind(), receipt.Boundary(), tmp)
 	}
 
 	info, err := os.Stat(path)
@@ -1472,6 +1484,9 @@ func TestMkdir_CreatesParents(t *testing.T) {
 	}
 }
 
+// TestMkdir_Idempotent pins the discovery half of #907's claim: a directory that already exists is returned as
+// found -- no producer, no receipt -- because the call made nothing. This is every parent `writ deploy` plans a
+// mkdir for, the home directory included.
 func TestMkdir_Idempotent(t *testing.T) {
 
 	tmp := t.TempDir()
@@ -1481,9 +1496,22 @@ func TestMkdir_Idempotent(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	_, _, err := p.Mkdir(testActivation(t, p.RuntimeEnvironment()), path, 0o755, "", "")
+	found, receipt, err := p.Mkdir(op.NewActivationRecord(nil, "mkdir-step", p.RuntimeEnvironment()),
+		path, 0o755, "", "")
 	if err != nil {
 		t.Fatalf("Mkdir() on existing directory error = %v", err)
+	}
+	if found == nil || found.Path().Abs() != path {
+		t.Fatalf("found = %v, want the existing directory at %s", found, path)
+	}
+	if got := found.ProducerID(); got != "" {
+		t.Errorf("producerID = %q, want empty (the call made nothing, so it claims nothing)", got)
+	}
+	if receipt != nil {
+		t.Errorf("receipt = %v, want nil (nothing to compensate)", receipt)
+	}
+	if state := p.RuntimeEnvironment().ResourceCatalog.State(found.ID()); state != op.Active {
+		t.Errorf("state = %v, want Active (the call observed the directory, so it is verified)", state)
 	}
 }
 

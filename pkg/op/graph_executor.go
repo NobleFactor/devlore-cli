@@ -482,9 +482,11 @@ func (e *GraphExecutor) Transition(unitID string, condition Condition, reason Re
 //   - *Trace: the captured state.
 func (e *GraphExecutor) Trace() *Trace {
 
+	// Against the capture the run's defer took: nothing moved since, so the etags match and no digest is
+	// recomputed (#904) — this used to Merkle-walk every boundary a second time.
 	ledger := e.ledgerSnapshot
 	if e.environment != nil && e.environment.ResourceCatalog != nil {
-		ledger = e.environment.ResourceCatalog.Snapshot()
+		ledger = e.environment.ResourceCatalog.Snapshot(e.ledgerSnapshot)
 	}
 
 	return &Trace{
@@ -1250,7 +1252,7 @@ func (e *GraphExecutor) captureLedgerSnapshot() {
 		return
 	}
 
-	e.ledgerSnapshot = e.environment.ResourceCatalog.Snapshot()
+	e.ledgerSnapshot = e.environment.ResourceCatalog.Snapshot(e.ledgerSnapshot)
 
 	if e.environment.HasRoot() {
 		e.ledgerSnapshot.Root = e.environment.Root().Name()

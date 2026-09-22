@@ -534,9 +534,19 @@ func (c *ResourceCatalog) Shadow(r Resource, producerID string) string {
 // read, so both record neither. The tier calls do I/O, so they run after the catalog mutex is released
 // (mirroring [verifyLocationFreshness]'s discipline).
 //
+// The ladder is [verifyLocationFreshness]'s, applied against `prior` (#904, ruled 2026-09-21): an entry's etag is
+// one lstat, and when `prior` holds the same id with the same etag, the prior's digest is carried forward without a
+// call — a second snapshot over an unchanged catalog hashes nothing. A [Tree] with no producer — a directory writ
+// found as a creation boundary, never made — records its etag alone: its digest is a Merkle root of everything
+// beneath it, which for `~` was the home directory, and nothing reads a boundary's digest. A tree writ produced
+// keeps both tiers, so a later reconcile can ask whether it changed.
+//
+// Parameters:
+//   - `prior`: the previous snapshot of this catalog, or nil to compute every digest.
+//
 // Returns:
 //   - `*ResourceLedgerSnapshot`: the serializable ledger projection.
-func (c *ResourceCatalog) Snapshot() *ResourceLedgerSnapshot {
+func (c *ResourceCatalog) Snapshot(prior *ResourceLedgerSnapshot) *ResourceLedgerSnapshot {
 
 	c.mu.Lock()
 
@@ -563,15 +573,20 @@ func (c *ResourceCatalog) Snapshot() *ResourceLedgerSnapshot {
 
 	c.mu.Unlock()
 
+	known := make(map[string]LedgerEntrySnapshot)
+	if prior != nil {
+		for _, entry := range prior.Entries {
+			known[entry.ID] = entry
+		}
+	}
+
 	entries := make([]LedgerEntrySnapshot, 0, len(pending))
 	for _, p := range pending {
 		if p.entry.State == Active {
 			if etag, err := p.resource.Etag(); err == nil {
 				p.entry.Etag = etag
 			}
-			if digest, err := p.resource.Digest(); err == nil {
-				p.entry.Digest = digest.String()
-			}
+			p.entry.Digest = ledgerDigest(p.resource, p.entry, known[p.entry.ID])
 		}
 		entries = append(entries, p.entry)
 	}
@@ -580,6 +595,35 @@ func (c *ResourceCatalog) Snapshot() *ResourceLedgerSnapshot {
 		Entries: entries,
 		NextID:  nextID,
 	}
+}
+
+// ledgerDigest decides an Active entry's recorded digest without computing one it does not need.
+//
+// A [Tree] with no producer records none: a boundary's Merkle root is nobody's question. Otherwise the prior's
+// digest is carried forward when the prior knew this id, its etag matches, and it had a digest — an etag that
+// moved, an id the prior never saw, or a prior digest that errored all compute afresh. An error leaves the field
+// empty, as before.
+//
+// Parameters:
+//   - `resource`: the Active resource.
+//   - `entry`: its entry so far, with the etag already recorded.
+//   - `prior`: the prior snapshot's entry for the same id, or the zero value.
+//
+// Returns:
+//   - `string`: the digest to record, or "".
+func ledgerDigest(resource Resource, entry, prior LedgerEntrySnapshot) string {
+
+	if tree, ok := resource.(Tree); ok && tree.IsTree() && entry.ProducerID == "" {
+		return ""
+	}
+	if prior.ID == entry.ID && prior.Etag != "" && prior.Etag == entry.Etag && prior.Digest != "" {
+		return prior.Digest
+	}
+	digest, err := resource.Digest()
+	if err != nil {
+		return ""
+	}
+	return digest.String()
 }
 
 // State returns the lifecycle state for the catalog entry with the given id.

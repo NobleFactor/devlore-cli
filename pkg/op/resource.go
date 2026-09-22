@@ -141,6 +141,14 @@ type Resource interface {
 	resourceBase() *ResourceBase
 }
 
+// Tree is the optional contract of a resource whose [Resource.Digest] is a Merkle root over everything beneath it
+// — a directory — rather than a hash of its own bytes. The ledger asks it: a tree nobody produced is a boundary
+// the run merely found, and its digest is not recorded (#904); a tree the run produced keeps its fingerprint, so a
+// later reconcile can ask whether it changed.
+type Tree interface {
+	IsTree() bool
+}
+
 // ResourceBase holds the identity fields common to all resources.
 //
 // ReceiverType-specific resource receiverTypes must embed it by value. The uri, specific, and typeID fields are set at

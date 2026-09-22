@@ -176,7 +176,9 @@ func discoverDirectory(runtimeEnvironment *op.RuntimeEnvironment, value any) (*d
 // platform, and only the tree's own shape and content participate — the enclosing absolute path does not.
 //
 // The root covers everything (ruling 5d): no gitignore filtering and no `.git` skip — a digest that skips content
-// would report "unmodified" over a modified tree. The empty directory digests deterministically (the hash over zero
+// would report "unmodified" over a modified tree. That completeness is why the ledger snapshot asks for it only when
+// the run produced the directory (#904, [directory.IsTree]): over a boundary the run merely found, `~` say, the walk
+// is the home directory. The empty directory digests deterministically (the hash over zero
 // entries). An entry of any other kind (FIFO, socket, device) is an error: a digest cannot honestly identify what it
 // cannot hash. The entry itself must be a directory — the kind check uses lstat semantics, and any other observed
 // kind errors with a kind mismatch (ruling 5e).
@@ -199,6 +201,13 @@ func (r *directory) Digest() (op.Digest, error) {
 
 	return merkleRoot(root, r.SourcePath.Abs())
 }
+
+// IsTree says a directory's digest is a Merkle root over everything beneath it, so the ledger records the digest of a
+// directory the run produced and never of one it merely found as a boundary (#904; [op.Tree]).
+//
+// Returns:
+//   - `bool`: true.
+func (r *directory) IsTree() bool { return true }
 
 // Equal reports whether `r` and `other` identify the same directory resource.
 //

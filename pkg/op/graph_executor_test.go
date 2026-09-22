@@ -179,6 +179,51 @@ func init() {
 		})
 }
 
+// digestCountFixture pins #904's executor half: Mint interns a counting probe under the activation's caller id and
+// parks it in `tracedProbe`, so its test can read how many times the run's ledger captures asked it for a digest.
+// Announced at init; inert to every other test because only its test names this action.
+type digestCountFixture struct{ ProviderBase }
+
+// tracedProbe is the probe the last digestCountFixture.Mint interned.
+var tracedProbe *snapshotProbe
+
+func (p *digestCountFixture) Mint(activation *ActivationRecord) (string, error) {
+
+	base, err := NewResourceBase(activation.RuntimeEnvironment, "probe:traced", reflect.TypeFor[snapshotProbe]())
+	if err != nil {
+		return "", err
+	}
+	candidate := &snapshotProbe{
+		ResourceBase: base,
+		etag:         "etag-traced",
+		digest:       Digest{Algorithm: "sha256", Bytes: []byte("traced")},
+	}
+
+	resource, err := activation.RuntimeEnvironment.ResourceCatalog.GetOrCreate(
+		activation.CallerID, candidate.URI(), func() (Resource, error) { return candidate, nil })
+	if err != nil {
+		return "", err
+	}
+
+	probe, ok := resource.(*snapshotProbe)
+	if !ok {
+		return "", fmt.Errorf("interned resource is %T, want *snapshotProbe", resource)
+	}
+	tracedProbe = probe
+	return probe.ID(), nil
+}
+
+func init() {
+
+	AnnounceProvider(reflect.TypeFor[digestCountFixture](), NewProviderFlags(SurfaceWorkflow, PlacementQualified),
+		func(runtimeEnvironment *RuntimeEnvironment) (any, error) {
+			return &digestCountFixture{ProviderBase: NewProviderBase(runtimeEnvironment)}, nil
+		},
+		map[string]MethodMetadata{
+			"Mint": {},
+		})
+}
+
 // runFailingFixtureGraph builds and runs a two-node graph against the named fixture provider: "producer" completes
 // (pushing its compensable receipt), then "exploder" — consuming the producer's promise, so toposort orders them —
 // fails, forcing the executor to unwind. Returns the executor and Run's error.
@@ -1013,6 +1058,61 @@ func TestRun_GraphDispatch_CallerIDIsUnitID(t *testing.T) {
 	}
 	if stamp != "mint-step" {
 		t.Errorf("producer stamp = %q, want the unit id %q", stamp, "mint-step")
+	}
+}
+
+// TestTrace_AfterRunMakesNoDigestCall pins #904's executor half.
+//
+// Run's teardown captures the ledger once — one digest call for the produced probe — and Trace() after Run projects
+// that capture without asking again; the trace carries the digest the capture recorded.
+func TestTrace_AfterRunMakesNoDigestCall(t *testing.T) {
+
+	mintAction, err := ReceiverRegistry().BuildAction("digestCountFixture.mint")
+	if err != nil {
+		t.Fatalf("BuildAction(mint): %v", err)
+	}
+
+	node, err := NewNode(NewNodeSpec().WithID("mint-step").WithAction(mintAction))
+	if err != nil {
+		t.Fatalf("NewNode: %v", err)
+	}
+
+	graph, err := NewGraph(NewGraphSpec().WithOrigin(OriginBase{}).WithUnits(node))
+	if err != nil {
+		t.Fatalf("NewGraph: %v", err)
+	}
+
+	executor := NewGraphExecutor(graph, NewRuntimeEnvironmentSpec("test").
+		WithApplication(&application.Application{Name: "test"}))
+
+	tracedProbe = nil
+	if _, err := executor.Run(context.Background(), nil); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if tracedProbe == nil {
+		t.Fatal("Mint interned no probe")
+	}
+	if tracedProbe.digestCalls != 1 {
+		t.Fatalf("Run's capture made %d digest calls, want 1", tracedProbe.digestCalls)
+	}
+
+	trace := executor.Trace()
+
+	if tracedProbe.digestCalls != 1 {
+		t.Errorf("Trace() after Run raised the digest calls to %d, want 1 (the capture is reused)",
+			tracedProbe.digestCalls)
+	}
+	if trace.Catalog == nil {
+		t.Fatal("Trace().Catalog is nil; want the run's capture")
+	}
+	var recorded string
+	for _, entry := range trace.Catalog.Entries {
+		if entry.URI == tracedProbe.URI() {
+			recorded = entry.Digest
+		}
+	}
+	if recorded != tracedProbe.digest.String() {
+		t.Errorf("trace recorded digest %q for the produced probe, want %q", recorded, tracedProbe.digest.String())
 	}
 }
 

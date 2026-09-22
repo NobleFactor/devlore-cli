@@ -160,7 +160,7 @@ func TestRun_PlanningCatalogStaysPristineInLocation(t *testing.T) {
 	}
 
 	catalog := graph.ResourceCatalog()
-	snapshot := catalog.Snapshot()
+	snapshot := catalog.Snapshot(nil)
 	if snapshot == nil || len(snapshot.Entries) != 1 {
 		t.Fatalf("planning catalog snapshot = %+v, want exactly one entry", snapshot)
 	}
