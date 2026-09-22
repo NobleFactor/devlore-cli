@@ -516,22 +516,48 @@ dist-all: ## Build distribution archives for PLATFORM (default: every supported 
 	# the same VERSION, and it cannot run what it produces for other platforms. `build` proves on the
 	# host that those flags bind to real symbols — which is the failure that shipped unnoticed until
 	# 2026-08-16. See docs/plans/version-stamping.md.
+	#
+	# Every product in $(PRODUCTS) ships, and star ships with its extensions. A hand-written pair of `go build` lines
+	# dropped star from every archive until #903; the loop takes the list, so a product added to PRODUCTS ships without
+	# a second edit here. star/extensions -- the com.noblefactor.devlore.* commands, which //go:embed does not cover --
+	# travels at share/star/extensions, the layout .goreleaser.yaml describes and the installers copy to <prefix>/share.
+	# Only tracked files are packed, so a dirty checkout cannot leak into an archive.
 	mkdir -p dist
+	extensions=$$(git ls-files star/extensions)
 	for platform in $(call select,all); do
 		os=$${platform%/*}
 		arch=$${platform#*/}
 		ext=""
 		archive_ext="tar.gz"
 		if [[ "$$os" == "windows" ]]; then ext=".exe"; archive_ext="zip"; fi
+		archive="devlore-cli_$(VERSION)_$${os}_$${arch}.$$archive_ext"
+		stage="dist/.stage-$${os}-$${arch}"
+		rm -rf "$$stage"
+		mkdir -p "$$stage/share"
 		echo "Building $$os/$$arch..."
-		GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 go build $(LDFLAGS) -o dist/writ$$ext ./cmd/writ
-		GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 go build $(LDFLAGS) -o dist/lore$$ext ./cmd/lore
+		binaries=()
+		for product in $(PRODUCTS); do
+			GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 go build $(LDFLAGS) -o "$$stage/$$product$$ext" "./cmd/$$product"
+			binaries+=("$$product$$ext")
+		done
+		git ls-files -z star/extensions | tar --null -T - -cf - | tar -xf - -C "$$stage/share"
 		if [[ "$$archive_ext" == "tar.gz" ]]; then
-			tar -czf dist/devlore-cli_$(VERSION)_$${os}_$${arch}.tar.gz -C dist writ$$ext lore$$ext
+			tar -czf "dist/$$archive" -C "$$stage" "$${binaries[@]}" share
+			listed=$$(tar -tzf "dist/$$archive")
 		else
-			cd dist && zip -q devlore-cli_$(VERSION)_$${os}_$${arch}.zip writ$$ext lore$$ext && cd ..
+			(cd "$$stage" && zip -qr "../$$archive" "$${binaries[@]}" share)
+			listed=$$(unzip -Z1 "dist/$$archive")
 		fi
-		rm -f dist/writ$$ext dist/lore$$ext
+		# The archive check: its files are exactly the products and the tracked extensions, nothing missing and
+		# nothing extra. Directory entries are not files and are dropped from both sides.
+		expected=$$( { printf '%s\n' "$${binaries[@]}"; printf 'share/%s\n' $$extensions; } | LC_ALL=C sort)
+		actual=$$(printf '%s\n' "$$listed" | grep -v '/$$' | LC_ALL=C sort)
+		if [[ "$$expected" != "$$actual" ]]; then
+			echo "ERROR: dist/$$archive does not hold exactly the products and star's extensions" >&2
+			diff <(printf '%s\n' "$$expected") <(printf '%s\n' "$$actual") | sed -n 's/^< /  missing: /p; s/^> /  extra:   /p' >&2
+			exit 1
+		fi
+		rm -rf "$$stage"
 	done
 
 checksums: ## Generate SHA-256 checksums for distribution archives
