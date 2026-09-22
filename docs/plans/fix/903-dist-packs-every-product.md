@@ -1,7 +1,7 @@
 ---
 title: "make dist packs every product, and star ships with its extensions"
 issue: https://github.com/NobleFactor/devlore-cli/issues/903
-status: active
+status: complete
 created: 2026-09-22
 updated: 2026-09-22
 ---
@@ -125,9 +125,19 @@ unchanged. `install.ps1`'s help and usage text change with the default.
 
 ### Phase 3: Verify after merge (the live path)
 
-- [ ] The next release from `develop` lists `star` in every platform archive
-- [ ] On DANOBLE-WD11-3, `install.ps1` from that release installs `star`, `star gh issues report` runs, and a
-      `star devlore` command resolves
+- [x] The release from `develop` at `463f9780`, `v0.1.0-dev.20260922122246`: all six archives hold 26 files each --
+      `lore`, `star`, `writ` and the 23 extension files under `share/star/extensions`. That includes both Windows
+      `zip`s, the path this host could not build locally -- 2026-09-22
+- [x] On DANOBLE-WD11-3, `install.ps1` from that release installed all three products at `v0.1.0-dev.20260922122246`,
+      and `star` copied its 23 extensions to `~/.local/share/star/extensions`. `star devlore --help` resolves, listing
+      `actions`, `knowledge`, `model`, `package` and `test`.
+
+      **`star gh issues report` does not run, for a reason outside this plan.** The base layer's
+      `com.noblefactor.ops.GitHub` extension calls `shell.exec`, which the shell provider runs as `sh -c`
+      (`pkg/op/provider/shell/provider.go:53`), and this host keeps no `sh` on PATH. It fails with `exec: "sh":
+      executable file not found in %PATH%`. That is the rewrite #799 and #801 describe: argv execution needs no shell
+      present or chosen. Installing `star` did not cause it; it made it visible, this being the first time `star` ran
+      here -- 2026-09-22
 
 ## Out of Scope
 

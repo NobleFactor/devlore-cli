@@ -371,3 +371,120 @@ func TestRoot_UnimplementedKeyCommandsFail(t *testing.T) {
 		}
 	}
 }
+
+// TestInstallStarExtensions_RecordsOnlyWhatItCopied pins the manifest's honesty: the hook reports the files it
+// placed, and nothing else in the shared extensions directory.
+//
+// The directory is shared -- the loader probes one path, so writ's deployment of the base layer's
+// com.noblefactor.ops.GitHub lives beside star's own extensions. Reading the target directory back reported those
+// foreign files as star's, and `self uninstall` then removed them (#917).
+func TestInstallStarExtensions_RecordsOnlyWhatItCopied(t *testing.T) {
+
+	source := t.TempDir()
+	writeExtensionFile(t, filepath.Join(source, "star", "extensions", "com.example.One", "extension.yaml"), "name: one")
+	writeExtensionFile(t, filepath.Join(source, "star", "extensions", "com.example.One", "commands", "do.star"), "# do")
+	t.Chdir(source)
+
+	prefix := t.TempDir()
+	foreign := filepath.Join(prefix, "share", "star", "extensions", "com.noblefactor.ops.GitHub", "extension.yaml")
+	writeExtensionFile(t, foreign, "name: github")
+
+	installed := installStarExtensions(prefix)
+
+	expected := []string{
+		filepath.Join("share", "star", "extensions", "com.example.One", "commands", "do.star"),
+		filepath.Join("share", "star", "extensions", "com.example.One", "extension.yaml"),
+	}
+	slices.Sort(installed)
+
+	if !slices.Equal(installed, expected) {
+		t.Errorf("installed files:\n  got:  %v\n  want: %v", installed, expected)
+	}
+
+	for _, recorded := range installed {
+		if strings.Contains(recorded, "com.noblefactor.ops.GitHub") {
+			t.Errorf("the manifest claims a file star did not install: %s", recorded)
+		}
+	}
+
+	if _, err := os.Stat(foreign); err != nil {
+		t.Errorf("the foreign extension did not survive the install: %v", err)
+	}
+}
+
+// TestInstallStarExtensions_WithoutASourceRecordsNothing pins the empty case: a checkout without star/extensions,
+// and no executable beside one, installs nothing and claims nothing.
+func TestInstallStarExtensions_WithoutASourceRecordsNothing(t *testing.T) {
+
+	t.Chdir(t.TempDir())
+
+	if installed := installStarExtensions(t.TempDir()); installed != nil {
+		t.Errorf("with no extensions to install, the hook claimed %v", installed)
+	}
+}
+
+// TestSelfUninstall_LeavesAnotherInstallersExtension runs install and uninstall as a caller does, and pins that the
+// extensions directory keeps what star never installed.
+//
+// XDG_CONFIG_HOME and XDG_CACHE_HOME are redirected: uninstall removes this tool's config and cache, and a test
+// must not reach the developer's own.
+func TestSelfUninstall_LeavesAnotherInstallersExtension(t *testing.T) {
+
+	source := t.TempDir()
+	writeExtensionFile(t, filepath.Join(source, "star", "extensions", "com.example.One", "extension.yaml"), "name: one")
+	t.Chdir(source)
+
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	prefix := t.TempDir()
+	foreign := filepath.Join(prefix, "share", "star", "extensions", "com.noblefactor.ops.GitHub", "extension.yaml")
+	writeExtensionFile(t, foreign, "name: github")
+
+	runStar(t, "self", "install", prefix)
+
+	mine := filepath.Join(prefix, "share", "star", "extensions", "com.example.One", "extension.yaml")
+	if _, err := os.Stat(mine); err != nil {
+		t.Fatalf("self install did not place the extension: %v", err)
+	}
+
+	runStar(t, "self", "uninstall", prefix, "--force")
+
+	if _, err := os.Stat(foreign); err != nil {
+		t.Errorf("self uninstall removed another installer's extension: %v", err)
+	}
+
+	if _, err := os.Stat(mine); !os.IsNotExist(err) {
+		t.Errorf("self uninstall left star's own extension in place: %v", err)
+	}
+}
+
+// runStar executes one star invocation, failing the test when it errors.
+func runStar(t *testing.T, args ...string) {
+	t.Helper()
+
+	root, runtime := NewRootCmd()
+	defer closeQuietly(t, runtime)
+
+	var out bytes.Buffer
+	root.SetOut(&out)
+	root.SetErr(&out)
+	root.SetArgs(args)
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("star %s: %v\n%s", strings.Join(args, " "), err, out.String())
+	}
+}
+
+// writeExtensionFile writes one file, creating the directories above it.
+func writeExtensionFile(t *testing.T, path, content string) {
+	t.Helper()
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("creating %s: %v", filepath.Dir(path), err)
+	}
+
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("writing %s: %v", path, err)
+	}
+}
