@@ -1,7 +1,7 @@
 ---
 title: "star self uninstall removes only the extensions it installed"
 issue: https://github.com/NobleFactor/devlore-cli/issues/917
-status: approved
+status: active
 created: 2026-09-22
 updated: 2026-09-22
 ---
@@ -74,16 +74,21 @@ In `cmd/star/star/root_test.go`, against a temporary prefix:
 
 ### Phase 1: Commit
 
-- [ ] This plan, first
-- [ ] Requirements 1 and 2
-- [ ] Requirement 3
+- [x] This plan, first
+- [x] Requirements 1 and 2 -- 2026-09-22
+- [x] Requirement 3 -- 2026-09-22, with a fourth: a checkout without `star/extensions` installs nothing and claims
+      nothing
 
 ### Phase 2: Verify before merge
 
-- [ ] `make vet lint test` passes locally; `make check` less `shell-lint`, which needs tools this host lacks
-- [ ] The new tests fail against the old hooks and pass against the new ones
-- [ ] A real install and uninstall in a scratch prefix, with a foreign extension beside star's: after uninstall the
-      foreign extension is still there and star's files are gone
+- [x] `make vet`, `make lint` and `make test` all pass locally. `lint` first caught `gofmt` on the registration this
+      change touched; formatted, then clean. `shell-lint` needs tools this host lacks and runs in CI -- 2026-09-22
+- [x] Against `develop`'s `root.go`, both pin tests fail: the manifest claims
+      `share/star/extensions/com.noblefactor.ops.GitHub/extension.yaml`, and the uninstall deletes it. Against this
+      change they pass -- 2026-09-22
+- [x] `TestSelfUninstall_LeavesAnotherInstallersExtension` is that test, run through the real `self install` and
+      `self uninstall` commands against a scratch prefix, with `XDG_CONFIG_HOME` and `XDG_CACHE_HOME` redirected so
+      an uninstall cannot reach the developer's own -- 2026-09-22
 
 ## Out of Scope
 
