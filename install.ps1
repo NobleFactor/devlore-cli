@@ -9,7 +9,7 @@
 #   $env:GH_TOKEN = (gh auth token); irm https://devlore.noblefactor.com/install.ps1 | iex
 #
 # Parameters:
-#   -Prefix <dir>        - Installation prefix (default: ~/.local on Unix, ~/AppData/Local/DevLore on Windows)
+#   -Prefix <dir>        - Installation prefix (default: ~/.local, on every platform)
 #                          Binaries go to <prefix>/bin
 #
 # Environment variables:
@@ -18,7 +18,7 @@
 #   DEVLORE_VERSION      - Version to install (default: latest)
 #                          "latest" installs the most recent release (including prereleases)
 #                          Set explicitly (e.g., "v1.0.0") for a specific version
-#   DEVLORE_TOOLS        - Tools to install: "all", "writ", "lore" (default: all)
+#   DEVLORE_TOOLS        - Tools to install: "all", or one product: "writ", "lore", "star" (default: all)
 #
 # Documentation references:
 #   - GitHub Releases API: https://docs.github.com/en/rest/releases/releases
@@ -35,7 +35,7 @@ $ErrorActionPreference = 'Stop'
 
 if ($Help) {
     Write-Host "Usage: install.ps1 [-Prefix <dir>]"
-    Write-Host "  -Prefix <dir>  Installation prefix (default: ~/.local or ~/AppData/Local/DevLore)"
+    Write-Host "  -Prefix <dir>  Installation prefix (default: ~/.local)"
     exit 0
 }
 
@@ -168,13 +168,10 @@ function Main {
     $arch = Get-ArchName
     Write-Info "Detected platform: $os/$arch"
 
-    # Resolve default prefix based on OS
+    # Default prefix: ~/.local on every platform. XDG conventions hold on Windows too (ruled 2026-09-22, #903), and
+    # star's extension loader looks under ~/.local/share, so a prefix anywhere else installs extensions nothing loads.
     if (-not $Prefix) {
-        if ($os -eq "windows") {
-            $Prefix = Join-Path $env:LOCALAPPDATA "DevLore"
-        } else {
-            $Prefix = Join-Path $HOME ".local"
-        }
+        $Prefix = Join-Path $HOME ".local"
     }
     $installDir = Join-Path $Prefix "bin"
 
@@ -240,12 +237,19 @@ function Main {
         }
 
         # Extract archive
+        #
+        # The archive holds the products at its root and star's extensions under share/ (#903). The products move
+        # to pkg/bin so that each one's `self install` finds pkg/share at <exeDir>/../share, the path star copies
+        # its extensions from.
         Write-Info "Extracting..."
+        $pkg = Join-Path $tmpDir "pkg"
+        $pkgBin = Join-Path $pkg "bin"
+        New-Item -ItemType Directory -Path $pkgBin -Force | Out-Null
         if ($ext -eq "zip") {
-            Expand-Archive -Path $archivePath -DestinationPath $tmpDir -Force
+            Expand-Archive -Path $archivePath -DestinationPath $pkg -Force
         } else {
             # tar.gz — PowerShell 7+ on macOS/Linux has tar available
-            tar -xzf $archivePath -C $tmpDir
+            tar -xzf $archivePath -C $pkg
         }
 
         # Create install directory
@@ -254,42 +258,38 @@ function Main {
         }
 
         # Install binaries
+        #
+        # Every file at the archive root is a product, so this list is the archive's and not a second copy of the
+        # Makefile's. Each product installs itself: `self install <prefix>` copies the binary to <prefix>/bin and
+        # adds its man pages, completions and, for star, its extensions. A failure means that product is not
+        # installed, so it is fatal. A native command's exit code is checked, because try/catch never sees it.
         $installed = @()
-        $binExt = if ($os -eq "windows") { ".exe" } else { "" }
 
-        if ($Tools -eq "all" -or $Tools -eq "writ") {
-            $writBin = "writ$binExt"
-            $writPath = Join-Path $tmpDir $writBin
-            if (Test-Path $writPath) {
-                Copy-Item $writPath (Join-Path $installDir $writBin) -Force
-                if ($os -ne "windows") { chmod +x (Join-Path $installDir $writBin) }
-                $installed += "writ"
+        foreach ($file in Get-ChildItem -LiteralPath $pkg -File) {
+            $product = [System.IO.Path]::GetFileNameWithoutExtension($file.Name)
+            if ($Tools -ne "all" -and $Tools -ne $product) {
+                continue
             }
-        }
 
-        if ($Tools -eq "all" -or $Tools -eq "lore") {
-            $loreBin = "lore$binExt"
-            $lorePath = Join-Path $tmpDir $loreBin
-            if (Test-Path $lorePath) {
-                Copy-Item $lorePath (Join-Path $installDir $loreBin) -Force
-                if ($os -ne "windows") { chmod +x (Join-Path $installDir $loreBin) }
-                $installed += "lore"
+            $toolPath = Join-Path $pkgBin $file.Name
+            Move-Item -LiteralPath $file.FullName -Destination $toolPath -Force
+            if ($os -ne "windows") { chmod +x $toolPath }
+
+            Write-Info "Installing $product..."
+            Push-Location $pkg
+            try {
+                & $toolPath self install $Prefix --unattended
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Fatal "$product self install failed with exit code $LASTEXITCODE"
+                }
+            } finally {
+                Pop-Location
             }
+            $installed += $product
         }
 
         if ($installed.Count -eq 0) {
-            Write-Fatal "No binaries found in archive"
-        }
-
-        # Run self-install for each tool to install man pages and completions
-        foreach ($tool in $installed) {
-            Write-Info "Running $tool self-install..."
-            $toolPath = Join-Path $installDir "$tool$binExt"
-            try {
-                & $toolPath self-install --prefix="$Prefix" --unattended
-            } catch {
-                Write-Warn "$tool self-install failed"
-            }
+            Write-Fatal "No binaries found in archive for DEVLORE_TOOLS=$Tools"
         }
 
         Write-Host ""

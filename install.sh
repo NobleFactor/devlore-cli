@@ -21,7 +21,7 @@
 #   DEVLORE_VERSION      - Version to install (default: latest)
 #                          "latest" installs the most recent release (including prereleases)
 #                          Set explicitly (e.g., "v1.0.0") for a specific version
-#   DEVLORE_TOOLS        - Tools to install: "all", "writ", "lore" (default: all)
+#   DEVLORE_TOOLS        - Tools to install: "all", or one product: "writ", "lore", "star" (default: all)
 #
 # Documentation references:
 #   - GitHub Releases API: https://docs.github.com/en/rest/releases/releases
@@ -285,47 +285,42 @@ main() {
     fi
 
     # Extract archive
+    #
+    # The archive holds the products at its root and star's extensions under share/ (#903). The products move to
+    # pkg/bin so that each one's `self install` finds pkg/share at <exeDir>/../share, the path star copies its
+    # extensions from.
     info "Extracting..."
+    local pkg="${tmp_dir}/pkg"
+    mkdir -p "${pkg}/bin"
     if [[ "$ext" == "tar.gz" ]]; then
-        tar -xzf "${tmp_dir}/${archive_name}" -C "${tmp_dir}"
+        tar -xzf "${tmp_dir}/${archive_name}" -C "${pkg}"
     else
-        unzip -q "${tmp_dir}/${archive_name}" -d "${tmp_dir}"
+        unzip -q "${tmp_dir}/${archive_name}" -d "${pkg}"
     fi
-
-    # Create install directory
-    mkdir -p "$INSTALL_DIR"
 
     # Install binaries
+    #
+    # Every file at the archive root is a product, so this list is the archive's and not a second copy of the
+    # Makefile's. Each product installs itself: `self install <prefix>` copies the binary to <prefix>/bin and adds
+    # its man pages, completions and, for star, its extensions. A failure means that product is not installed.
+    mkdir -p "$INSTALL_DIR"
     local installed=()
-    if [[ "$TOOLS" == "all" || "$TOOLS" == "writ" ]]; then
-        local writ_bin="writ"
-        [[ "$os" == "windows" ]] && writ_bin="writ.exe"
-        if [[ -f "${tmp_dir}/${writ_bin}" ]]; then
-            mv "${tmp_dir}/${writ_bin}" "${INSTALL_DIR}/${writ_bin}"
-            chmod +x "${INSTALL_DIR}/${writ_bin}"
-            installed+=("writ")
-        fi
-    fi
-
-    if [[ "$TOOLS" == "all" || "$TOOLS" == "lore" ]]; then
-        local lore_bin="lore"
-        [[ "$os" == "windows" ]] && lore_bin="lore.exe"
-        if [[ -f "${tmp_dir}/${lore_bin}" ]]; then
-            mv "${tmp_dir}/${lore_bin}" "${INSTALL_DIR}/${lore_bin}"
-            chmod +x "${INSTALL_DIR}/${lore_bin}"
-            installed+=("lore")
-        fi
-    fi
+    local file name product
+    for file in "${pkg}"/*; do
+        [[ -f "$file" ]] || continue
+        name="${file##*/}"
+        product="${name%.exe}"
+        [[ "$TOOLS" == "all" || "$TOOLS" == "$product" ]] || continue
+        mv "$file" "${pkg}/bin/${name}"
+        chmod +x "${pkg}/bin/${name}"
+        info "Installing ${product}..."
+        (cd "$pkg" && "bin/${name}" self install "$PREFIX" --unattended) || error "${product} self install failed"
+        installed+=("$product")
+    done
 
     if [[ ${#installed[@]} -eq 0 ]]; then
-        error "No binaries found in archive"
+        error "No binaries found in archive for DEVLORE_TOOLS=${TOOLS}"
     fi
-
-    # Run self-install for each tool to install man pages and completions
-    for tool in "${installed[@]}"; do
-        info "Running ${tool} self-install..."
-        "${INSTALL_DIR}/${tool}" self-install --prefix="$PREFIX" --unattended || warn "${tool} self-install failed"
-    done
 
     echo
     success "Installed: ${installed[*]}"
