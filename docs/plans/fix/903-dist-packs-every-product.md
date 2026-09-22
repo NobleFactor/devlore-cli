@@ -1,7 +1,7 @@
 ---
 title: "make dist packs every product, and star ships with its extensions"
 issue: https://github.com/NobleFactor/devlore-cli/issues/903
-status: approved
+status: active
 created: 2026-09-22
 updated: 2026-09-22
 ---
@@ -73,9 +73,19 @@ recipe exits non-zero and names the missing and the extra entries.
 
 ### Requirement 3: The installers
 
-`install.sh` and `install.ps1` install every executable at the archive root that matches a known product name, taken
-from the archive rather than from a hand-written pair. `DEVLORE_TOOLS` keeps `all`, and accepts any product name. The
-archive's `share/` tree is copied to `<prefix>/share`. Then each installed product's `self install` runs, as today.
+`install.sh` and `install.ps1` take the product list from the archive: every file at its root is a product.
+`DEVLORE_TOOLS` keeps `all` and accepts any one product name.
+
+**Found while implementing:** both installers ran `<tool> self-install --prefix=...`, and no product has that command.
+It is `self install [prefix]` (`cmd/internal/cli/selfinstall.go:72,88`). `writ self-install` answers `unknown command`
+and exits 64, and the installers swallowed that as a warning, so man pages and completions were never installed from a
+release. `self install` also copies the binary to `<prefix>/bin` itself, and `star`'s version copies its extensions
+from `<exeDir>/../share/star/extensions`.
+
+So each product installs itself. The installer extracts to `pkg/`, moves each product into `pkg/bin`, and runs
+`pkg/bin/<tool> self install <prefix> --unattended` from `pkg/`. `star` then finds the archive's `pkg/share` at
+`<exeDir>/../share`, and the installer copies nothing by hand. A failed `self install` is now fatal, since the product
+is not installed without it. `install.ps1` checks `$LASTEXITCODE`, because `try`/`catch` never sees a native exit code.
 
 ### Requirement 4: XDG on Windows
 
@@ -88,19 +98,30 @@ unchanged. `install.ps1`'s help and usage text change with the default.
 
 ### Phase 1: Commit
 
-- [ ] This plan, first
-- [ ] Requirement 1 and Requirement 2 in the Makefile
-- [ ] Requirement 3 in both installers
-- [ ] Requirement 4, per the ruling
-- [ ] `make check`: build, vet, lint, test and shell-lint, as CI runs them
+- [x] This plan, first
+- [x] Requirement 1 and Requirement 2 in the Makefile -- 2026-09-22
+- [x] Requirement 3 in both installers -- 2026-09-22
+- [x] Requirement 4, per the ruling, in the same installer commit, since it is two lines of `install.ps1` -- 2026-09-22
+- [x] `make check`: `vet`, `lint` (golangci-lint 2.13.2, installed natively through winget for this), `complexity`,
+      `verify-ldflags` and `test` all exit 0 on this machine. `shell-lint` can't run here, because `shfmt` and
+      `shellcheck` aren't installed and `shellcheck` has no native ARM64 build, so CI's run on the PR is its gate --
+      2026-09-22
 
 ### Phase 2: Verify before merge
 
-- [ ] `make dist PLATFORM=windows/arm64` on this machine: the zip holds `lore.exe`, `star.exe`, `writ.exe` and the 23
-      extension files under `share/star/extensions`, and the check passes
-- [ ] The check fails when a product is removed from the loop by hand, then passes again when it's restored
-- [ ] Installing from that zip into a scratch prefix yields three binaries and the extensions, and `star` answers a
-      `com.noblefactor.devlore.*` command
+- [x] `make dist-all PLATFORM=linux/arm64` on this machine: the `tar.gz` holds exactly 26 files, `lore`, `star`,
+      `writ` and the 23 extension files under `share/star/extensions`, and the check passes. The `zip` path, used for
+      Windows, is not run here because this machine has no `zip`; the release runner, `ubuntu-latest`, has it, and the
+      Phase 3 release proves it -- 2026-09-22
+- [x] The check fails when the recipe drops a product: a copy of the Makefile whose `tar` line packs only `lore writ`
+      stopped with `does not hold exactly the products and star's extensions` / `missing: star`, exit 2. The real recipe
+      passed above -- 2026-09-22
+- [x] The installers' mechanism, from a staged `pkg/bin` and `pkg/share` of the `windows-arm64` builds: `self install`
+      into a scratch prefix exits 0 for all three, `<prefix>/bin` holds all three binaries, and star copied all 23
+      extension files to `<prefix>/share/star/extensions`. `self install` creates `~/.config/devlore` and
+      `~/.cache/devlore` files only when missing, and left the existing ones unchanged. `install.ps1` parses, with the
+      same 33 PSScriptAnalyzer findings as `develop`, all pre-existing (30 `PSAvoidUsingWriteHost`); `install.sh` passes
+      `bash -n`, and CI's shell-lint is the gate for `shfmt` and `shellcheck` -- 2026-09-22
 
 ### Phase 3: Verify after merge (the live path)
 
