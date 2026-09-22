@@ -28,14 +28,19 @@ unimplemented appendix with its prior-art grounding; the landed alternative (pla
 post-dispatch shadowing for monadic outputs) is named beside it. **Revised 2026-09-08 for the sealed contract (#647, phase 10 of #625):** §2 states the two-level
 seal -- the framework interface, and each provider's own sealed interface over an unexported struct -- and §9
 item 19 records what it buys (the guarantees hold by construction, not by convention) and the accepted `%T`
-cost.
+cost. **Revised 2026-09-22 (#906, lane 18 of #887):** §5.8 describes the catalog (the live model, #908) and the
+ledger (the record, #909) -- what each holds, the doors and their claims, when the record is written, the
+etag/digest ladder in both its applications, and what a reader of a receipt may rely on; §9 items 20 and 21
+record #904's rulings (PR #911); "ledger" now names the record only, here and in `resource_catalog.go`'s comments.
 
 ## Completion
 
 | Component | Status |
 |-----------|--------|
 | `Resource` sealed interface + `ResourceBase` identity | Landed |
-| `ResourceCatalog` (ledger + namespace + clone/snapshot/content transport) | Landed (steps 22/25/48) |
+| `ResourceCatalog` (entries + namespace + clone/snapshot/content transport) | Landed (steps 22/25/48) |
+| The ledger compares before it hashes; a found tree records its etag alone; `Mkdir` claims what it made | Landed 2026-09-22 (#904, #907; PR #911) |
+| The catalog and the ledger described (§5.8); one word, one thing | Complete 2026-09-22 (#906) |
 | `ResourceState` machine + behavior matrix + `VerifyExistence` pre-flight | Landed (steps 22/41; per-type rollout staged — `file` proven) |
 | Observations as results, never catalog members | Landed (ruled 2026-07-14; step 22) |
 | Receipts + recovery site (Tombstones retired) | Landed (steps 40/42; [3.5.4](3.5.4-file-provider.md)) |

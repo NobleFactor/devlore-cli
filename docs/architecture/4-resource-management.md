@@ -69,8 +69,8 @@ unexported struct that embeds the base and adds the domain fields ([3.5.x](3.5-p
 [4.1](4.1-resource-identity.md) for scheme and addressing). `AnnounceResource` refuses any other shape, so nothing
 outside a provider's package can build that provider's resource -- see item 19 below for what that buys.
 
-**`ResourceCatalog`** (`pkg/op/resource_catalog.go`) — one per graph: the append-only ledger plus the URI→id
-namespace. Its surface (tree-verified 2026-07-22):
+**`ResourceCatalog`** (`pkg/op/resource_catalog.go`) — one per graph: the append-only entries plus the URI→id
+namespace; the ledger is the record it leaves (§5.8). Its surface (tree-verified 2026-07-22, `Snapshot` 2026-09-22):
 
 ```
 Discover(uri, factory)             ← observation: read-or-introduce, no production claim
@@ -78,10 +78,10 @@ GetOrCreate(producerID, uri, factory) ← production: claim the URI for a produc
 Resolve(r) → (canonical, id)       ← return the canonical entry for a caller-built resource
 Shadow(r, producerID) → id         ← new generation at an occupied URI; namespace repointed (§4)
 Current(uri) → id                  ← the namespace's current version
-Lookup(id) / Len / Link            ← ledger access; Link interns an entry
+Lookup(id) / Len / Link            ← entries access; Link interns an entry
 State(id) / MarkGone(r) / VerifyExistence(r) ← the state machine (below)
 Clone()                            ← the per-run copy Run clones onto the environment
-Snapshot() / ContentResources()    ← the trace's ledger snapshot; content transport (step 25)
+Snapshot(prior) / ContentResources() ← the ledger, the trace's record (§5.8); content transport (step 25)
 ```
 
 **Catalog ownership transfers at assembly**: the planning catalog is captured by `AssembleDefinition` and sealed
@@ -246,7 +246,7 @@ doesn't" is input to compensation and reconciliation.
 
 **Observations are not catalog members (ruled 2026-07-14).** An observation is a point-in-time **metadata
 snapshot** — a fact *about* a thing, not a thing whose existence is in question. The membership test: the catalog is
-the identity ledger of things that can be asked "do you exist?"; an observation cannot meaningfully answer (its own
+the identity register of things that can be asked "do you exist?"; an observation cannot meaningfully answer (its own
 existence is trivially true), so it is not a `Resource` and never enters the catalog. It rides the **execution
 record** instead: an observe action's observation is that node's result, carried on its receipt and serialized in
 the trace; resume re-observes rather than reconstructs. Identity comes from the observed resource by back-link
@@ -255,7 +255,7 @@ the trace; resume re-observes rather than reconstructs. Identity comes from the 
 ## 4. Shadowing — Runtime Versioning
 
 **Revised 2026-08-20.** Shadowing is a **runtime** mechanism: when execution produces a resource at an
-occupied URI, the run-clone's ledger appends a new generation and repoints the namespace — the prior
+occupied URI, the run-clone's entries append a new generation and the namespace repoints — the prior
 generation survives as history. It is how the trace records "this file was version N, and the run made it
 version N+1."
 
@@ -265,7 +265,7 @@ ordering edge from URI coincidence — ordering is the promise's job (§1). The 
 plan time with implicit same-URI edges and plan-time producer conflicts — is superseded; its residue is
 exactly what judgment scenario 1 pins as a runtime story, not a plan error.
 
-Two units producing the same URI therefore surface at **run time**, as generations in the ledger — legal
+Two units producing the same URI therefore surface at **run time**, as generations in the entries — legal
 versioning when the plan ordered them, and an ordering-dependent race when it did not. For gather, uniqueness
 of items remains the plan author's contract: same-path modification across concurrent iterations is a race by
 design; fix the plan ([2.3](2.3-orchestration-primitives.md)). The cross-kind rule stays at claim time for
@@ -438,6 +438,109 @@ The rules, each ruled 2026-08-22:
    ambiguous between the anchored spelling and machine-absoluteness, and at run time the machine reading
    wins — tools emit machine absolutes; the two readings agree under the root, and an out-of-root
    absolute refuses rather than silently confining. Authors of literals write bare rels.
+
+### 5.8 The catalog and the ledger
+
+Two things, two features (ruled 2026-09-22): the **catalog** ([#908](https://github.com/NobleFactor/devlore-cli/issues/908))
+is the live model a run consults, and the **ledger** ([#909](https://github.com/NobleFactor/devlore-cli/issues/909)) is
+the record a run leaves of it. The split is by time, not by layering: the catalog is what the run knows while it
+runs; the ledger is what the catalog said when the run ended. `ResourceCatalog.Snapshot` is the seam between them.
+In this document "ledger" names the record and only the record; the catalog's storage is "the entries".
+
+#### 5.8.1 The catalog: the live model
+
+`ResourceCatalog` (`pkg/op/resource_catalog.go`) holds, for one graph and cloned per run (§5):
+
+- **the entries** -- every generation of every resource, in append order; a URI that is shadowed (§4) appends a
+  generation and never rewrites one;
+- **the namespace** -- URI to current id, keyed per addressing regime ([4.1](4.1-resource-identity.md));
+- **the state** of each entry -- Pending, Active, Gone (§3), owned by the catalog and never by the resource;
+- **the producer stamp** -- the id of the unit that made the entry, empty for a discovery -- and **the destroyer
+  stamp**, the unit that reported it Gone;
+- **the id counter**, so ids are stable across a resume.
+
+An entry arrives through one of the catalog's doors, and the door is the claim:
+
+| Door | What the caller claims | Stamp |
+| --- | --- | --- |
+| `Discover(uri, factory)` | the run **found** this; no production | none |
+| `GetOrCreate(producerID, uri, factory)` | the run **made** this | the caller |
+| `Shadow(r, producerID)` | a new generation at an occupied URI (§4) | the caller, or the stamp adopted (§4) |
+| `MarkGone(r, destroyerID)` | the run **destroyed** this | the destroyer |
+| `Link(resource)` | intern an entry built elsewhere (rehydration) | as carried |
+
+`Resolve`, `Lookup`, `Current`, `State` and `VerifyExistence` answer questions; `VerifyExistence` is the one
+transition a provider may ask for on a discovery it has just observed (Pending to Active, §3).
+
+The catalog records faithfully whichever door a provider walks through. That is the whole of its guarantee, and it
+is why a provider must observe before it claims: `file.Mkdir` once minted its product with the caller's stamp and
+only then learned the directory already existed, so every parent `writ deploy` plans a mkdir for -- the home
+directory included -- entered the catalog as made ([#907](https://github.com/NobleFactor/devlore-cli/issues/907)).
+Now it walks up to the closest existing directory first: a directory it finds is the discovery that walk made,
+verified Active, no producer, no receipt; a directory it creates is its product, stamped and undone by its receipt.
+
+#### 5.8.2 The ledger: the record
+
+`ResourceLedgerSnapshot` is the catalog projected into the trace (`Trace.Catalog`) and written to the receipt:
+`Root`, the fsroot the run bound (§5.5); `NextID`, the counter; and `Entries`, one `LedgerEntrySnapshot` per
+generation in append order, so replaying it rebuilds the namespace. Each entry carries two kinds of field:
+
+| Kind | Fields | Recorded for |
+| --- | --- | --- |
+| identity | `ID`, `URI`, `ProducerID`, `State`, `DestroyedBy` | every entry |
+| observation | `Etag`, `Digest` | Active entries only |
+
+**When it is written.** Once per run: `Run`'s and `ResumeUnwind`'s defers call `captureLedgerSnapshot`
+(`graph_executor.go`) before the environment closes, on every outcome, so a paused or failed run leaves a record
+the next run can resume against. `Trace()` after `Run` projects that capture and takes no other; `Trace()` during a
+run compares against it (§5.8.3). Nothing else snapshots.
+
+**Who reads it.** Resume: `Rehydrate` rebuilds a catalog from the identity fields, ids preserved, and the recovery
+stack's receipts resolve against it by id. Drift: `readback` reads the observation fields of deployed targets and
+their sources, keyed by path, to tell writ's own change from someone else's (§4.1's touch-drift row). Nothing
+reads the observation fields of a boundary.
+
+#### 5.8.3 The ladder, and where each side applies it
+
+Every resource exposes two tiers (§4.1). An **etag** is one `lstat`: for a file, the sha256 of size, mtime and
+inode; a directory's moves when an immediate child is added, removed or renamed, and not when a file two levels
+down changes. A **digest** is content: a file's bytes, a symlink's target, and for a directory the Merkle root of
+everything beneath it, with no skips (ruling 5d) -- the right answer for a directory that is a product, and a
+walk of the whole home directory for a boundary the run merely found.
+
+The ladder -- etag first, digest only when the etag moved -- runs in two places:
+
+1. **`verifyLocationFreshness`**, on a `Resolve` cache hit: the two-path reconciler of §4.1, deciding touch drift
+   from real change.
+2. **`Snapshot(prior)`**, at capture (§9 item 20): every Active entry records its etag; when `prior` -- the
+   executor's own capture, or the rehydrated ledger on a resume -- holds the same id at the same etag, the prior's
+   digest is carried forward without a call; a new id, a moved etag or an errored prior digest computes afresh.
+   And a **`Tree`** with no producer records its etag alone (§9 item 21): a trace records what the run left and what
+   it replaced, and a boundary is neither, so its digest answers no question the record asks. A tree the run made
+   keeps both tiers, so a later move or reconcile can still ask whether it changed.
+
+Composed the other way, these three facts -- both tiers recorded, a directory's digest is its whole tree, a boundary
+is a cataloged directory -- were [#904](https://github.com/NobleFactor/devlore-cli/issues/904): 182 seconds after
+the last unit, hashing `~` to the first socket and dropping the error.
+
+#### 5.8.4 Reading a receipt
+
+What a reader of a receipt's ledger may rely on, field by field:
+
+| Field | Kind | Absent means |
+| --- | --- | --- |
+| `id`, `uri` | identity | never absent |
+| `producer_id` | identity | a discovery: a boundary, an occupant, a file found by `file.discover` |
+| `destroyed_by` | identity | not destroyed by a unit |
+| `state` | identity | never absent; only `active` entries carry observation |
+| `etag` | observation | the entry was not Active at capture, or the lstat failed |
+| `digest` | observation | a found tree (§9 item 21), or a digest that errored; the error is not recorded |
+
+An entry with both tiers is a file the run found or anything the run made; etag alone is a found tree or an
+errored digest, and the record does not say which. The record carries no clock of its own: the one time stamp it
+holds is each method receipt's `transaction_id`, a UUIDv7 whose leading 48 bits are the commit time in
+milliseconds, and the receipt's filename is the write time; starts, the capture's own span and a reader over the
+store are [#910](https://github.com/NobleFactor/devlore-cli/issues/910).
 
 ## 6. Recovery — Receipts and the Recovery Site
 

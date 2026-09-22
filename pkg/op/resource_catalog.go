@@ -12,14 +12,14 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
 )
 
-// ResourceCatalog is the graph-level owner of the append-only [Resource] ledger and the URI→ID addressing namespace.
+// ResourceCatalog is the graph-level owner of the append-only [Resource] entries and the URI→ID addressing namespace.
 //
 // One catalog per [Graph]. Created at plan time by the planner, consumed at execution time by the executor's preflight
 // pass and post-dispatch transition. See docs/architecture/4-resource-management.md §6.1-§6.5, §6.8.
 //
 // The catalog holds [Resource] interface values, which are pointers to concrete resource structs (e.g.,
 // [*file.Resource]). Preflight and node execution populate metadata fields on those structs in place; all holders of
-// the pointer see the updated fields. The ledger's append-only property refers to the sequence of distinct resources,
+// the pointer see the updated fields. The entries' append-only property refers to the sequence of distinct resources,
 // not to the mutability of their metadata.
 //
 // Two entry classes, derived from an entry's producer:
@@ -36,7 +36,7 @@ import (
 // discovery side (the executor's pre-flight resolve pass) and by [GetOrCreate] on the production side.
 type ResourceCatalog struct {
 	mu      sync.Mutex
-	entries []Resource               // append-only ledger
+	entries []Resource               // append-only; the ledger is the record Snapshot leaves
 	byID    map[string]int           // id → index in entries
 	ns      map[string]string        // namespace key → current id; see [namespaceKey] for the per-addressing keying regime
 	states  map[string]ResourceState // id → per-run lifecycle state; independent of Resource identity
@@ -80,7 +80,7 @@ func NewResourceCatalog() *ResourceCatalog {
 // gets a fresh zero-value mutex.
 //
 // Returns:
-//   - `*ResourceCatalog`: a new catalog with the receiver's ledger structure shallow-copied. Returns nil when the
+//   - `*ResourceCatalog`: a new catalog with the receiver's entries shallow-copied. Returns nil when the
 //     receiver is nil so callers can chain Clone on optional catalogs without a nil-guard.
 func (c *ResourceCatalog) Clone() *ResourceCatalog {
 
@@ -124,14 +124,14 @@ func (c *ResourceCatalog) Clone() *ResourceCatalog {
 	}
 }
 
-// IntentEntries returns the graph document's intent rows: every current-generation entry, in ledger append
+// IntentEntries returns the graph document's intent rows: every current-generation entry, in append
 // order, rendered [Pending] — the stored catalog is what must exist when the graph runs, never what planning
 // observed, so no producer stamps and no content identity travel here
 // (4-resource-management.md §5.4, ruled 2026-08-20).
 //
 // Returns:
 //   - `[]IntentEntry`: id and URI per current generation, in mint order; empty (never nil) when the
-//     ledger holds nothing — the document's section serializes even then, mandatorily.
+//     catalog holds nothing — the document's section serializes even then, mandatorily.
 func (c *ResourceCatalog) IntentEntries() []IntentEntry {
 
 	c.mu.Lock()
@@ -276,7 +276,7 @@ func (c *ResourceCatalog) Discover(uri string, factory func() (Resource, error))
 // Cache-hit behavior branches on the existing entry's [Addressing] × [ResourceState] per
 // docs/architecture/4-resource-management.md §3's behavior matrix. The factory is invoked on cache miss, on
 // location-based hits (any state), and on Gone hits (either addressing — Gone is terminal, so revival appends a new
-// ledger entry via [Shadow]). Content-addressable hits on Pending or Active return the existing entry without invoking
+// entry via [Shadow]). Content-addressable hits on Pending or Active return the existing entry without invoking
 // the factory (singleton). The current generation transitions to Active via [markActive] before returning.
 //
 // A non-nil factory error short-circuits without touching the catalog. A different producer at an occupied
@@ -331,7 +331,7 @@ func (c *ResourceCatalog) GetOrCreate(producerID, uri string, factory func() (Re
 	return canonical, nil
 }
 
-// Len returns the number of entries in the ledger.
+// Len returns the number of entries in the catalog.
 //
 // Returns:
 //   - `int`: the entry count.
@@ -479,7 +479,7 @@ func (c *ResourceCatalog) Resolve(r Resource) (canonical Resource, id string) {
 // Shadow appends a new generation for r's URI and repoints the namespace at it — run-time versioning
 // (4-resource-management.md §4, revised 2026-08-20).
 //
-// The prior generation survives in the ledger as history; the trace tells the story "this URI was
+// The prior generation survives in the entries as history; the trace tells the story "this URI was
 // version N, and the run made it version N+1." Two producers writing one URI are generations, not a
 // conflict — legal versioning when the plan ordered them, an authoring race when it did not (the former
 // write-write conflict error was the superseded plan-time output model's residue). Shadowing is how
@@ -517,7 +517,7 @@ func (c *ResourceCatalog) Shadow(r Resource, producerID string) string {
 
 	// Same-URI production appends a generation and repoints the namespace — run-time versioning
 	// (4-resource-management.md §4, revised 2026-08-20): two producers writing one URI are generations in
-	// the ledger, legal versioning when the plan ordered them and an authoring race when it did not. The
+	// the entries, legal versioning when the plan ordered them and an authoring race when it did not. The
 	// former write-write conflict error was the superseded plan-time model's residue.
 	return c.catalogLocked(r, producerID)
 }
@@ -527,7 +527,7 @@ func (c *ResourceCatalog) Shadow(r Resource, producerID string) string {
 // The recovery stack references ledger entries by id; a resource URI is not a unique identity, because [Shadow]
 // re-catalogs an existing URI as a fresh generation and the URI→id namespace tracks only the current one. Snapshot
 // therefore captures every entry in append order (each as id, URI, producerID, and lifecycle state) plus the
-// observation index and the id counter, so the live ledger can be rebuilt on resume with ids preserved.
+// observation index and the id counter, so the live catalog can be rebuilt on resume with ids preserved.
 //
 // Active entries additionally record both content-identity tiers — [Resource.Etag] and [Resource.Digest] — best
 // effort (phase-8 step 48): an error leaves the field empty; Pending has nothing on disk and Gone cannot be
@@ -723,13 +723,13 @@ func (c *ResourceCatalog) resolveKind(resource Resource) Resource {
 	return c.Supersede(resource, resolved)
 }
 
-// Supersede replaces the ledger entry standing for `standing`'s identity with `stricter`, carrying the
+// Supersede replaces the entry standing for `standing`'s identity with `stricter`, carrying the
 // catalog id and producer stamp across the swap.
 //
 // **Not [ResourceCatalog.Shadow].** Shadowing appends a new *generation* because the world changed —
 // the prior version survives as history, and the trace tells that story. Superseding says nothing about
 // the world: the same entry is simply described better, so it keeps its id, its state, and its place in
-// the ledger, and no history accrues. Two callers need it, both cases of a claim that asserted less
+// the entries, and no history accrues. Two callers need it, both cases of a claim that asserted less
 // giving way to one that asserts more:
 //
 //   - kind resolution at activation, where an unasserted claim becomes the kind the disk showed; and
@@ -740,7 +740,7 @@ func (c *ResourceCatalog) resolveKind(resource Resource) Resource {
 // stamped its own id would be claiming an authority it does not have.
 //
 // Parameters:
-//   - `standing`: the entry currently in the ledger.
+//   - `standing`: the entry currently in the entries.
 //   - `stricter`: the resource that takes its place; freshly built and uninterned.
 //
 // Returns:
@@ -757,17 +757,17 @@ func (c *ResourceCatalog) Supersede(standing, stricter Resource) Resource {
 	return stricter
 }
 
-// rebindEntry replaces `old`'s ledger slot with `bound` — the activation binding's copy-on-bind swap
+// rebindEntry replaces `old`'s slot in the entries with `bound` — the activation binding's copy-on-bind swap
 // (the step-4 ruling, 2026-08-22).
 //
 // Identity, id, state, and the namespace are untouched: the copy carries the same URI and recorded id,
-// so only the object the ledger hands out changes. [GraphExecutor.bindPendingResources] is the sole
+// so only the object the catalog hands out changes. [GraphExecutor.bindPendingResources] is the sole
 // caller — the run's clone swaps in the run-bound copy so the planning session's shared object stays
 // pristine.
 //
 // Parameters:
 //   - `old`: the entry being replaced; located by its stamped catalog id.
-//   - `bound`: the run-bound copy that takes its ledger slot.
+//   - `bound`: the run-bound copy that takes its slot in the entries.
 func (c *ResourceCatalog) rebindEntry(old, bound Resource) {
 
 	c.mu.Lock()
@@ -853,7 +853,7 @@ func verifyLocationFreshness(canonical, observed Resource) {
 
 // region HELPER FUNCTIONS
 
-// catalogLocked appends r to the ledger, stamps its catalog id and producerID, and repoints the URI namespace.
+// catalogLocked appends r to the entries, stamps its catalog id and producerID, and repoints the URI namespace.
 //
 // Stamps land on the embedded ResourceBase. Caller must hold c.mu.
 //
@@ -938,7 +938,7 @@ func namespaceKey(r Resource) string {
 	return r.URI()
 }
 
-// pendingEntries returns a snapshot of every ledger entry whose lifecycle state is [Pending], in append order.
+// pendingEntries returns a snapshot of every entry whose lifecycle state is [Pending], in append order.
 //
 // The executor's pre-flight resolve pass iterates this snapshot and drives each participating entry through
 // [ResourceCatalog.VerifyExistence] (phase-8 step 22). The copy is taken under the catalog mutex; verification runs
@@ -961,7 +961,7 @@ func (c *ResourceCatalog) pendingEntries() []Resource {
 	return pending
 }
 
-// restoreEntry appends a reconstructed generation to the ledger with its saved id, producerID, and lifecycle state.
+// restoreEntry appends a reconstructed generation to the entries with its saved id, producerID, and lifecycle state.
 //
 // It is the rehydration counterpart to [catalogLocked]: where catalogLocked mints a fresh id, restoreEntry preserves
 // the id captured in a [ResourceLedgerSnapshot] so the recovery stack's id references resolve via [Lookup] after a
@@ -1010,7 +1010,7 @@ func stripFragment(uri string) string {
 //
 // It is the [Trace] field that lets a paused run's resource ledger survive save → load → resume. A resource URI is not
 // a unique identity (see [ResourceCatalog.Snapshot]), so entries are keyed and referenced by id; the recovery stack's
-// receipt references resolve against the rehydrated ledger by id.
+// receipt references resolve against the rehydrated catalog by id.
 type ResourceLedgerSnapshot struct {
 
 	// Root is the run's bound fsroot, stamped by the executor at capture time (empty on a snapshot taken
@@ -1095,7 +1095,7 @@ type LedgerEntrySnapshot struct {
 //     return, so the caller installs the returned catalog.
 //
 // Returns:
-//   - `*ResourceCatalog`: the rebuilt ledger, ids preserved.
+//   - `*ResourceCatalog`: the rebuilt catalog, ids preserved.
 //   - `error`: a malformed URI, an unregistered type id, or a constructor failure.
 func (s *ResourceLedgerSnapshot) Rehydrate(runtimeEnvironment *RuntimeEnvironment) (*ResourceCatalog, error) {
 
