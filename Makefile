@@ -520,7 +520,8 @@ dist-all: ## Build distribution archives for PLATFORM (default: every supported 
 	# Every product in $(PRODUCTS) ships, and star ships with its extensions. A hand-written pair of `go build` lines
 	# dropped star from every archive until #903; the loop takes the list, so a product added to PRODUCTS ships without
 	# a second edit here. star/extensions -- the com.noblefactor.devlore.* commands, which //go:embed does not cover --
-	# travels at share/star/extensions, the layout .goreleaser.yaml describes and the installers copy to <prefix>/share.
+	# travels at share/devlore/star/extensions, where star looks for them under the prefix (#918), and where the
+	# installers put them by running each product's own `self install`.
 	# Only tracked files are packed, so a dirty checkout cannot leak into an archive.
 	mkdir -p dist
 	extensions=$$(git ls-files star/extensions)
@@ -533,14 +534,14 @@ dist-all: ## Build distribution archives for PLATFORM (default: every supported 
 		archive="devlore-cli_$(VERSION)_$${os}_$${arch}.$$archive_ext"
 		stage="dist/.stage-$${os}-$${arch}"
 		rm -rf "$$stage"
-		mkdir -p "$$stage/share"
+		mkdir -p "$$stage/share/devlore"
 		echo "Building $$os/$$arch..."
 		binaries=()
 		for product in $(PRODUCTS); do
 			GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 go build $(LDFLAGS) -o "$$stage/$$product$$ext" "./cmd/$$product"
 			binaries+=("$$product$$ext")
 		done
-		git ls-files -z star/extensions | tar --null -T - -cf - | tar -xf - -C "$$stage/share"
+		git ls-files -z star/extensions | tar --null -T - -cf - | tar -xf - -C "$$stage/share/devlore"
 		if [[ "$$archive_ext" == "tar.gz" ]]; then
 			tar -czf "dist/$$archive" -C "$$stage" "$${binaries[@]}" share
 			listed=$$(tar -tzf "dist/$$archive")
@@ -550,7 +551,7 @@ dist-all: ## Build distribution archives for PLATFORM (default: every supported 
 		fi
 		# The archive check: its files are exactly the products and the tracked extensions, nothing missing and
 		# nothing extra. Directory entries are not files and are dropped from both sides.
-		expected=$$( { printf '%s\n' "$${binaries[@]}"; printf 'share/%s\n' $$extensions; } | LC_ALL=C sort)
+		expected=$$( { printf '%s\n' "$${binaries[@]}"; printf 'share/devlore/%s\n' $$extensions; } | LC_ALL=C sort)
 		actual=$$(printf '%s\n' "$$listed" | grep -v '/$$' | LC_ALL=C sort)
 		if [[ "$$expected" != "$$actual" ]]; then
 			echo "ERROR: dist/$$archive does not hold exactly the products and star's extensions" >&2

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
 	"github.com/NobleFactor/devlore-cli/cmd/star/config"
 	"github.com/NobleFactor/devlore-cli/pkg/document"
 	"github.com/NobleFactor/devlore-cli/pkg/xdg"
@@ -237,7 +238,16 @@ func defaultSearchPaths() []string {
 		paths = append(paths, filepath.Join(root, "star", "extensions"))
 	}
 
-	paths = append(paths, xdg.DataPath("star", "extensions"), "/usr/local/share/star/extensions")
+	// star is one of devlore's products, so its data lives under devlore/ like writ's layers and repos (#918). Its
+	// config and cache already did. The two paths without it are what this release replaces, probed after their
+	// replacements so a machine carrying both prefers the new one, and nothing breaks before writ redeploys or star is
+	// reinstalled. They go in #920.
+	paths = append(paths,
+		devlore.DataPath("star", "extensions"),
+		xdg.DataPath("star", "extensions"), // deprecated, removed by #920
+		"/usr/local/share/devlore/star/extensions",
+		"/usr/local/share/star/extensions", // deprecated, removed by #920
+	)
 
 	return paths
 }

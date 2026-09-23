@@ -165,7 +165,7 @@ func TestRoot_SelfInstallInstallsTheExtensions(t *testing.T) {
 		t.Fatalf("star self install: %v\n%s", err, out.String())
 	}
 
-	installed := filepath.Join(prefix, "share", "star", "extensions", "com.noblefactor.devlore.Actions", "extension.yaml")
+	installed := filepath.Join(prefix, "share", "devlore", "star", "extensions", "com.noblefactor.devlore.Actions", "extension.yaml")
 	if _, err := os.Stat(installed); err != nil {
 		t.Errorf("the extensions were not installed: %v", err)
 	}
@@ -386,14 +386,14 @@ func TestInstallStarExtensions_RecordsOnlyWhatItCopied(t *testing.T) {
 	t.Chdir(source)
 
 	prefix := t.TempDir()
-	foreign := filepath.Join(prefix, "share", "star", "extensions", "com.noblefactor.ops.GitHub", "extension.yaml")
+	foreign := filepath.Join(prefix, "share", "devlore", "star", "extensions", "com.noblefactor.ops.GitHub", "extension.yaml")
 	writeExtensionFile(t, foreign, "name: github")
 
 	installed := installStarExtensions(prefix)
 
 	expected := []string{
-		filepath.Join("share", "star", "extensions", "com.example.One", "commands", "do.star"),
-		filepath.Join("share", "star", "extensions", "com.example.One", "extension.yaml"),
+		filepath.Join("share", "devlore", "star", "extensions", "com.example.One", "commands", "do.star"),
+		filepath.Join("share", "devlore", "star", "extensions", "com.example.One", "extension.yaml"),
 	}
 	slices.Sort(installed)
 
@@ -438,12 +438,12 @@ func TestSelfUninstall_LeavesAnotherInstallersExtension(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 
 	prefix := t.TempDir()
-	foreign := filepath.Join(prefix, "share", "star", "extensions", "com.noblefactor.ops.GitHub", "extension.yaml")
+	foreign := filepath.Join(prefix, "share", "devlore", "star", "extensions", "com.noblefactor.ops.GitHub", "extension.yaml")
 	writeExtensionFile(t, foreign, "name: github")
 
 	runStar(t, "self", "install", prefix)
 
-	mine := filepath.Join(prefix, "share", "star", "extensions", "com.example.One", "extension.yaml")
+	mine := filepath.Join(prefix, "share", "devlore", "star", "extensions", "com.example.One", "extension.yaml")
 	if _, err := os.Stat(mine); err != nil {
 		t.Fatalf("self install did not place the extension: %v", err)
 	}

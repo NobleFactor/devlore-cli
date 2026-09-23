@@ -19,9 +19,9 @@ type Source int
 
 // The extension discovery locations, in precedence order.
 const (
-	SourceProjectLocal Source = iota // ${GIT_WORKSPACE_ROOT}/star/extensions/
-	SourceUser                       // ${XDG_DATA_HOME}/star/extensions/
-	SourceSystem                     // /usr/local/share/star/extensions/
+	SourceProjectLocal Source = iota // <repository root>/star/extensions/, the root found by walking up for .git
+	SourceUser                       // ${XDG_DATA_HOME}/devlore/star/extensions/, and the pre-#918 path until #920
+	SourceSystem                     // /usr/local/share/devlore/star/extensions/, and the pre-#918 path until #920
 	SourceEmbedded                   // compiled into binary via //go:embed
 )
 

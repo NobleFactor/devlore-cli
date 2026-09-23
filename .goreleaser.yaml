@@ -91,11 +91,11 @@ archives:
       # com.noblefactor.devlore.* commands live, so a binary alone answers `unknown command
       # "devlore"`.
       #
-      # share/star/extensions rather than beside the binaries: install.sh unpacks to <prefix>/bin
-      # and the loader probes XDG_DATA_HOME, which is <prefix>/share only when prefix is the default
-      # ~/.local. That coincidence is load-bearing -- see docs/plans/release-path.md.
+      # share/devlore/star/extensions rather than beside the binaries: each product installs itself from the
+      # unpacked archive with `self install <prefix>`, and star copies its extensions from <exeDir>/../share/devlore
+      # to <prefix>/share/devlore. star's data lives under devlore/ like writ's (#918).
       - src: star/extensions/**/*
-        dst: share/star/extensions
+        dst: share/devlore/star/extensions
 
 checksum:
   name_template: "{{ .ProjectName }}_{{ .Version }}_checksums.txt"
