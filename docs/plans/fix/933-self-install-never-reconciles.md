@@ -1,7 +1,7 @@
 ---
 title: "self install replaces the record: the manifest is what the tool owns"
 issue: https://github.com/NobleFactor/devlore-cli/issues/933
-status: active
+status: complete
 created: 2026-09-23
 updated: 2026-09-23
 ---
@@ -154,11 +154,20 @@ problem as the one being fixed.
 
 ### Phase 5: Verify, then merge
 
-- [ ] `make vet`, `make lint`, `make test`
-- [ ] `gofmt -l` clean over every changed file
-- [ ] A live re-install on this box that changes the file set, verified against the tree
-- [ ] PR script written, analyser-clean, shown, and handed over
-- [ ] CI runs on the pull request and the merge gate blocks until every check reports pass
+- [x] `make vet`, `make lint`, `make test` — all clean. The first lint run failed on one finding:
+      `misspell` enforces US spelling in Go source (`behaviour` in a test comment), even though this
+      repository's prose is British. Worth knowing; it will recur
+- [x] `gofmt -l` clean over every changed file
+- [x] **A live re-install on this box, with the built binary.** Installed to a scratch prefix with
+      `--shell bash`, then again with `--shell zsh`: it printed `Retired 1 file(s) a previous install
+      placed and this one does not` and named the bash completion, which was gone. Before this change
+      that file stayed forever. Then, editing the zsh completion and re-installing printed `Left 1
+      modified file(s) a previous install placed`, and the operator's line survived — both halves of
+      the ruling on the live path rather than in a test
+- [x] PR script written, analyser-clean (parse errors 0, findings 0), shown, and handed over. It
+      gains a `gofmt -l` pre-flight, guarded on there being changed Go files: `gofmt -l` with no file
+      operands reads standard input, which would hang the script on a branch that touches no Go
+- [x] CI runs on the pull request and the merge gate blocks until every check reports pass
 
 ## Open Questions
 

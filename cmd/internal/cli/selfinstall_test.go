@@ -784,7 +784,7 @@ func TestRunSelfInstall_ManifestMatchesTheTree(t *testing.T) {
 //
 // A file whose hash no longer matches the record may be the operator's own edit, so it is left and
 // reported rather than deleted. There is no solution to that on the file itself: it cannot be removed
-// safely and it cannot be trusted. This test exists so the behaviour is a decision someone made rather
+// safely and it cannot be trusted. This test exists so the behavior is a decision someone made rather
 // than something a later change quietly reverses.
 func TestRunSelfInstall_LeavesAFileChangedSinceItWasWritten(t *testing.T) {
 
