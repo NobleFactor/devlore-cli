@@ -30,6 +30,9 @@ file, because codespell is not installed on this host and there is no Python to 
 
 ### Requirement 1: Two stems that bite, and how
 
+Two were known before the sweep and are handled here. A third, `cancell`, was found by Requirement 3
+afterwards, which is the point of that requirement.
+
 **`programme` is matched as a whole word, not a stem.** This tree holds `programming` (21),
 `programmatic` (9), `programmer` (3) and `programmers` (2) — every one begins with `programme`, so a
 stem replace produces `programr`. There is exactly one `Programme` to correct, and it is the only
@@ -90,11 +93,11 @@ asset class" — which corrects cleanly. The pull request names the legal lines 
 
 ### Phase 3: Verify, then merge
 
-- [ ] `make vet`, `make lint`, `make test`
-- [ ] `gofmt -l` clean over any changed Go file
-- [ ] The legal lines in `CONTRIBUTING.md` and `TRADEMARK.md` quoted in the pull request
-- [ ] PR script written, analyzer-clean, shown, and handed over
-- [ ] CI runs on the pull request and the merge gate blocks until every check reports pass
+- [x] `make vet`, `make lint`, `make test` -- all rc=0. golangci-lint clean includes `misspell` with `locale: US`, so the Go files the sweep touched satisfy the Go-side gate too
+- [x] `gofmt -l` clean. The Go footprint is three doc comments in `pkg/op`, `acknowledgement` to `acknowledgment`; no identifier touched
+- [x] The four legal lines quoted in the pull request as a table. `Apache License 2.0` was already correct and is untouched
+- [x] PR script written, analyzer-clean (parse errors 0, findings 0, no BOM, no non-ASCII), shown, and handed over
+- [x] CI runs on the pull request and the merge gate blocks until every check reports pass
 
 ### Phase 4: Close noblefactor-ops#234
 

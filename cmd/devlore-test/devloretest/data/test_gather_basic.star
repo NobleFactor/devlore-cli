@@ -3,7 +3,7 @@
 
 # test_gather_basic.star — input / body-shape / ordering coverage for plan.gather.
 #
-# Matrix rows (basic surface — PowerShell ForEach-Object analogues):
+# Matrix rows (basic surface — PowerShell ForEach-Object analogs):
 #   B1: single item — body runs exactly once.
 #   B2: multi-item   — body runs once per item.
 #   B3: many items   — items count exceeds limit, all dispatched eventually.
