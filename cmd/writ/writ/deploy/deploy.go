@@ -16,7 +16,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 
@@ -27,7 +26,6 @@ import (
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/snapshot"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/tree"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )
 
 // Config carries the resolved settings for one deploy operation.
@@ -263,9 +261,10 @@ func runGraph(
 // layered-enforcement ruling).
 //
 // Under the default `stop`, every planned target that is occupied on disk is classified through the readback:
-// writ's own unmodified outputs — a symlink resolving to its recorded source, or a file whose digest equals the
-// run's recorded as-deployed identity — are cleared for replacement (redeploys flow); anything foreign or
-// locally modified is a violation, and the deploy refuses listing them and naming the flag. A cleared run (or an
+// writ's own unmodified outputs — an occupant that is what the record wrote, [readback.Entry.AsRecorded]: a
+// symlink whose literal endpoint is the recorded source, resolved or dangling, or a file whose digest is the
+// recorded as-deployed identity — are cleared for replacement (redeploys flow, and a file that moved between
+// layers is re-pointed, #883); anything foreign or locally modified is a violation, and the deploy refuses listing them and naming the flag. A cleared run (or an
 // explicit `skip` / `replace`) hands the resolved policy to the file provider's write seam, which enforces it
 // per target. A missing run index reads as zero knowledge (every occupant is foreign) — first deploys onto a
 // clean machine have no occupants, so nothing refuses.
@@ -302,7 +301,7 @@ func preflightConflicts(ctx context.Context, cfg *Config, graphs []*op.Graph) (o
 				continue
 			}
 
-			if entry, known := inventory.Entries[target]; known && occupantIsOurs(entry) {
+			if entry, known := inventory.Entries[target]; known && entry.AsRecorded() {
 				continue
 			}
 
@@ -351,41 +350,6 @@ func plannedTargets(graph *op.Graph) map[string]bool {
 		}
 	}
 	return targets
-}
-
-// occupantIsOurs reports whether an occupied target is writ's own unmodified output.
-//
-// A linked entry is ours when the on-disk symlink resolves to the entry's recorded source; a copied entry is
-// ours when its content digest equals the run's recorded as-deployed identity (step 48). Entries without a
-// recorded identity (pre-capture runs) are NOT cleared — indeterminate occupants stay policy-gated.
-//
-// Parameters:
-//   - `entry`: the readback inventory entry for the occupied target.
-//
-// Returns:
-//   - `bool`: true when the occupant is writ's own unmodified output.
-func occupantIsOurs(entry readback.Entry) bool {
-
-	if entry.Action == string(file.Link) {
-		resolvedTarget, err := filepath.EvalSymlinks(entry.Target)
-		if err != nil {
-			return false
-		}
-		resolvedSource, err := filepath.EvalSymlinks(entry.Source)
-		if err != nil {
-			return false
-		}
-		return resolvedTarget == resolvedSource
-	}
-
-	if entry.RecordedDigest == "" {
-		return false
-	}
-	current, err := os.ReadFile(entry.Target)
-	if err != nil {
-		return false
-	}
-	return readback.ContentDigest(current) == entry.RecordedDigest
 }
 
 // scopeLabel returns the graph's scope for reporting, or "default" when unscoped.

@@ -95,8 +95,8 @@ func BuildReport(ctx context.Context, cfg *Config) (*Report, error) {
 
 // classifyEntry classifies one record entry against the system, the record as the reference (#923).
 //
-// A link is judged through the link itself and the recorded source digest; a copy through the recorded target and
-// source digests. No word is decided by consulting the layer checkout beyond the source the record names.
+// The occupant is judged by [readback.Entry.AsRecorded] -- what the record wrote -- then the source by the
+// recorded source digest. No word is decided by consulting the layer checkout beyond the source the record names.
 //
 // Parameters:
 //   - `entry`: the folded record entry.
@@ -114,59 +114,33 @@ func classifyEntry(entry readback.Entry) Entry {
 		Action:  entry.Action,
 	}
 
-	recorded := recordedPair{target: entry.RecordedDigest, source: entry.RecordedSourceDigest}
-
 	if entry.Action == string(file.Link) {
-		classifyLink(&classified, recorded)
+		classifyLink(&classified, entry)
 		return classified
 	}
 
-	classifyCopied(&classified, recorded)
+	classifyCopied(&classified, entry)
 	return classified
-}
-
-// recordedPair is the record's content identity for one entry: the as-deployed target digest and the source digest,
-// each "" when the run did not record it.
-type recordedPair struct {
-	target string
-	source string
 }
 
 // classifyLink judges a linked entry: absent, changed, dangling, stale, or linked.
 //
 // Parameters:
 //   - `classified`: the report entry to fill; Target and Source are already set.
-//   - `recorded`: the record's digests.
-func classifyLink(classified *Entry, recorded recordedPair) {
+//   - `entry`: the record entry, with its recorded digests.
+func classifyLink(classified *Entry, entry readback.Entry) {
 
-	info, err := os.Lstat(classified.Target)
-	if errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Lstat(classified.Target); errors.Is(err, os.ErrNotExist) {
 		classified.State = StateAbsent
 		classified.Repair = "writ deploy"
 		classified.Message = "symlink not present"
 		return
 	}
-	if err != nil || info.Mode()&os.ModeSymlink == 0 {
-		classified.State = StateChanged
-		classified.Repair = "writ deploy"
-		classified.Message = "target exists but is not a symlink"
-		return
-	}
 
-	endpoint, err := os.Readlink(classified.Target)
-	if err != nil {
+	if !entry.AsRecorded() {
 		classified.State = StateChanged
 		classified.Repair = "writ deploy"
-		classified.Message = "symlink cannot be read"
-		return
-	}
-	if !filepath.IsAbs(endpoint) {
-		endpoint = filepath.Join(filepath.Dir(classified.Target), endpoint)
-	}
-	if filepath.Clean(endpoint) != filepath.Clean(classified.Source) {
-		classified.State = StateChanged
-		classified.Repair = "writ deploy"
-		classified.Message = "symlink points at " + endpoint
+		classified.Message = "not the symlink the record wrote"
 		return
 	}
 
@@ -178,7 +152,7 @@ func classifyLink(classified *Entry, recorded recordedPair) {
 		return
 	}
 
-	if recorded.source != "" && readback.ContentDigest(referent) != recorded.source {
+	if entry.RecordedSourceDigest != "" && readback.ContentDigest(referent) != entry.RecordedSourceDigest {
 		classified.State = StateStale
 		classified.Repair = "writ upgrade"
 		classified.Message = "source changed since deployment"
@@ -195,8 +169,8 @@ func classifyLink(classified *Entry, recorded recordedPair) {
 //
 // Parameters:
 //   - `classified`: the report entry to fill; Target and Source are already set.
-//   - `recorded`: the record's digests.
-func classifyCopied(classified *Entry, recorded recordedPair) {
+//   - `entry`: the record entry, with its recorded digests.
+func classifyCopied(classified *Entry, entry readback.Entry) {
 
 	if _, err := os.Lstat(classified.Target); errors.Is(err, os.ErrNotExist) {
 		classified.State = StateAbsent
@@ -205,17 +179,10 @@ func classifyCopied(classified *Entry, recorded recordedPair) {
 		return
 	}
 
-	current, err := os.ReadFile(classified.Target)
-	if err != nil {
+	if entry.RecordedDigest != "" && !entry.AsRecorded() {
 		classified.State = StateChanged
 		classified.Repair = "writ upgrade --force"
-		classified.Message = "target cannot be read"
-		return
-	}
-	if recorded.target != "" && readback.ContentDigest(current) != recorded.target {
-		classified.State = StateChanged
-		classified.Repair = "writ upgrade --force"
-		classified.Message = "locally modified since deployment"
+		classified.Message = "not the content the record wrote"
 		return
 	}
 
@@ -226,7 +193,7 @@ func classifyCopied(classified *Entry, recorded recordedPair) {
 		classified.Message = "the recorded source does not resolve"
 		return
 	}
-	if recorded.source != "" && readback.ContentDigest(source) != recorded.source {
+	if entry.RecordedSourceDigest != "" && readback.ContentDigest(source) != entry.RecordedSourceDigest {
 		classified.State = StateStale
 		classified.Repair = "writ upgrade"
 		classified.Message = "source changed since deployment"

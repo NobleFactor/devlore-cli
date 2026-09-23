@@ -78,6 +78,43 @@ type Entry struct {
 	At time.Time
 }
 
+// AsRecorded reports whether the occupant at the entry's target is what the record wrote (#883, ruled 2026-09-23).
+//
+// A link is as recorded when the target is a symlink whose literal endpoint, absolutized against the target's own
+// directory, is the recorded source -- whether or not that source still exists, so a link that dangles because its
+// source moved between layers is still writ's own. A copy is as recorded when the target's content digest is the
+// recorded as-deployed digest. Neither side is resolved: the source is never consulted, and a record that carries
+// no digest for a copy cannot vouch for it.
+//
+// Returns:
+//   - `bool`: true when the occupant matches what the record wrote.
+func (e Entry) AsRecorded() bool {
+
+	if e.Action == string(file.Link) {
+		info, err := os.Lstat(e.Target)
+		if err != nil || info.Mode()&os.ModeSymlink == 0 {
+			return false
+		}
+		endpoint, err := os.Readlink(e.Target)
+		if err != nil {
+			return false
+		}
+		if !filepath.IsAbs(endpoint) {
+			endpoint = filepath.Join(filepath.Dir(e.Target), endpoint)
+		}
+		return filepath.Clean(endpoint) == filepath.Clean(e.Source)
+	}
+
+	if e.RecordedDigest == "" {
+		return false
+	}
+	current, err := os.ReadFile(e.Target)
+	if err != nil {
+		return false
+	}
+	return ContentDigest(current) == e.RecordedDigest
+}
+
 // Inventory is the fold's output: the deployed entries plus the store-health findings.
 type Inventory struct {
 

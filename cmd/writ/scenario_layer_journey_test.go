@@ -1144,10 +1144,12 @@ func TestWritLayerJourneyScenario_Part3_Move(t *testing.T) {
 				t.Fatalf("the dry run now reports the pre-flight — #%d has landed; update this step:\n%s", issueDryRunPreflight, stderr)
 			}
 
-			// 3.3 the redeploy: everything relinked to the new sources, the helper now the base's, no collision
-			_, stderr, err := j.deploy(t, []string{"--conflict=replace"})
+			// 3.3 the redeploy, under the default policy (#883): the dangling links are what the record wrote, so
+			// they are writ's own and are re-pointed; everything relinked to the new sources, the helper now the
+			// base's, no collision
+			_, stderr, err := j.deploy(t, nil)
 			if err != nil {
-				t.Fatalf("redeploy failed: %v\n%s", err, stderr)
+				t.Fatalf("redeploy under stop refused writ's own dangling links (#883): %v\n%s", err, stderr)
 			}
 			if got := collisionsIn(stderr); got != 0 {
 				t.Fatalf("after the move nothing should collide; %d narrated:\n%s", got, stderr)
