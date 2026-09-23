@@ -83,36 +83,32 @@ type Health struct {
 	Findings []string `json:"findings,omitempty"`
 }
 
-// State classifies one inventory entry against the live filesystem.
+// State classifies one record entry against the system. The record is the desired state (#923, ruled
+// 2026-09-23): every word names how the system, or the record's reference to its source, stands against it.
 type State int
 
 const (
-	// StateLinked means the symlink exists and resolves to its source.
-	StateLinked State = iota
+	// StateLinked means the symlink is as recorded and its referent's content is as recorded.
+	StateLinked State = 0
 
-	// StateCopied means the copied file is present (and matches a fresh result when comparable).
-	StateCopied
+	// StateCopied means the copied file is as recorded and its source's content is as recorded.
+	StateCopied State = 1
 
-	// StateMissing means the deployed target is gone.
-	StateMissing
+	// StateAbsent means the record says a target is there and it is not. Repair: deploy.
+	StateAbsent State = 2
 
-	// StateConflict means something else occupies the target (wrong kind, wrong link endpoint, unreadable).
-	StateConflict
+	// StateChanged means the target is there but is not what the record says: not the recorded symlink, or a
+	// copy whose content digest moved. Repair: deploy for a link, `upgrade --force` for a copy.
+	StateChanged State = 3
 
-	// StateOrphan means the target exists but its source is gone.
-	StateOrphan
+	// StateDangling means the source the record names does not resolve -- a link whose referent is gone, or a
+	// copy whose source is gone: a reference that outlives its referent. Reconcile reports it and leaves it; the
+	// repair is a new record, which only deploy makes.
+	StateDangling State = 4
 
-	// StateModifiedOrStale means a comparable copied target differs from a fresh result and the run predates
-	// the step-48 recorded identity — a source change and a local edit are indistinguishable.
-	StateModifiedOrStale
-
-	// StateStale means the target is unchanged since deployment (its digest equals the recorded as-deployed
-	// identity) and the source moved; `writ upgrade` regenerates it freely.
-	StateStale
-
-	// StateModified means the target was edited locally after deployment (its digest differs from the
-	// recorded identity); `writ upgrade --force` overwrites.
-	StateModified
+	// StateStale means the deployed thing is as recorded, its source resolves, and the source's content no
+	// longer matches the recorded source digest: a derivative behind an origin that still exists. Repair: upgrade.
+	StateStale State = 5
 )
 
 // Label returns the machine-readable classification name.
@@ -125,18 +121,14 @@ func (s State) Label() string {
 		return "linked"
 	case StateCopied:
 		return "copied"
-	case StateMissing:
-		return "missing"
-	case StateConflict:
-		return "conflict"
-	case StateOrphan:
-		return "orphan"
-	case StateModifiedOrStale:
-		return "modified-or-stale"
+	case StateAbsent:
+		return "absent"
+	case StateChanged:
+		return "changed"
+	case StateDangling:
+		return "dangling"
 	case StateStale:
 		return "stale"
-	case StateModified:
-		return "modified"
 	default:
 		return "unknown"
 	}

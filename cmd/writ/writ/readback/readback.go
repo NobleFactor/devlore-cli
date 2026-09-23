@@ -279,7 +279,7 @@ func foldRun(environment *op.RuntimeEnvironment, r run, inventory *Inventory) {
 				TargetRoot:           targetRoot,
 				RecordedEtag:         identity.etag,
 				RecordedDigest:       identity.digest,
-				RecordedSourceDigest: recorded[meta.source].digest,
+				RecordedSourceDigest: recorded[meta.readFrom].digest,
 				GraphChecksum:        r.checksum,
 				At:                   r.at,
 			}
@@ -293,11 +293,12 @@ func foldRun(environment *op.RuntimeEnvironment, r run, inventory *Inventory) {
 
 // fileMeta is one unit's plan-time file metadata from the graph origin's `files` annotation.
 type fileMeta struct {
-	target  string
-	source  string
-	project string
-	layer   string
-	action  string
+	target   string
+	source   string
+	readFrom string
+	project  string
+	layer    string
+	action   string
 }
 
 // fileMetadata extracts the per-unit file metadata from the graph origin's `files` annotation.
@@ -328,13 +329,20 @@ func fileMetadata(origin op.Origin) map[string]fileMeta {
 		if !ok {
 			continue
 		}
-		metas[unitID] = fileMeta{
-			target:  stringField(fields, "target"),
-			source:  stringField(fields, "source"),
-			project: stringField(fields, "project"),
-			layer:   stringField(fields, "layer"),
-			action:  stringField(fields, "action"),
+		meta := fileMeta{
+			target:   stringField(fields, "target"),
+			source:   stringField(fields, "source"),
+			readFrom: stringField(fields, "read_from"),
+			project:  stringField(fields, "project"),
+			layer:    stringField(fields, "layer"),
+			action:   stringField(fields, "action"),
 		}
+		// The ledger records a source under the path the run read it from -- the pinned snapshot under a layered
+		// deploy -- which `read_from` names; a record that carries none read the origin itself (#923).
+		if meta.readFrom == "" {
+			meta.readFrom = meta.source
+		}
+		metas[unitID] = meta
 	}
 	return metas
 }

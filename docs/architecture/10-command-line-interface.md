@@ -150,7 +150,7 @@ The mechanics, per program:
 | Verb | `lore` -- a package | `writ` -- an environment |
 | --- | --- | --- |
 | `deploy` | install the package's lifecycle pipelines | link, write, and create files under each scope |
-| `reconcile` | compare the receipt against the live system, report drift | the same, per scope |
+| `reconcile` | compare the record against the live system: `linked`, `copied`, `absent`, `changed`, `dangling`, `stale` ([5.1](5.1-reconciliation.md)) | the same, per scope |
 | `upgrade` | constrained re-deploy with drift attribution | the same |
 | `decommission` | reverse traversal, receipts for the removals | the same |
 

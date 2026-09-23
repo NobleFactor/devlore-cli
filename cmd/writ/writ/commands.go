@@ -227,16 +227,13 @@ operations writ's runs performed, and store health. Reconcile produces a report;
 finding names the lifecycle command that repairs it. The report is one JSON document,
 rendered by --output like every other result; --jq '.entries' selects the delta alone.
 
-Entry states:
-  linked             Symlink present and resolving to its source
-  copied             Copied file present (encrypted content is not compared)
-  missing            Deployed target is gone                     → writ deploy
-  conflict           Something else occupies the target
-  orphan             Target's source no longer exists            → writ decommission
-  stale              Source changed since the run                → writ upgrade
-  modified           Target edited out-of-band                   → writ upgrade --force
-  modified-or-stale  Differs, but the run predates recorded content
-                     identity: attribution indeterminate         → writ upgrade`,
+Entry states -- the record is the reference:
+  linked     The symlink is as recorded, its referent's content as recorded
+  copied     The copied file is as recorded, its source's content as recorded
+  absent     The record says a target is there and it is not      → writ deploy
+  changed    The target is there but is not what the record says  → writ deploy (link), writ upgrade --force (copy)
+  dangling   The source the record names does not resolve         → writ deploy
+  stale      As recorded; the source resolves and its content moved → writ upgrade`,
 		Example: `  writ reconcile                 # Report everything writ has deployed
   writ reconcile noblefactor     # Report one project
   writ reconcile -o json         # Machine-readable report

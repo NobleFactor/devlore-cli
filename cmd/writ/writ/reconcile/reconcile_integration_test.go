@@ -118,18 +118,18 @@ func TestBuildReport_CleanDeployment(t *testing.T) {
 	}
 }
 
-// TestBuildReport_Classifications pins the finding classes and their repair pointers.
+// TestBuildReport_Classifications pins the six words and the repair each names (#923): absent, changed, stale,
+// dangling, for a link and for a copy, the record as the reference.
 func TestBuildReport_Classifications(t *testing.T) {
 
 	sourceRoot, targetRoot, templateSource := deployFixture(t)
+	rendered := filepath.Join(targetRoot, ".gitconfig")
+	linkPath := filepath.Join(targetRoot, ".zshrc")
 
-	// Missing: delete the rendered file.
-	if err := os.Remove(filepath.Join(targetRoot, ".gitconfig")); err != nil {
+	// absent: the rendered copy is removed. changed: the link is replaced by a real file.
+	if err := os.Remove(rendered); err != nil {
 		t.Fatal(err)
 	}
-
-	// Conflict: replace the link with a real file.
-	linkPath := filepath.Join(targetRoot, ".zshrc")
 	if err := os.Remove(linkPath); err != nil {
 		t.Fatal(err)
 	}
@@ -141,18 +141,14 @@ func TestBuildReport_Classifications(t *testing.T) {
 	if err != nil {
 		t.Fatalf("BuildReport: %v", err)
 	}
-
-	missing := entryFor(t, report, filepath.Join(targetRoot, ".gitconfig"))
-	if missing.State != reconcile.StateMissing || missing.Repair != "writ deploy" {
-		t.Errorf("missing entry = %+v, want missing with repair 'writ deploy'", missing)
+	if absent := entryFor(t, report, rendered); absent.State != reconcile.StateAbsent || absent.Repair != "writ deploy" {
+		t.Errorf("absent entry = %+v, want absent with repair 'writ deploy'", absent)
+	}
+	if changed := entryFor(t, report, linkPath); changed.State != reconcile.StateChanged || changed.Repair != "writ deploy" {
+		t.Errorf("changed link = %+v, want changed with repair 'writ deploy'", changed)
 	}
 
-	conflict := entryFor(t, report, linkPath)
-	if conflict.State != reconcile.StateConflict {
-		t.Errorf("conflict entry = %+v, want conflict", conflict)
-	}
-
-	// Modified-or-stale: restore the deployment, then change the source.
+	// stale: redeploy, then move the template's source under the copy and the link's source under the link.
 	if err := os.Remove(linkPath); err != nil {
 		t.Fatal(err)
 	}
@@ -168,41 +164,81 @@ func TestBuildReport_Classifications(t *testing.T) {
 	if err := os.WriteFile(templateSource, []byte("os={{ .Segments.OS }} v2"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	linkSource := filepath.Join(sourceRoot, "myproj", ".zshrc")
+	if err := os.WriteFile(linkSource, []byte("plain zsh, edited in the checkout"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	report, err = reconcile.BuildReport(context.Background(), reconcileConfig())
 	if err != nil {
-		t.Fatalf("BuildReport (round 2): %v", err)
+		t.Fatalf("BuildReport (stale round): %v", err)
+	}
+	if stale := entryFor(t, report, rendered); stale.State != reconcile.StateStale || stale.Repair != "writ upgrade" {
+		t.Errorf("stale copy = %+v, want stale with repair 'writ upgrade'", stale)
+	}
+	// A link's referent IS the checkout, and the record holds no source digest for a link (the link's source is a
+	// path slot, not a cataloged resource), so an edit under a link is git's business and the link stays linked.
+	if linked := entryFor(t, report, linkPath); linked.State != reconcile.StateLinked {
+		t.Errorf("link whose referent was edited = %+v, want linked (the record holds no source digest for a link)", linked)
 	}
 
-	stale := entryFor(t, report, filepath.Join(targetRoot, ".gitconfig"))
-	if stale.State != reconcile.StateStale || stale.Repair != "writ upgrade" {
-		t.Errorf("stale entry = %+v, want stale (attributed via the recorded identity) with repair 'writ upgrade'", stale)
-	}
-
-	// Modified: locally edit the redeployed target — the recorded identity attributes it.
-	if err := os.WriteFile(filepath.Join(targetRoot, ".gitconfig"), []byte("my local edits"), 0o644); err != nil {
+	// changed copy: a local edit of the copy; the recorded target digest attributes it.
+	if err := os.WriteFile(rendered, []byte("my local edits"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	report, err = reconcile.BuildReport(context.Background(), reconcileConfig())
 	if err != nil {
-		t.Fatalf("BuildReport (modified round): %v", err)
+		t.Fatalf("BuildReport (changed round): %v", err)
 	}
-	modified := entryFor(t, report, filepath.Join(targetRoot, ".gitconfig"))
-	if modified.State != reconcile.StateModified || modified.Repair != "writ upgrade --force" {
-		t.Errorf("modified entry = %+v, want modified with repair 'writ upgrade --force'", modified)
+	if changed := entryFor(t, report, rendered); changed.State != reconcile.StateChanged || changed.Repair != "writ upgrade --force" {
+		t.Errorf("changed copy = %+v, want changed with repair 'writ upgrade --force'", changed)
 	}
 
-	// Orphan: delete the link's source.
-	if err := os.Remove(filepath.Join(sourceRoot, "myproj", ".zshrc")); err != nil {
+	// dangling: the sources are removed under both -- a reference that outlives its referent, for both kinds.
+	if err := os.Remove(linkSource); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(templateSource); err != nil {
 		t.Fatal(err)
 	}
 	report, err = reconcile.BuildReport(context.Background(), reconcileConfig())
 	if err != nil {
-		t.Fatalf("BuildReport (round 3): %v", err)
+		t.Fatalf("BuildReport (dangling round): %v", err)
 	}
-	orphan := entryFor(t, report, linkPath)
-	if orphan.State != reconcile.StateOrphan || orphan.Repair != "writ decommission" {
-		t.Errorf("orphan entry = %+v, want orphan with repair 'writ decommission'", orphan)
+	if dangling := entryFor(t, report, linkPath); dangling.State != reconcile.StateDangling || dangling.Repair != "writ deploy" {
+		t.Errorf("dangling link = %+v, want dangling with repair 'writ deploy'", dangling)
+	}
+	// the copy was locally edited above; restore it so the source's absence is what decides
+	if err := os.WriteFile(rendered, []byte("os=Darwin"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	report, err = reconcile.BuildReport(context.Background(), reconcileConfig())
+	if err != nil {
+		t.Fatalf("BuildReport (dangling copy round): %v", err)
+	}
+	if dangling := entryFor(t, report, rendered); dangling.State != reconcile.StateDangling || dangling.Repair != "writ deploy" {
+		t.Errorf("dangling copy = %+v, want dangling with repair 'writ deploy'", dangling)
+	}
+}
+
+// TestBuildReport_Words pins the vocabulary: six labels, and only these.
+func TestBuildReport_Words(t *testing.T) {
+
+	want := map[reconcile.State]string{
+		reconcile.StateLinked:   "linked",
+		reconcile.StateCopied:   "copied",
+		reconcile.StateAbsent:   "absent",
+		reconcile.StateChanged:  "changed",
+		reconcile.StateDangling: "dangling",
+		reconcile.StateStale:    "stale",
+	}
+	for state, label := range want {
+		if state.Label() != label {
+			t.Errorf("State(%d).Label() = %q, want %q", state, state.Label(), label)
+		}
+	}
+	if got := reconcile.State(6).Label(); got != "unknown" {
+		t.Errorf("a seventh state labels %q; the vocabulary is six words", got)
 	}
 }
 
