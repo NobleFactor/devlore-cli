@@ -167,6 +167,27 @@ deployed, deployed and clean, and deployed and drifted are three different answe
 [5.1](5.1-reconciliation.md) already requires the first of them -- "a missing run index is a hard error, not
 a silent rescan."
 
+**`self install` borrows the verb, and not the model** (ruled 2026-09-23,
+[#933](https://github.com/NobleFactor/devlore-cli/issues/933)). Every program carries `self install`, and it
+keeps a record of its own: `share/<tool>/manifest.json`, the paths it placed and their hashes. That record is
+**what the tool owns**, and an install **replaces** it -- the same word as `deploy` above, for the same
+reason. Until #933 an install merely overwrote it: a file at a path the new install no longer wrote was left
+on disk and dropped from the record in one operation, so `self uninstall`, which reads only the record, could
+never reach it again. star's extensions moved under `devlore/` in
+[#918](https://github.com/NobleFactor/devlore-cli/issues/918) and stranded 24 files exactly that way.
+
+The retirement runs **after** the install rather than before it. Both orders reach the same state; this one
+does not remove the running executable, which Windows refuses, and does not leave the tool absent when the
+install that was to replace it fails partway. A file whose hash no longer matches the record is left and
+reported, never deleted: it may be the operator's own edit, and it cannot be trusted either way.
+
+**It is a manifest, not a trace** (ruled the same day). The verb is shared; none of the machinery above is. A
+trace carries receipts that fold, lifetimes that can be pruned, and a reconciliation that can restore a system
+because the graph behind it is replayable. A manifest is a list of paths and hashes written at the end of one
+operation: it can answer *is this the file I wrote*, and it cannot answer *what would it take to get back
+here*. `self install` has no lifetimes to prune and no fold to bound, and should not grow them -- a reader who
+finds themselves reaching for `readback.Fold` here has the wrong record in mind.
+
 ## 4. Arguments and flags
 
 **Positional arguments** are the objects the verb acts on, and only that. A command takes positionals when the
