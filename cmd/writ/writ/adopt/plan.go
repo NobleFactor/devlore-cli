@@ -9,12 +9,8 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider/flow"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/plan"
 )
-
-// gatherLimit bounds the adopt gather's per-iteration concurrency.
-const gatherLimit = 4
 
 // Item describes one file adoption: the source location and its plan-time-derived destinations.
 //
@@ -34,41 +30,47 @@ type Item struct {
 
 	// DestPath is the destination inside `<layer>/<scope>/<project>/`, preserving RelPath.
 	DestPath string
+
+	// Scope is the scope the item was inferred into (Home or System); the record names it.
+	Scope string
 }
 
-// BuildGraph constructs the batch adopt graph for one scope group (phase-8 step 33 slice A).
+// BuildGraph constructs the batch adopt graph for one scope group.
 //
-// Shape (the settled gather + field-projection design): a deduplicated `file.mkdir` pre-stage — one node per unique
-// destination directory, ahead of the gather because concurrent per-item creation of a shared directory would be
-// same-resource production — followed by one `flow.gather` over the item records. Each iteration runs the in-graph
-// destination guard and the adoption chain, all slots projected from the iteration item ([plan.Provider.Item]):
+// Shape (ruled 2026-09-23, #931, superseding the gather of the writ-adopt design): a deduplicated `file.mkdir`
+// pre-stage -- one node per unique destination directory -- followed by **one chain per item**, so every adopted
+// file has its own `file.link` unit and the graph's `files` annotation can name it, as a deploy's does:
 //
-//	gather  items=[{source, dest_path}, …]  limit=4
-//	└── choose( file.exists(dest_path) → flow.failed | default: file.move → file.link )
+//	mkdir₁ … mkdir_k
+//	per item: file.move → file.link      (the existing-destination guard runs before the graph, in RunBatches)
+//
+// The origin is a deployment record's: tool `writ`, the scope, `target_root`, and `files` keyed by each link
+// unit's id with the target (the original location, now the link), the source (the project location, which is
+// also what the run read), the action, the layer and the project. The fold reads an adoption as it reads a deploy.
 //
 // Failure follows the policies as defined: a failed adoption fails the run, the executor unwinds, and completed
-// iterations compensate (links removed, moves reversed, created directories pruned).
+// items compensate (links removed, moves reversed, created directories pruned).
 //
 // Parameters:
 //   - `env`: the planning runtime environment; supplies the receiver registry for provider-method lookup.
+//   - `cfg`: the adopt configuration; the layer and the project the record names.
+//   - `targetRoot`: the scope's root, the annotation's `target_root`.
 //   - `items`: the scope group's adoptions, destinations already derived.
 //
 // Returns:
 //   - *op.Graph: the assembled batch graph.
 //   - `error`: non-nil when planning any invocation or the assembly fails.
-func BuildGraph(env *op.RuntimeEnvironment, items []Item) (*op.Graph, error) {
+func BuildGraph(env *op.RuntimeEnvironment, cfg *Config, targetRoot string, items []Item) (*op.Graph, error) {
 
 	planProvider := plan.NewProvider(env)
 
-	// The deduplicated mkdir pre-stage.
-	var invocations []*op.Invocation
+	var units []*op.Invocation
 	seenDirs := make(map[string]struct{}, len(items))
 	for _, item := range items {
 		if _, dup := seenDirs[item.DestDir]; dup {
 			continue
 		}
 		seenDirs[item.DestDir] = struct{}{}
-
 		mkdir, err := planProvider.Plan(file.Mkdir, nil, map[string]any{
 			"path": item.DestDir,
 			"mode": os.FileMode(0o755),
@@ -77,86 +79,76 @@ func BuildGraph(env *op.RuntimeEnvironment, items []Item) (*op.Graph, error) {
 		if err != nil {
 			return nil, fmt.Errorf("adopt.BuildGraph: plan file.mkdir: %w", err)
 		}
-		invocations = append(invocations, mkdir)
+		units = append(units, mkdir)
 	}
 
-	// The gather items: one record per adoption. The consumed source is CLAIMED at plan time
-	// (4-resource-management.md §5.1 — the item paths are plan-known intent): [file.DiscoverRegular]
-	// mints the identity with no disk contact and interns it pending, and the record carries the claimed
-	// resource, whose identity the dispatch seam resolves through the run catalog (§5.6). A raw path
-	// string here would refuse at dispatch — a string is a key, never a constructor.
-	records := make([]any, 0, len(items))
+	scope := ""
+	fileMetas := make(map[string]any, len(items))
 	for _, item := range items {
-		source, err := file.DiscoverRegular(env, item.Source)
+		scope = item.Scope
+		chain, linkUnitID, err := planItemChain(env, planProvider, item)
 		if err != nil {
-			return nil, fmt.Errorf("adopt.BuildGraph: claim source %s: %w", item.Source, err)
+			return nil, err
 		}
-		records = append(records, map[string]any{
-			"source":    source,
-			"dest_path": item.DestPath,
-		})
+		units = append(units, chain...)
+		fileMetas[linkUnitID] = map[string]any{
+			"target":    item.Source,
+			"source":    item.DestPath,
+			"read_from": item.DestPath,
+			"project":   cfg.Project,
+			"layer":     cfg.Layer,
+			"action":    string(file.Link),
+		}
 	}
 
-	// The per-iteration body: the in-graph destination guard, then the move → link chain.
-	existsInvocation, err := planProvider.Plan(file.Exists, nil, map[string]any{
-		"path": planProvider.Item("dest_path"),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("adopt.BuildGraph: plan file.exists: %w", err)
-	}
+	origin := op.NewOriginBase("writ", scope, op.NewAnnotationMap(map[string]any{
+		"target_root": targetRoot,
+		"files":       fileMetas,
+	}))
 
-	failedInvocation, err := planProvider.Plan(flow.Failed,
-		[]any{"adopt: destination already exists: {{ .dest }}"},
-		map[string]any{"dest": planProvider.Item("dest_path")})
-	if err != nil {
-		return nil, fmt.Errorf("adopt.BuildGraph: plan flow.failed: %w", err)
-	}
-
-	moveInvocation, err := planProvider.Plan(file.Move, nil, map[string]any{
-		"source":           planProvider.Item("source"),
-		"destination_path": planProvider.Item("dest_path"),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("adopt.BuildGraph: plan file.move: %w", err)
-	}
-
-	linkInvocation, err := planProvider.Plan(file.Link, nil, map[string]any{
-		"source_path": planProvider.Item("dest_path"),
-		"target_path": planProvider.Item("source"),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("adopt.BuildGraph: plan file.link: %w", err)
-	}
-
-	guardCase, err := planProvider.Case(existsInvocation, failedInvocation)
-	if err != nil {
-		return nil, fmt.Errorf("adopt.BuildGraph: plan the guard case: %w", err)
-	}
-
-	chooseInvocation, err := planProvider.Plan(flow.Choose,
-		[]any{guardCase},
-		map[string]any{"default": []any{moveInvocation, linkInvocation}})
-	if err != nil {
-		return nil, fmt.Errorf("adopt.BuildGraph: plan flow.choose: %w", err)
-	}
-
-	gatherInvocation, err := planProvider.Plan(flow.Gather, nil, map[string]any{
-		"items": records,
-		"limit": gatherLimit,
-		"body":  []any{chooseInvocation},
-	})
-	if err != nil {
-		return nil, fmt.Errorf("adopt.BuildGraph: plan flow.gather: %w", err)
-	}
-
-	graph, err := planProvider.AssembleDefinition(
-		append(invocations, gatherInvocation),
-		nil, nil, nil, nil, nil,
-		planProvider.Origin("adopt"),
-	)
+	graph, err := planProvider.AssembleDefinition(units, nil, nil, nil, nil, nil, origin)
 	if err != nil {
 		return nil, fmt.Errorf("adopt.BuildGraph: assemble: %w", err)
 	}
 
 	return graph, nil
+}
+
+// planItemChain plans one item's adoption: `file.move` then `file.link`.
+//
+// The existing-destination guard runs before the graph, in [RunBatches]: a `flow.choose` in the graph does not load
+// back from the document (devlore-cli#939), and a record whose graph cannot be read is a finding, not a record.
+//
+// Parameters:
+//   - `env`: the planning runtime environment, which claims the source.
+//   - `planProvider`: the plan provider the chain registers into.
+//   - `item`: the adoption.
+//
+// Returns:
+//   - `[]*op.Invocation`: the move and the link, in order.
+//   - `string`: the link unit's id, the `files` annotation's key.
+//   - `error`: non-nil when claiming the source or planning either invocation fails.
+func planItemChain(env *op.RuntimeEnvironment, planProvider *plan.Provider, item Item) ([]*op.Invocation, string, error) {
+
+	source, err := file.DiscoverRegular(env, item.Source)
+	if err != nil {
+		return nil, "", fmt.Errorf("adopt.BuildGraph: claim source %s: %w", item.Source, err)
+	}
+
+	moveInvocation, err := planProvider.Plan(file.Move, nil, map[string]any{
+		"source":           source,
+		"destination_path": item.DestPath,
+	})
+	if err != nil {
+		return nil, "", fmt.Errorf("adopt.BuildGraph: plan file.move: %w", err)
+	}
+	linkInvocation, err := planProvider.Plan(file.Link, nil, map[string]any{
+		"source_path": item.DestPath,
+		"target_path": item.Source,
+	})
+	if err != nil {
+		return nil, "", fmt.Errorf("adopt.BuildGraph: plan file.link: %w", err)
+	}
+
+	return []*op.Invocation{moveInvocation, linkInvocation}, linkInvocation.Target.ID(), nil
 }

@@ -14,7 +14,9 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
 	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
+	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/adopt"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/identity"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/segment"
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
@@ -201,6 +203,7 @@ func parseAdoptConfig(cmd *cobra.Command, args []string) (*AdoptConfig, error) {
 	// Adopt-specific flags
 	cfg.Layer, _ = cmd.Flags().GetString("layer")            //nolint:errcheck // flag registered by AddCommand
 	cfg.Project, _ = cmd.Flags().GetString("project")        //nolint:errcheck // flag registered by AddCommand
+	cfg.Platform, _ = cmd.Flags().GetString("platform")      //nolint:errcheck // flag registered by AddCommand
 	cfg.FromReceipt, _ = cmd.Flags().GetBool("from-receipt") //nolint:errcheck // flag registered by AddCommand
 
 	// Skip validation for --from-receipt mode
@@ -220,12 +223,23 @@ func parseAdoptConfig(cmd *cobra.Command, args []string) (*AdoptConfig, error) {
 	if cfg.Layer != "personal" && cfg.Layer != "team" && cfg.Layer != "base" {
 		return nil, fmt.Errorf("invalid --layer %q: must be personal, team, or base", cfg.Layer)
 	}
+	if err := adopt.ValidatePlatform(cfg.Platform); err != nil {
+		return nil, cli.ExitWith(cli.ExitUsage, err)
+	}
 
 	// Resolve layer path
 	cfg.LayerPath = filepath.Join(devlore.WritLayersDir(), cfg.Layer)
 	if _, err := os.Stat(cfg.LayerPath); os.IsNotExist(err) {
 		return nil, fmt.Errorf("layer %q does not exist at %s\nRun 'writ self install' to create layers", cfg.Layer, cfg.LayerPath)
 	}
+	// A registered layer is a symlink into its repository, and the confined run root refuses to write through an
+	// absolute symlink ("path escapes from parent"), so adopt plans against the repository itself -- which is also
+	// what the record must name, since links target the origin (#931; found on both VMs 2026-09-23).
+	resolved, err := filepath.EvalSymlinks(cfg.LayerPath)
+	if err != nil {
+		return nil, fmt.Errorf("layer %q at %s does not resolve: %w", cfg.Layer, cfg.LayerPath, err)
+	}
+	cfg.LayerPath = resolved
 
 	// Target root (HOME)
 	cfg.TargetRoot = TargetHome()
