@@ -302,7 +302,7 @@ func errNotImplemented(operation, pointer string) error {
 // Self-Install Hooks
 // =============================================================================
 
-// installStarExtensions copies the star/extensions/ directory to <prefix>/share/star/extensions/.
+// installStarExtensions copies the star/extensions/ directory to <prefix>/share/devlore/star/extensions/.
 // Returns the list of installed file paths relative to prefix.
 //
 // The list is built from the SOURCE, one entry per file copied, never from the target directory. The target is
@@ -326,7 +326,7 @@ func installStarExtensions(prefix string) []string {
 	//nolint:errcheck // diagnose-ignored-error: best-effort hook, and the extensions are already copied; see docs/architecture/2.8-eventing-infrastructure.md
 	defer prefixRoot.Close()
 
-	targetExtDir := prefixRoot.NewPath("share", "star", "extensions")
+	targetExtDir := prefixRoot.NewPath("share", "devlore", "star", "extensions")
 	if err := cli.CopyDir(prefixRoot, srcExtDir, targetExtDir); err != nil {
 		cli.Warn("Failed to install extensions: %v", err)
 		return nil
@@ -375,12 +375,19 @@ func findExtensionsDir() string {
 		return filepath.Join("star", "extensions")
 	}
 
-	// Check relative to executable.
+	// Check relative to the executable: an unpacked release archive, whose share/ sits beside its bin/. The path
+	// without devlore/ is what archives before #918 carried, and it is checked second so a new archive wins. It goes
+	// in #920.
 	if exe, err := os.Executable(); err == nil {
-		exeDir := filepath.Dir(exe)
-		shareExt := filepath.Join(filepath.Dir(exeDir), "share", "star", "extensions")
-		if info, err := os.Stat(shareExt); err == nil && info.IsDir() {
-			return shareExt
+		shareDir := filepath.Join(filepath.Dir(filepath.Dir(exe)), "share")
+
+		for _, candidate := range []string{
+			filepath.Join(shareDir, "devlore", "star", "extensions"),
+			filepath.Join(shareDir, "star", "extensions"), // deprecated, removed by #920
+		} {
+			if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+				return candidate
+			}
 		}
 	}
 

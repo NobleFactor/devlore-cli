@@ -145,6 +145,32 @@ com.noblefactor.star.LintCopyright/
 
 ## Extension Discovery and Loading
 
+### Scope and ownership
+
+Two questions decide where an extension lives, and they are answered by two different tools.
+
+**Star answers where a command is found.** Its scopes — project, user, system — are evaluated in precedence order at
+runtime, and each loaded extension records the scope it came from, so `star` can say which copy won. Embedded is not a
+scope anyone authors into: it is packaging, so the binary is useful with nothing deployed.
+
+**Writ answers whose copy it is.** Its layers — base, team, personal — say which repository owns a file and which
+machines receive it. A layer is an authoring and deployment idea; it does not survive into the filesystem, where a
+base-layer extension and a personal one sit in the same directory.
+
+**A repository's maintainer chooses the scope their extensions inhabit.** Ruled 2026-09-22.
+
+- **Project**, for tooling that belongs to the repository and builds it. This repository's own `star/extensions` is
+  project scope for exactly that reason: `make generate` calls `star devlore actions generate`, and
+  `knowledge-extract.yaml` calls `devlore knowledge extract`, both from a bare checkout with nothing deployed. Moving
+  them elsewhere would make building devlore depend on deploying another repository.
+- **User**, for commands an operator should have in every repository. The base layer's `com.noblefactor.ops.GitHub` is
+  user scope, and writ deploys it there.
+- **System**, for a machine-wide install, which needs privilege to write and so belongs to an installer.
+
+The two ideas are independent: an extension owned by the base layer is resolved at user scope. Neither tool alone
+answers both questions, and a directory that records only one of them produces the failure of #917 — star's manifest
+claimed files writ had placed, because the user scope is one directory with no notion of ownership.
+
 ### Search Path
 
 Extensions are discovered from four sources in priority order.
@@ -153,10 +179,20 @@ the highest-priority source takes precedence.
 
 | Priority | Source | Path |
 |----------|--------|------|
-| 1 (highest) | Project-local | `${GIT_WORKSPACE_ROOT}/star/extensions/` |
-| 2 | User | `${XDG_DATA_HOME}/star/extensions/` (default `~/.local/share`) |
-| 3 | System | `/usr/local/share/star/extensions/` |
-| 4 (lowest) | Embedded | Compiled into the binary via `//go:embed` |
+| 1 (highest) | Project-local | `<repository root>/star/extensions/` |
+| 2 | User | `${XDG_DATA_HOME}/devlore/star/extensions/` (default `~/.local/share`) |
+| 3 | User, deprecated | `${XDG_DATA_HOME}/star/extensions/` — the pre-#918 path, removed by #920 |
+| 4 | System | `/usr/local/share/devlore/star/extensions/` |
+| 5 | System, deprecated | `/usr/local/share/star/extensions/` — the pre-#918 path, removed by #920 |
+| 6 (lowest) | Embedded | Compiled into the binary via `//go:embed` |
+
+The repository root is found by walking up from the working directory for a `.git` directory
+(`config.GitWorkspaceRoot`), not from an environment variable.
+
+**star's data lives under `devlore/`, like writ's** (#918): star is one of devlore's products, and its config and
+cache already said so (`~/.config/devlore/config.d/star.yaml`, `~/.cache/devlore/star`). The two deprecated rows are
+the paths that predate that, probed after their replacements so a machine carrying both prefers the new one, and
+nothing breaks before writ redeploys or star is reinstalled.
 
 ### Loading Process
 
