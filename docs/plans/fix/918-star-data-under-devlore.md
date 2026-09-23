@@ -1,7 +1,7 @@
 ---
 title: "star keeps its data under devlore/, like writ"
 issue: https://github.com/NobleFactor/devlore-cli/issues/918
-status: approved
+status: active
 created: 2026-09-22
 updated: 2026-09-22
 ---
@@ -63,9 +63,10 @@ a path inside a checkout, not user data, and it does not move.
 The loader takes the user path from `devlore.DataPath("star", "extensions")` rather than `xdg.DataPath`, so the
 convention is expressed once.
 
-### Requirement 2: The old user path stays a probe, deprecated
+### Requirement 2: The old paths stay probes, deprecated
 
-After the new path, the loader still probes `xdg.DataPath("star", "extensions")`. **Open question below.** A machine
+After each new path, the loader still probes the old one, user and system alike, and `findExtensionsDir` still looks
+for an archive's `share/star/extensions` after `share/devlore/star/extensions`. A machine
 installed before this release keeps its extensions at the old path, and the base layer's move lands in a second PR
 on a second repository: a flag day would break `star gh issues report` in the gap between them. The probe is marked
 deprecated in the code, with the issue that removes it.
@@ -84,19 +85,21 @@ both are present while the deprecation lasts.
 
 ### Phase 1: Commit
 
-- [ ] This plan, first
-- [ ] Requirements 1 and 3, the Go changes
-- [ ] Requirement 2, per the ruling
-- [ ] The Makefile and `.goreleaser.yaml` staging
-- [ ] Requirement 4
+- [x] This plan, first
+- [x] Requirements 1 and 3, the Go changes -- 2026-09-22
+- [x] Requirement 2, per the ruling: both old paths kept, each after its replacement, removed by #920 -- 2026-09-22
+- [x] The Makefile and `.goreleaser.yaml` staging, and the archive check's expected list -- 2026-09-22
+- [x] Requirement 4, and the design document: `star-extensions.md` gains the scope-and-ownership model and the
+      corrected Search Path table, and drops the `\` fiction -- 2026-09-22
 
 ### Phase 2: Verify before merge
 
-- [ ] `make vet lint test` passes
-- [ ] `make dist-all PLATFORM=linux/arm64`: the archive holds the extensions at `share/devlore/star/extensions`, and
-      the archive check passes with the new layout
-- [ ] A scratch `self install` puts them at `<prefix>/share/devlore/star/extensions`, and a `star devlore` command
-      resolves from there
+- [x] `make vet`, `make lint` and `make test` all pass -- 2026-09-22
+- [x] `make dist-all PLATFORM=linux/arm64`: 26 files, the three binaries and 23 extension files at
+      `share/devlore/star/extensions`, nothing at the old layout, and the recipe's own check passed -- 2026-09-22
+- [x] From a staged archive layout, `self install` placed 23 files at `<prefix>/share/devlore/star/extensions` and
+      none at the old path; with `XDG_DATA_HOME` pointed at `<prefix>/share`, `star devlore --help` resolves through
+      the new user probe -- 2026-09-22
 
 ### Phase 3: The base layer, and the live path
 
