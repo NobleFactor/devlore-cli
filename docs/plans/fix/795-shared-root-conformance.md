@@ -43,7 +43,7 @@ inside `newRootCmd()` and `--silent` is still an unparsed string in `os.Args` at
 ## Issue 884
 
 Lane 4. Three sources give three answers. §9 of the specification documents 0, 1 and 2. The constants in
-`cmd/internal/cli/output.go` are the sysexits set with five gaps. The behaviour is neither: `config get
+`cmd/internal/cli/output.go` are the sysexits set with five gaps. The behavior is neither: `config get
 nosuchkey` exits 65 and `config set notakeyvalue` exits 64, both correct, while a bad flag and an unknown command
 exit 1 on all four programs where a usage error is 64. `cmd/star/main.go:147` calls `os.Exit(1)` without ever
 consulting `cli.ExitCode`. Ruled 2026-09-12: the suite reports the sysexits set as `Declare-BashScript` defines
@@ -72,7 +72,7 @@ Measured 2026-09-13 in the worktree, against develop at the merge of pull reques
 | cobra's own errors | 4 | ❌ | a bad flag and an unknown command exit 1 on all four programs |
 | `cmd/star/main.go:147` | 4 | ❌ | `os.Exit(1)`, bypassing `cli.ExitCode` |
 | the constants | 4 | ❌ | eight of thirteen; `EX_OSERR`, `EX_OSFILE`, `EX_TEMPFAIL`, `EX_PROTOCOL`, `EX_CONFIG` absent |
-| §9 of the specification | 4 | ❌ | documents 0, 1 and 2, matching neither the constants nor the behaviour |
+| §9 of the specification | 4 | ❌ | documents 0, 1 and 2, matching neither the constants nor the behavior |
 
 ## Requirements
 

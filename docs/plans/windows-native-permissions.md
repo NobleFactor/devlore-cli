@@ -638,7 +638,7 @@ half-converted test suite is the worst state to leave 2b.2 waiting behind.
 | 4 | `pkg/op/provider/file/provider_test.go` | 3 | `BackupSuffix` plus a catalog-free session |
 | 5 | `pkg/op/starlarkbridge/runtime_test.go` | **0** (est. 1) | no `Root:` site at all — see the enumeration correction below |
 
-**Two enumeration errors, which cancelled.** `git` had **11** sites, not 10: a bare
+**Two enumeration errors, which canceled.** `git` had **11** sites, not 10: a bare
 `&op.RuntimeEnvironment{}` that the `Root:.*fsroot\.` grep could not see, since it sets no field at
 all. `starlarkbridge` had **0**, not 1: its literals set `Modules`, and the counting regex matched
 the word "Root" inside fixture *names* like `bridgePlannedRootFixture`. The total held at 26 by

@@ -29,7 +29,7 @@ Every hand-maintained surface in the tree is currently wrong, and all three repo
   added or removed.
 
 A model given any of them emits calls that cannot resolve — the exact failure the knowledge base exists to
-prevent. Three independent artefacts wrong simultaneously is not three mistakes; it is the absence of a
+prevent. Three independent artifacts wrong simultaneously is not three mistakes; it is the absence of a
 mechanism.
 
 ## The source already exists
@@ -67,7 +67,7 @@ reference inherits that correctness rather than restating it.
 ## Order matters
 
 **Step 7 is the point.** Steps 1–6 correct today's content; only 7 stops it recurring, and its absence is
-why three artefacts are wrong at once. A reference that is generated but unchecked drifts the moment
+why three artifacts are wrong at once. A reference that is generated but unchecked drifts the moment
 someone edits the published copy by hand.
 
 **Step 5 after 4.** Removing the hand-maintained list before its replacement is published leaves package
@@ -84,4 +84,4 @@ Whole-plan exit: the published reference lists every announced command and no ab
 
 - [#674](https://github.com/NobleFactor/devlore-cli/issues/674) — the defect this addresses
 - [#670](https://github.com/NobleFactor/devlore-cli/issues/670) — CI as a strict superset; step 7 is the
-  same principle applied to published artefacts rather than to checks
+  same principle applied to published artifacts rather than to checks

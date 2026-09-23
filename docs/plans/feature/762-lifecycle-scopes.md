@@ -147,7 +147,7 @@ belongs to a custom scope when an operator has moved it.
 
 ### Requirement 7: Data is skipped, instructions are refused
 
-| Situation | Behaviour |
+| Situation | Behavior |
 | --- | --- |
 | A layer contains `ProgramFiles/` on Unix | skipped, silently — the repo is shared across machines |
 | `--scope=ProgramFiles` on Unix | error: not defined on this platform |

@@ -212,7 +212,7 @@ now round-trips faithfully (slice 3b) and the recovery entry must carry no unit-
 - The value-semantics `Case{When any, Then any}` — replaced by `Case{When, Then op.Subgraph}`.
 - **`isTruthy` stays** (the traversal reads it on `when` results; WaitUntil needs it too) — updated 2026-07-01 to
   Python/Starlark truth semantics: empty strings, slices, arrays, and maps are falsy, as are zero-value structs (the
-  Go-conventions analogue of Python's empty-is-falsy) and typed-nil pointers/functions/channels; previously only the
+  Go-conventions analog of Python's empty-is-falsy) and typed-nil pointers/functions/channels; previously only the
   empty string was falsy and everything else fell to the truthy default.
 
 **Current code state (implemented 2026-07-02):** pieces 1–4 are landed — `op.GuardResult` + `Edge.Guard` + text/YAML

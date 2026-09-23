@@ -6,7 +6,7 @@
 > Companion: [`10-command-line-interface.status.md`](10-command-line-interface.status.md).
 > Epic: [#740](https://github.com/NobleFactor/devlore-cli/issues/740).
 >
-> **Relationship to the neighbours.** [`configuration.md`](configuration.md) owns how settings are declared,
+> **Relationship to the neighbors.** [`configuration.md`](configuration.md) owns how settings are declared,
 > discovered, and rolled up; this document owns only the *flag* end of that precedence chain.
 > [`6.3-command-execution.md`](6.3-command-execution.md) owns the form of a command devlore *runs*; this
 > document owns the form of a command a *user* runs. [`2.8-eventing-infrastructure.md`](2.8-eventing-infrastructure.md)
@@ -284,7 +284,7 @@ builtin would hardcode a location an administrator is entitled to override.
 
 **Data is skipped; instructions are refused.**
 
-| Situation | Behaviour |
+| Situation | Behavior |
 | --- | --- |
 | A layer carries `ProgramFiles/` on a Unix machine | skipped, silently |
 | `--scope=ProgramFiles` on a Unix machine | error: not defined on this platform |
@@ -407,7 +407,7 @@ three serialized renderings round-trip, and that yaml is pleasanter to read than
 not a different job.
 
 **The two Document renderings are a chain.** `markdown` derives a document from the normalized JSON; `terminal`
-renders that document for a screen, consuming the markup and re-emitting it as bold, italic, colour, indented
+renders that document for a screen, consuming the markup and re-emitting it as bold, italic, color, indented
 blocks and box-drawn tables. It is the one formatter that presents another formatter's output rather than the
 JSON, and the only one that emits escape codes -- always, piped or not, so §10's rule holds. A caller who wants
 no escape codes asks for `markdown`.
@@ -881,7 +881,7 @@ writ:
 ```
 
 **A key with no value introduces without setting.** The value then comes from the environment or a flag, and
-until it has one the segment matches no directory suffix -- the behaviour `DISTRO` already has on macOS.
+until it has one the segment matches no directory suffix -- the behavior `DISTRO` already has on macOS.
 
 **A builtin's key overrides its default.** There is no separate override mechanism, so a staging deployment
 is aimed by naming the builtin. For `Home` this is the only way: the home directory is resolved from the
@@ -1120,7 +1120,7 @@ No deviation is sanctioned. Every row above is work, tracked by the plan in
    most directly (`aws`, `az`) both use it. A user who types `-o json` by reflex is served.
 
    **The case against, recorded because it is strong:** `--format` is the honest word — it names the
-   rendering, not the stream. `gcloud` is this suite's closest structural analogue, pairing `--format` with
+   rendering, not the stream. `gcloud` is this suite's closest structural analog, pairing `--format` with
    `--filter` and projections exactly as we do, and it has no `--output` at all.
    [`cmd/internal/cli/output.go`](../../cmd/internal/cli/output.go) already binds `--format`, so `--output` is
    churn against a near-tie. And the short-form argument is symmetric: binding `-o` strands `gcloud` and

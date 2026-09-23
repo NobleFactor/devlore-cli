@@ -3,7 +3,7 @@ notice: "© 2026 Noble Factor LLC. Confidential."
 type: Plan
 title: Licensing and README Remediation Plan
 audience: Founder, Engineering
-purpose: Concrete licence assignments and README rewrites for devlore-cli and devlore-registry
+purpose: Concrete license assignments and README rewrites for devlore-cli and devlore-registry
 status: Draft
 version: "0.2"
 date: 2026-08-13
@@ -20,10 +20,10 @@ date: 2026-08-13
 ## 1. Scope
 
 Two repositories, four distinct asset classes, and a currently inconsistent state
-in `devlore-cli`. This document assigns a licence to each asset class, explains
+in `devlore-cli`. This document assigns a license to each asset class, explains
 the reasoning, and specifies the README rewrites.
 
-It does **not** decide the registry *server* licence — that remains deliberately
+It does **not** decide the registry *server* license — that remains deliberately
 deferred per 04-strategy-revision-plan §2.4. This document covers the content the
 registry holds.
 
@@ -48,7 +48,7 @@ must be separated before anything is filed.
 │            → Proprietary subscription terms for the curated tier  │
 │                                                                   │
 │  Class 3b: Authoring CAG (steers pack generation from vendor docs)│
-│            → TRADE SECRET. Never published, under any licence.    │
+│            → TRADE SECRET. Never published, under any license.    │
 └───────────────────────────────────────────────────────────────────┘
 ```
 
@@ -62,12 +62,12 @@ and cloud-native infrastructure.
 ### 2.2. Class 2 — DevLore packages: Apache-2.0
 
 **Packs are code, not data.** A pack is Starlark with plan methods plus a
-manifest. Creative Commons explicitly advises against CC licences for software,
+manifest. Creative Commons explicitly advises against CC licenses for software,
 and a CC-licensed pack sitting next to Apache-2.0 CLI source would create a
-mixed-licence surface that scanners flag and legal teams stall on.
+mixed-license surface that scanners flag and legal teams stall on.
 
 **Restrictive licensing here is self-defeating.** Adoption fills the catalog; the
-catalog is the moat. A licence that makes an enterprise's scanner reject a pack
+catalog is the moat. A license that makes an enterprise's scanner reject a pack
 prevents the only thing that makes the catalog valuable. Additionally, copyright
 over a sequence of install commands is thin — procedures and facts are largely
 uncopyrightable; only expression is protected.
@@ -78,7 +78,7 @@ copied and left to rot, is worth nothing in three months. That asymmetry is the
 business, and it survives permissive licensing intact. Chainguard's images are
 free; the SLA is not.
 
-**Consistency with Class 1 matters practically.** Same licence across CLI and
+**Consistency with Class 1 matters practically.** Same license across CLI and
 packs means one scanner result, one NOTICE convention, one answer in procurement.
 
 ### 2.3. Class 3a — Consumption CAG: CC BY 4.0 (public tier)
@@ -94,10 +94,10 @@ licensed to copy into their environment, load into a model context, and carry
 into an air-gapped network fails that requirement on day one.
 
 **CC BY 4.0** is the right instrument for the public tier: it is curated text
-rather than code, CC BY is the most legible content licence to a reviewer, and
+rather than code, CC BY is the most legible content license to a reviewer, and
 attribution is the only condition worth imposing. **CDLA-Permissive-2.0** (Linux
 Foundation, purpose-built for data sharing, very short) is a reasonable
-alternative if a data-specific licence reads better in context.
+alternative if a data-specific license reads better in context.
 
 **Do not use ShareAlike or NonCommercial.** SA would attempt to reach the
 customer's own derived context, which is both unenforceable in practice and
@@ -106,7 +106,7 @@ market.
 
 **The curated tier is not open-licensed at all.** The premium corpus — the
 maintained, verified, continuously refreshed body of knowledge — is delivered
-under subscription terms, not a public licence. It does not live in a public
+under subscription terms, not a public license. It does not live in a public
 repository. This is the "sell the packs, not the plumbing" line from
 04-strategy-revision-plan §2.6, and it is where the revenue actually sits.
 
@@ -161,26 +161,26 @@ pipeline runs at volume. (Cross-reference 04-strategy-revision-plan §5.)
 
 ## 4. Repository Structure
 
-### 4.1. Recommendation: split by licence
+### 4.1. Recommendation: split by license
 
-Mixed licences inside one repository are read by SCA scanners as the most
-restrictive licence found, which defeats the purpose of permissive assignment.
+Mixed licenses inside one repository are read by SCA scanners as the most
+restrictive license found, which defeats the purpose of permissive assignment.
 The cleanest structure:
 
-| Repository | Contents | Licence |
+| Repository | Contents | License |
 | ---------- | -------- | ------- |
 | `devlore-cli` | CLI source | Apache-2.0 |
 | `devlore-registry` | Packs, schema, public consumption CAG | Apache-2.0 for packs/schema; CC BY 4.0 for CAG, per-directory |
 | *(private)* | Authoring CAG, curated CAG corpus | Unlicensed, access-controlled |
 
 Note that the Go module boundary matters independently: a Go module has one
-licence as far as pkg.go.dev and most scanners are concerned. If any registry
+license as far as pkg.go.dev and most scanners are concerned. If any registry
 code shares a module with the CLI, split it.
 
 ### 4.2. If the split is not practical
 
 Use the **REUSE specification** (reuse.software) with SPDX headers per file and a
-`LICENSES/` directory. It is designed exactly for mixed-licence repositories, has
+`LICENSES/` directory. It is designed exactly for mixed-license repositories, has
 a linter that runs in CI, and produces machine-readable output that scanners
 handle correctly. A root LICENSE plus per-directory LICENSE files is the minimum
 acceptable fallback.
@@ -217,15 +217,15 @@ Published tags are cached immutably on proxy.golang.org — **~215 SSPL-era
 versions are cached as of 2026-08-13**, and `release.yaml` cuts a new release
 on every push to main/develop, so the paper freeze is not holding. Retraction
 removes versions from selection but not from the cache. **Every additional tag
-mints another immutable entry under the wrong licence.**
+mints another immutable entry under the wrong license.**
 
-### 5.2. Licence actions (do first, in this order)
+### 5.2. License actions (do first, in this order)
 
 0. **Disable the Release workflow** (`gh workflow disable Release`) so no
    further SSPL-era tags are minted while this lands. Re-enable in step 6.
 1. Replace `LICENSE` with the Apache-2.0 text; add `NOTICE` with the Noble
    Factor copyright line.
-2. In the same commit: correct the README licence statement, fix the `go.mod`
+2. In the same commit: correct the README license statement, fix the `go.mod`
    header comment (Apache-2.0 SPDX, drop "All rights reserved"), and sweep all
    ~680 source-file SPDX headers to `Apache-2.0` — including the
    `.github/workflows/*.yaml` headers (currently a mix of SSPL and MIT).
@@ -242,7 +242,7 @@ mints another immutable entry under the wrong licence.**
 ### 5.3. README rewrite
 
 The current README predates the rename, names only two CLIs, and states the wrong
-licence. Rewrite around:
+license. Rewrite around:
 
 - **One product.** `devlore` as the primary binary; `writ`; `star` folded in as
   `devlore star`. No "lore" anywhere.
@@ -259,7 +259,7 @@ licence. Rewrite around:
   PowerShell provider. This is the differentiator against every containerised
   competitor and it is currently understated.
 - **Relationship to devlore-registry**, in one paragraph, with a link.
-- **Licence: Apache-2.0**, stated once, correctly.
+- **License: Apache-2.0**, stated once, correctly.
 - **Links to devlore.org**, not devlore.noblefactor.com.
 - **Contributing:** DCO, with a link to CONTRIBUTING.md.
 
@@ -270,7 +270,7 @@ drafts, `GITHUB-ISSUES.md`) in the same pass. It is the first thing a visitor se
 
 ## 6. devlore-registry Remediation
 
-### 6.1. Licence actions
+### 6.1. License actions
 
 1. Decide the repository split per §4 before filing anything.
 2. `LICENSE` — Apache-2.0 for packs and schema.
@@ -289,7 +289,7 @@ enterprise reviewers both land.
 - **What the registry is:** the curated catalog of DevLore packages and CAG
   assets. State plainly that content is currently served from GitHub and that OCI
   is the planned distribution mechanism.
-- **The licence split, as a table.** Packs Apache-2.0; public CAG CC BY 4.0;
+- **The license split, as a table.** Packs Apache-2.0; public CAG CC BY 4.0;
   curated corpus under subscription. A reviewer should not have to infer this.
 - **Provenance and verification.** What "verified" means, how packs are signed,
   what the trust root is. This is the credibility section and it should be
@@ -306,11 +306,11 @@ enterprise reviewers both land.
 
 ## 7. Trademark and Trust Root
 
-Neither is a licence, and both do more enforcement work than any licence
+Neither is a license, and both do more enforcement work than any license
 available:
 
 - **Trademark** — file "DevLore" with USPTO; EUIPO search first given the Dutch
-  agency at devlore.nl. A permissive code licence plus a firm trademark policy
+  agency at devlore.nl. A permissive code license plus a firm trademark policy
   (Mozilla/Apache model: allow fair use, prevent confusion) gets most of what
   restrictive licensing was reaching for, at a fraction of the adoption cost.
   Publish TRADEMARK.md.
@@ -336,7 +336,7 @@ available:
 **This month**
 
 5. Decide the devlore-registry repository split (§4)
-6. File licences in devlore-registry per §6.1
+6. File licenses in devlore-registry per §6.1
 7. Add `license` and `source` fields to the manifest schema
 8. Draft the CLA; draft CONTRIBUTING.md for both repos
 9. Rewrite both READMEs per §5.3 and §6.2
@@ -352,7 +352,7 @@ available:
 
 ## 9. Open Items
 
-1. Registry **server** licence — deliberately deferred (04-strategy-revision-plan §2.4)
+1. Registry **server** license — deliberately deferred (04-strategy-revision-plan §2.4)
 2. Whether the curated CAG corpus is delivered as files under subscription terms or
    gated by registry credentials — affects whether an EULA or a service agreement
    is the governing document

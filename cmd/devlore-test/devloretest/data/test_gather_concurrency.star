@@ -3,7 +3,7 @@
 
 # test_gather_concurrency.star — limit semantics + iteration-isolation coverage for plan.gather.
 #
-# Matrix rows (PowerShell ForEach-Object -ThrottleLimit analogues):
+# Matrix rows (PowerShell ForEach-Object -ThrottleLimit analogs):
 #   C1: limit=1                 — serial execution; every item still completes.
 #   C2: limit=N (N>1)           — parallel up to N; every item still completes.
 #   C3: limit > items count     — caps at items.len, no excess goroutines, all complete.

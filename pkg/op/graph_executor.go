@@ -229,7 +229,7 @@ func (e *GraphExecutor) Control() *ControlPlane { return e.control }
 // Pause returns immediately (fire-and-forget); the transition happens on the goroutine driving [GraphExecutor.Run]
 // when it next drains the command, at which point Run returns [ErrPaused] with [GraphExecutor.RunStatus] reporting
 // [PhasePaused]. If the run terminates before the control-point is reached, the request is silently dropped. A
-// caller that wants the acknowledgement issues [ControlPlane.Request] directly and reads the response channel.
+// caller that wants the acknowledgment issues [ControlPlane.Request] directly and reads the response channel.
 //
 // Safe to call from any goroutine.
 //
@@ -250,7 +250,7 @@ func (e *GraphExecutor) Pause() error {
 //
 // Stop returns immediately (fire-and-forget); at the next control-point Run unwinds (compensating completed work)
 // and lands [PhaseStopped], returning [ErrStopped]. Unlike [GraphExecutor.Pause], a stopped run is **not** resumable
-// — the recovery stack is spent by the unwind. A caller that wants the acknowledgement issues [ControlPlane.Request]
+// — the recovery stack is spent by the unwind. A caller that wants the acknowledgment issues [ControlPlane.Request]
 // directly and reads the response channel.
 //
 // Safe to call from any goroutine.

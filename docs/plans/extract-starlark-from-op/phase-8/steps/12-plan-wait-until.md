@@ -63,7 +63,7 @@ slots, and rejects a missing `body=` or `timeout=` at plan time.
 | 4 | `TestCompensateWaitUntil_NilStack_NoOp` (flow) | nil-stack compensation no-op | ✅ |
 | 5 | `test_wait_until.star` | end-to-end: invocation body (first-poll truthy) + lambda body; result flows downstream | ✅ |
 | 6 | `test_wait_until_timeout.star` | end-to-end: budget expiry across multiple polls → "timeout after" error | ✅ |
-| 7 | `TestWaitUntil_ContextCancelled` (flow) | a cancelled `Context` aborts the poll loop with `Context.Err()` rather than running out the budget | ✅ (landed 2026-07-08) |
+| 7 | `TestWaitUntil_ContextCanceled` (flow) | a canceled `Context` aborts the poll loop with `Context.Err()` rather than running out the budget | ✅ (landed 2026-07-08) |
 | — | match-after-N-polls (truthiness flips mid-run) | the re-poll path returns a late truthy result | ☑ `TestWaitUntil_MatchAfterNPolls` (2026-07-16): a real-executor fixture polls `file.exists` while the test creates the probe file mid-run; asserts multiple polls happened and the late truthy stopped the loop |
 | — | body-error propagation fixture | a crashed probe fails immediately, not at timeout | ☑ `TestWaitUntil_BodyErrorFailsImmediately` (2026-07-16): a body whose dispatch errors on every poll (`file.move` with a missing source) fails the run at once, surfacing the body error, far inside the 30s timeout |
 

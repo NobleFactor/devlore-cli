@@ -17,7 +17,7 @@ updated: 2026-08-25
 
 `3.5-provider-catalog.md` describes the template provider as "pure" with "no filesystem."
 `pkg/op/provider/template/provider.go:110` maps `"Env": os.Getenv` into the template function map, so any template
-string can read any environment variable on the rendering machine. The behaviour is deliberate and documented at
+string can read any environment variable on the rendering machine. The behavior is deliberate and documented at
 `provider.go:105`; the **catalog's claim of purity is not**. This plan makes the documentation honest and hands
 the code question to the classification design that owns it.
 
@@ -40,7 +40,7 @@ the code question to the classification design that owns it.
 ## Why this matters beyond one row
 
 `3.6` classifies a method by its signature. `template.render_text` has the signature of a pure function and the
-behaviour of a query, decided by a string passed at runtime. It is the counterexample that bounds what per-method
+behavior of a query, decided by a string passed at runtime. It is the counterexample that bounds what per-method
 classification can promise, and it belongs in the design record as such — not as a footnote in a catalog row.
 
 ## Steps

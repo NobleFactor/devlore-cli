@@ -77,7 +77,7 @@ was written without it.
 *effects*. Adding a second field called "kind" is a naming defect before it is a code defect, which is why step 1
 is a naming decision rather than an edit.
 
-**The consequence is favourable:** `action` inference is nearly free. `MethodCompensableFunction` already means
+**The consequence is favorable:** `action` inference is nearly free. `MethodCompensableFunction` already means
 "returns `(T, *Receipt, error)`." The inference `3.6` describes reads a field that exists.
 
 ### `MethodModifiers` is the precedent for adding an orthogonal per-method axis
@@ -177,7 +177,7 @@ Every other announced provider is eligible for both, subject to the per-method f
 the callable is evaluated against the same filtered surface, so in a hermetic runtime a Starlark function cannot
 reach anything the runtime did not admit. `template.render_*` resolves the same way once
 [#683](https://github.com/NobleFactor/devlore-cli/issues/683) lands and `Env` reads declared variables. Both
-"undecidable" entries were artifacts of analysing methods outside a runtime.
+"undecidable" entries were artifacts of analyzing methods outside a runtime.
 
 ### Empty versus emptied
 

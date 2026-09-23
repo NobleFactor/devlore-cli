@@ -23,7 +23,7 @@ so explicitly where only Background exists.
    Background explicitly — that IS the current lifetime of these synchronous CLI paths,
    now stated rather than implied. Threading real command contexts through the exported
    snapshot API is the deferred refinement.
-3. **Tests (12)** — server router/integration requests carry `t.Context()` (cancelled at
+3. **Tests (12)** — server router/integration requests carry `t.Context()` (canceled at
    test end); snapshot-test git fixtures likewise; devlore-test's two sites run where no
    `*testing.T` exists (`TestMain`, the shared `run` helper) and use Background with a
    comment saying exactly that.

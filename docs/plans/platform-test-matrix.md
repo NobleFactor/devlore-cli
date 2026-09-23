@@ -79,7 +79,7 @@ is real behavior on that platform, not a missing conditional.
    merge after phase 3.
 
    **That window closed on 2026-08-26.** Non-blocking was a means of collecting triage data while
-   phase 3 fixed what it found, not a judgement that a red platform leg is tolerable. It never was.
+   phase 3 fixed what it found, not a judgment that a red platform leg is tolerable. It never was.
    Every leg — Windows included, on both architectures — must pass. All twelve checks were green on
    `fd8c5510` when the ruleset landed, so this is the standing state rather than an aspiration.
 
@@ -318,7 +318,7 @@ lower bound until that run reports.
 **63 → 47.** The `.exe` estimate was wrong: it cleared **16**, not ~37. The fix itself worked —
 exit codes became real numbers instead of `-1`, so the binary starts — but fourteen `TestCLI_*`
 tests were failing for a *second* reason sitting behind the first. The masking risk named above
-was real, which is why the table's counts were labelled a lower bound.
+was real, which is why the table's counts were labeled a lower bound.
 
 | Cause | Failures | Bucket | Disposition |
 | --- | --- | --- | --- |

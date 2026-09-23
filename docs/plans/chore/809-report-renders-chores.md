@@ -58,7 +58,7 @@ So the annotation is left exactly as it was. The only change is the selector.
 `Epic:Process` (#142) is the worked example: nine chores, zero features. With this change the report
 names it — eleven rows, two features, and eight chores each marked `unfiled, no parent feature`.
 Before the change it rendered one row and looked healthy. **The defect was that the report could not
-show the problem, not that the problem was a rendering artefact.**
+show the problem, not that the problem was a rendering artifact.**
 
 This leaves `noblefactor-ops/docs/issue-standards.md` contradicting the ruling. Amending it, and
 decomposing #142 into features, are separate work in that repository.
