@@ -40,7 +40,7 @@ writ:
   #
   # Builtin names are reserved on EVERY platform, including those where they do not resolve, so
   # one repository means one thing on every machine. Introducing `ProgramFiles` on Unix is an
-  # error -- the name is Windows', and honouring it here would make one repository mean two
+  # error -- the name is Windows', and honoring it here would make one repository mean two
   # things. A layer that carries a ProgramFiles/ directory on a Unix machine is skipped in
   # silence: the repository is shared, and that directory is there for the Windows machines.
   # Asking for it outright, --scope=ProgramFiles, is an error there. Data is skipped;

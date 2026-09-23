@@ -354,7 +354,7 @@ ran, beyond the group the formatter names.
 
 - [x] §7's format set, §8's diagram and shape table, and §10 gain `markdown`, `terminal`, the grouping, and the
       paging rule. 2026-09-18: §7 carries the group table and the `markdown` to `terminal` chain, §8 shows the
-      chain in the diagram and gives `markdown` its own column in the shape table, §10 carries paging, colour,
+      chain in the diagram and gives `markdown` its own column in the shape table, §10 carries paging, color,
       and why the two switches are not common-set members.
 - [x] `pkg/result/pipeline.go`'s package doc names the ten renderings by group instead of three formatters.
 - [x] Row 12's three plans corrected; row 14's box retracted on #741 with §7's ruling. 2026-09-18: row 12

@@ -13,7 +13,7 @@ updated: 2026-08-13
 > `Open(dir string, mode Mode)` — was replaced by
 > [`4.5-fsroot-variants.md`](../architecture/4.5-fsroot-variants.md) on 2026-08-19, whose status records
 > why: *"tracing their consumers found the middle one unimplemented and the outer one justified by
-> bootstrapping rather than access, so the design collapses to a single sandbox behaviour and two
+> bootstrapping rather than access, so the design collapses to a single sandbox behavior and two
 > types."* Measured 2026-08-25: none of those three `Mode` values, nor `OpenUnsandboxed` /
 > `OpenWritableUnsandboxed`, appears in any Go file. The surviving constructors are `OpenExisting`
 > and `OpenScratch`, both sandboxed. The rest of this plan stands as the record of what was done

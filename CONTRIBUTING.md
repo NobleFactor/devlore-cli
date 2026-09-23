@@ -2,10 +2,10 @@
 
 Thank you for your interest in DevLore.
 
-## Licence and sign-off
+## License and sign-off
 
 DevLore is licensed under the [Apache License 2.0](LICENSE). Per §5 of the
-licence, any contribution intentionally submitted for inclusion is under the
+license, any contribution intentionally submitted for inclusion is under the
 same terms, without additional terms or conditions.
 
 Every commit must carry a

@@ -63,5 +63,5 @@ ok  ...flow   ok  ...flow/gen   ok  ...devloretest
 
 `complete` for the core deliverable — `plan.gather` is real, matches the iteration goal, and is thoroughly proven for
 the success paths. Close the one gap by adding `TestGather_FailureUnwindsCompletedIterations` (a body whose Nth
-iteration fails while earlier iterations produced observable, compensable side effects; assert the rest are cancelled
+iteration fails while earlier iterations produced observable, compensable side effects; assert the rest are canceled
 and the completed side effects are undone LIFO).

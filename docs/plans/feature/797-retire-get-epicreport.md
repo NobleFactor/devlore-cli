@@ -49,7 +49,7 @@ This repository declares its `gh:` block in `star/config.yaml` and deletes `scri
 ## Observed on the way
 
 `star gh issues audit --repo NobleFactor/devlore-cli -o json` returns `null` when there are no
-faults — #825, an empty Starlark list marshalling as `null`, seen in production for the first time.
+faults — #825, an empty Starlark list marshaling as `null`, seen in production for the first time.
 The audit was clean; the JSON says nothing.
 
 ## Related Documents

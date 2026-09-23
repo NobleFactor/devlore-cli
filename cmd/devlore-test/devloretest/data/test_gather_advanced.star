@@ -3,12 +3,12 @@
 
 # test_gather_advanced.star — frame inheritance / stripping + multi-child / composition coverage for plan.gather.
 #
-# Matrix rows (PowerShell ForEach-Object -Parallel `$using:` analogues + advanced shapes):
+# Matrix rows (PowerShell ForEach-Object -Parallel `$using:` analogs + advanced shapes):
 #   A1: parent variable visible inside body — outer plan.variable lookup resolves against the inherited frame.
 #   A2: items stripped from per-iteration frame — plan.variable("items") inside body resolves to nil (not the
 #       gather's `items=` value); the gather-internal slot is invisible to children.
 #   A4: multi-child body — every body invocation dispatches per iteration in declaration order; both write
-#       distinct artefacts derived from the same `item`.
+#       distinct artifacts derived from the same `item`.
 #   A5: gather composed with leaf nodes — a write_text running before plan.gather observes its produced file,
 #       and plan.gather's iterations observe the parent variable populated upstream.
 

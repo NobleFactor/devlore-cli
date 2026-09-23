@@ -51,6 +51,14 @@ Not every replaced word — every **produced** one. `catalogd` was a valid-looki
 no British-spelling search would have found afterwards, because it is not British; it is not a word
 at all.
 
+**It caught a third stem here.** `cancell` → `cancel` is right for the two forms the dictionary asks
+for, `cancelled` and `cancelling`, and wrong for everything else that begins that way: it turned 23
+`cancellation` into `cancelation` and 2 `cancellable` into `cancelable`. **`cancellation` is correct
+US English** — the dictionary says nothing about it precisely because there is nothing to say. Both
+were restored, and the check that found them is a word-by-word comparison of the removed and added
+lines rather than a re-run of the British-word search, which by construction cannot see a word that
+is in neither language.
+
 ### Requirement 4: No prose gate is added here
 
 It arrives with #932, which consolidates document checks into star. A bash gate now would be one more
@@ -71,10 +79,14 @@ asset class" — which corrects cleanly. The pull request names the legal lines 
 
 ### Phase 2: The sweep
 
-- [ ] `programme` and `catalogued` handled as Requirement 1 describes
-- [ ] The stem pass over every tracked text file (Requirements 2, 3)
-- [ ] Every produced word inspected; no malformed output
-- [ ] The dictionary re-run: zero hits
+- [x] `programme` and `catalogued` handled as Requirement 1 describes
+- [x] The pass over the 45 files that carry a hit, text-checked with `grep -Iq .` (Requirements 2, 3).
+      Scoped to those files rather than all 1663: a pair-by-file loop over the whole tree spawned
+      about 105,000 processes and had managed one file in two minutes
+- [x] Every produced word inspected, as a count of each form on the removed and added lines. All 33
+      balance. It caught `cancelation` and `cancelable`, which were restored
+- [x] The dictionary re-run over all 1663 tracked files: zero hits outside this plan
+- [x] This plan excluded from its own sweep, as noblefactor-ops#234's is from its gate
 
 ### Phase 3: Verify, then merge
 
