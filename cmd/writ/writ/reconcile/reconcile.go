@@ -61,7 +61,7 @@ type Config struct {
 //
 // Returns:
 //   - `*Report`: the assembled report.
-//   - `error`: non-nil when the run index is missing or the fold fails.
+//   - `error`: non-nil when the store has no current deployment (not-found) or the fold fails.
 func BuildReport(ctx context.Context, cfg *Config) (*Report, error) {
 
 	inventory, err := readback.Fold(ctx)

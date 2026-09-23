@@ -76,7 +76,7 @@ and three of four programs landed by 2026-09-01. `devlore-test`, `lore` and `wri
 **Revised 2026-09-22 (#913):** §3.1 opens with the ruling that the four lifecycle operations are defined by what each
 does to the record, and the lifetime model -- a deploy opens one, its receipts stack and fold, a later deploy
 replaces it or a decommission removes it, pruning is store housekeeping and undesigned -- ahead of the per-program
-mechanics.
+mechanics. **Revised 2026-09-23 (#922):** §3.1 names the lifetime document in the store and points at 5.1 for it.
 
 ## Document discrepancies
 

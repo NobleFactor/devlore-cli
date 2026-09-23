@@ -240,17 +240,21 @@ func TestBuildReport_LayerLink(t *testing.T) {
 	t.Error("personal layer not reported")
 }
 
-// TestBuildReport_MissingIndexIsHardError pins the settled ruling: no index, no report.
-func TestBuildReport_MissingIndexIsHardError(t *testing.T) {
+// TestBuildReport_NoLifetimeIsNotFound pins the ruled answer (#922, #756): with no current lifetime there is no
+// record to compare against, and the report is a not-found error, never an empty report.
+func TestBuildReport_NoLifetimeIsNotFound(t *testing.T) {
 
 	deployFixture(t)
 
-	if err := os.Remove(cli.IndexPath()); err != nil {
+	if err := os.Remove(filepath.Join(cli.LifetimesDir(), "current")); err != nil {
 		t.Fatal(err)
 	}
 
 	_, err := reconcile.BuildReport(context.Background(), reconcileConfig())
-	if err == nil || !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("BuildReport over a missing index = %v, want the hard error", err)
+	if err == nil {
+		t.Fatal("BuildReport with no current lifetime = nil error, want not-found")
+	}
+	if !errors.Is(err, os.ErrNotExist) {
+		t.Errorf("error %v does not unwrap to os.ErrNotExist", err)
 	}
 }

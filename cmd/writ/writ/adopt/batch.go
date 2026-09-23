@@ -82,6 +82,13 @@ func Collect(cfg *Config) map[string][]Item {
 //   - `error`: non-nil when planning, preflight, or a run fails.
 func RunBatches(ctx context.Context, cfg *Config, groups map[string][]Item) (int, error) {
 
+	// An adoption is a write into the current deployment (#922, #931): its trace joins the current lifetime, and
+	// with none there is no deployment to adopt into.
+	lifetime, err := cli.RequireCurrentLifetime(cli.RunOperationAdopt)
+	if err != nil {
+		return 0, err
+	}
+
 	roots := make([]string, 0, len(groups))
 	for root := range groups {
 		roots = append(roots, root)
@@ -106,7 +113,7 @@ func RunBatches(ctx context.Context, cfg *Config, groups map[string][]Item) (int
 		_, runErr := executor.Run(ctx, nil)
 
 		if trace := executor.Trace(); trace != nil {
-			if receiptPath, writeErr := cli.WriteTrace(trace); writeErr != nil {
+			if receiptPath, writeErr := cli.WriteLifetimeTrace(lifetime, cli.RunOperationAdopt, trace); writeErr != nil {
 				cli.Note("Failed to save receipt: %v", writeErr)
 			} else if cfg.Verbose {
 				cli.Note("Receipt: %s", receiptPath)

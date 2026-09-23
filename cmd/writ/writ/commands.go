@@ -220,8 +220,8 @@ func newReconcileCmd() *cobra.Command {
 		Long: `Report deployed state: what should be present, where it should have come from, and
 what's missing or different.
 
-The report is derived from the store (the run index plus the persisted graphs and
-traces) — never from a directory scan — and has four sections: the registered layer
+The report is derived from the store (the current deployment's receipts and their
+graphs) — never from a directory scan — and has four sections: the registered layer
 tree, the deployed inventory classified against the live filesystem, the package
 operations writ's runs performed, and store health. Reconcile produces a report; each
 finding names the lifecycle command that repairs it. The report is one JSON document,

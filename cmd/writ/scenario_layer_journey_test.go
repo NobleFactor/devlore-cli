@@ -1178,15 +1178,26 @@ func TestWritLayerJourneyScenario_Part3_Move(t *testing.T) {
 				t.Fatalf("expected the %d old ~/local links to remain as orphans (#%d); found %d: %v", oldTree, issueOrphans, len(orphans), orphans)
 			}
 
-			// 3.4 / 3.5 the store remembers the old targets: after the hand cleanup they are `missing`
+			// 3.4 / 3.5 the redeploy replaced the record (#922): the old targets belong to the replaced lifetime,
+			// so after the hand cleanup the record says nothing about them -- neither `missing` nor anything else.
+			// (Before #922 the fold read every lifetime and reported them `missing`; #923 retires the word.)
 			for _, orphan := range orphans {
 				if err := os.Remove(orphan); err != nil {
 					t.Fatal(err)
 				}
 			}
 			states = j.reconcile(t)
-			if got := len(states["missing"]); got != oldTree {
-				t.Fatalf("reconcile should report the %d removed old targets as missing (#%d); got %d: %v", oldTree, issueOrphans, got, summarize(states))
+			for state, paths := range states {
+				for _, path := range paths {
+					if strings.HasPrefix(path, filepath.Join(home, "local")+string(os.PathSeparator)) {
+						t.Fatalf("the record still mentions an old ~/local target after the redeploy replaced it (#922): %s is %s",
+							path, state)
+					}
+				}
+			}
+			if got := len(states["missing"]); got != 0 {
+				t.Fatalf("reconcile reports %d missing after the redeploy; the replaced lifetime's targets are not in the record (#922): %v",
+					got, summarize(states))
 			}
 
 			// 3.6 the default policy accepts writ's own links

@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/adopt"
+	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/deploy"
 
 	// Blank-import the op inventory so every provider's gen package init() runs and registers its
 	// ProviderReceiverType with the framework. adopt.BuildGraph looks up the file and flow providers via the
@@ -29,11 +30,33 @@ func configForTest(t *testing.T, root string, files ...string) *adopt.Config {
 	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(root, "cache"))
 
+	deployForTest(t, root)
+
 	return &adopt.Config{
 		Files:      files,
 		TargetRoot: root,
 		LayerPath:  filepath.Join(root, "layers", "personal"),
 		Project:    "behavioral-test",
+	}
+}
+
+// deployForTest opens a lifetime for the adoptions to join (#922, #931): one deployed file from a throwaway
+// project, so `writ adopt` has a current deployment to write into.
+func deployForTest(t *testing.T, root string) {
+
+	t.Helper()
+
+	sourceRoot := filepath.Join(root, "seed")
+	if err := os.MkdirAll(filepath.Join(sourceRoot, "seed"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceRoot, "seed", ".seedrc"), []byte("seed"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &deploy.Config{SourceRoot: sourceRoot, TargetRoot: root, Projects: []string{"seed"}}
+	if _, err := deploy.Execute(context.Background(), cfg); err != nil {
+		t.Fatalf("deploy for adopt: %v", err)
 	}
 }
 

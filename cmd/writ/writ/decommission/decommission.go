@@ -63,6 +63,11 @@ type Config struct {
 //     more scopes fail to execute.
 func Execute(ctx context.Context, cfg *Config) (graphs []*op.Graph, err error) {
 
+	lifetime, err := cli.RequireCurrentLifetime(cli.RunOperationDecommission)
+	if err != nil {
+		return nil, err
+	}
+
 	inventory, err := readback.Fold(ctx)
 	if err != nil {
 		return nil, err
@@ -83,7 +88,7 @@ func Execute(ctx context.Context, cfg *Config) (graphs []*op.Graph, err error) {
 		return graphs, nil
 	}
 
-	return nil, runAll(ctx, cfg, graphs)
+	return nil, runAll(ctx, cfg, graphs, lifetime)
 }
 
 // buildScopeGraphs groups the entries by scope and assembles one removal graph per scope, in removal
@@ -126,12 +131,12 @@ func buildScopeGraphs(ctx context.Context, cfg *Config, selected []readback.Entr
 //
 // Returns:
 //   - `error`: the joined per-scope failures, or nil when every scope succeeds.
-func runAll(ctx context.Context, cfg *Config, graphs []*op.Graph) error {
+func runAll(ctx context.Context, cfg *Config, graphs []*op.Graph, lifetime *cli.Lifetime) error {
 
 	var failures []error
 
 	for _, graph := range graphs {
-		if runErr := runGraph(ctx, cfg, graph); runErr != nil {
+		if runErr := runGraph(ctx, cfg, graph, lifetime); runErr != nil {
 			scope := graph.Origin().Scope()
 			if scope == "" {
 				scope = "default"
@@ -261,7 +266,7 @@ func buildScopeGraph(
 //
 // Returns:
 //   - `error`: non-nil when the spec cannot be configured, the plan cannot persist, or the run fails.
-func runGraph(ctx context.Context, cfg *Config, graph *op.Graph) error {
+func runGraph(ctx context.Context, cfg *Config, graph *op.Graph, lifetime *cli.Lifetime) error {
 
 	runRoot := ""
 	if value, ok := graph.Origin().Annotations().Get("run_root"); ok {
@@ -278,7 +283,7 @@ func runGraph(ctx context.Context, cfg *Config, graph *op.Graph) error {
 	_, runErr := executor.Run(ctx, nil)
 
 	if trace := executor.Trace(); trace != nil {
-		if receiptPath, writeErr := cli.WriteTrace(trace); writeErr != nil {
+		if receiptPath, writeErr := cli.WriteLifetimeTrace(lifetime, cli.RunOperationDecommission, trace); writeErr != nil {
 			cli.Warn("failed to write receipt: %v", writeErr)
 		} else if cfg.Verbose {
 			cli.Note("Receipt: %s", receiptPath)

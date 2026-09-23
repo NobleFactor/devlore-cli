@@ -131,7 +131,9 @@ func Execute(ctx context.Context, cfg *Config) (graphs []*op.Graph, err error) {
 		return nil, err
 	}
 
-	return nil, runAll(ctx, cfg, build.Graphs, runPolicy)
+	// Deploy replaces the record (#913): this invocation is one lifetime across every scope it runs (#922), minted
+	// after pre-flight -- which read the lifetime being replaced -- and reaching the store with its first trace.
+	return nil, runAll(ctx, cfg, build.Graphs, runPolicy, cli.NewLifetime())
 }
 
 // runAll executes every graph under the run policy, collecting per-scope failures.
@@ -144,12 +146,14 @@ func Execute(ctx context.Context, cfg *Config) (graphs []*op.Graph, err error) {
 //
 // Returns:
 //   - `error`: the joined per-scope failures, or nil when every scope succeeds.
-func runAll(ctx context.Context, cfg *Config, graphs []*op.Graph, runPolicy op.ConflictPolicy) error {
+func runAll(
+	ctx context.Context, cfg *Config, graphs []*op.Graph, runPolicy op.ConflictPolicy, lifetime *cli.Lifetime,
+) error {
 
 	var failures []error
 
 	for _, graph := range graphs {
-		if runErr := runGraph(ctx, cfg, graph, runPolicy); runErr != nil {
+		if runErr := runGraph(ctx, cfg, graph, runPolicy, lifetime); runErr != nil {
 			scope := scopeLabel(graph)
 			cli.Warn("scope %s failed: %v", scope, runErr)
 			failures = append(failures, fmt.Errorf("scope %s: %w", scope, runErr))
@@ -220,7 +224,9 @@ func pinLayers(cfg *Config) (*PinInfo, func(), error) {
 //
 // Returns:
 //   - `error`: non-nil when the spec cannot be configured, the plan cannot persist, or the run fails.
-func runGraph(ctx context.Context, cfg *Config, graph *op.Graph, runPolicy op.ConflictPolicy) error {
+func runGraph(
+	ctx context.Context, cfg *Config, graph *op.Graph, runPolicy op.ConflictPolicy, lifetime *cli.Lifetime,
+) error {
 
 	spec, err := runSpec(graph, cfg.DryRun, runPolicy)
 	if err != nil {
@@ -235,7 +241,7 @@ func runGraph(ctx context.Context, cfg *Config, graph *op.Graph, runPolicy op.Co
 	_, runErr := executor.Run(ctx, nil)
 
 	if trace := executor.Trace(); trace != nil {
-		if receiptPath, writeErr := cli.WriteTrace(trace); writeErr != nil {
+		if receiptPath, writeErr := cli.WriteLifetimeTrace(lifetime, cli.RunOperationDeploy, trace); writeErr != nil {
 			cli.Warn("failed to write receipt: %v", writeErr)
 		} else if cfg.Verbose {
 			cli.Note("Receipt: %s", receiptPath)
