@@ -114,18 +114,31 @@ problem as the one being fixed.
 
 ### Phase 2: The retirement
 
-- [ ] The file-removal core factored out of `runSelfUninstall` so both callers share it
-      (Requirements 2, 4)
-- [ ] `runSelfInstall` reads the prior record and retires what is no longer owned (Requirements 1, 2)
-- [ ] The install summary reports retired and skipped files (Requirement 5)
+- [x] The file-removal core factored out of `runSelfUninstall` so both callers share it —
+      `removeRecordedFiles`, hash guard and `cleanEmptyDirs` included (Requirements 2, 4)
+- [x] `runSelfInstall` reads the prior record and retires what is no longer owned —
+      `retireSupersededFiles` as step 7, before the manifest is written and after everything is
+      placed (Requirements 1, 2)
+- [x] The install summary reports retired and skipped files — `printRetirementSummary`
+      (Requirement 5)
+- [x] `runSelfUninstall` loses its `//nolint:gocognit`: extracting the loop took it back under the
+      threshold
 
 ### Phase 3: Tests
 
-- [ ] A fixture install, a changed file set, a re-install: the old paths are gone and the manifest
-      matches the tree (Requirement 3)
-- [ ] A first install with no prior manifest succeeds (Requirement 1)
-- [ ] A file modified after install is skipped, reported, and still present (Requirement 2)
-- [ ] Config and cache survive a re-install (Requirement 4)
+- [x] A fixture install, a changed file set, a re-install: the old paths are gone
+      (`TestRunSelfInstall_RetiresWhatItNoLongerOwns`) and the record names exactly what is on disk,
+      compared in both directions (`TestRunSelfInstall_ManifestMatchesTheTree`) — Requirement 3
+- [x] A first install with no prior record retires nothing
+      (`TestRetireSupersededFiles_FirstInstallHasNothingToRetire`) — Requirement 1
+- [x] A file modified after install is left untouched, with the operator's content intact
+      (`TestRunSelfInstall_LeavesAFileChangedSinceItWasWritten`) — Requirement 2
+- [x] A file in the prefix that no record names survives a re-install
+      (`TestRetireSupersededFiles_ReachesNothingOutsideTheRecord`), which is the general form of
+      Requirement 4: config, cache and writ's layer directories are recorded by nothing
+- [x] **The two tests that prove the fix were made to fail.** With the retirement disabled,
+      `RetiresWhatItNoLongerOwns` and `ManifestMatchesTheTree` both fail; the other three still pass,
+      correctly, since they guard against over-deletion rather than under-deletion
 
 ### Phase 4: Documentation
 

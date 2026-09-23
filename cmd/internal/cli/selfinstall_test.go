@@ -623,3 +623,238 @@ func TestManifestJSON(t *testing.T) {
 		t.Errorf("path = %q", decoded.Files[0].Path)
 	}
 }
+
+// --- The record is what the tool owns: an install replaces it (#933) ---
+
+// installSandbox redirects every location an install touches and returns the prefix to use.
+//
+// Separate from installIntoTempPrefix because these tests install twice into the same prefix, which is
+// the case #933 is about: the second install is what retires the first one's leavings.
+//
+// Parameters:
+//   - `t`: the test harness.
+//
+// Returns:
+//   - `string`: the prefix to install into; it does not exist yet.
+func installSandbox(t *testing.T) string {
+
+	t.Helper()
+
+	sandbox := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(sandbox, "config"))
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(sandbox, "cache"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(sandbox, "data"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(sandbox, "state"))
+
+	return filepath.Join(sandbox, "prefix")
+}
+
+// installOnce runs one install into `prefix`, with hooks standing in for star's extensions.
+//
+// Parameters:
+//   - `t`: the test harness.
+//   - `prefix`: where to install.
+//   - `hooks`: post-install hooks, each planting files and returning their paths relative to `prefix`.
+func installOnce(t *testing.T, prefix string, hooks ...func(string) []string) {
+
+	t.Helper()
+
+	info := SelfInstallInfo{Name: "selftest", Version: "1.0.0", PostInstallHooks: hooks}
+	rootCmd := &cobra.Command{Use: "selftest"}
+
+	if err := runSelfInstall(rootCmd, prefix, info, installFlags{Shells: []string{"bash"}}); err != nil {
+		t.Fatalf("runSelfInstall: %v", err)
+	}
+}
+
+// plantingHook returns a post-install hook that writes one file, the way star's hook writes its
+// extension tree.
+//
+// Parameters:
+//   - `t`: the test harness.
+//   - `relative`: the file's path relative to the prefix.
+//   - `content`: what to write, so a later install can be told from an earlier one.
+//
+// Returns:
+//   - `func(string) []string`: the hook, returning the one path it planted.
+func plantingHook(t *testing.T, relative, content string) func(string) []string {
+
+	t.Helper()
+
+	return func(prefix string) []string {
+		absolute := filepath.Join(prefix, relative)
+
+		if err := os.MkdirAll(filepath.Dir(absolute), 0o750); err != nil {
+			t.Fatalf("planting %s: %v", relative, err)
+		}
+		if err := os.WriteFile(absolute, []byte(content), 0o600); err != nil {
+			t.Fatalf("planting %s: %v", relative, err)
+		}
+
+		return []string{relative}
+	}
+}
+
+// TestRunSelfInstall_RetiresWhatItNoLongerOwns is #933 itself, in miniature.
+//
+// star's extensions moved under `devlore/` in #918. The install that followed wrote them to the new path
+// and overwrote the manifest, which left 24 files at the old path owned by nothing: `self uninstall`
+// reads only the manifest, so no later command could reach them. They were removed by hand on
+// 2026-09-23. An install must retire what the record it replaces owned and it does not.
+func TestRunSelfInstall_RetiresWhatItNoLongerOwns(t *testing.T) {
+
+	prefix := installSandbox(t)
+	oldPath := filepath.Join("share", "selftest", "extensions", "old.star")
+	newPath := filepath.Join("share", "selftest", "devlore", "extensions", "new.star")
+
+	installOnce(t, prefix, plantingHook(t, oldPath, "first"))
+
+	if _, err := os.Stat(filepath.Join(prefix, oldPath)); err != nil {
+		t.Fatalf("the first install did not plant %s: %v", oldPath, err)
+	}
+
+	installOnce(t, prefix, plantingHook(t, newPath, "second"))
+
+	if _, err := os.Stat(filepath.Join(prefix, oldPath)); !os.IsNotExist(err) {
+		t.Errorf("%s survived an install that stopped writing it (stat error = %v); "+
+			"that is the file nothing can ever remove", oldPath, err)
+	}
+	if _, err := os.Stat(filepath.Join(prefix, newPath)); err != nil {
+		t.Errorf("the second install did not plant %s: %v", newPath, err)
+	}
+}
+
+// TestRunSelfInstall_ManifestMatchesTheTree is the invariant the retirement exists to hold.
+//
+// Requirement 3 of the plan: after any install, the record names exactly what is on disk for that tool.
+// It is asserted after a *changing* re-install, because that is the case a snapshot-shaped record gets
+// wrong. Stated as a set comparison in both directions: a path on disk and in no record can never be
+// uninstalled, and a path in the record and not on disk is how an uninstall reports success over files
+// it never touched.
+func TestRunSelfInstall_ManifestMatchesTheTree(t *testing.T) {
+
+	prefix := installSandbox(t)
+
+	installOnce(t, prefix, plantingHook(t, filepath.Join("share", "selftest", "a", "one.star"), "first"))
+	installOnce(t, prefix, plantingHook(t, filepath.Join("share", "selftest", "b", "two.star"), "second"))
+
+	m, err := readManifest(prefix, "selftest")
+	if err != nil {
+		t.Fatalf("readManifest: %v", err)
+	}
+
+	recorded := make(map[string]struct{}, len(m.Files))
+	for _, entry := range m.Files {
+		recorded[filepath.Clean(entry.Path)] = struct{}{}
+
+		if _, err := os.Stat(filepath.Join(prefix, entry.Path)); err != nil {
+			t.Errorf("the record names %s, which is not on disk: %v", entry.Path, err)
+		}
+	}
+
+	// The manifest does not name itself: it is written last, from the list of everything else.
+	manifestRelative := filepath.Clean(relativeManifestPath("selftest"))
+
+	err = filepath.Walk(prefix, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return err
+		}
+
+		relative, err := filepath.Rel(prefix, path)
+		if err != nil {
+			return err
+		}
+		relative = filepath.Clean(relative)
+
+		if relative == manifestRelative {
+			return nil
+		}
+		if _, ok := recorded[relative]; !ok {
+			t.Errorf("%s is on disk and in no record, so no uninstall can ever remove it", relative)
+		}
+
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walking the prefix: %v", err)
+	}
+}
+
+// TestRunSelfInstall_LeavesAFileChangedSinceItWasWritten pins the ruling of 2026-09-23.
+//
+// A file whose hash no longer matches the record may be the operator's own edit, so it is left and
+// reported rather than deleted. There is no solution to that on the file itself: it cannot be removed
+// safely and it cannot be trusted. This test exists so the behaviour is a decision someone made rather
+// than something a later change quietly reverses.
+func TestRunSelfInstall_LeavesAFileChangedSinceItWasWritten(t *testing.T) {
+
+	prefix := installSandbox(t)
+	planted := filepath.Join("share", "selftest", "extensions", "edited.star")
+
+	installOnce(t, prefix, plantingHook(t, planted, "as installed"))
+
+	absolute := filepath.Join(prefix, planted)
+	if err := os.WriteFile(absolute, []byte("edited by the operator"), 0o600); err != nil {
+		t.Fatalf("editing %s: %v", planted, err)
+	}
+
+	installOnce(t, prefix, plantingHook(t, filepath.Join("share", "selftest", "other", "new.star"), "second"))
+
+	content, err := os.ReadFile(absolute)
+	if err != nil {
+		t.Fatalf("the edited file was removed, and it was not ours to remove: %v", err)
+	}
+	if string(content) != "edited by the operator" {
+		t.Errorf("content = %q, want the operator's edit untouched", content)
+	}
+}
+
+// TestRetireSupersededFiles_ReachesNothingOutsideTheRecord is Requirement 4.
+//
+// Config, cache and writ's layer directories are placed by an install and recorded by nothing, so the
+// retirement must not reach them. Stated generally, as a file in the prefix that no record names:
+// whatever is not in the record is not this program's to remove.
+func TestRetireSupersededFiles_ReachesNothingOutsideTheRecord(t *testing.T) {
+
+	prefix := installSandbox(t)
+	installOnce(t, prefix, plantingHook(t, filepath.Join("share", "selftest", "a", "one.star"), "first"))
+
+	stranger := filepath.Join(prefix, "share", "someone-else", "theirs.conf")
+	if err := os.MkdirAll(filepath.Dir(stranger), 0o750); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	if err := os.WriteFile(stranger, []byte("not ours"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	installOnce(t, prefix, plantingHook(t, filepath.Join("share", "selftest", "b", "two.star"), "second"))
+
+	if _, err := os.Stat(stranger); err != nil {
+		t.Errorf("a file no record names was removed: %v", err)
+	}
+}
+
+// TestRetireSupersededFiles_FirstInstallHasNothingToRetire is Requirement 1.
+//
+// `self uninstall` treats a missing record as an error, because the operator asked to remove something
+// this program never placed. An install must treat the same absence as the ordinary first install.
+func TestRetireSupersededFiles_FirstInstallHasNothingToRetire(t *testing.T) {
+
+	prefix := t.TempDir()
+
+	prefixRoot, err := OpenTree(prefix)
+	if err != nil {
+		t.Fatalf("OpenTree: %v", err)
+	}
+	defer func() {
+		if err := prefixRoot.Close(); err != nil {
+			t.Errorf("Close: %v", err)
+		}
+	}()
+
+	removed, skipped := retireSupersededFiles(prefixRoot, prefix, "selftest", []string{"bin/selftest"})
+
+	if len(removed) != 0 || len(skipped) != 0 {
+		t.Errorf("removed = %v, skipped = %v; a first install has no record to retire", removed, skipped)
+	}
+}
