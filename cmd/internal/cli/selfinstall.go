@@ -94,7 +94,9 @@ This command:
   2. Installs man pages to <prefix>/share/man/man1/ (if man command exists)
   3. Installs shell completions (auto-detects bash, fish, pwsh, zsh or use --shell)
   4. Initializes config and cache directories (if applicable)
-  5. Writes a manifest for uninstall tracking
+  5. Retires files a previous install placed and this one does not, leaving any that
+     have been modified since and reporting them
+  6. Writes a manifest of what this install owns, which "self uninstall" reads
 
 Example:
   ` + info.Name + ` self install           # defaults to ~/.local
@@ -266,12 +268,19 @@ func runSelfInstall(rootCmd *cobra.Command, prefix string, info SelfInstallInfo,
 		return err
 	}
 
-	// 7. Write manifest.
+	// 7. Retire what the record this install replaces owned and this one does not (#933).
+	//
+	// Before the manifest is written, because the previous record is what it is read from; after
+	// everything is placed, so a failure above leaves the previous install intact.
+	retired, retainedByChange := retireSupersededFiles(prefixRoot, prefix, info.Name, manifestFiles)
+
+	// 8. Write manifest.
 	if err := writeManifest(prefixRoot, info.Name, info.Version, manifestFiles); err != nil {
 		Warn("Failed to write manifest: %v", err)
 	}
 
 	printInstallSummary(info.Name, prefix, installed, installedShells)
+	printRetirementSummary(retired, retainedByChange)
 
 	return nil
 }
@@ -451,31 +460,119 @@ func printInstallSummary(toolName, prefix string, installed, installedShells []s
 	printShellSetupInstructions(installedShells, toolName)
 }
 
+// retireSupersededFiles removes what a previous install of this tool owned and this one does not.
+//
+// The manifest is the record of what the tool owns, and an install replaces it — ruled 2026-09-23 on
+// #933, and the same verb #913 gave writ for the identical defect in its own record. Without this
+// step the manifest is a snapshot of the last install instead: a file at a path this install no
+// longer writes is left on disk and dropped from the record in the same operation, so no later
+// `self uninstall` can reach it. star's extensions moved under `devlore/` in #918 and stranded 24
+// files exactly that way.
+//
+// It runs after the install rather than before it. Both orders reach the same state; this one does
+// not remove the running executable, which Windows refuses, and does not leave the tool absent when
+// the install that was to replace it fails partway. Nothing here is transactional.
+//
+// A tool with no previous manifest is a first install, not an error — unlike `self uninstall`, for
+// which a missing record means the operator asked to remove something this program never placed.
+//
+// Parameters:
+//   - `prefixRoot`: the installation prefix.
+//   - `prefix`: that same prefix as a path, for reading the previous record.
+//   - `toolName`: the tool whose record is being replaced.
+//   - `installed`: what this install placed, relative to the prefix.
+//
+// Returns:
+//   - `removed`: the absolute paths retired.
+//   - `skipped`: the absolute paths left in place, having changed since they were written.
+func retireSupersededFiles(
+	prefixRoot fsroot.Dir, prefix, toolName string, installed []string,
+) (removed, skipped []string) {
+
+	previous, err := readManifest(prefix, toolName)
+	if err != nil {
+		// A record that exists and cannot be read is worth saying out loud: it means this install
+		// silently retires nothing, which is the defect #933 describes.
+		if !os.IsNotExist(err) {
+			Warn("Cannot read the previous manifest at %s: %v (nothing retired)",
+				manifestPath(prefix, toolName), err)
+		}
+		return nil, nil
+	}
+
+	owned := make(map[string]struct{}, len(installed))
+	for _, rel := range installed {
+		owned[filepath.Clean(rel)] = struct{}{}
+	}
+
+	var superseded []manifestEntry
+	for _, entry := range previous.Files {
+		if _, stillOwned := owned[filepath.Clean(entry.Path)]; !stillOwned {
+			superseded = append(superseded, entry)
+		}
+	}
+
+	if len(superseded) == 0 {
+		return nil, nil
+	}
+
+	return removeRecordedFiles(prefixRoot, superseded)
+}
+
+// printRetirementSummary reports what an install retired from the record it replaced.
+//
+// Silence here would be the same class of problem as the one #933 fixes: files leaving the disk
+// without the operator being told. A skipped file is the more important half — it is still there,
+// and it is no longer this tool's to remove.
+//
+// Parameters:
+//   - `removed`: the absolute paths retired.
+//   - `skipped`: the absolute paths left in place, having changed since they were written.
+func printRetirementSummary(removed, skipped []string) {
+
+	if len(removed) > 0 {
+		Note("")
+		Note("Retired %d file(s) a previous install placed and this one does not:", len(removed))
+		for _, f := range removed {
+			Note("  %s", f)
+		}
+	}
+
+	if len(skipped) > 0 {
+		Note("")
+		Note("Left %d modified file(s) a previous install placed:", len(skipped))
+		for _, f := range skipped {
+			Note("  %s", f)
+		}
+	}
+}
+
 // =============================================================================
 // Uninstall
 // =============================================================================
 
-// runSelfUninstall removes files recorded in the manifest.
+// removeRecordedFiles removes the files a record names, sparing anything that has changed since it
+// was written.
 //
-//nolint:gocognit // orchestration function with sequential uninstall steps
-func runSelfUninstall(prefix string, info SelfInstallInfo) (err error) {
+// The hash guard is the whole point: a file whose content no longer matches what was recorded may be
+// the operator's own edit, and deleting it would destroy work this program did not do. Such a file is
+// left and reported rather than removed, and so is one the filesystem refuses. A file already gone is
+// neither -- it is simply nothing to do.
+//
+// Shared by `self uninstall`, which passes the whole record, and by an install retiring the part of a
+// previous record it no longer owns (#933).
+//
+// Parameters:
+//   - `prefixRoot`: the installation prefix the entries are relative to.
+//   - `entries`: the recorded files to remove.
+//
+// Returns:
+//   - `removed`: the absolute paths removed.
+//   - `skipped`: the absolute paths left in place -- changed since they were written, unreadable, or
+//     refused by the filesystem.
+func removeRecordedFiles(prefixRoot fsroot.Dir, entries []manifestEntry) (removed, skipped []string) {
 
-	// One root for the whole uninstall, matching runSelfInstall (#405, phase 2b).
-	prefixRoot, err := OpenTree(prefix)
-	if err != nil {
-		return err
-	}
-	defer iox.Close(&err, prefixRoot)
-
-	m, err := readManifest(prefix, info.Name)
-	if err != nil {
-		return fmt.Errorf("no manifest found at %s — was %s installed with 'self install'? (%w)",
-			manifestPath(prefix, info.Name), info.Name, err)
-	}
-
-	var removed, skipped []string
-
-	for _, entry := range m.Files {
+	for _, entry := range entries {
 		path := prefixRoot.NewPath(entry.Path)
 
 		currentHash, err := fileSHA256(path.Abs())
@@ -503,7 +600,28 @@ func runSelfUninstall(prefix string, info SelfInstallInfo) (err error) {
 	}
 
 	// Clean up empty directories left behind.
-	cleanEmptyDirs(prefixRoot, m.Files)
+	cleanEmptyDirs(prefixRoot, entries)
+
+	return removed, skipped
+}
+
+// runSelfUninstall removes files recorded in the manifest.
+func runSelfUninstall(prefix string, info SelfInstallInfo) (err error) {
+
+	// One root for the whole uninstall, matching runSelfInstall (#405, phase 2b).
+	prefixRoot, err := OpenTree(prefix)
+	if err != nil {
+		return err
+	}
+	defer iox.Close(&err, prefixRoot)
+
+	m, err := readManifest(prefix, info.Name)
+	if err != nil {
+		return fmt.Errorf("no manifest found at %s — was %s installed with 'self install'? (%w)",
+			manifestPath(prefix, info.Name), info.Name, err)
+	}
+
+	removed, skipped := removeRecordedFiles(prefixRoot, m.Files)
 
 	// Remove the manifest itself (best-effort).
 	mPath := prefixRoot.NewPath(relativeManifestPath(info.Name))
