@@ -23,7 +23,7 @@ canonical.
 
 `noblefactor-ops/.golangci.yaml` replaced with the canonical template (repo config minus
 the repo-specific exclusion below), merged as noblefactor-ops#126 with its own plan doc
-(`docs/plans/golangci-canonical.md`). The original blocker — the ops tree sat on the parked
+(`noblefactor-ops/docs/plans/golangci-canonical.md`, disposed of by noblefactor-ops#228). The original blocker — the ops tree sat on the parked
 `chore/refine-coding-standards` branch — was resolved by ruling (2026-08-07): the parked
 standards work was published and merged first (noblefactor-ops#125). The blanket
 G204/G301/G302/G306 suppressions are gone from the org default.

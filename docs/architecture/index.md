@@ -87,9 +87,11 @@ Each architecture document has a companion `*.status.md` file tracking completio
 
 ### 9. Star
 
-- [Star Extensions](star-extensions.md) — Extension model, discovery, loading, runtime types (`star.Extension`, `star.Command`)
-  - Star Configuration — Config hierarchy, schema, on-demand resolution (planned)
-  - Star WASM Receivers — WASM sandboxing, capabilities, host module (planned)
+- [Star Extensions](9-star-extensions.md) — Extension model, discovery, loading, runtime types (`star.Extension`, `star.Command`); the `star <service> <resource> <verb>` grammar
+  - [Doc Comment Styling](9.1-doc-comment-styling.md) — the `goast` styler behind `star lint go-style`: productions, fuzzy slot filling, the schema fields `LintGoStyle` carries. Its port section is unfinished — [#938](https://github.com/NobleFactor/devlore-cli/issues/938)
+  - [Source Analysis](9.2-source-analysis.md) — `starcode`, `starindex`, `starstats`, `starcomplexity`, `staranalysis`: capture, index, stats, complexity, hotspots
+  - [File Tree Walking](9.3-file-tree-walking.md) — `pkg/gitignore`'s layered ignore stack and the go-git decision behind it
+  - Star Configuration — the model lives in [configuration.md](configuration.md); its as-is field-type and `config.sync` tables were salvaged there (#937)
 
 ## Overview
 

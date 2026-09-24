@@ -278,6 +278,26 @@ config:
 | Config path | `lint.copyright` | Command name |
 | Env var prefix | `STAR_LINT_COPYRIGHT_` | `STAR_` + command name (dots → underscores, uppercase) |
 
+### The Shape of the Tree
+
+Salvaged from noblefactor-ops' copy of this document 2026-09-24 (#937). It had no counterpart here,
+and `10-command-line-interface.md` §3 states only the two-token `<binary> <noun> <verb>` rule for
+writ and lore.
+
+Commands follow **`star <service> <resource> <verb>`** — the grammar `az keyvault certificate create`
+has and `star devlore actions generate` already follows. Star's own commands elide the service token
+because star is the service: `star lint shell`, `star setup hooks`. A noun that belongs to no service
+— `lint` drives shellcheck, `session` drives tmux — is bare.
+
+A service token names a **service or product**, never a tool: `gh` appears because GitHub is a
+service, the way `devlore` is; `shellcheck` does not, because it is a tool `lint` uses. Owners are
+visible in the extension prefix — `com.noblefactor.star.*`, `.devlore.*`, `.ops.*` — and invisible
+to the person typing.
+
+Under one service, resources gather: `star gh issues report`, `star gh issues audit`,
+`star gh labels sync`. **A flag that changes what a command *is* — a report into an audit — is a
+second verb, not a flag.**
+
 ### Flag Resolution
 
 Each flag resolves in priority order:

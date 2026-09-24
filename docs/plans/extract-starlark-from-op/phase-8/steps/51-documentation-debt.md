@@ -123,7 +123,7 @@ exceptions honestly. Residual debt: the `3.1` lifetime-half rewrite (unchartered
 | Guarded back-edge loop construct | legalized cycles with iteration-scoped receipts + runtime budget | anticipated extension | [2.3](../../../../architecture/2.3-orchestration-primitives.md) | step-10 note; unchartered |
 | Black-box scope receipt; parallel compensation | composite-as-single-receipt; per-node ordering for concurrent children | deferred (prior-art section) | [2.2](../../../../architecture/2.2-phase-execution.md) | unchartered |
 | Directory Merkle digest | extend content identity + tamper check to directory archives | open ruling | [3.5.4 §7](../../../../architecture/3.5.4-file-provider.md) | unchartered (step-48 ruling) |
-| Star configuration; WASM receivers | per-index "planned" items of the star extension model | planned | [star-extensions](../../../../architecture/star-extensions.md) | unchartered |
+| Star configuration; WASM receivers | per-index "planned" items of the star extension model | planned | [star-extensions](../../../../architecture/9-star-extensions.md) | unchartered |
 
 ## Open decisions (settle at the owning slice)
 
