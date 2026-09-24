@@ -310,6 +310,18 @@ func containedPath(dest, name string) (string, error) {
 }
 
 // runWrit runs the built writ binary inside the sandbox and returns its combined outcome.
+// exitCodeOf reads the process status a runWrit error carries; any other error fails the test.
+func exitCodeOf(t *testing.T, err error) int {
+
+	t.Helper()
+
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		t.Fatalf("writ did not exit with a status: %v", err)
+	}
+	return exitErr.ExitCode()
+}
+
 func runWrit(t *testing.T, sandbox *scenarioSandbox, args ...string) (stdout, stderr string, err error) {
 
 	t.Helper()
@@ -521,6 +533,8 @@ func TestWritDeployScenario_Deploy(t *testing.T) {
 		t.Fatal("writ reconcile --store <empty> succeeded; it reported on the default store instead")
 	} else if !strings.Contains(strings.ToLower(storeErr), "no current deployment") {
 		t.Fatalf("--store <empty> refusal does not name the missing deployment (#922):\n%s", storeErr)
+	} else if code := exitCodeOf(t, err); code != 66 {
+		t.Fatalf("--store <empty> exited %d, want 66: never deployed is not-found (#756)\n%s", code, storeErr)
 	}
 
 	// The reconcile report, machine-readable: every classified entry is healthy.
@@ -551,6 +565,43 @@ func TestWritDeployScenario_Deploy(t *testing.T) {
 		if entry.State != "linked" && entry.State != "copied" {
 			t.Fatalf("entry %s (%s) has state %q, expected linked or copied", entry.Target, entry.Project, entry.State)
 		}
+	}
+
+	// The exit status is the answer (#756): a removed link drifts, reconcile exits 1 with the report still on
+	// stdout naming it absent, and a deploy restores the clean answer.
+	removed := report.Entries[0].Target
+	if err := os.Remove(removed); err != nil {
+		t.Fatal(err)
+	}
+	driftOut, driftErr, err := runWrit(t, sandbox, "reconcile", "-o", "json")
+	if err == nil {
+		t.Fatalf("writ reconcile exited 0 with %s removed; drift is exit 1 (#756)\n%s", removed, driftOut)
+	} else if code := exitCodeOf(t, err); code != 1 {
+		t.Fatalf("writ reconcile with drift exited %d, want 1 (#756)\n%s", code, driftErr)
+	}
+	var drifted struct {
+		Entries []struct {
+			State  string `json:"state"`
+			Target string `json:"target"`
+		} `json:"entries"`
+	}
+	if err := json.Unmarshal([]byte(driftOut), &drifted); err != nil {
+		t.Fatalf("reconcile -o json under drift is not parseable; the report must render before the exit: %v\n%s", err, driftOut)
+	}
+	foundAbsent := false
+	for _, entry := range drifted.Entries {
+		if entry.Target == removed {
+			foundAbsent = entry.State == "absent"
+		}
+	}
+	if !foundAbsent {
+		t.Fatalf("the drifted report does not name %s absent:\n%s", removed, driftOut)
+	}
+	if _, stderr, err := runWrit(t, sandbox, "deploy", "noblefactor", "thenobles"); err != nil {
+		t.Fatalf("redeploy after the removal failed: %v\n%s", err, stderr)
+	}
+	if _, stderr, err := runWrit(t, sandbox, "reconcile", "-o", "none"); err != nil {
+		t.Fatalf("writ reconcile after the redeploy exited %d, want 0 (#756)\n%s", exitCodeOf(t, err), stderr)
 	}
 
 	// The execution store: at least one persisted graph, one timestamped trace, and a non-empty run index.

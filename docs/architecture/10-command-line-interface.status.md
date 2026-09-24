@@ -78,7 +78,9 @@ does to the record, and the lifetime model -- a deploy opens one, its receipts s
 replaces it or a decommission removes it, pruning is store housekeeping and undesigned -- ahead of the per-program
 mechanics. **Revised 2026-09-23 (#922):** §3.1 names the lifetime document in the store and points at 5.1 for it.
 **Revised 2026-09-23 (#923):** the
-`reconcile` row names the six words.
+`reconcile` row names the six words. **Revised 2026-09-24 (#756):** §3.1's "valid only after deployment" paragraph carries
+the three exit codes (66 never deployed, 0 clean, 1 drifted) and where each is assigned; the `reconcile` row names
+them.
 
 ## Document discrepancies
 

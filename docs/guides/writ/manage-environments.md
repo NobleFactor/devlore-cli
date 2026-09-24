@@ -1,6 +1,6 @@
 ---
 title: "Manage Environments"
-description: "Deploy, update, and remove configuration projects"
+description: "Deploy, reconcile, upgrade, adopt, and decommission configuration projects"
 tool: "writ"
 category: "tutorial"
 order: 2
@@ -8,13 +8,20 @@ order: 2
 
 # Manage Environments
 
-This guide covers the full lifecycle of managing your environment with writ:
-deploying projects, handling conflicts, checking status, upgrading templates,
-and removing deployments.
+This guide covers the lifecycle of an environment under writ: deploying
+projects, handling occupied targets, reconciling the machine against the
+record, upgrading copied files, adopting files you already have, and
+decommissioning what writ deployed.
+
+Every operation acts on **the record**: the receipts writ writes to its store
+as it runs. A deploy replaces the record, an upgrade updates it, a
+decommission removes what it names, and reconcile compares the machine
+against it. The record is the desired state; your layer checkout is only
+what a deploy reads.
 
 ## Deploy projects
 
-Deploy one or more projects from your repository:
+Deploy one or more projects from your registered layers:
 
 ```bash
 writ deploy noblefactor
@@ -25,14 +32,17 @@ The reserved `common` project — configuration that applies everywhere — depl
 implicitly with every selection; there is nothing to add to the command line.
 To deploy every project, name them.
 
-### Conflict resolution
+Each `writ deploy` invocation is one deployment. Its receipts are the record
+until the next deploy replaces it.
 
-When a target file already exists and isn't what writ's record says it wrote, you
-have three strategies. An occupant is writ's own when it matches the record: a
-symlink whose literal endpoint is the recorded source, resolved or dangling, or a
-file whose content is the recorded as-deployed content. A link left dangling by a
-file that moved between layers is therefore still writ's own, and a plain deploy
-re-points it.
+### Occupied targets
+
+When a target already exists and is not what the record says writ wrote, the
+`--conflict` policy decides. An occupant is writ's own when it matches the
+record: a symlink whose literal endpoint is the recorded source, resolved or
+dangling, or a file whose content is the recorded as-deployed content. A link
+left dangling by a file that moved between layers is therefore still writ's
+own, and a plain deploy re-points it.
 
 ```bash
 # Refuse when a target is occupied, listing the occupants (the default)
@@ -45,10 +55,21 @@ writ deploy --conflict=replace noblefactor
 writ deploy --conflict=skip noblefactor
 ```
 
+### Uncommitted changes
+
+A deploy reads a layer at its committed state. When a layer's working tree
+has uncommitted changes, deploy refuses so the record never names content git
+does not have. To deploy anyway:
+
+```bash
+writ deploy --allow-dirty noblefactor
+```
+
 ### Custom segments
 
-Override platform detection with custom segment values (e.g., `-s ROLE=desktop`).
-See [Platform Awareness](/guides/writ/platform-awareness/#custom-segments) for details.
+Override platform detection with custom segment values (for example
+`--segment ROLE=desktop`). See
+[Platform Awareness](/guides/writ/platform-awareness/#custom-segments).
 
 ### Dry run
 
@@ -58,174 +79,165 @@ Preview what writ would do without making changes:
 writ deploy --dry-run noblefactor
 ```
 
-## Check status
+## Reconcile
 
-Perform full-stack drift detection across symlinks, copied files, and packages:
+Reconcile compares the machine against the record and reports every deployed
+entry in one of six words. The report comes from the store, never from a
+directory scan, so it lists what the current deployment put in place and
+nothing else.
 
 ```bash
-# Scan all deployed files
+# Report everything the current deployment put in place
 writ reconcile
 
-# Check specific project
+# Report one project
 writ reconcile noblefactor
 
-# Also check package installation status
-writ reconcile --packages
+# The report as JSON, and the drifted entries alone
+writ reconcile -o json
+writ reconcile -o json --jq '[.entries[] | select(.state != "linked" and .state != "copied")]'
 ```
 
-Status indicators:
+The six words, and the command that repairs each:
 
-| Symbol | Meaning |
-|--------|---------|
-| `✓ Linked` | Symlink exists and points to project |
-| `✓ Copied` | Template/secret was copied and exists |
-| `✓ Installed` | Package is installed and verified (with `--packages`) |
-| `⚠ Conflict` | File exists but isn't a writ symlink |
-| `✗ Missing` | Project file has no corresponding symlink |
-| `? Orphan` | Symlink points to nonexistent source |
-| `↑ Stale` | Source changed since deployment |
-| `M Modified` | Target was edited locally |
-| `! Conflict` | Both source and target changed |
+| State | Meaning | Repair |
+|-------|---------|--------|
+| `linked` | The symlink is as recorded and its referent's content is as recorded | — |
+| `copied` | The copied file is as recorded and its source's content is as recorded | — |
+| `absent` | The record says a target is there and it is not | `writ deploy` |
+| `changed` | The target is there but is not what the record says: not the recorded symlink, or a copy whose content moved | `writ deploy` for a link; `writ upgrade --force` for a copy |
+| `dangling` | The source the record names does not resolve: a link whose referent is gone, or a copy whose source is gone | `writ deploy` |
+| `stale` | The deployed file is as recorded, and its source's content has moved on | `writ upgrade` |
 
-### Automatic repair
+Reconcile reports and leaves the machine as it found it; you run the repair it
+names.
 
-Fix detected issues automatically:
+### Exit status
+
+The exit status is the answer, so a script can gate on it the way it gates on
+`git diff --exit-code`:
+
+| Exit | Answer |
+|------|--------|
+| `0` | Deployed and clean: every entry is `linked` or `copied` |
+| `1` | Deployed and drifted: at least one entry is `absent`, `changed`, `dangling` or `stale`; the report says which |
+| `66` | Never deployed: the store has no current deployment to compare against, because nothing has been deployed or it was decommissioned |
+
+Reconcile is valid only after a deployment. Before one there is nothing to
+compare against, and the answer is not-found rather than an empty report.
+
+## Upgrade copied files
+
+A symlink always points at its source and needs no upgrading. Copied files —
+expanded templates and decrypted secrets — are what a deploy produced from a
+source at the time, and when the source moves on, reconcile reports them
+`stale`. Upgrade regenerates them:
 
 ```bash
-writ reconcile --fix
-```
-
-## Upgrade templates and secrets
-
-When source templates or secrets change, regenerate the copied files:
-
-```bash
-# Upgrade all copied files
+# Regenerate every copied file
 writ upgrade
 
-# Upgrade specific project
+# Regenerate one project's copied files
 writ upgrade noblefactor
 
-# Force overwrite locally modified files
+# Also regenerate copies you edited locally (reconcile reports them `changed`)
 writ upgrade --force
 ```
 
-Upgrade only affects copied files (templates and decrypted secrets).
-Symlinks always point to the source and don't need upgrading.
+Without `--force`, a copy that differs from what the record says is left
+alone with a warning, since the difference may be your own edit.
 
-## Migrate existing dotfiles
+## Adopt files you already have
 
-The `writ migrate` command uses AI to analyze your existing dotfiles repository
-and create a migration plan to writ's layered structure:
-
-```bash
-writ migrate ~/dotfiles
-```
-
-This analyzes your dotfiles, detects the current structure (GNU Stow, chezmoi,
-custom scripts, etc.), and generates a migration plan.
-
-### Configuring the AI provider
-
-By default, writ uses [Ollama](https://ollama.ai) for local inference. To use
-a cloud provider:
+Adopt moves a file you already have into a project directory and leaves a
+symlink in its place, so it deploys like everything else. The project is
+named by `--project`; the scope is inferred from the item's location — under
+your home directory the item is adopted into `Home/`, elsewhere into
+`System/`.
 
 ```bash
-# GitHub Models (free with GitHub account)
-DEVLORE_MODEL_PROVIDER=github DEVLORE_MODEL_API_KEY=$(gh auth token) \
-  writ migrate ~/dotfiles
+# Adopt a single file into the personal layer
+writ adopt --project noblefactor ~/.zshrc
 
-# Anthropic Claude
-writ --model-provider=anthropic --model-api-key=sk-... migrate ~/dotfiles
+# Adopt several
+writ adopt --project noblefactor ~/.zshrc ~/.bashrc ~/.config/nvim/init.lua
+
+# Adopt a directory recursively
+writ adopt --project noblefactor ~/.config/nvim
+
+# Adopt into the team layer
+writ adopt --layer team --project shared ~/.editorconfig
+
+# Adopt a file that only Debian should get: it lands under
+# noblefactor.Linux.Debian and deploys only there
+writ adopt --project noblefactor --platform Linux.Debian ~/.config/apt.conf
 ```
 
-### Migration workflow
+`--platform` takes a suffix in the vocabulary the layer tree uses (`Darwin`,
+`Unix`, `Windows`, `Linux`, `Linux.Debian`, `Darwin.arm64`, and so on); see
+[Platform Awareness](/guides/writ/platform-awareness/). An adoption is
+recorded like a deploy, so the adopted link is writ's own from then on and
+reconcile reports it. Adopt therefore needs a current deployment to record
+into; on a machine that has never deployed, deploy first.
 
-```bash
-# 1. Generate migration plan (dry run)
-writ migrate --dry-run ~/dotfiles
-
-# 2. Review the plan, then execute
-writ migrate ~/dotfiles
-
-# 3. Link the migrated directory as a layer
-writ migrate --link ~/dotfiles
-```
-
-See [writ migrate](/cli/writ/migrate/) for all options.
-
-## Adopt existing files
-
-Bring existing configuration files under writ management:
-
-```bash
-# Adopt a single file
-writ adopt noblefactor .zshrc
-
-# Adopt multiple files
-writ adopt noblefactor .zshrc .bashrc .config/nvim/init.lua
-
-# Adopt an entire directory recursively
-writ adopt noblefactor .config/nvim
-
-# Adopt into team layer
-writ adopt --layer=team shared .editorconfig
-```
-
-The file is moved into the project directory and replaced with a symlink.
-
-### Adopt from lore receipt
+### Adopt from a lore receipt
 
 After installing software with lore, adopt the generated configuration:
 
 ```bash
 writ adopt --from-receipt
+writ adopt --from-receipt ~/.local/state/lore/receipts/2026-01-19T14:32:07.yaml
 ```
 
-This reads the lore deployment receipt and moves any generated config files
-into your environment repository.
+This reads the lore receipt and moves the packages manifest and any generated
+configuration files into your environment repository.
 
-## Remove deployments
+## Decommission
 
-Remove deployed files for a project:
+Decommission removes what the record says a project put in place — nothing
+more, because the inventory comes from the record, never from a directory
+scan. Symlinks are unlinked; a target you replaced with a real file is refused,
+not deleted. Copied files are archived to the recovery site before removal, so
+the removal is restorable.
 
 ```bash
 writ decommission noblefactor
-```
+writ decommission noblefactor thenobles
 
-By default, only files are removed. To also clean up empty parent directories:
-
-```bash
+# Also remove parent directories the removal left empty
 writ decommission --prune noblefactor
 ```
 
-Safety behavior depends on state tracking:
+## Migrate an existing dotfiles repository
 
-| State | Behavior |
-|-------|----------|
-| Signed state file | Safe removal with drift detection |
-| Unsigned state file | Warning, requires `--force` |
-| No state file | Error: cannot safely remove |
-
-Options:
-
-| Option | Description |
-|--------|-------------|
-| `--force` | Skip confirmation and proceed with unsigned state |
-| `--prune` | Remove empty parent directories after file removal |
-
-## Inspect details
-
-Get detailed information about a project or specific file:
+`writ migrate` analyzes an existing dotfiles repository — GNU Stow, chezmoi,
+hand-written scripts — and produces a plan for bringing it into writ's layered
+structure, using a language model for the classification:
 
 ```bash
-# Project details
-writ inspect noblefactor
+# Produce the plan without changing anything
+writ migrate --dry-run ~/dotfiles
 
-# Specific file details (source, checksums, drift status)
-writ inspect ~/.zshrc
+# Review the plan, then run it: the layer directory becomes a symlink to
+# ~/dotfiles (the default, --link)
+writ migrate ~/dotfiles
 
-# Alternative output formats
-writ inspect noblefactor --format yaml
-writ inspect noblefactor --format json
+# Or move the content into the layer directory and remove the source
+writ migrate --move ~/dotfiles
 ```
+
+### Choosing the model provider
+
+By default, writ uses [Ollama](https://ollama.ai) for local inference. To use
+a cloud provider, set the model flags or their environment variables:
+
+```bash
+# GitHub Models (free with a GitHub account)
+DEVLORE_MODEL_PROVIDER=github DEVLORE_MODEL_API_KEY=$(gh auth token) \
+  writ migrate ~/dotfiles
+
+# Anthropic
+writ --model-provider=anthropic --model-api-key=sk-... migrate ~/dotfiles
+```
+
+See [writ migrate](/cli/writ/migrate/) for every option.

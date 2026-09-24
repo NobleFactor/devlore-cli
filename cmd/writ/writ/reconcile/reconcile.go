@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 	"sort"
 
+	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
 	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/readback"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/segment"
@@ -56,10 +57,16 @@ type Config struct {
 //
 // Returns:
 //   - `*Report`: the assembled report.
-//   - `error`: non-nil when the store has no current deployment (not-found) or the fold fails.
+//   - `error`: an [cli.ExitNoInput]-coded not-found when the store has no current deployment; the fold's own
+//     error otherwise.
 func BuildReport(ctx context.Context, cfg *Config) (*Report, error) {
 
+	// Never deployed is 66 (#756): the code is assigned here, in the reader that answers the question, because
+	// deploy's pre-flight reads the same not-found from the fold as "nothing to conflict with".
 	inventory, err := readback.Fold(ctx)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, cli.ExitWith(cli.ExitNoInput, err)
+	}
 	if err != nil {
 		return nil, err
 	}

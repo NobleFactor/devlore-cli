@@ -127,8 +127,7 @@ Signature-gated safety (refusing unsigned state) arrives with graph signing (ste
 `,
 		Example: `  writ decommission noblefactor              # Remove project files
   writ decommission all noblefactor          # Remove multiple projects
-  writ decommission --prune noblefactor      # Also remove empty parent directories
-  writ decommission --force noblefactor      # Skip confirmation prompts`,
+  writ decommission --prune noblefactor      # Also remove empty parent directories`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: runDecommission,
 	}
@@ -233,7 +232,12 @@ Entry states -- the record is the reference:
   absent     The record says a target is there and it is not      → writ deploy
   changed    The target is there but is not what the record says  → writ deploy (link), writ upgrade --force (copy)
   dangling   The source the record names does not resolve         → writ deploy
-  stale      As recorded; the source resolves and its content moved → writ upgrade`,
+  stale      As recorded; the source resolves and its content moved → writ upgrade
+
+Exit status -- the answer, gateable like git diff --exit-code (#756):
+  0    deployed and clean: every entry is linked or copied
+  1    deployed and drifted: any entry is absent, changed, dangling or stale
+  66   never deployed: no current deployment to compare against`,
 		Example: `  writ reconcile                 # Report everything writ has deployed
   writ reconcile noblefactor     # Report one project
   writ reconcile -o json         # Machine-readable report
@@ -261,7 +265,19 @@ func runReconcile(cmd *cobra.Command, args []string) error {
 
 	// The report is the result. Rendering is the pipeline's, so every --output value, --jq and --filter
 	// apply to it exactly as they do to any other command's result.
-	return cli.Emit(cmd, report)
+	if err := cli.Emit(cmd, report); err != nil {
+		return err
+	}
+
+	// The exit status is the answer (#756): the report is rendered whatever it says, and drift exits 1 the way
+	// `git diff --exit-code` does, so a script gates on the code and reads the report for the repair.
+	if report.HasDrift() {
+		return cli.ExitWith(cli.ExitError,
+			fmt.Errorf("reconcile: %d of %d entries drifted; the report names the repair per entry",
+				report.DriftCount(), len(report.Entries)))
+	}
+
+	return nil
 }
 
 // getConfiguredRepo returns the path for a layer, or empty string if it doesn't exist.

@@ -398,8 +398,10 @@ func (j *journey) reconcile(t *testing.T) map[string][]string {
 
 	t.Helper()
 
+	// The exit status is the answer (#756): 1 exactly when the entries hold drift, 0 otherwise, and the report
+	// is on stdout either way. Every step's call asserts that the code agrees with the words.
 	out, stderr, err := runWrit(t, j.sandbox, "reconcile", "-o", "json")
-	if err != nil {
+	if err != nil && exitCodeOf(t, err) != 1 {
 		t.Fatalf("writ reconcile failed: %v\nstderr: %s", err, stderr)
 	}
 	var report struct {
@@ -409,8 +411,16 @@ func (j *journey) reconcile(t *testing.T) map[string][]string {
 		t.Fatalf("reconcile -o json is not the expected shape: %v\n%s", err, out)
 	}
 	byState := map[string][]string{}
+	drift := 0
 	for _, entry := range report.Entries {
 		byState[entry.State] = append(byState[entry.State], entry.Target)
+		if entry.State != "linked" && entry.State != "copied" {
+			drift++
+		}
+	}
+	if (err != nil) != (drift > 0) {
+		t.Fatalf("writ reconcile exited %d with %d drifted entries; the code must be 1 exactly when there is drift (#756)\n%s",
+			exitCodeOf(t, err), drift, summarize(byState))
 	}
 	return byState
 }
