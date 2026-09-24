@@ -199,7 +199,7 @@ func (c ControlCommand) String() string {
 	}
 }
 
-// ControlResponse is the acknowledgement of a [ControlCommand] — the response half of a request/response pair.
+// ControlResponse is the acknowledgment of a [ControlCommand] — the response half of a request/response pair.
 type ControlResponse struct {
 
 	// Status is the run status the command produced (e.g. [PhasePaused] for a served pause).

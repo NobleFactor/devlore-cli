@@ -62,7 +62,7 @@ for continuity and because settling it fixed the naming; the prior-art grounding
 
 Deep prior-art research — nested-saga theory (Garcia-Molina et al. 1991's "tree of nested sagas"; the Sagas/cCSP
 compensation calculi), BPMN 2.0 / WS-BPEL scope compensation, distributed-saga logs (the MassTransit routing slip's
-`CompensateLog` is the closest production analogue to our receipt), and the GoF Composite + macro-command undo lineage —
+`CompensateLog` is the closest production analog to our receipt), and the GoF Composite + macro-command undo lineage —
 plus our own `Stamp` ruling converge on one shape.
 
 **The recovery structure IS a tree of receipts** — a leaf is one action's receipt; a composite node is a subgraph's

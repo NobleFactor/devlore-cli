@@ -12,7 +12,7 @@ parent: ../../phase-8.md
 **Status:** `charter` — chartered 2026-08-16 while designing the `writ.targets.*` configuration
 override, which needs a correct default before it can have an override.
 
-**Ruled at charter time, because the analogue is not in question:** the Windows counterpart of `/` is
+**Ruled at charter time, because the analog is not in question:** the Windows counterpart of `/` is
 the **system drive root** — `%SystemDrive%\`, conventionally `C:\`. What is open is how it is
 resolved and what the System scope means on a platform where writing there needs elevation; see Open
 questions.

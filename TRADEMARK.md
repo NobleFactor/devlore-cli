@@ -4,7 +4,7 @@
 Noble Factor LLC. "DevLore Verified" is reserved for the DevLore
 conformance program described below.
 
-DevLore's software is licensed under the Apache License 2.0. That licence
+DevLore's software is licensed under the Apache License 2.0. That license
 grants copyright and patent rights — it does **not** grant trademark rights
 (see Apache-2.0 §6). This policy governs use of the marks. Its model is the
 one used by Mozilla, the Apache Software Foundation, and the CNCF: honest,
@@ -62,7 +62,7 @@ conformance and verification requirements under a written agreement with
 Noble Factor — the same model as the CNCF's Certified Kubernetes program:
 the software is open, the *mark of conformance* is earned and licensed.
 Until the program's public documents are published, no third party may use
-the designation. Programme terms will live alongside this policy.
+the designation. Program terms will live alongside this policy.
 
 ## The short version
 

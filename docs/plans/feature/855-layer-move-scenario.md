@@ -153,7 +153,7 @@ failure message: when a fix lands, the scenario is what fails, and the one-line 
 
 ### The skip discipline
 
-A step whose verb or behaviour is not shipped runs as `t.Skip("needs devlore-cli#<n>: <what>")`, keyed
+A step whose verb or behavior is not shipped runs as `t.Skip("needs devlore-cli#<n>: <what>")`, keyed
 on a capability probe (`writ repo set --help` exits 0; `writ deploy --help` shows no `MinimumNArgs`
 refusal), never on a version number. The scenario prints its skip-list at the end so a run on any
 platform states which rulings are still outstanding there. Nothing is rewritten to today's verbs.
@@ -245,8 +245,8 @@ under Git for Windows' bash in 2.4 and 3.3. Ubuntu: `.Debian` matches through th
 - **The ruled interface, skipped by issue where unshipped.** A scenario written to today's verbs
   would be rewritten five times; one written to the rulings is red for nothing and green the day
   each lands. The skip-list is the writ lane's to-do list, executable.
-- **Assert today's behaviour in Part 3, name the issue.** Where the ruling is about what deploy
-  *leaves behind* rather than a verb, the current behaviour is asserted with the issue in the
+- **Assert today's behavior in Part 3, name the issue.** Where the ruling is about what deploy
+  *leaves behind* rather than a verb, the current behavior is asserted with the issue in the
   message, so the fix's landing is visible as the scenario failing at that step.
 - **Fixtures are the gate; the real repositories are a scheduled check.** Ruled 2026-09-07 ("I like the
   hybrid approach"). The PR gate must not depend on a private repository, a token, the network, or what
@@ -255,7 +255,7 @@ under Git for Windows' bash in 2.4 and 3.3. Ubuntu: `.Debian` matches through th
   real ones already give — a clone over the network.
 - **Fixture repositories carry the real names.** `noblefactor-ops`, `devlore-cli`, `personal`, so the
   implicit-project mechanism is tested with the names it will see.
-- **The real helper, not a stand-in.** The scenario replays a real move; the file at its centre is the
+- **The real helper, not a stand-in.** The scenario replays a real move; the file at its center is the
   real file, at a named commit.
 - **URLs are `file://` bare clones in the sandbox.** No network, and every platform's `git clone`
   handles them.
@@ -274,7 +274,7 @@ under Git for Windows' bash in 2.4 and 3.3. Ubuntu: `.Debian` matches through th
 - `docs/plans/platform-test-matrix.md`, `docs/plans/arm64-build-and-test-matrix.md` — the matrix and the Intel ruling
 - noblefactor-ops#147, personal#172 — what Part 3 replays
 - #840, #791, #792, #793, #812, #843, #850, #851 — the rulings Parts 0–2 are the acceptance test for;
-  #477 — the base-only subset is its proof; #470, #845, #852, #853 — the behaviours Part 3 names
+  #477 — the base-only subset is its proof; #470, #845, #852, #853 — the behaviors Part 3 names
 
 ## Rulings, 2026-09-07
 

@@ -259,7 +259,7 @@ The point is to learn something, so the first run is data, not pass/fail.
 
 ## Open Questions
 
-- [x] ~~`build-all`'s fate?~~ **Resolved:** retired from CI in favour of `make build PLATFORM=all`;
+- [x] ~~`build-all`'s fate?~~ **Resolved:** retired from CI in favor of `make build PLATFORM=all`;
       `vet-all` retains the per-GOOS sweep over all 122 packages, test files included.
 - [x] ~~`ubuntu-24.04-arm` or `ubuntu-26.04-arm`?~~ **Resolved (Requirement 2):** 24.04-arm.
       `ubuntu-latest` is still 24.04 and 26.04 is a preview image, so 24.04-arm *is* latest's

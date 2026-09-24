@@ -176,9 +176,9 @@ def merge_entries(names, existing_entries):
             merged.append(by_name[name])
         else:
             # A new file is recorded as authored. Not because that is knowable from the path -- it
-            # is not -- but because the two ways of being wrong are not symmetric. Labelling a
+            # is not -- but because the two ways of being wrong are not symmetric. Labeling a
             # generated file as authored costs a person one needless review of a regeneration.
-            # Labelling an authored file as generated invites a pipeline to overwrite it, which is
+            # Labeling an authored file as generated invites a pipeline to overwrite it, which is
             # devlore-registry#80. The default errs toward the harm that is recoverable.
             #
             # A pipeline adding its own output should write the entry itself, with generated: true.

@@ -485,7 +485,7 @@ pattern: it is the **only** cross-package resource embed in the tree.
 
 The agreed shape has `function.resource` embed the `mem.Resource` *interface* rather than the struct. That
 is legal and preserves the method set, but it is a real semantic change: `function` goes from *is-a*
-`mem.Resource` by value to *holds-a* one, so storage, zero-value behaviour, and any reliance on the
+`mem.Resource` by value to *holds-a* one, so storage, zero-value behavior, and any reliance on the
 embedded struct being addressable all shift.
 
 
@@ -679,7 +679,7 @@ Steps, each a commit only if it needs to be one:
 2026-08-25). Sealing is what makes a resource's `TargetConverter` pair unreachable: `op.Convert` step 7
 probes `reflect.New(target)`, and on an interface that yields a pointer-to-interface with an empty method
 set. Once every provider is sealed, all sixteen methods are dead **at once**, so the sweep is pure
-dead-code removal rather than a behaviour change threaded through five separate PRs.
+dead-code removal rather than a behavior change threaded through five separate PRs.
 
 **Sixteen methods, eight pairs, five providers** — `appnet`, `git`, `service` (dead since their phases),
 `pkg` (phase 6), and `file`'s four variants plus its base (phase 7). Nothing else goes.
@@ -699,7 +699,7 @@ Two things make this safe rather than merely tidy, and both are evidence rather 
    green. Nothing depended on it.
 
 Distinct from [#661](https://github.com/NobleFactor/devlore-cli/issues/661), which is the opposite shape: a
-documented override contract that **zero** implementors honour.
+documented override contract that **zero** implementors honor.
 
 **Sized 2026-09-05 (#649), before removing anything.** Read against develop at f4b3cdb1, after phase 7.
 

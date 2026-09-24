@@ -348,7 +348,7 @@ and `starlarkPhaseConfig` wrapper are deleted.
 **Fully supersedes phase-binding plan.**
 
 The `docs/plans/phase-binding.md` plan proposed renaming `plan` to `phase`
-throughout the codebase. That rename is cancelled. `plan` stays `plan` — it
+throughout the codebase. That rename is canceled. `plan` stays `plan` — it
 is the verb (graph-building). `phase` is the noun (phase context). The
 phase-binding plan is fully superseded by this phase.
 

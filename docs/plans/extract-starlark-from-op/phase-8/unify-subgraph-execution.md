@@ -100,7 +100,7 @@ There is no reason to dispatch a child without honoring its `RetryPolicy`: a nil
 separable retry wrapper is a footgun — whoever calls the bare primitive silently drops the policy (exactly the gather
 bug). The retry loop therefore lives in the **single** core dispatch primitive, `op.ActivationRecord.DispatchChild`: it
 reads `child.RetryPolicy()`, runs the attempts with ctx-cancellable backoff, and **short-circuits on `ErrPaused` /
-`ctx.Err()` so a paused or cancelled child never burns attempts**. `flow.dispatchWithRetry` is deleted;
+`ctx.Err()` so a paused or canceled child never burns attempts**. `flow.dispatchWithRetry` is deleted;
 `walkSubgraphChildren` calls `DispatchChild` directly. Retry is now impossible to bypass, and gather bodies honor
 per-child `RetryPolicy` uniformly (previously ignored).
 

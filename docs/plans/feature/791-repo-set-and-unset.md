@@ -294,7 +294,7 @@ otherwise.
 
       Two facts from it, neither this lane's to fix. **Registering a private repository by URL on an unattended
       machine is not possible** where the credential manager opens a browser; that is the credential manager's
-      behaviour, not writ's. **And I left an orphan**: killing writ along with its hung git child pre-empted
+      behavior, not writ's. **And I left an orphan**: killing writ along with its hung git child pre-empted
       `cloneRepository`'s own cleanup, so `repos/personal` exists there with no registration pointing at it and
       will block a future `set personal <url>`. The snapshot predates it.
 - [x] **The Windows half is carried to the next pull request's sequence.** `prlctl snapshot DANOBLE-WD11-3`

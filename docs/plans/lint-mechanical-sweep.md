@@ -23,7 +23,7 @@ lands that work.
   resource catalog, starlarkbridge runtime).
 - **emptyStringTest** — canonical empty-string checks in config sync, goast, shellcheck,
   snapshot.
-- **misspell** — `cancelled` → `canceled` in graph_executor, node, flow tests.
+- **misspell** — `canceled` → `canceled` in graph_executor, node, flow tests.
 
 ## Verification
 
