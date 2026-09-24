@@ -59,6 +59,8 @@ config files into the environment repository.`,
 
   # Adopt into team layer
   writ adopt --layer team --project shared ~/.editorconfig
+  # Adopt a Debian-only file: it lands under <project>.Linux.Debian and deploys only there
+  writ adopt --project noblefactor --platform Linux.Debian ~/.config/apt.conf
 
   # Adopt system file (inferred as System scope)
   writ adopt --project noblefactor /etc/myapp/config.yaml
@@ -72,6 +74,9 @@ config files into the environment repository.`,
 
 	cmd.Flags().String("layer", "personal", "Layer to adopt into: personal, team, or base")
 	cmd.Flags().String("project", "", "Origin name within the layer (required)")
+	cmd.Flags().String("platform", "",
+		"Platform suffix the adopted files carry, in the segment vocabulary the layer tree matches "+
+			"(Darwin, Unix, Windows, Linux, Linux.Debian, Darwin.arm64, ...); absent, the platform-neutral project directory")
 	cmd.Flags().Bool("from-receipt", false, "Adopt packages-manifest.yaml and config from lore receipt")
 
 	return cmd
@@ -98,8 +103,10 @@ func runAdopt(cmd *cobra.Command, args []string) error {
 	batchConfig := &adopt.Config{
 		Files:      cfg.Files,
 		TargetRoot: cfg.TargetRoot,
+		Layer:      cfg.Layer,
 		LayerPath:  cfg.LayerPath,
 		Project:    cfg.Project,
+		Platform:   cfg.Platform,
 		Verbose:    cfg.Verbose,
 		DryRun:     cfg.DryRun,
 	}

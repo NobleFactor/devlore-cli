@@ -523,12 +523,16 @@ func planChains(provider *plan.Provider, chains []*tree.FileEntry, data map[stri
 		if err != nil {
 			return nil, fmt.Errorf("plan %s: %w", f.ID, err)
 		}
+		// `source` is the origin path a durable record names; `read_from` is the path the run read -- the pinned
+		// snapshot under a layered deploy -- and the path the ledger records the source's content identity under,
+		// so readback can join the origin to its recorded digest (#923).
 		fileMetas[finalInvocation.Target.ID()] = map[string]any{
-			"target":  f.Target,
-			"source":  f.Origin,
-			"project": f.Project,
-			"layer":   f.Layer,
-			"action":  action,
+			"target":    f.Target,
+			"source":    f.Origin,
+			"read_from": f.Source,
+			"project":   f.Project,
+			"layer":     f.Layer,
+			"action":    action,
 		}
 	}
 

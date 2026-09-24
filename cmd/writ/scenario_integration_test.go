@@ -519,8 +519,8 @@ func TestWritDeployScenario_Deploy(t *testing.T) {
 	// reporting on the default store as though it had complied (#753).
 	if _, storeErr, err := runWrit(t, sandbox, "reconcile", "--store", t.TempDir()); err == nil {
 		t.Fatal("writ reconcile --store <empty> succeeded; it reported on the default store instead")
-	} else if !strings.Contains(strings.ToLower(storeErr), "index") {
-		t.Fatalf("--store <empty> refusal does not name the missing run index:\n%s", storeErr)
+	} else if !strings.Contains(strings.ToLower(storeErr), "no current deployment") {
+		t.Fatalf("--store <empty> refusal does not name the missing deployment (#922):\n%s", storeErr)
 	}
 
 	// The reconcile report, machine-readable: every classified entry is healthy.

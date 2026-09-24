@@ -141,12 +141,16 @@ A machine sees many lifetimes, one per deploy, and the store keeps them all; one
 them. Pruning is housekeeping on the store, not a fifth verb: the four operations act on the current lifetime's
 record, and pruning retires lifetimes that are no longer current. Not yet designed.
 
+In the store a lifetime is `lifetimes/<id>.yaml`, and `lifetimes/current` names the current one; a lifetime is the
+whole `writ deploy` invocation across the scopes it ran ([#922](https://github.com/NobleFactor/devlore-cli/issues/922);
+[5.1](5.1-reconciliation.md) "The lifetime in the store").
+
 The mechanics, per program:
 
 | Verb | `lore` -- a package | `writ` -- an environment |
 | --- | --- | --- |
 | `deploy` | install the package's lifecycle pipelines | link, write, and create files under each scope |
-| `reconcile` | compare the receipt against the live system, report drift | the same, per scope |
+| `reconcile` | compare the record against the live system: `linked`, `copied`, `absent`, `changed`, `dangling`, `stale` ([5.1](5.1-reconciliation.md)) | the same, per scope |
 | `upgrade` | constrained re-deploy with drift attribution | the same |
 | `decommission` | reverse traversal, receipts for the removals | the same |
 
