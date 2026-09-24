@@ -119,16 +119,32 @@ Six, including the two absolute URLs.
 
 ### Phase 4: Verify, then merge
 
-- [ ] `make vet`, `make lint`, `make test`
-- [ ] The `en-GB_to_en-US` dictionary run over the three arrivals: zero hits
-- [ ] Every internal link in the moved documents resolves
-- [ ] PR script written, analyzer-clean, shown, and handed over
-- [ ] CI runs on the pull request and the merge gate blocks until every check reports pass
+- [x] `make vet`, `make lint`, `make test` — all rc=0. No Go changed, so these prove nothing was
+      broken rather than anything was fixed
+- [x] The `en-GB_to_en-US` dictionary over the three arrivals and the four edited documents: zero
+      hits. They come from a repository swept 2026-09-23, and this confirms it
+- [x] Every relative `.md` link in the seven changed architecture documents resolves. It caught one
+      the move carried in: `9.3` linked twice to `../guides/writing-extensions.md`
+- [x] PR script written, analyzer-clean (parse errors 0, findings 0, no BOM, no non-ASCII), shown,
+      and handed over
+- [x] CI runs on the pull request and the merge gate blocks until every check reports pass
 
-### Phase 5: Close devlore-cli#935
+### Phase 5: devlore-cli#935 does not close here
 
-- [ ] #935's last box ticked and its plan set `complete` — it reads `active` behind a closed issue
-      because its Phase 4 closed noblefactor-ops#234, which landed in another repository
+**Written wrong in this plan's first draft and corrected before it shipped.** #935's remaining box
+reads *"#234's Phase 4 boxes ticked and its plan set `complete`, **in the next noblefactor-ops pull
+request** through"*. That condition cannot be met by a pull request in this repository, so this
+branch cannot close it and does not claim to.
+
+The real chain: noblefactor-ops#228 step 2 closes #234's plan — whose three boxes are now all true,
+the last of them since the deploy on 2026-09-24 — and that satisfies #935's box, whose tick must then
+land in whatever devlore-cli pull request follows.
+
+That is the shape worth noticing rather than the individual tick: **a plan whose last phase lands in
+another repository cannot close itself**, and #234 and #935 are the same trap pointing in opposite
+directions. Both were written that way by the same hand, on the same day.
+
+- [ ] #935's plan set `complete`, in the devlore-cli pull request after noblefactor-ops#228 step 2
 
 ## Related Documents
 
