@@ -25,6 +25,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -1180,9 +1181,12 @@ func TestWritLayerJourneyScenario_Part3_Move(t *testing.T) {
 				t.Fatalf("expected the %d old ~/local links to remain as orphans (#%d); found %d: %v", oldTree, issueOrphans, len(orphans), orphans)
 			}
 
-			// 3.4 / 3.5 the redeploy replaced the record (#922): the old targets belong to the replaced lifetime,
-			// so after the hand cleanup the record says nothing about them -- neither `missing` nor anything else.
-			// (Before #922 the fold read every lifetime and reported them `missing`; #923 retires the word.)
+			// 3.4 / 3.5 the redeploy replaced the record (#922): the moved-away targets, the orphans, belong to the
+			// replaced lifetime, so after the hand cleanup the record says nothing about them -- neither `missing`
+			// nor anything else. The assertion names the orphans alone (#941): a target the later commit still
+			// deploys, re-pointed in place (the helper) or kept under ~/local (Windows' w.ps1), is rightly in the
+			// new record. (Before #922 the fold read every lifetime and reported them `missing`; #923 retires the
+			// word.)
 			for _, orphan := range orphans {
 				if err := os.Remove(orphan); err != nil {
 					t.Fatal(err)
@@ -1191,8 +1195,8 @@ func TestWritLayerJourneyScenario_Part3_Move(t *testing.T) {
 			states = j.reconcile(t)
 			for state, paths := range states {
 				for _, path := range paths {
-					if strings.HasPrefix(path, filepath.Join(home, "local")+string(os.PathSeparator)) {
-						t.Fatalf("the record still mentions an old ~/local target after the redeploy replaced it (#922): %s is %s",
+					if slices.Contains(orphans, path) {
+						t.Fatalf("the record still mentions a moved-away target after the redeploy replaced it (#922): %s is %s",
 							path, state)
 					}
 				}
