@@ -17,21 +17,16 @@
 package reconcile
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
-	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/deploy"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/readback"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/segment"
-	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/tree"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider/template"
 )
 
 // Config carries the resolved settings for one reconcile report.
@@ -61,7 +56,7 @@ type Config struct {
 //
 // Returns:
 //   - `*Report`: the assembled report.
-//   - `error`: non-nil when the run index is missing or the fold fails.
+//   - `error`: non-nil when the store has no current deployment (not-found) or the fold fails.
 func BuildReport(ctx context.Context, cfg *Config) (*Report, error) {
 
 	inventory, err := readback.Fold(ctx)
@@ -78,8 +73,6 @@ func BuildReport(ctx context.Context, cfg *Config) (*Report, error) {
 		},
 	}
 
-	data := deploy.RenderData(cfg.Segments, cfg.Vars)
-
 	wanted := make(map[string]bool, len(cfg.Projects))
 	for _, p := range cfg.Projects {
 		wanted[p] = true
@@ -90,7 +83,7 @@ func BuildReport(ctx context.Context, cfg *Config) (*Report, error) {
 		if len(wanted) > 0 && !wanted[entry.Project] {
 			continue
 		}
-		report.Entries = append(report.Entries, classifyEntry(entry, data))
+		report.Entries = append(report.Entries, classifyEntry(entry))
 	}
 
 	sort.Slice(report.Entries, func(i, j int) bool { return report.Entries[i].Target < report.Entries[j].Target })
@@ -100,21 +93,17 @@ func BuildReport(ctx context.Context, cfg *Config) (*Report, error) {
 
 // region HELPER FUNCTIONS
 
-// classifyEntry classifies one deployed entry against the live filesystem.
+// classifyEntry classifies one record entry against the system, the record as the reference (#923).
 //
-// Linked entries verify the symlink and its endpoints; copied entries compare content against a fresh
-// in-process result of the current source and attribute differences through the run's recorded as-deployed
-// identity (step 48): target-digest ≠ recorded → modified; target unchanged + fresh differs → stale; no
-// recorded identity → modified-or-stale (indeterminate). Encrypted chains attribute through the recorded
-// SOURCE digest (the encrypted bytes hash without decrypting) when the run cataloged the source.
+// The occupant is judged by [readback.Entry.AsRecorded] -- what the record wrote -- then the source by the
+// recorded source digest. No word is decided by consulting the layer checkout beyond the source the record names.
 //
 // Parameters:
-//   - `entry`: the folded inventory entry.
-//   - `data`: the render data for the freshness comparison.
+//   - `entry`: the folded record entry.
 //
 // Returns:
-//   - `Entry`: the classified report entry, with its repair pointer.
-func classifyEntry(entry readback.Entry, data map[string]any) Entry {
+//   - `Entry`: the classified report entry, with the repair it names.
+func classifyEntry(entry readback.Entry) Entry {
 
 	classified := Entry{
 		Target:  entry.Target,
@@ -126,166 +115,92 @@ func classifyEntry(entry readback.Entry, data map[string]any) Entry {
 	}
 
 	if entry.Action == string(file.Link) {
-		classifyLink(&classified)
+		classifyLink(&classified, entry)
 		return classified
 	}
 
-	classifyCopied(&classified, recordedPair{target: entry.RecordedDigest, source: entry.RecordedSourceDigest}, data)
+	classifyCopied(&classified, entry)
 	return classified
 }
 
-// recordedPair carries an entry's step-48 recorded content identities into the copied classification.
-type recordedPair struct {
-
-	// target is the as-deployed digest of the target, or "" for pre-capture runs.
-	target string
-
-	// source is the recorded digest of the source (encrypted chains), or "" when not cataloged.
-	source string
-}
-
-// classifyLink fills the classification for a linked entry.
+// classifyLink judges a linked entry: absent, changed, dangling, stale, or linked.
 //
 // Parameters:
 //   - `classified`: the report entry to fill; Target and Source are already set.
-func classifyLink(classified *Entry) {
+//   - `entry`: the record entry, with its recorded digests.
+func classifyLink(classified *Entry, entry readback.Entry) {
 
-	info, err := os.Lstat(classified.Target)
-	if errors.Is(err, os.ErrNotExist) {
-		classified.State = StateMissing
+	if _, err := os.Lstat(classified.Target); errors.Is(err, os.ErrNotExist) {
+		classified.State = StateAbsent
 		classified.Repair = "writ deploy"
 		classified.Message = "symlink not present"
 		return
 	}
-	if err != nil || info.Mode()&os.ModeSymlink == 0 {
-		classified.State = StateConflict
-		classified.Message = "target exists but is not a symlink"
-		return
-	}
 
-	resolvedTarget, err := filepath.EvalSymlinks(classified.Target)
-	if err != nil {
-		if _, sourceErr := os.Lstat(classified.Source); errors.Is(sourceErr, os.ErrNotExist) {
-			classified.State = StateOrphan
-			classified.Repair = "writ decommission"
-			classified.Message = "symlink points at a deleted source"
-			return
-		}
-		classified.State = StateConflict
-		classified.Message = "symlink cannot be resolved"
-		return
-	}
-
-	resolvedSource, err := filepath.EvalSymlinks(classified.Source)
-	if err != nil {
-		classified.State = StateOrphan
-		classified.Repair = "writ decommission"
-		classified.Message = "source no longer exists"
-		return
-	}
-
-	if resolvedTarget != resolvedSource {
-		classified.State = StateConflict
-		classified.Message = "symlink points at " + resolvedTarget
-		return
-	}
-
-	classified.State = StateLinked
-}
-
-// classifyCopied fills the classification for a copied entry (template render, sops decrypt, plain copy).
-//
-// Parameters:
-//   - `classified`: the report entry to fill; Target, Source, and Action are already set.
-//   - `recorded`: the entry's step-48 recorded content identities (empty fields = pre-capture run).
-//   - `data`: the render data for the freshness comparison.
-func classifyCopied(classified *Entry, recorded recordedPair, data map[string]any) {
-
-	if _, err := os.Lstat(classified.Target); errors.Is(err, os.ErrNotExist) {
-		classified.State = StateMissing
+	if !entry.AsRecorded() {
+		classified.State = StateChanged
 		classified.Repair = "writ deploy"
-		classified.Message = "file not present"
+		classified.Message = "not the symlink the record wrote"
 		return
 	}
 
-	source, err := os.ReadFile(classified.Source)
+	referent, err := os.ReadFile(classified.Target)
 	if err != nil {
-		classified.State = StateOrphan
-		classified.Repair = "writ decommission"
-		classified.Message = "source no longer readable"
+		classified.State = StateDangling
+		classified.Repair = "writ deploy"
+		classified.Message = "the recorded source does not resolve"
 		return
 	}
 
-	current, err := os.ReadFile(classified.Target)
-	if err != nil {
-		classified.State = StateConflict
-		classified.Message = "target cannot be read"
-		return
-	}
-
-	// Local-edit attribution (step 48): the recorded as-deployed digest tells target-modified apart from
-	// source-changed. Absent identity (a pre-capture run) leaves the indeterminate class.
-	targetUnchanged := false
-	if recorded.target != "" {
-		if readback.ContentDigest(current) != recorded.target {
-			classified.State = StateModified
-			classified.Repair = "writ upgrade --force"
-			classified.Message = "locally modified since deployment"
-			return
-		}
-		targetUnchanged = true
-	}
-
-	_, operations := tree.ProcessingPipeline(filepath.Base(classified.Source))
-	pipeline := strings.Join(operations, "+")
-
-	var fresh []byte
-	switch pipeline {
-	case "template.render_bytes+file.copy":
-		provider := &template.Provider{}
-		rendered, renderErr := provider.RenderText(string(source), data)
-		if renderErr != nil {
-			classified.State = StateModifiedOrStale
-			classified.Repair = "writ upgrade"
-			classified.Message = "current source fails to render: " + renderErr.Error()
-			return
-		}
-		fresh = []byte(rendered)
-	case "file.link":
-		fresh = source
-	default:
-		// Encrypted chains: the fresh result is not computable, but the ENCRYPTED source's bytes are hashable
-		// when the run cataloged the source — source movement attributes without decrypting.
-		if targetUnchanged && recorded.source != "" {
-			if readback.ContentDigest(source) == recorded.source {
-				classified.State = StateCopied
-				return
-			}
-			classified.State = StateStale
-			classified.Repair = "writ upgrade"
-			classified.Message = "encrypted source changed since deployment"
-			return
-		}
-		classified.State = StateCopied
-		classified.Message = "encrypted; content not compared"
-		return
-	}
-
-	if bytes.Equal(current, fresh) {
-		classified.State = StateCopied
-		return
-	}
-
-	if targetUnchanged {
+	if entry.RecordedSourceDigest != "" && readback.ContentDigest(referent) != entry.RecordedSourceDigest {
 		classified.State = StateStale
 		classified.Repair = "writ upgrade"
 		classified.Message = "source changed since deployment"
 		return
 	}
 
-	classified.State = StateModifiedOrStale
-	classified.Repair = "writ upgrade"
-	classified.Message = "differs from a fresh result (this run predates the recorded content identity)"
+	classified.State = StateLinked
+}
+
+// classifyCopied judges a copied entry: absent, changed, dangling, stale, or copied.
+//
+// The recorded target digest tells a local edit; the recorded source digest tells a source that moved, for a
+// template's source and an encrypted source alike, since the source's bytes hash without rendering or decrypting.
+//
+// Parameters:
+//   - `classified`: the report entry to fill; Target and Source are already set.
+//   - `entry`: the record entry, with its recorded digests.
+func classifyCopied(classified *Entry, entry readback.Entry) {
+
+	if _, err := os.Lstat(classified.Target); errors.Is(err, os.ErrNotExist) {
+		classified.State = StateAbsent
+		classified.Repair = "writ deploy"
+		classified.Message = "file not present"
+		return
+	}
+
+	if entry.RecordedDigest != "" && !entry.AsRecorded() {
+		classified.State = StateChanged
+		classified.Repair = "writ upgrade --force"
+		classified.Message = "not the content the record wrote"
+		return
+	}
+
+	source, err := os.ReadFile(classified.Source)
+	if err != nil {
+		classified.State = StateDangling
+		classified.Repair = "writ deploy"
+		classified.Message = "the recorded source does not resolve"
+		return
+	}
+	if entry.RecordedSourceDigest != "" && readback.ContentDigest(source) != entry.RecordedSourceDigest {
+		classified.State = StateStale
+		classified.Repair = "writ upgrade"
+		classified.Message = "source changed since deployment"
+		return
+	}
+
+	classified.State = StateCopied
 }
 
 // layerStatuses reports the registered layer tree under [devlore.WritLayersDir].

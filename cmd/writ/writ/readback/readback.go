@@ -17,10 +17,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"time"
 
@@ -78,6 +78,43 @@ type Entry struct {
 	At time.Time
 }
 
+// AsRecorded reports whether the occupant at the entry's target is what the record wrote (#883, ruled 2026-09-23).
+//
+// A link is as recorded when the target is a symlink whose literal endpoint, absolutized against the target's own
+// directory, is the recorded source -- whether or not that source still exists, so a link that dangles because its
+// source moved between layers is still writ's own. A copy is as recorded when the target's content digest is the
+// recorded as-deployed digest. Neither side is resolved: the source is never consulted, and a record that carries
+// no digest for a copy cannot vouch for it.
+//
+// Returns:
+//   - `bool`: true when the occupant matches what the record wrote.
+func (e Entry) AsRecorded() bool {
+
+	if e.Action == string(file.Link) {
+		info, err := os.Lstat(e.Target)
+		if err != nil || info.Mode()&os.ModeSymlink == 0 {
+			return false
+		}
+		endpoint, err := os.Readlink(e.Target)
+		if err != nil {
+			return false
+		}
+		if !filepath.IsAbs(endpoint) {
+			endpoint = filepath.Join(filepath.Dir(e.Target), endpoint)
+		}
+		return filepath.Clean(endpoint) == filepath.Clean(e.Source)
+	}
+
+	if e.RecordedDigest == "" {
+		return false
+	}
+	current, err := os.ReadFile(e.Target)
+	if err != nil {
+		return false
+	}
+	return ContentDigest(current) == e.RecordedDigest
+}
+
 // Inventory is the fold's output: the deployed entries plus the store-health findings.
 type Inventory struct {
 
@@ -127,22 +164,29 @@ var (
 	}
 )
 
-// Fold derives the deployed-state inventory from the store.
+// Fold derives the deployed-state inventory from the store: the record.
 //
-// Reads the run index (missing index = error, per the settled design), joins trace events to writ-tool graph
-// events by checksum, orders the runs by time, and folds each run's per-unit outcomes over its graph's `files`
-// annotation. Documents deleted out from under the index fold as findings; traces on disk that the index never
-// recorded (pre-index history) fold in via directory enumeration.
+// The record is the current lifetime (#922): one `writ deploy` invocation across every scope it ran, and the
+// upgrades, reconciliations and adoptions written into it since. Fold reads [cli.CurrentLifetime], then that
+// lifetime's runs in write order, and folds each run's per-unit outcomes over its graph's `files` annotation.
+// Nothing else is read: the run index is a detection hint and not consulted, and a trace on disk that the
+// lifetime does not name belongs to none. A trace the lifetime names that is gone folds as a finding.
 //
 // Parameters:
 //   - `ctx`: the context for the document-loading runtime environment.
 //
 // Returns:
 //   - `*Inventory`: the folded entries, findings, and run count.
-//   - `error`: non-nil when the index is missing or the loading environment cannot be built.
+//   - `error`: [os.ErrNotExist] when the store has no current lifetime -- a machine never deployed, or one
+//     decommissioned -- or when the loading environment cannot be built.
 func Fold(ctx context.Context) (inventory *Inventory, err error) {
 
-	index, err := cli.ReadIndex()
+	lifetime, err := cli.CurrentLifetime()
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf(
+			"no current deployment in the store %s: nothing has been deployed, or it was decommissioned: %w",
+			cli.StoreHome(), err)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -158,113 +202,37 @@ func Fold(ctx context.Context) (inventory *Inventory, err error) {
 
 	inventory = &Inventory{Entries: make(map[string]Entry)}
 
-	runs := collectRuns(index, inventory)
+	for _, owned := range lifetime.Runs {
 
-	sort.SliceStable(runs, func(i, j int) bool { return runs[i].at.Before(runs[j].at) })
+		tracePath := filepath.Join(cli.TracesDir(), safeChecksum(owned.GraphChecksum), owned.TraceFile)
 
-	for _, run := range runs {
-		foldRun(environment, run, inventory)
+		if _, statErr := os.Stat(tracePath); statErr != nil {
+			inventory.Findings = append(inventory.Findings,
+				fmt.Sprintf("lifetime %s names trace %s for graph %s, but the document is gone",
+					lifetime.ID, owned.TraceFile, owned.GraphChecksum))
+			continue
+		}
+
+		foldRun(environment, run{checksum: owned.GraphChecksum, tracePath: tracePath, at: owned.At}, inventory)
 	}
 
 	return inventory, nil
 }
 
-// region SUPPORTING TYPES
-
-// run is one (graph, trace) pair awaiting the fold, ordered by its trace timestamp.
+// run is one trace the current lifetime owns, located for folding.
 type run struct {
 
-	// checksum is the graph's canonical identity.
+	// checksum is the run's graph identity.
 	checksum string
 
-	// scope is the graph origin's scope, from the index's graph event.
+	// scope is the planning scope, when known ahead of the graph; empty means the graph's origin says.
 	scope string
 
 	// tracePath is the trace document's absolute path.
 	tracePath string
 
-	// at is the trace's timestamp, parsed from its filename.
+	// at is the moment the lifetime recorded the run.
 	at time.Time
-}
-
-// endregion
-
-// region HELPER FUNCTIONS
-
-// collectRuns joins the index's writ-tool graph events with trace events and on-disk trace files.
-//
-// Index trace events whose files are gone become findings. Trace files on disk that the index never recorded
-// fold in (pre-index history); their graph's tool is resolved by loading the graph document lazily during the
-// fold. Non-writ tools' runs are excluded.
-//
-// Parameters:
-//   - `index`: the run index entries in append order.
-//   - `inventory`: the inventory collecting findings.
-//
-// Returns:
-//   - `[]run`: the runs to fold, unordered.
-func collectRuns(index []cli.IndexEntry, inventory *Inventory) []run {
-
-	scopeByChecksum := make(map[string]string)
-	toolByChecksum := make(map[string]string)
-	for _, entry := range index {
-		if entry.Event == cli.IndexEventGraph {
-			scopeByChecksum[entry.GraphChecksum] = entry.Scope
-			toolByChecksum[entry.GraphChecksum] = entry.Tool
-		}
-	}
-
-	var runs []run
-	seen := make(map[string]bool)
-
-	for _, entry := range index {
-		if entry.Event != cli.IndexEventTrace {
-			continue
-		}
-		if tool, known := toolByChecksum[entry.GraphChecksum]; known && tool != "writ" {
-			continue
-		}
-
-		tracePath := filepath.Join(cli.TracesDir(), safeChecksum(entry.GraphChecksum), entry.TraceFile)
-		seen[tracePath] = true
-
-		if _, err := os.Stat(tracePath); err != nil {
-			inventory.Findings = append(inventory.Findings,
-				fmt.Sprintf("index records trace %s for graph %s, but the document is gone",
-					entry.TraceFile, entry.GraphChecksum))
-			continue
-		}
-
-		runs = append(runs, run{
-			checksum:  entry.GraphChecksum,
-			scope:     scopeByChecksum[entry.GraphChecksum],
-			tracePath: tracePath,
-			at:        traceTime(entry.TraceFile, entry.At),
-		})
-	}
-
-	// Pre-index history: trace files on disk the index never recorded still fold in.
-	pattern := filepath.Join(cli.TracesDir(), "*", "*.yaml")
-	matches, _ := filepath.Glob(pattern) //nolint:errcheck // the pattern is constant and well-formed
-	for _, match := range matches {
-		if filepath.Base(match) == "latest.yaml" || seen[match] {
-			continue
-		}
-		checksum := unsafeChecksum(filepath.Base(filepath.Dir(match)))
-		if tool, known := toolByChecksum[checksum]; known && tool != "writ" {
-			continue
-		}
-		inventory.Findings = append(inventory.Findings,
-			fmt.Sprintf("trace %s is not recorded in the run index", match))
-		runs = append(runs, run{
-			checksum:  checksum,
-			scope:     scopeByChecksum[checksum],
-			tracePath: match,
-			at:        traceTime(filepath.Base(match), time.Time{}),
-		})
-	}
-
-	return runs
 }
 
 // foldRun applies one run's per-unit outcomes to the inventory.
@@ -348,7 +316,7 @@ func foldRun(environment *op.RuntimeEnvironment, r run, inventory *Inventory) {
 				TargetRoot:           targetRoot,
 				RecordedEtag:         identity.etag,
 				RecordedDigest:       identity.digest,
-				RecordedSourceDigest: recorded[meta.source].digest,
+				RecordedSourceDigest: recorded[meta.readFrom].digest,
 				GraphChecksum:        r.checksum,
 				At:                   r.at,
 			}
@@ -362,11 +330,12 @@ func foldRun(environment *op.RuntimeEnvironment, r run, inventory *Inventory) {
 
 // fileMeta is one unit's plan-time file metadata from the graph origin's `files` annotation.
 type fileMeta struct {
-	target  string
-	source  string
-	project string
-	layer   string
-	action  string
+	target   string
+	source   string
+	readFrom string
+	project  string
+	layer    string
+	action   string
 }
 
 // fileMetadata extracts the per-unit file metadata from the graph origin's `files` annotation.
@@ -397,13 +366,20 @@ func fileMetadata(origin op.Origin) map[string]fileMeta {
 		if !ok {
 			continue
 		}
-		metas[unitID] = fileMeta{
-			target:  stringField(fields, "target"),
-			source:  stringField(fields, "source"),
-			project: stringField(fields, "project"),
-			layer:   stringField(fields, "layer"),
-			action:  stringField(fields, "action"),
+		meta := fileMeta{
+			target:   stringField(fields, "target"),
+			source:   stringField(fields, "source"),
+			readFrom: stringField(fields, "read_from"),
+			project:  stringField(fields, "project"),
+			layer:    stringField(fields, "layer"),
+			action:   stringField(fields, "action"),
 		}
+		// The ledger records a source under the path the run read it from -- the pinned snapshot under a layered
+		// deploy -- which `read_from` names; a record that carries none read the origin itself (#923).
+		if meta.readFrom == "" {
+			meta.readFrom = meta.source
+		}
+		metas[unitID] = meta
 	}
 	return metas
 }
@@ -522,36 +498,15 @@ func loadingEnvironment(ctx context.Context) (*op.RuntimeEnvironment, error) {
 		WithApplication(&application.Application{Name: "writ"}))
 }
 
-// traceTime parses a trace filename's UTC timestamp, falling back to the index timestamp.
+// safeChecksum maps a graph checksum ("sha256:<hex>") onto its filesystem-safe form (the store's convention).
 //
 // Parameters:
-//   - `filename`: the trace filename (e.g. "20260715T183021Z.yaml").
-//   - `fallback`: the index entry's timestamp, used when the filename does not parse.
+//   - `checksum`: the canonical "sha256:<hex>" checksum.
 //
 // Returns:
-//   - `time.Time`: the parsed or fallback timestamp.
-func traceTime(filename string, fallback time.Time) time.Time {
-
-	stamp := filename
-	if ext := filepath.Ext(stamp); ext != "" {
-		stamp = stamp[:len(stamp)-len(ext)]
-	}
-
-	if parsed, err := time.Parse("20060102T150405Z", stamp); err == nil {
-		return parsed
-	}
-	return fallback
-}
-
-// safeChecksum maps a graph checksum ("sha256:<hex>") onto its filesystem-safe form (the store's convention);
-// unsafeChecksum reverses it.
+//   - `string`: the checksum with ":" replaced by "-", as the store names its directories and documents.
 func safeChecksum(checksum string) string {
 	return strings.ReplaceAll(checksum, ":", "-")
-}
-
-// unsafeChecksum restores a filesystem-safe checksum segment to the canonical "sha256:<hex>" form.
-func unsafeChecksum(segment string) string {
-	return strings.Replace(segment, "-", ":", 1)
 }
 
 // endregion

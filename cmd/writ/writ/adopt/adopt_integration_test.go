@@ -10,7 +10,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/adopt"
+	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/deploy"
+	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/readback"
+	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/reconcile"
+	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/segment"
 
 	// Blank-import the op inventory so every provider's gen package init() runs and registers its
 	// ProviderReceiverType with the framework. adopt.BuildGraph looks up the file and flow providers via the
@@ -29,11 +34,33 @@ func configForTest(t *testing.T, root string, files ...string) *adopt.Config {
 	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(root, "cache"))
 
+	deployForTest(t, root)
+
 	return &adopt.Config{
 		Files:      files,
 		TargetRoot: root,
 		LayerPath:  filepath.Join(root, "layers", "personal"),
 		Project:    "behavioral-test",
+	}
+}
+
+// deployForTest opens a lifetime for the adoptions to join (#922, #931): one deployed file from a throwaway
+// project, so `writ adopt` has a current deployment to write into.
+func deployForTest(t *testing.T, root string) {
+
+	t.Helper()
+
+	sourceRoot := filepath.Join(root, "seed")
+	if err := os.MkdirAll(filepath.Join(sourceRoot, "seed"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sourceRoot, "seed", ".seedrc"), []byte("seed"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &deploy.Config{SourceRoot: sourceRoot, TargetRoot: root, Projects: []string{"seed"}}
+	if _, err := deploy.Execute(context.Background(), cfg); err != nil {
+		t.Fatalf("deploy for adopt: %v", err)
 	}
 }
 
@@ -286,5 +313,94 @@ func TestAdopt_DestinationExists(t *testing.T) {
 	}
 	if got := string(destBytes); got != "pre-existing" {
 		t.Errorf("pre-existing destination overwritten: %q", got)
+	}
+}
+
+// TestAdopt_Platform pins #931's platform: the file lands under `<project>.<suffix>` for a suffix the layer tree
+// matches here, and a word the matcher does not know is refused.
+func TestAdopt_Platform(t *testing.T) {
+
+	root := t.TempDir()
+	sourceParent := filepath.Join(root, "source")
+	if err := os.MkdirAll(sourceParent, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sourceFile := filepath.Join(sourceParent, "platform.toml")
+	if err := os.WriteFile(sourceFile, []byte("platform probe"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := configForTest(t, root, sourceFile)
+	cfg.Platform = segment.DetectSegments().Get("OS")
+	if cfg.Platform == "" {
+		t.Skip("no OS segment detected here")
+	}
+	if err := adopt.ValidatePlatform(cfg.Platform); err != nil {
+		t.Fatalf("ValidatePlatform(%q) refused this platform's own OS: %v", cfg.Platform, err)
+	}
+	if err := adopt.ValidatePlatform("Ubuntu"); err == nil {
+		t.Error("ValidatePlatform(\"Ubuntu\") accepted a word the layer tree never matches")
+	}
+
+	if _, err := runForTest(t, cfg); err != nil {
+		t.Fatalf("adopt: %v", err)
+	}
+	expected := filepath.Join(cfg.LayerPath, "Home", cfg.Project+"."+cfg.Platform, "source", "platform.toml")
+	if _, err := os.Stat(expected); err != nil {
+		t.Fatalf("the adopted file is not under the suffixed project directory %s: %v", expected, err)
+	}
+}
+
+// TestAdopt_LeavesADeploymentRecord pins #931's record: after an adopt the fold holds the link as a deployed entry,
+// it is what the record wrote, and reconcile reports it linked.
+func TestAdopt_LeavesADeploymentRecord(t *testing.T) {
+
+	root := t.TempDir()
+	sourceParent := filepath.Join(root, "source")
+	if err := os.MkdirAll(sourceParent, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sourceFile := filepath.Join(sourceParent, "record.toml")
+	if err := os.WriteFile(sourceFile, []byte("recorded"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := configForTest(t, root, sourceFile)
+	cfg.Layer = "personal"
+	if _, err := runForTest(t, cfg); err != nil {
+		t.Fatalf("adopt: %v", err)
+	}
+
+	inventory, err := readback.Fold(context.Background())
+	if err != nil {
+		t.Fatalf("Fold: %v", err)
+	}
+	entry, ok := inventory.Entries[sourceFile]
+	if !ok {
+		t.Fatalf("the record does not hold the adopted link %s: %v", sourceFile, inventory.Entries)
+	}
+	if entry.Action != "file.link" || entry.Layer != "personal" || entry.Project != cfg.Project {
+		t.Errorf("entry = %+v, want a file.link from the personal layer's %s", entry, cfg.Project)
+	}
+	if !entry.AsRecorded() {
+		t.Error("the adopted link is not what the record wrote; a deploy under stop would refuse it")
+	}
+
+	lifetime, err := cli.CurrentLifetime()
+	if err != nil {
+		t.Fatalf("CurrentLifetime: %v", err)
+	}
+	if last := lifetime.Runs[len(lifetime.Runs)-1]; last.Operation != cli.RunOperationAdopt {
+		t.Errorf("the lifetime's last run is %s, want adopt", last.Operation)
+	}
+
+	report, err := reconcile.BuildReport(context.Background(), &reconcile.Config{})
+	if err != nil {
+		t.Fatalf("BuildReport: %v", err)
+	}
+	for _, classified := range report.Entries {
+		if classified.Target == sourceFile && classified.State != reconcile.StateLinked {
+			t.Errorf("reconcile says %s for the adopted link, want linked", classified.State.Label())
+		}
 	}
 }

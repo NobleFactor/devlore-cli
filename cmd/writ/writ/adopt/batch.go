@@ -9,10 +9,12 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
+	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/segment"
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/xdg"
@@ -27,11 +29,18 @@ type Config struct {
 	// TargetRoot is the Home scope's root (the user's home directory).
 	TargetRoot string
 
+	// Layer is the layer's name (personal, team, base); the record names it.
+	Layer string
+
 	// LayerPath is the resolved path to the layer directory.
 	LayerPath string
 
 	// Project is the origin name within the layer.
 	Project string
+
+	// Platform is the segment suffix the adopted files carry (#931): the project directory becomes
+	// `<project>.<Platform>`; "" is the platform-neutral directory.
+	Platform string
 
 	// Verbose narrates per-item progress.
 	Verbose bool
@@ -66,11 +75,12 @@ func Collect(cfg *Config) map[string][]Item {
 	return groups
 }
 
-// RunBatches executes one adopt graph per scope group and persists each run's trace as the receipt.
+// RunBatches executes one adopt graph per scope group and persists each run's graph and trace as the record.
 //
-// Groups run in deterministic (sorted-root) order. Each group plans once ([BuildGraph]) and runs once; the trace
-// persists via [cli.WriteTrace] success or failure (a failed run's journal survives — the step-21 R4 stance).
-// Per-file "Adopted" lines report post-run (the settled reporting ruling). A failed run stops the remaining groups.
+// Groups run in deterministic (sorted-root) order. An occupied destination anywhere refuses the whole batch before
+// a file moves. Each group plans once ([BuildGraph]) and runs once ([runBatch]); the trace persists into the current
+// lifetime success or failure (a failed run's journal survives — the step-21 R4 stance). Per-file "Adopted" lines
+// report post-run (the settled reporting ruling). A failed run stops the remaining groups.
 //
 // Parameters:
 //   - `ctx`: the cancellation context for the runs.
@@ -79,8 +89,16 @@ func Collect(cfg *Config) map[string][]Item {
 //
 // Returns:
 //   - `int`: the number of files adopted by the groups that completed.
-//   - `error`: non-nil when planning, preflight, or a run fails.
+//   - `error`: non-nil when there is no current deployment (66), a destination is occupied, or planning, persisting
+//     or a run fails.
 func RunBatches(ctx context.Context, cfg *Config, groups map[string][]Item) (int, error) {
+
+	// An adoption is a write into the current deployment (#922, #931): its trace joins the current lifetime, and
+	// with none there is no deployment to adopt into.
+	lifetime, err := cli.RequireCurrentLifetime(cli.RunOperationAdopt)
+	if err != nil {
+		return 0, err
+	}
 
 	roots := make([]string, 0, len(groups))
 	for root := range groups {
@@ -88,42 +106,90 @@ func RunBatches(ctx context.Context, cfg *Config, groups map[string][]Item) (int
 	}
 	sort.Strings(roots)
 
+	if err := refuseOccupiedDestinations(groups, roots); err != nil {
+		return 0, err
+	}
+
 	adopted := 0
 	for _, root := range roots {
-
-		items := groups[root]
-
-		spec := buildSpec(root)
-
-		graph, err := op.Plan(ctx, spec, func(environment *op.RuntimeEnvironment) (*op.Graph, error) {
-			return BuildGraph(environment, items)
-		})
-		if err != nil {
+		if err := runBatch(ctx, cfg, lifetime, root, groups[root]); err != nil {
 			return adopted, err
 		}
-
-		executor := op.NewGraphExecutor(graph, spec)
-		_, runErr := executor.Run(ctx, nil)
-
-		if trace := executor.Trace(); trace != nil {
-			if receiptPath, writeErr := cli.WriteTrace(trace); writeErr != nil {
-				cli.Note("Failed to save receipt: %v", writeErr)
-			} else if cfg.Verbose {
-				cli.Note("Receipt: %s", receiptPath)
-			}
-		}
-
-		if runErr != nil {
-			return adopted, fmt.Errorf("adopt run (%s): %w", root, runErr)
-		}
-
-		for _, item := range items {
-			cli.Success("Adopted %s", item.RelPath)
-		}
-		adopted += len(items)
+		adopted += len(groups[root])
 	}
 
 	return adopted, nil
+}
+
+// refuseOccupiedDestinations is the existing-destination guard, ahead of any run: an occupied destination refuses
+// the whole batch before a file moves, so nothing needs compensating. It lived in the graph as a flow.choose until
+// devlore-cli#939 found that such a graph does not load back as a record.
+//
+// Parameters:
+//   - `groups`: the per-scope batches.
+//   - `roots`: the group keys, in run order.
+//
+// Returns:
+//   - `error`: non-nil, naming the destination, when one already exists.
+func refuseOccupiedDestinations(groups map[string][]Item, roots []string) error {
+
+	for _, root := range roots {
+		for _, item := range groups[root] {
+			if _, err := os.Lstat(item.DestPath); err == nil {
+				return fmt.Errorf("adopt: destination already exists: %s", item.DestPath)
+			}
+		}
+	}
+	return nil
+}
+
+// runBatch plans, persists and runs one scope group's adoptions, and records the run on the lifetime.
+//
+// Parameters:
+//   - `ctx`: the cancellation context for the run.
+//   - `cfg`: the adopt configuration.
+//   - `lifetime`: the current lifetime the run joins.
+//   - `root`: the scope's root, the group's key.
+//   - `items`: the group's adoptions.
+//
+// Returns:
+//   - `error`: non-nil when planning, persisting the graph, or the run fails.
+func runBatch(ctx context.Context, cfg *Config, lifetime *cli.Lifetime, root string, items []Item) error {
+
+	spec := buildSpec(root)
+
+	graph, err := op.Plan(ctx, spec, func(environment *op.RuntimeEnvironment) (*op.Graph, error) {
+		return BuildGraph(environment, cfg, root, items)
+	})
+	if err != nil {
+		return err
+	}
+
+	// The record joins a trace to its graph by checksum: without the graph document the fold cannot read the
+	// adoption's `files` annotation, and the trace is a finding instead of a record (#931).
+	if _, err := cli.WriteGraph(graph); err != nil {
+		return fmt.Errorf("persist graph: %w", err)
+	}
+
+	executor := op.NewGraphExecutor(graph, spec)
+	_, runErr := executor.Run(ctx, nil)
+
+	if trace := executor.Trace(); trace != nil {
+		if receiptPath, writeErr := cli.WriteLifetimeTrace(lifetime, cli.RunOperationAdopt, trace); writeErr != nil {
+			cli.Note("Failed to save receipt: %v", writeErr)
+		} else if cfg.Verbose {
+			cli.Note("Receipt: %s", receiptPath)
+		}
+	}
+
+	if runErr != nil {
+		return fmt.Errorf("adopt run (%s): %w", root, runErr)
+	}
+
+	for _, item := range items {
+		cli.Success("Adopted %s", item.RelPath)
+	}
+	return nil
 }
 
 // region HELPER FUNCTIONS
@@ -142,7 +208,7 @@ func collectItem(cfg *Config, groups map[string][]Item, item string) {
 	}
 
 	scope := inferScope(filePath, cfg.TargetRoot)
-	projectDir := filepath.Join(cfg.LayerPath, scope, cfg.Project)
+	projectDir := filepath.Join(cfg.LayerPath, scope, cfg.ProjectDirectory())
 
 	if cfg.Verbose {
 		cli.Note("File: %s -> scope: %s", filePath, scope)
@@ -169,11 +235,11 @@ func collectItem(cfg *Config, groups map[string][]Item, item string) {
 	}
 
 	if info.IsDir() {
-		collectDirectory(cfg, groups, filePath, targetRoot, projectDir)
+		collectDirectory(cfg, groups, filePath, targetRoot, projectDir, scope)
 		return
 	}
 
-	appendItem(cfg, groups, filePath, targetRoot, projectDir)
+	appendItem(cfg, groups, filePath, targetRoot, projectDir, scope)
 }
 
 // collectDirectory recursively enumerates a directory's files into their scope batch.
@@ -184,7 +250,7 @@ func collectItem(cfg *Config, groups map[string][]Item, item string) {
 //   - `dirPath`: the directory to walk.
 //   - `targetRoot`: the scope's root (`cfg.TargetRoot` for Home, "/" for System).
 //   - `projectDir`: the destination project directory under `<layer>/<scope>/<project>/`.
-func collectDirectory(cfg *Config, groups map[string][]Item, dirPath, targetRoot, projectDir string) {
+func collectDirectory(cfg *Config, groups map[string][]Item, dirPath, targetRoot, projectDir, scope string) {
 
 	err := filepath.WalkDir(dirPath, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -207,7 +273,7 @@ func collectDirectory(cfg *Config, groups map[string][]Item, dirPath, targetRoot
 			return nil
 		}
 
-		appendItem(cfg, groups, path, targetRoot, projectDir)
+		appendItem(cfg, groups, path, targetRoot, projectDir, scope)
 		return nil
 	})
 	if err != nil {
@@ -223,7 +289,7 @@ func collectDirectory(cfg *Config, groups map[string][]Item, dirPath, targetRoot
 //   - `filePath`: the absolute path of the file to adopt.
 //   - `targetRoot`: the scope's root (`cfg.TargetRoot` for Home, "/" for System).
 //   - `projectDir`: the destination project directory under `<layer>/<scope>/<project>/`.
-func appendItem(cfg *Config, groups map[string][]Item, filePath, targetRoot, projectDir string) {
+func appendItem(cfg *Config, groups map[string][]Item, filePath, targetRoot, projectDir, scope string) {
 
 	relPath, err := filepath.Rel(targetRoot, filePath)
 	if err != nil {
@@ -246,7 +312,47 @@ func appendItem(cfg *Config, groups map[string][]Item, filePath, targetRoot, pro
 		RelPath:  relPath,
 		DestDir:  filepath.Dir(destPath),
 		DestPath: destPath,
+		Scope:    scope,
 	})
+}
+
+// ProjectDirectory returns the project directory's name within a scope: the project, suffixed by the platform when
+// one is named (#931): `noblefactor-ops`, `noblefactor-ops.Linux.Debian`.
+//
+// Returns:
+//   - `string`: the directory name the layer tree matches.
+func (c *Config) ProjectDirectory() string {
+
+	if c.Platform == "" {
+		return c.Project
+	}
+	return c.Project + "." + c.Platform
+}
+
+// ValidatePlatform checks a `--platform` value against the segment vocabulary the layer tree matches on this
+// platform (#931, ruled 2026-09-23: the segment vocabulary, not the lore token): each dotted part must be a value
+// the detected segments carry -- the OS (`Darwin`, `Linux`, `Windows`), its family (`Unix`), the distro, the
+// architecture -- so a suffix the deploy walk would never read cannot be minted.
+//
+// Parameters:
+//   - `platform`: the flag's value; "" is valid and means the platform-neutral directory.
+//
+// Returns:
+//   - `error`: non-nil, naming the vocabulary, when a part is not one the matcher knows here.
+func ValidatePlatform(platform string) error {
+
+	if platform == "" {
+		return nil
+	}
+
+	known := segment.DetectSegments().AllValues()
+	for _, part := range strings.Split(platform, ".") {
+		if !slices.Contains(known, part) {
+			return fmt.Errorf("invalid --platform %q: %q is not a suffix the layer tree matches on this platform (%s)",
+				platform, part, strings.Join(known, ", "))
+		}
+	}
+	return nil
 }
 
 // buildSpec constructs a fresh [op.RuntimeEnvironmentSpec] anchored at `root` for the adopt flow.

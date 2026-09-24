@@ -86,6 +86,10 @@ type AdoptConfig struct {
 	// Project to adopt into.
 	Project string
 
+	// Platform is the segment suffix the adopted files carry (`Darwin`, `Unix`, `Linux.Debian`, ...), or "" for the
+	// platform-neutral project directory (#931).
+	Platform string
+
 	// FromReceipt adopts from a lore receipt.
 	FromReceipt bool
 }

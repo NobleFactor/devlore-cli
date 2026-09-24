@@ -27,8 +27,12 @@ To deploy every project, name them.
 
 ### Conflict resolution
 
-When a target file already exists and isn't a writ-managed symlink, you have
-four strategies:
+When a target file already exists and isn't what writ's record says it wrote, you
+have three strategies. An occupant is writ's own when it matches the record: a
+symlink whose literal endpoint is the recorded source, resolved or dangling, or a
+file whose content is the recorded as-deployed content. A link left dangling by a
+file that moved between layers is therefore still writ's own, and a plain deploy
+re-points it.
 
 ```bash
 # Refuse when a target is occupied, listing the occupants (the default)

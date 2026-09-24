@@ -81,6 +81,11 @@ type Config struct {
 //   - `err`: non-nil when the fold fails, planning fails, or a regeneration run fails.
 func Execute(ctx context.Context, cfg *Config) (graphs []*op.Graph, err error) {
 
+	lifetime, err := cli.RequireCurrentLifetime(cli.RunOperationUpgrade)
+	if err != nil {
+		return nil, err
+	}
+
 	inventory, err := readback.Fold(ctx)
 	if err != nil {
 		return nil, err
@@ -111,7 +116,7 @@ func Execute(ctx context.Context, cfg *Config) (graphs []*op.Graph, err error) {
 		return graphs, nil
 	}
 
-	regenerated, err := runAll(ctx, cfg, graphs)
+	regenerated, err := runAll(ctx, cfg, graphs, lifetime)
 	if err != nil {
 		return nil, err
 	}
@@ -196,12 +201,12 @@ func buildScopeGraphs(
 // Returns:
 //   - `regenerated`: the number of files regenerated across all scopes.
 //   - `err`: the joined per-scope failures, or nil when every scope succeeds.
-func runAll(ctx context.Context, cfg *Config, graphs []*op.Graph) (regenerated int, err error) {
+func runAll(ctx context.Context, cfg *Config, graphs []*op.Graph, lifetime *cli.Lifetime) (regenerated int, err error) {
 
 	var failures []error
 
 	for _, graph := range graphs {
-		count, runErr := runGraph(ctx, cfg, graph)
+		count, runErr := runGraph(ctx, cfg, graph, lifetime)
 		regenerated += count
 		if runErr != nil {
 			scope := graph.Origin().Scope()
@@ -517,7 +522,7 @@ func buildScopeGraph(
 // Returns:
 //   - `int`: the number of regenerated files (target-producing completions).
 //   - `error`: non-nil when the spec cannot be configured, the plan cannot persist, or the run fails.
-func runGraph(ctx context.Context, cfg *Config, graph *op.Graph) (int, error) {
+func runGraph(ctx context.Context, cfg *Config, graph *op.Graph, lifetime *cli.Lifetime) (int, error) {
 
 	runRoot := ""
 	if value, ok := graph.Origin().Annotations().Get("run_root"); ok {
@@ -535,7 +540,7 @@ func runGraph(ctx context.Context, cfg *Config, graph *op.Graph) (int, error) {
 
 	regenerated := 0
 	if trace := executor.Trace(); trace != nil {
-		if receiptPath, writeErr := cli.WriteTrace(trace); writeErr != nil {
+		if receiptPath, writeErr := cli.WriteLifetimeTrace(lifetime, cli.RunOperationUpgrade, trace); writeErr != nil {
 			cli.Warn("failed to write receipt: %v", writeErr)
 		} else if cfg.Verbose {
 			cli.Note("Receipt: %s", receiptPath)

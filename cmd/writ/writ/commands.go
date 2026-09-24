@@ -220,23 +220,20 @@ func newReconcileCmd() *cobra.Command {
 		Long: `Report deployed state: what should be present, where it should have come from, and
 what's missing or different.
 
-The report is derived from the store (the run index plus the persisted graphs and
-traces) — never from a directory scan — and has four sections: the registered layer
+The report is derived from the store (the current deployment's receipts and their
+graphs) — never from a directory scan — and has four sections: the registered layer
 tree, the deployed inventory classified against the live filesystem, the package
 operations writ's runs performed, and store health. Reconcile produces a report; each
 finding names the lifecycle command that repairs it. The report is one JSON document,
 rendered by --output like every other result; --jq '.entries' selects the delta alone.
 
-Entry states:
-  linked             Symlink present and resolving to its source
-  copied             Copied file present (encrypted content is not compared)
-  missing            Deployed target is gone                     → writ deploy
-  conflict           Something else occupies the target
-  orphan             Target's source no longer exists            → writ decommission
-  stale              Source changed since the run                → writ upgrade
-  modified           Target edited out-of-band                   → writ upgrade --force
-  modified-or-stale  Differs, but the run predates recorded content
-                     identity: attribution indeterminate         → writ upgrade`,
+Entry states -- the record is the reference:
+  linked     The symlink is as recorded, its referent's content as recorded
+  copied     The copied file is as recorded, its source's content as recorded
+  absent     The record says a target is there and it is not      → writ deploy
+  changed    The target is there but is not what the record says  → writ deploy (link), writ upgrade --force (copy)
+  dangling   The source the record names does not resolve         → writ deploy
+  stale      As recorded; the source resolves and its content moved → writ upgrade`,
 		Example: `  writ reconcile                 # Report everything writ has deployed
   writ reconcile noblefactor     # Report one project
   writ reconcile -o json         # Machine-readable report
