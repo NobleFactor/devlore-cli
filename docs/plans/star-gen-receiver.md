@@ -650,5 +650,5 @@ star devlore actions generate --source=pkg/op/provider/starsources --gen=true
 
 ## Related Documents
 
-- `noblefactor-ops/docs/architecture/star-file-tree-walking.md` — Prior receiver work
+- [9.3-file-tree-walking.md](../architecture/9.3-file-tree-walking.md) — prior receiver work; moved here from noblefactor-ops by #937
 - `devlore-cli/internal/starlark/receiver_test.go` — Dict-based receiver ban enforcement

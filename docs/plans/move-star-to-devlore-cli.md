@@ -245,8 +245,8 @@ After this change:
 
 ## Related Documents
 
-- [Star Application Restructure](https://github.com/NobleFactor/noblefactor-ops/blob/develop/docs/plans/star-application-restructure.md)
-- [CLI Syntax Cleanup](https://github.com/NobleFactor/noblefactor-ops/blob/develop/docs/plans/star-cli-syntax-cleanup.md)
+- `noblefactor-ops/docs/plans/star-application-restructure.md` — retired with that repository's star record (noblefactor-ops#228); no longer resolves
+- `noblefactor-ops/docs/plans/star-cli-syntax-cleanup.md` — retired with that repository's star record (noblefactor-ops#228); no longer resolves
 - devlore-cli#83 — Self install/upgrade for lore, writ, and star
 - noblefactor-ops#39 — Closed, superseded by devlore-cli#83
 - noblefactor-ops#121 — CLI syntax cleanup (prerequisite, just merged)

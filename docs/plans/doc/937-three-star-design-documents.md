@@ -113,9 +113,9 @@ Six, including the two absolute URLs.
 
 ### Phase 3: The indices
 
-- [ ] `index.md`: four entries, WASM removed, Configuration repointed (Requirement 3)
-- [ ] `3.5-provider-catalog.md`: five providers (Requirement 4)
-- [ ] Six back-references repointed (Requirement 5)
+- [x] `index.md`: four entries, WASM removed, Configuration repointed (Requirement 3)
+- [x] `3.5-provider-catalog.md`: five providers, in a "star's own providers" table -- they live under `cmd/star/provider`, not `pkg/op/provider`, and `goast` joins them (Requirement 4)
+- [x] Six back-references repointed, plus a broken link the move carried in: `9.3` pointed at `../guides/writing-extensions.md`, a noblefactor-ops guide that does not exist here (Requirement 5)
 
 ### Phase 4: Verify, then merge
 

@@ -71,7 +71,7 @@ No new methods are needed:
   on `file.Provider`. No `.star` files currently call `file.list`.
 - **`file.walk_tree` stays as-is**: `file.Provider` already has `WalkTree` with a Go
   callback signature. The code generator's function parameter bridge (see
-  `star-consumes-pkg-op.md` Phase 4a) handles bridging `starlark.Callable` to Go
+  `star-consumes-pkg-op.md` Phase 4a, retired with noblefactor-ops's star record by noblefactor-ops#228) handles bridging `starlark.Callable` to Go
   closures. No `.star` files currently call `file.walk_tree`.
 
 ### R2: json.Resource and yaml.Resource — structured document types
@@ -520,7 +520,7 @@ noblefactor-ops:         └──► Phase 2 ──► Phases 3-7 (parallel) �
 - [star-gen-receiver.md](./star-gen-receiver.md) — Generated receiver framework design
 - [shared-provider-receivers.md](./shared-provider-receivers.md) — Cross-repo provider sharing
 - [typed-access-receiver-factory.md](./typed-access-receiver-factory.md) — Typed access factory pattern
-- noblefactor-ops `docs/plans/star-consumes-pkg-op.md` — Prior plan covering UI migration,
+- noblefactor-ops `docs/plans/star-consumes-pkg-op.md` — retired by noblefactor-ops#228. Prior plan covering UI migration,
   code generator function parameter bridge, file provider wiring (Phases 2-6)
 
 ## Open Questions
