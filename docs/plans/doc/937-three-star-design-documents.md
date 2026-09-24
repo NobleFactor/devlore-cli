@@ -106,10 +106,10 @@ Six, including the two absolute URLs.
 
 ### Phase 2: Number, receive, salvage
 
-- [ ] `git mv star-extensions.md 9-star-extensions.md`; its nine references repointed
-- [ ] The three in as `9.1`, `9.2`, `9.3`, each with its note (Requirement 1)
-- [ ] "The Shape of the Tree" into `9-star-extensions.md` (Requirement 2)
-- [ ] Two tables into `configuration.md`, type names updated (Requirement 2)
+- [x] `git mv star-extensions.md 9-star-extensions.md` (references in Phase 3)
+- [x] The three in as `9.1`, `9.2`, `9.3`, each with its note (Requirement 1). `9.2` also lost the stray outer ```` ```markdown ```` fence that wrapped the whole document, which is why noblefactor-ops kept it in `.github/frontmatter-exempt`
+- [x] "The Shape of the Tree" into `9-star-extensions.md` (Requirement 2)
+- [x] Two tables into `configuration.md`, type names updated (Requirement 2)
 
 ### Phase 3: The indices
 
