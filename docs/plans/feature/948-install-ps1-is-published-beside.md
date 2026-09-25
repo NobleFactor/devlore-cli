@@ -79,29 +79,34 @@ unchanged (lane 2 adds the layer flags).
 
 ### Phase 2: The change
 
-- [ ] `release.yaml`: both scripts synced, both paths added, texts and summary updated (Requirement 1)
-- [ ] `install.ps1`: the floor and the four fixes (Requirement 2)
-- [ ] `install.ps1`: the header (Requirement 3)
+- [x] `release.yaml`: both scripts synced, both paths added, texts and summary updated (Requirement 1)
+- [x] `install.ps1`: the floor and the four fixes (Requirement 2)
+- [x] `install.ps1`: the header (Requirement 3)
 
 ### Phase 3: Verify
 
-- [ ] Every cmdlet, operator and .NET member the body uses is checked against 5.1's surface, listed in
-      the pull request, and nothing outside it remains
-- [ ] Under pwsh 7 on this Linux host: the body runs against a scratch prefix, `DEVLORE_TOOLS=writ`, a
-      real pre-release, and `<prefix>/bin/writ --version` reports that release's build
+- [x] Every cmdlet, operator and .NET member the body uses is checked against 5.1's surface, listed in
+      the pull request, and nothing outside it remains: the automatic `$Is*` variables are now read only
+      on Core; `PSEdition` exists on 5.1; `Expand-Archive` (5.0), `Get-FileHash` (4.0), `-in` (3.0),
+      `RuntimeInformation` (.NET Framework 4.7.1) are all inside it
+- [x] Under pwsh 7.x on DANOBLE-UD24-1 (linux/arm64): the body ran against a scratch prefix,
+      `DEVLORE_TOOLS=writ`, pre-release `v0.1.0-dev.20260924074819`, checksum verified, and
+      `<prefix>/bin/writ --version` reported build `d54626d2`; nothing outside the prefix was written
 - [ ] Under Windows PowerShell 5.1 on a Windows machine (DANOBLE-WD11-3), both invocation forms, against a
       scratch prefix: the products install and answer `--version`. This is rule 11's live-path test and it
       cannot run here; it is the owner's, or a Windows job's, and this box stays open until it has
-- [ ] `release.yaml` parses as YAML, and the sync step's shell block passes `bash -n` and shellcheck when
-      extracted
-- [ ] No gate in this repository reads `.ps1`: `star lint` has go, go-style, markdown and shell, and
-      `ci.yaml` runs no PSScriptAnalyzer. The script is checked here by hand against the organization's
-      settings, `noblefactor-ops/Home/common/.config/PSScriptAnalyzer`, once the module is on this host;
-      the gap is noted for the lint-tooling schedule (noblefactor-ops#232)
+- [x] `release.yaml` parses as YAML; the sync step's shell block, extracted with the `${{ }}` expressions
+      replaced, passes `bash -n`; shellcheck's one real finding is the pre-existing SC2164 on `cd website`,
+      not this change's
+- [x] No gate in this repository reads `.ps1`: `star lint` has go, go-style, markdown and shell, and
+      `ci.yaml` runs no PSScriptAnalyzer. Checked by hand with PSScriptAnalyzer 1.25.0 (CI's pin,
+      installed to this host's CurrentUser scope that day) and the organization's settings: 33 findings,
+      every one present on the base too (`PSAvoidUsingWriteHost` and kin), none this change's. The gap
+      is noted for the lint-tooling schedule (noblefactor-ops#232)
 
 ### Phase 4: Merge, publish, converge
 
-- [ ] PR script written, shown, and handed over
+- [x] PR script written, shown, and handed over
 - [ ] After the merge: the next pre-release's sync opens the site PR carrying both scripts; when it merges,
       `curl -sI https://devlore.noblefactor.com/install.ps1` answers 200 and the body matches the
       repository's. Until a release runs, this box stays open and the plan `active`

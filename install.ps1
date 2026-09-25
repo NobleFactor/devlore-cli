@@ -5,6 +5,12 @@
 # Usage: irm https://devlore.noblefactor.com/install.ps1 | iex
 #        .\install.ps1 -Prefix "C:\devlore"
 #
+# Runs on Windows PowerShell 5.1 -- what a fresh Windows machine has -- and on PowerShell 7, on Windows,
+# macOS and Linux, one code path. It installs nothing but lore, star and writ (#798, ruled 2026-09-24).
+# The irm | iex form needs no execution-policy change; a Windows client's default policy refuses a
+# downloaded .ps1 run as a file, so the second form wants `-ExecutionPolicy Bypass` on the pwsh or
+# powershell command line.
+#
 # For private repo (requires GitHub token):
 #   $env:GH_TOKEN = (gh auth token); irm https://devlore.noblefactor.com/install.ps1 | iex
 #
@@ -23,6 +29,8 @@
 # Documentation references:
 #   - GitHub Releases API: https://docs.github.com/en/rest/releases/releases
 #   - GitHub Release Assets API: https://docs.github.com/en/rest/releases/assets
+
+#Requires -Version 5.1
 
 [CmdletBinding()]
 param(
@@ -68,8 +76,15 @@ function Write-Fatal {
 }
 
 # Detect OS
+#
+# Windows PowerShell 5.1 has no $IsWindows, $IsMacOS or $IsLinux, and under Set-StrictMode a variable that
+# does not exist is an error, so the edition is read first: Desktop is 5.1, which runs on Windows alone.
+# The automatic variables are consulted only on Core, where they exist.
 function Get-OSName {
-    if ($IsWindows -or [System.Environment]::OSVersion.Platform -eq 'Win32NT') {
+    if ($PSVersionTable.PSEdition -ne 'Core') {
+        return "windows"
+    }
+    if ($IsWindows) {
         return "windows"
     } elseif ($IsMacOS) {
         return "darwin"
@@ -103,10 +118,14 @@ function Get-ApiHeaders {
 
 # Make authenticated API request
 # Per https://docs.github.com/en/rest/releases/releases
+#
+# -UseBasicParsing on every web call: without it Windows PowerShell 5.1 parses responses with the Internet
+# Explorer engine, which hangs on a machine that has never run IE's first-launch dialog. PowerShell 7
+# accepts the switch and ignores it.
 function Invoke-ApiGet {
     param([string]$Url)
     $headers = Get-ApiHeaders
-    Invoke-RestMethod -Uri $Url -Headers $headers -ErrorAction Stop
+    Invoke-RestMethod -Uri $Url -Headers $headers -UseBasicParsing -ErrorAction Stop
 }
 
 # Get latest release version from GitHub API
@@ -137,7 +156,7 @@ function Save-ReleaseAsset {
     param([string]$AssetId, [string]$Destination)
     $url = "$GitHubApi/releases/assets/$AssetId"
     $headers = Get-ApiHeaders -Accept "application/octet-stream"
-    Invoke-WebRequest -Uri $url -Headers $headers -OutFile $Destination -ErrorAction Stop
+    Invoke-WebRequest -Uri $url -Headers $headers -OutFile $Destination -UseBasicParsing -ErrorAction Stop
 }
 
 # Verify checksum
@@ -156,6 +175,11 @@ function Test-Checksum {
 function Main {
     Write-Info "DevLore CLI Installer"
     Write-Host ""
+
+    # GitHub speaks TLS 1.2 and later. Windows PowerShell 5.1 takes its protocols from the .NET Framework's
+    # default, which on an older machine stops at 1.0, so every request fails before it starts. Adding 1.2
+    # is a no-op wherever the default already includes it, PowerShell 7 included.
+    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
 
     # Check for auth token (required for private repo)
     if (-not $AuthToken) {
