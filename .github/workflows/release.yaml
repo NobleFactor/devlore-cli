@@ -101,10 +101,16 @@ jobs:
             echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
             echo "curl -sSL https://devlore.noblefactor.com/install.sh | GITHUB_TOKEN=<token> DEVLORE_VERSION=${{ steps.version.outputs.version }} bash" >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`powershell" >> $GITHUB_STEP_SUMMARY
+            echo "\$env:GH_TOKEN = '<token>'; \$env:DEVLORE_VERSION = '${{ steps.version.outputs.version }}'; irm https://devlore.noblefactor.com/install.ps1 | iex" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           else
             echo "Full release (default latest):" >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`bash" >> $GITHUB_STEP_SUMMARY
             echo "curl -sSL https://devlore.noblefactor.com/install.sh | GITHUB_TOKEN=<token> bash" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`powershell" >> $GITHUB_STEP_SUMMARY
+            echo "\$env:GH_TOKEN = '<token>'; irm https://devlore.noblefactor.com/install.ps1 | iex" >> $GITHUB_STEP_SUMMARY
             echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
           fi
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -138,10 +144,12 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           path: website
 
-      - name: Sync install script to website
+      - name: Sync install scripts to website
         run: |
-          # Copy install script only (binaries come from GitHub releases)
+          # Copy the two install scripts only (binaries come from GitHub releases). Both, since #948: the
+          # site published install.sh alone, and install.ps1's own usage line was a 404.
           cp install.sh website/public/install.sh
+          cp install.ps1 website/public/install.ps1
 
           cd website
           git config user.name "github-actions[bot]"
@@ -158,17 +166,17 @@ jobs:
           git checkout "$TARGET_BRANCH" || git checkout -b "$TARGET_BRANCH"
 
           # Check if there are changes
-          git add public/install.sh
+          git add public/install.sh public/install.ps1
           if git diff --cached --quiet; then
-            echo "No changes to install script"
+            echo "No changes to the install scripts"
             exit 0
           fi
 
           # Create a PR branch instead of pushing directly (respects branch protection)
-          PR_BRANCH="sync-install-script-${{ github.sha }}"
+          PR_BRANCH="sync-install-scripts-${{ github.sha }}"
           git checkout -b "$PR_BRANCH"
 
-          git commit -m "Update install script
+          git commit -m "Update install scripts
 
           Source: ${{ github.repository }}@${{ github.sha }}
           Ref: ${{ github.ref }}"
@@ -180,8 +188,8 @@ jobs:
             --repo NobleFactor/devlore.noblefactor.com \
             --base "$TARGET_BRANCH" \
             --head "$PR_BRANCH" \
-            --title "Update install script from devlore-cli" \
-            --body "Automated sync of install.sh from devlore-cli.
+            --title "Update install scripts from devlore-cli" \
+            --body "Automated sync of install.sh and install.ps1 from devlore-cli.
 
           Source: ${{ github.repository }}@${{ github.sha }}
           Ref: ${{ github.ref }}")

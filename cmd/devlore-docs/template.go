@@ -18,6 +18,7 @@ import (
 // PageData holds all data needed to render a CLI reference page.
 type PageData struct {
 	Title       string
+	Slug        string // The page's URL path, the command's words joined with "/": stated, never derived (#952).
 	Description string
 	Tool        string
 	Command     string
@@ -56,6 +57,7 @@ type ChildInfo struct {
 
 var pageTemplate = template.Must(template.New("page").Parse(`---
 title: "{{ .Title }}"
+slug: "{{ .Slug }}"
 description: "{{ .Description }}"
 tool: "{{ .Tool }}"
 command: "{{ .Command }}"
@@ -114,8 +116,13 @@ func BuildPageData(cmd *cobra.Command, toolName, version string) PageData {
 	fullName := fullCommandName(cmd)
 	parent := parentCommandName(cmd)
 
+	// The slug is the URL path the site derives from the file's path -- for every file but one named index.md,
+	// which Astro reads as its directory's page. Two star subcommands are named index, so their pages collided
+	// with their groups' (#952). Stating the path removes the derivation; TestGenerateTree_SlugMatchesPath
+	// holds every page's slug equal to its path.
 	data := PageData{
 		Title:       fullName,
+		Slug:        strings.Join(commandParts(cmd), "/"),
 		Description: cmd.Short,
 		Tool:        toolName,
 		Command:     cmd.Name(),
