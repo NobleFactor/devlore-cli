@@ -17,7 +17,7 @@ func TestWithCommonProject(t *testing.T) {
 	}{
 		{"injected first", []string{"noblefactor", "thenobles"}, []string{"common", "noblefactor", "thenobles"}},
 		{"not duplicated", []string{"common", "noblefactor"}, []string{"common", "noblefactor"}},
-		{"empty means every project, unchanged", nil, nil},
+		{"empty is the implicit set, common alone (#843)", nil, []string{"common"}},
 	}
 	for _, c := range cases {
 		if got := withCommonProject(c.projects); !slices.Equal(got, c.want) {

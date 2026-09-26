@@ -111,6 +111,30 @@ const (
 	StateStale State = 5
 )
 
+// HasDrift reports whether any entry stands against the record: a state other than [StateLinked] or
+// [StateCopied]. It is what `writ reconcile`'s exit status reads (#756); the store's health findings are its
+// self-report and are not drift.
+//
+// Returns:
+//   - `bool`: true when at least one entry is absent, changed, dangling or stale.
+func (r *Report) HasDrift() bool {
+	return r.DriftCount() > 0
+}
+
+// DriftCount counts the entries that stand against the record.
+//
+// Returns:
+//   - `int`: the number of entries whose state is other than [StateLinked] or [StateCopied].
+func (r *Report) DriftCount() int {
+	count := 0
+	for i := range r.Entries {
+		if r.Entries[i].State != StateLinked && r.Entries[i].State != StateCopied {
+			count++
+		}
+	}
+	return count
+}
+
 // Label returns the machine-readable classification name.
 //
 // Returns:

@@ -293,4 +293,37 @@ func TestBuildReport_NoLifetimeIsNotFound(t *testing.T) {
 	if !errors.Is(err, os.ErrNotExist) {
 		t.Errorf("error %v does not unwrap to os.ErrNotExist", err)
 	}
+	if code := cli.ExitCode(err); code != cli.ExitNoInput {
+		t.Errorf("ExitCode = %d, want %d: never deployed is not-found (#756)", code, cli.ExitNoInput)
+	}
+}
+
+// TestReport_HasDrift pins what the exit status reads (#756): linked and copied are clean; each of the four
+// other words is drift; the health findings are not.
+func TestReport_HasDrift(t *testing.T) {
+
+	clean := &reconcile.Report{
+		Entries: []reconcile.Entry{{State: reconcile.StateLinked}, {State: reconcile.StateCopied}},
+		Health:  reconcile.Health{Findings: []string{"a trace the lifetime names is gone"}},
+	}
+	if clean.HasDrift() {
+		t.Errorf("linked, copied and a health finding read as drift; want clean")
+	}
+	if got := clean.DriftCount(); got != 0 {
+		t.Errorf("DriftCount = %d on a clean report, want 0", got)
+	}
+
+	for _, state := range []reconcile.State{
+		reconcile.StateAbsent, reconcile.StateChanged, reconcile.StateDangling, reconcile.StateStale,
+	} {
+		report := &reconcile.Report{
+			Entries: []reconcile.Entry{{State: reconcile.StateLinked}, {State: state}},
+		}
+		if !report.HasDrift() {
+			t.Errorf("%s does not read as drift", state.Label())
+		}
+		if got := report.DriftCount(); got != 1 {
+			t.Errorf("DriftCount = %d with one %s entry, want 1", got, state.Label())
+		}
+	}
 }

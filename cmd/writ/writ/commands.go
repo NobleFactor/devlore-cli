@@ -25,9 +25,14 @@ import (
 
 func newDeployCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "deploy [flags] <project>...",
+		Use:   "deploy [flags] [<project>...]",
 		Short: "Deploy projects by creating symlinks in the target location",
 		Long: `Deploy projects by creating symlinks in the target location.
+
+A bare "writ deploy" deploys the implicit set: the reserved common project and one
+project per configured layer repository, named for the repository (#843, #850), plus
+whatever the current record already holds. Naming a project adds it, from every
+layer that carries it; a name no registered layer carries is refused.
 
 Files inside each project directory are symlinked to the target (default: ~).
 Platform-specific variants (e.g., project.Darwin) are selected automatically.
@@ -40,12 +45,12 @@ Conflict handling (--conflict) — occupied targets (phase-8 step 49):
            redeploys flow without the flag
   skip     Leave every occupied target untouched and continue
   replace  Archive each occupant to the recovery site and overwrite (restorable)`,
-		Example: `  writ deploy noblefactor
-  writ deploy all noblefactor thenobles
+		Example: `  writ deploy                    # the implicit set: common and the layer repositories' projects
+  writ deploy noblefactor
+  writ deploy noblefactor thenobles
   writ deploy --conflict=replace noblefactor
   writ deploy --conflict=skip noblefactor
   writ deploy -s ROLE=desktop noblefactor`,
-		Args: cobra.MinimumNArgs(1),
 		RunE: runDeployV2,
 	}
 
@@ -66,6 +71,10 @@ func runDeployV2(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+
+	// The selection, and how each project got in: the bare form deploys the implicit set and what the record
+	// holds, and naming a project adds it (#843, #850).
+	cli.Note("Projects: %s", cfg.Selection.Narration())
 
 	// The registry answers one question at plan time, whether a manifest claim names a registry package; the
 	// packages themselves plan through the pkg provider (#814).
@@ -127,8 +136,7 @@ Signature-gated safety (refusing unsigned state) arrives with graph signing (ste
 `,
 		Example: `  writ decommission noblefactor              # Remove project files
   writ decommission all noblefactor          # Remove multiple projects
-  writ decommission --prune noblefactor      # Also remove empty parent directories
-  writ decommission --force noblefactor      # Skip confirmation prompts`,
+  writ decommission --prune noblefactor      # Also remove empty parent directories`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: runDecommission,
 	}
@@ -192,7 +200,10 @@ entries cannot be compared without decrypting and follow the same --force rule.`
 // runUpgrade implements the upgrade command on the upgrade package (phase-8 step 47 slice 2).
 func runUpgrade(cmd *cobra.Command, args []string) error {
 
-	cfg := parseUpgradeConfig(cmd, args)
+	cfg, err := parseUpgradeConfig(cmd, args)
+	if err != nil {
+		return err
+	}
 
 	graphs, err := upgrade.Execute(cmd.Context(), &upgrade.Config{
 		Projects: cfg.Projects,
@@ -233,7 +244,12 @@ Entry states -- the record is the reference:
   absent     The record says a target is there and it is not      → writ deploy
   changed    The target is there but is not what the record says  → writ deploy (link), writ upgrade --force (copy)
   dangling   The source the record names does not resolve         → writ deploy
-  stale      As recorded; the source resolves and its content moved → writ upgrade`,
+  stale      As recorded; the source resolves and its content moved → writ upgrade
+
+Exit status -- the answer, gateable like git diff --exit-code (#756):
+  0    deployed and clean: every entry is linked or copied
+  1    deployed and drifted: any entry is absent, changed, dangling or stale
+  66   never deployed: no current deployment to compare against`,
 		Example: `  writ reconcile                 # Report everything writ has deployed
   writ reconcile noblefactor     # Report one project
   writ reconcile -o json         # Machine-readable report
@@ -261,7 +277,19 @@ func runReconcile(cmd *cobra.Command, args []string) error {
 
 	// The report is the result. Rendering is the pipeline's, so every --output value, --jq and --filter
 	// apply to it exactly as they do to any other command's result.
-	return cli.Emit(cmd, report)
+	if err := cli.Emit(cmd, report); err != nil {
+		return err
+	}
+
+	// The exit status is the answer (#756): the report is rendered whatever it says, and drift exits 1 the way
+	// `git diff --exit-code` does, so a script gates on the code and reads the report for the repair.
+	if report.HasDrift() {
+		return cli.ExitWith(cli.ExitError,
+			fmt.Errorf("reconcile: %d of %d entries drifted; the report names the repair per entry",
+				report.DriftCount(), len(report.Entries)))
+	}
+
+	return nil
 }
 
 // getConfiguredRepo returns the path for a layer, or empty string if it doesn't exist.

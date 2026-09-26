@@ -149,8 +149,8 @@ The mechanics, per program:
 
 | Verb | `lore` -- a package | `writ` -- an environment |
 | --- | --- | --- |
-| `deploy` | install the package's lifecycle pipelines | link, write, and create files under each scope |
-| `reconcile` | compare the record against the live system: `linked`, `copied`, `absent`, `changed`, `dangling`, `stale` ([5.1](5.1-reconciliation.md)) | the same, per scope |
+| `deploy` | install the package's lifecycle pipelines | link, write, and create files under each scope; bare `writ deploy` deploys the implicit set, `common` ([#843](https://github.com/NobleFactor/devlore-cli/issues/843)) and one project per configured layer repository ([#850](https://github.com/NobleFactor/devlore-cli/issues/850)) |
+| `reconcile` | compare the record against the live system: `linked`, `copied`, `absent`, `changed`, `dangling`, `stale` ([5.1](5.1-reconciliation.md)); exit 0 clean, 1 drifted, 66 never deployed | the same, per scope |
 | `upgrade` | constrained re-deploy with drift attribution | the same |
 | `decommission` | reverse traversal, receipts for the removals | the same |
 
@@ -169,7 +169,20 @@ lapses when the mutation is built, and the name returns with it
 is a not-found error rather than an empty report. That is what lets an exit code carry information: never
 deployed, deployed and clean, and deployed and drifted are three different answers, and
 [5.1](5.1-reconciliation.md) already requires the first of them -- "a missing run index is a hard error, not
-a silent rescan."
+a silent rescan." The three (ruled 2026-09-23, [#756](https://github.com/NobleFactor/devlore-cli/issues/756)),
+gateable the way `git diff --exit-code` is:
+
+| Answer | Exit |
+| --- | --- |
+| never deployed: no current deployment to compare against, because nothing was deployed or it was decommissioned | `66`, `EX_NOINPUT` (§9) |
+| deployed and clean: every entry is `linked` or `copied` | `0` |
+| deployed and drifted: any entry is `absent`, `changed`, `dangling` or `stale` | `1`: the command ran, the answer is drift |
+
+The report is rendered under every `--output` before the drifted exit, so a script gates on the code and reads
+the report for the repair; under `-o none` the code is the result. The store's health findings are its
+self-report, not drift, and leave the code at `0`. The code is assigned in `reconcile.BuildReport` and
+`runReconcile`, never in `readback.Fold`, because deploy's pre-flight reads the same not-found as "nothing to
+conflict with".
 
 **`self install` borrows the verb, and not the model** (ruled 2026-09-23,
 [#933](https://github.com/NobleFactor/devlore-cli/issues/933)). Every program carries `self install`, and it
