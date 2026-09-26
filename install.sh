@@ -42,6 +42,16 @@ for arg in "$@"; do
     esac
 done
 
+# The download directory, removed on every exit. Script scope, not local to main: the EXIT trap runs
+# after main has returned, and under set -u a local that is gone is an error (#958).
+TMP_DIR=""
+cleanup() {
+    if [[ -n "${TMP_DIR}" ]]; then
+        rm -rf "${TMP_DIR}"
+    fi
+}
+trap cleanup EXIT
+
 # Configuration
 GITHUB_REPO="NobleFactor/devlore-cli"
 GITHUB_API="https://api.github.com/repos/${GITHUB_REPO}"
@@ -259,23 +269,21 @@ main() {
     local checksums_id
     checksums_id=$(get_asset_id "$release_json" "$checksums_name")
 
-    # Create temp directory
-    local tmp_dir
-    tmp_dir=$(mktemp -d)
-    trap 'rm -rf "$tmp_dir"' EXIT
+    # Create temp directory; cleanup, trapped at script scope, removes it on every exit
+    TMP_DIR=$(mktemp -d)
 
     # Download archive via GitHub API
     info "Downloading ${archive_name}..."
-    download_asset "$archive_id" "${tmp_dir}/${archive_name}"
+    download_asset "$archive_id" "${TMP_DIR}/${archive_name}"
 
     # Download and verify checksum
     if [[ -n "$checksums_id" ]]; then
         info "Verifying checksum..."
-        download_asset "$checksums_id" "${tmp_dir}/checksums.txt"
+        download_asset "$checksums_id" "${TMP_DIR}/checksums.txt"
         local expected_checksum
-        expected_checksum=$(grep "${archive_name}" "${tmp_dir}/checksums.txt" | awk '{print $1}')
+        expected_checksum=$(grep "${archive_name}" "${TMP_DIR}/checksums.txt" | awk '{print $1}')
         if [[ -n "$expected_checksum" ]]; then
-            verify_checksum "${tmp_dir}/${archive_name}" "$expected_checksum"
+            verify_checksum "${TMP_DIR}/${archive_name}" "$expected_checksum"
             success "Checksum verified"
         else
             warn "Checksum not found for ${archive_name}, skipping verification"
@@ -290,12 +298,12 @@ main() {
     # pkg/bin so that each one's `self install` finds pkg/share at <exeDir>/../share, the path star copies its
     # extensions from.
     info "Extracting..."
-    local pkg="${tmp_dir}/pkg"
+    local pkg="${TMP_DIR}/pkg"
     mkdir -p "${pkg}/bin"
     if [[ "$ext" == "tar.gz" ]]; then
-        tar -xzf "${tmp_dir}/${archive_name}" -C "${pkg}"
+        tar -xzf "${TMP_DIR}/${archive_name}" -C "${pkg}"
     else
-        unzip -q "${tmp_dir}/${archive_name}" -d "${pkg}"
+        unzip -q "${TMP_DIR}/${archive_name}" -d "${pkg}"
     fi
 
     # Install binaries
