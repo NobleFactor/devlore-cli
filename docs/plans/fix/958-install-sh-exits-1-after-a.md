@@ -56,20 +56,22 @@ have no long options (the open question on personal#228's plan, not settled here
 
 ### Phase 2: The change
 
-- [ ] Requirement, in `install.sh`
+- [x] Requirement, in `install.sh`: `TMP_DIR` at script scope, `cleanup` trapped on EXIT before anything
+      can fail, the seven uses renamed
 
 ### Phase 3: Verify
 
-- [ ] Before the change, in scratch `TMPDIR`, `XDG_*` and `--prefix`: exit 1, the unbound-variable line,
+- [x] Before the change, in scratch `TMPDIR`, `XDG_*` and `--prefix`: exit 1, the unbound-variable line,
       one directory left (reproduced 2026-09-26)
-- [ ] After: the same run exits 0, prints no unbound-variable line, leaves `TMPDIR` empty, and the
-      installed writ answers `--version`
-- [ ] A failing run exits non-zero and leaves `TMPDIR` empty: `DEVLORE_VERSION=v0.0.0-no-such-tag`
-- [ ] `star lint shell .` (CI's shell gate, which reads `install.sh`) passes
+- [x] After: the same run exits 0, prints no unbound-variable line, leaves `TMPDIR` empty, and the
+      installed writ answers `--version` with build `5509da4d`
+- [x] A failing run exits non-zero and leaves `TMPDIR` empty: `DEVLORE_VERSION=v0.0.0-no-such-tag` →
+      `error: GitHub API error: Not Found`, exit 1, nothing left
+- [x] `star lint shell .` (CI's shell gate, which reads `install.sh`) passes; shellcheck clean
 
 ### Phase 4: Merge, publish
 
-- [ ] PR script written, shown, and handed over
+- [x] PR script written, shown, and handed over
 - [ ] After the merge: the next pre-release's sync carries the fixed `install.sh` to the site's
       `develop`; the develop environment's copy is byte-identical to `develop`'s and a scratch run from
       it exits 0
