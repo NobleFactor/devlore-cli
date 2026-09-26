@@ -50,10 +50,16 @@ jobs:
 
       - name: Update site content
         run: |
-          rm -rf site/src/content/cli/
-          cp -r docs/cli/ site/src/content/cli/
-          rm -rf site/src/content/guides/
-          cp -r docs/guides/ site/src/content/guides/
+          # The site publishes the committed products (#956, ruled 2026-09-26): writ, lore and star.
+          # devlore-docs generates devlore-test's tree too, for the repository's own use; it stays here.
+          rm --recursive --force site/src/content/cli/
+          mkdir --parents site/src/content/cli/
+          for product in writ lore star; do
+            cp "docs/cli/${product}.md" site/src/content/cli/
+            cp --recursive "docs/cli/${product}/" site/src/content/cli/
+          done
+          rm --recursive --force site/src/content/guides/
+          cp --recursive docs/guides/ site/src/content/guides/
 
       - name: Create and merge PR on site repo
         working-directory: site
