@@ -4,7 +4,9 @@
 package main
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
@@ -161,6 +163,11 @@ func TestBuildPageData(t *testing.T) {
 		t.Errorf("Title = %q, want %q", data.Title, "writ add")
 	}
 
+	// Slug is the command's words joined with "/" (#952).
+	if data.Slug != "writ/add" {
+		t.Errorf("Slug = %q, want %q", data.Slug, "writ/add")
+	}
+
 	// Description should be the Short field.
 	if data.Description != "add a package" {
 		t.Errorf("Description = %q, want %q", data.Description, "add a package")
@@ -238,6 +245,9 @@ func TestBuildPageData(t *testing.T) {
 	if rootData.ParentCmd != nil {
 		t.Errorf("expected root ParentCmd to be nil, got %v", rootData.ParentCmd)
 	}
+	if rootData.Slug != "writ" {
+		t.Errorf("root Slug = %q, want %q", rootData.Slug, "writ")
+	}
 
 	// Children should include "add" but not "hidden-cmd" or "help".
 	childNames := make(map[string]bool)
@@ -252,6 +262,74 @@ func TestBuildPageData(t *testing.T) {
 	}
 	if childNames["writ help"] {
 		t.Error("help child should be excluded from Children")
+	}
+}
+
+// TestGenerateTree_SlugMatchesPath is #952's guard. Astro derives a page's URL path from its file path, except
+// that a file named index.md stands for its directory -- so a subcommand named index collided with its group's
+// page, and the site stopped building. Every page now states its slug; this holds each one equal to the path
+// the file would have implied, `index` included, so the next subcommand by that name cannot bring it back.
+func TestGenerateTree_SlugMatchesPath(t *testing.T) {
+
+	root := &cobra.Command{Use: "star", Short: "the scripting runtime"}
+	devlore := &cobra.Command{Use: "devlore", Short: "devlore commands"}
+	knowledge := &cobra.Command{Use: "knowledge", Short: "knowledge commands"}
+	index := &cobra.Command{Use: "index", Short: "generate index.yaml"}
+	extract := &cobra.Command{Use: "extract", Short: "extract knowledge"}
+	knowledge.AddCommand(index, extract)
+	devlore.AddCommand(knowledge)
+	root.AddCommand(devlore)
+
+	out := t.TempDir()
+	if err := GenerateTree(root, out, "star", "test"); err != nil {
+		t.Fatalf("GenerateTree: %v", err)
+	}
+
+	slugs := map[string]string{} // slug -> file that carries it
+	err := filepath.WalkDir(out, func(path string, entry os.DirEntry, err error) error {
+		if err != nil || entry.IsDir() || !strings.HasSuffix(path, ".md") {
+			return err
+		}
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+
+		relative, err := filepath.Rel(out, path)
+		if err != nil {
+			return err
+		}
+		want := strings.TrimSuffix(filepath.ToSlash(relative), ".md")
+
+		var got string
+		for _, line := range strings.Split(string(content), "\n") {
+			if strings.HasPrefix(line, "slug: ") {
+				got = strings.Trim(strings.TrimPrefix(line, "slug: "), `"`)
+				break
+			}
+		}
+		if got == "" {
+			t.Errorf("%s: no slug line", relative)
+			return nil
+		}
+		if got != want {
+			t.Errorf("%s: slug = %q, want %q", relative, got, want)
+		}
+		if other, dup := slugs[got]; dup {
+			t.Errorf("%s and %s share the slug %q", relative, other, got)
+		}
+		slugs[got] = relative
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walking %s: %v", out, err)
+	}
+
+	// The two files the collision was about.
+	for _, want := range []string{"star/devlore/knowledge", "star/devlore/knowledge/index"} {
+		if _, ok := slugs[want]; !ok {
+			t.Errorf("no page carries the slug %q; have %v", want, slugs)
+		}
 	}
 }
 
