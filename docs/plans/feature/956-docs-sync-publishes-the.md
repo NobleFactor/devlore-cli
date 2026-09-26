@@ -56,17 +56,17 @@ this step is the statement of what the site publishes; a fourth product is one w
 
 ### Phase 2: The step
 
-- [ ] The step as above; the workflow still parses as YAML and its shell passes `bash -n` and
-      shellcheck when extracted
+- [x] The step as above; the workflow parses as YAML and its shell, extracted, passes `bash -n` and
+      shellcheck at every severity
 
 ### Phase 3: Verify, then merge
 
-- [ ] Dry run on this host: `make build` regenerates `docs/cli/`; the loop, run against a scratch
-      directory, leaves `writ.md`, `lore.md`, `star.md`, `writ/`, `lore/`, `star/` and no
-      `devlore-test*`; the file count equals the three trees' sum
-- [ ] `star lint shell .`, `make vet-all`, `go test ./cmd/devlore-docs/` still pass (nothing in Go
-      changes; the gate is run because it is the gate)
-- [ ] PR script written, shown, and handed over
+- [x] Dry run on this host: a fresh `make build`, then the loop against a scratch directory: `writ.md`,
+      `lore.md`, `star.md`, `writ/`, `lore/`, `star/`; 130 pages copied, the three trees plus roots;
+      0 devlore-test files copied of 18 generated
+- [x] `star lint shell .` (11 files), `make vet-all` (three platforms), `go test ./cmd/devlore-docs/`
+      pass on DANOBLE-UD24-1; `make lint-all` runs in CI, golangci-lint not being on this host
+- [x] PR script written, shown, and handed over
 - [ ] After the merge: the run of `docs-publish.yaml` opens the site's PR with three trees and no
       `devlore-test`; that PR is the one lane 4's branch takes before its own build
 
