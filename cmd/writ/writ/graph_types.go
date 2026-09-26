@@ -43,6 +43,10 @@ type Config struct {
 
 // DeployConfig contains all settings for a deploy operation.
 type DeployConfig struct {
+
+	// Selection is how each project got in: implicit, recorded, named (#850).
+	Selection Selection
+
 	Config
 
 	// AllowDirty permits planning against layers with uncommitted changes.

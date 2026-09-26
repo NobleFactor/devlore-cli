@@ -156,7 +156,10 @@ as Ansible's implicit `all` group, named `common` so it cannot be misread as
 
 - **Always matched**: `common` and its variants (`common.Darwin`, `common.Linux`,
   etc.) are included in every `writ deploy` and `writ upgrade` selection
-- **Implicit inclusion**: Users don't need to specify `common` — it's automatic
+- **Implicit inclusion**: Users don't need to specify `common` — it's automatic.
+  A bare `writ deploy` deploys the implicit set: `common` and one project per
+  registered layer repository, named for the repository (`noblefactor-ops`,
+  `devlore-cli`, `personal`), plus whatever the current deployment already holds
 - **Base configuration**: Use `common/` for configuration that applies everywhere
 - **Destruction stays explicit**: `writ decommission` never includes `common`
   implicitly

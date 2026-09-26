@@ -32,11 +32,14 @@ import (
 // withCommonProject returns the selection with the reserved `common` project included — common holds
 // configuration that applies everywhere and is always matched (the platform-awareness guide's spec;
 // Ansible's `all` group is the pattern, renamed to kill the every-project misreading). An empty
-// selection returns unchanged: where emptiness is permitted it already means "every project", and
-// decommission never receives the injection — destruction stays explicit.
+// selection is the implicit set, `common` alone (#843; #850 widens it to one project per configured
+// layer repository). Decommission never receives the injection — destruction stays explicit.
 func withCommonProject(projects []string) []string {
 
-	if len(projects) == 0 || slices.Contains(projects, "common") {
+	if len(projects) == 0 {
+		return []string{"common"}
+	}
+	if slices.Contains(projects, "common") {
 		return projects
 	}
 	return append([]string{"common"}, projects...)
@@ -45,7 +48,14 @@ func withCommonProject(projects []string) []string {
 func parseDeployConfig(cmd *cobra.Command, args []string) (*DeployConfig, error) {
 	cfg := &DeployConfig{}
 	cfg.Tool = "writ"
-	cfg.Projects = withCommonProject(args)
+
+	// The selection: the implicit set, what the record holds, and what was named (#843, #850).
+	selection, err := resolveSelection(cmd.Context(), args)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Selection = selection
+	cfg.Projects = selection.Projects()
 
 	// Behavior flags
 	cfg.DryRun = viper.GetBool("writ.dry-run")
@@ -109,10 +119,17 @@ func parseDeployConfig(cmd *cobra.Command, args []string) (*DeployConfig, error)
 }
 
 // parseUpgradeConfig resolves all settings for an upgrade operation.
-func parseUpgradeConfig(cmd *cobra.Command, args []string) *UpgradeConfig {
+//
+// Upgrade selects the way deploy does (#850): the implicit set, what the record holds, and what was named.
+func parseUpgradeConfig(cmd *cobra.Command, args []string) (*UpgradeConfig, error) {
 	cfg := &UpgradeConfig{}
 	cfg.Tool = "writ"
-	cfg.Projects = withCommonProject(args)
+
+	selection, err := resolveSelection(cmd.Context(), args)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Projects = selection.Projects()
 
 	// Behavior flags
 	cfg.DryRun = viper.GetBool("writ.dry-run")
@@ -146,7 +163,7 @@ func parseUpgradeConfig(cmd *cobra.Command, args []string) *UpgradeConfig {
 		cfg.SigningKey = findSigningKey(identities)
 	}
 
-	return cfg
+	return cfg, nil
 }
 
 // parseReconcileConfig resolves all settings for a reconcile operation.

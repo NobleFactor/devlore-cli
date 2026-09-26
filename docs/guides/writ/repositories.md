@@ -133,7 +133,12 @@ writ deploy noblefactor
 ```
 
 Writ scans all registered repositories and deploys the selected projects from
-each — plus the reserved `common` project, which is always included implicitly.
+each — plus the implicit set: the reserved `common` project and, for every
+registered layer, a project named for its repository (`noblefactor-ops`,
+`devlore-cli`, `personal` in the layout above), which may live in any layer's
+`Home` and deploys with its platform variants like any other. A bare
+`writ deploy` deploys the implicit set and whatever the current deployment
+already holds; naming a project adds it.
 When the same file path appears in multiple layers, the highest-precedence
 layer wins.
 

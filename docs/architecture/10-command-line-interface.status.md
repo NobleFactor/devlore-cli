@@ -80,7 +80,8 @@ mechanics. **Revised 2026-09-23 (#922):** §3.1 names the lifetime document in t
 **Revised 2026-09-23 (#923):** the
 `reconcile` row names the six words. **Revised 2026-09-24 (#756):** §3.1's "valid only after deployment" paragraph carries
 the three exit codes (66 never deployed, 0 clean, 1 drifted) and where each is assigned; the `reconcile` row names
-them.
+them. **Revised 2026-09-26 (#843, #850):** the `deploy` row says bare `writ deploy` deploys the implicit set: `common`
+and one project per configured layer repository.
 
 ## Document discrepancies
 

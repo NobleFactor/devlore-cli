@@ -438,6 +438,22 @@ func TestWritDeployScenario_Deploy(t *testing.T) {
 
 	sandbox := newScenarioSandbox(t)
 
+	// The per-file inventory assertions are fixture-specific; a real repo (WRIT_SCENARIO_REPO) carries
+	// the owner's content, so that mode asserts the generic invariants only (reconcile, store, re-deploy).
+	fixtureMode := os.Getenv("WRIT_SCENARIO_REPO") == ""
+
+	// The bare form first (#843, #850): no project named deploys the implicit set -- common, and the registered
+	// repository's own-named project, which this fixture does not carry -- and nothing named.
+	if _, stderr, err := runWrit(t, sandbox, "deploy"); err != nil {
+		t.Fatalf("bare writ deploy failed; the implicit set deploys unnamed (#843): %v\n%s", err, stderr)
+	} else if !strings.Contains(stderr, "Projects: common") || !strings.Contains(stderr, "(implicit)") {
+		t.Fatalf("the bare deploy does not narrate its implicit selection:\n%s", stderr)
+	}
+	if fixtureMode {
+		assertLinked(t, filepath.Join(sandbox.Home, "local", "share", "scenario", "common.conf"), "project = common")
+		assertAbsent(t, filepath.Join(sandbox.Home, ".config", "scenario", "base.conf"))
+	}
+
 	// The dry run first: its plan is the result, rendered by -o like any other. Before this it was a YAML
 	// dump written regardless of -o, so `-o json` produced YAML and this assertion failed.
 	dryOut, dryErr, err := runWrit(t, sandbox, "deploy", "--dry-run", "-o", "json", "noblefactor", "thenobles")
@@ -456,10 +472,6 @@ func TestWritDeployScenario_Deploy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("writ deploy failed: %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
 	}
-
-	// The per-file inventory assertions are fixture-specific; a real repo (WRIT_SCENARIO_REPO) carries
-	// the owner's content, so that mode asserts the generic invariants only (reconcile, store, re-deploy).
-	fixtureMode := os.Getenv("WRIT_SCENARIO_REPO") == ""
 
 	// The deployed inventory: base dot-content on every platform, segment variants by matching, the
 	// template rendered (suffix stripped, copied not linked), undeployed projects absent.

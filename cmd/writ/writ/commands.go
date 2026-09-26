@@ -25,9 +25,14 @@ import (
 
 func newDeployCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "deploy [flags] <project>...",
+		Use:   "deploy [flags] [<project>...]",
 		Short: "Deploy projects by creating symlinks in the target location",
 		Long: `Deploy projects by creating symlinks in the target location.
+
+A bare "writ deploy" deploys the implicit set: the reserved common project and one
+project per configured layer repository, named for the repository (#843, #850), plus
+whatever the current record already holds. Naming a project adds it, from every
+layer that carries it; a name no registered layer carries is refused.
 
 Files inside each project directory are symlinked to the target (default: ~).
 Platform-specific variants (e.g., project.Darwin) are selected automatically.
@@ -40,12 +45,12 @@ Conflict handling (--conflict) — occupied targets (phase-8 step 49):
            redeploys flow without the flag
   skip     Leave every occupied target untouched and continue
   replace  Archive each occupant to the recovery site and overwrite (restorable)`,
-		Example: `  writ deploy noblefactor
-  writ deploy all noblefactor thenobles
+		Example: `  writ deploy                    # the implicit set: common and the layer repositories' projects
+  writ deploy noblefactor
+  writ deploy noblefactor thenobles
   writ deploy --conflict=replace noblefactor
   writ deploy --conflict=skip noblefactor
   writ deploy -s ROLE=desktop noblefactor`,
-		Args: cobra.MinimumNArgs(1),
 		RunE: runDeployV2,
 	}
 
@@ -66,6 +71,10 @@ func runDeployV2(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
+
+	// The selection, and how each project got in: the bare form deploys the implicit set and what the record
+	// holds, and naming a project adds it (#843, #850).
+	cli.Note("Projects: %s", cfg.Selection.Narration())
 
 	// The registry answers one question at plan time, whether a manifest claim names a registry package; the
 	// packages themselves plan through the pkg provider (#814).
@@ -191,7 +200,10 @@ entries cannot be compared without decrypting and follow the same --force rule.`
 // runUpgrade implements the upgrade command on the upgrade package (phase-8 step 47 slice 2).
 func runUpgrade(cmd *cobra.Command, args []string) error {
 
-	cfg := parseUpgradeConfig(cmd, args)
+	cfg, err := parseUpgradeConfig(cmd, args)
+	if err != nil {
+		return err
+	}
 
 	graphs, err := upgrade.Execute(cmd.Context(), &upgrade.Config{
 		Projects: cfg.Projects,

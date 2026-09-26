@@ -149,7 +149,7 @@ The mechanics, per program:
 
 | Verb | `lore` -- a package | `writ` -- an environment |
 | --- | --- | --- |
-| `deploy` | install the package's lifecycle pipelines | link, write, and create files under each scope |
+| `deploy` | install the package's lifecycle pipelines | link, write, and create files under each scope; bare `writ deploy` deploys the implicit set, `common` ([#843](https://github.com/NobleFactor/devlore-cli/issues/843)) and one project per configured layer repository ([#850](https://github.com/NobleFactor/devlore-cli/issues/850)) |
 | `reconcile` | compare the record against the live system: `linked`, `copied`, `absent`, `changed`, `dangling`, `stale` ([5.1](5.1-reconciliation.md)); exit 0 clean, 1 drifted, 66 never deployed | the same, per scope |
 | `upgrade` | constrained re-deploy with drift attribution | the same |
 | `decommission` | reverse traversal, receipts for the removals | the same |

@@ -60,7 +60,6 @@ type journey struct {
 type capabilities struct {
 	repoSet         bool // #791: `writ repo set` / `unset`
 	bareDeploy      bool // #843/#850: `writ deploy` with no project converges the implicit set
-	implicitByName  bool // #850: a repository-named project deploys unnamed
 	refresh         bool // #812: a verb that brings a writ-made clone forward
 	decommissionAll bool // #851: `writ decommission --all`, re-converge, refusal by name
 }
@@ -252,18 +251,6 @@ func (j *journey) registerByMechanism(t *testing.T, role string, byURL bool) {
 	}
 }
 
-// registeredRoles lists the layers registered right now, in precedence order.
-func (j *journey) registeredRoles() []string {
-
-	var roles []string
-	for _, role := range []string{"base", "team", "personal"} {
-		if _, err := os.Lstat(filepath.Join(j.layersDir(), role)); err == nil {
-			roles = append(roles, role)
-		}
-	}
-	return roles
-}
-
 // ---------------------------------------------------------------------------------------------------------
 // Probes and skips
 // ---------------------------------------------------------------------------------------------------------
@@ -291,11 +278,9 @@ func (j *journey) probe(t *testing.T) {
 	// is a parse error, so it is the same with no layers as with three.
 	_, stderr, err := runWrit(t, j.sandbox, "deploy", "--dry-run", "-o", "none")
 	j.caps.bareDeploy = err == nil || !strings.Contains(stderr, "requires at least 1 arg")
-	// Implicit repository-named projects arrive with the same change as the bare form (#850).
-	j.caps.implicitByName = j.caps.bareDeploy
 
-	t.Logf("capabilities: repo set=%v bare deploy=%v implicit by name=%v refresh=%v decommission --all=%v",
-		j.caps.repoSet, j.caps.bareDeploy, j.caps.implicitByName, j.caps.refresh, j.caps.decommissionAll)
+	t.Logf("capabilities: repo set=%v bare deploy=%v refresh=%v decommission --all=%v",
+		j.caps.repoSet, j.caps.bareDeploy, j.caps.refresh, j.caps.decommissionAll)
 }
 
 // skip records the outstanding ruling and skips the current step.
@@ -312,47 +297,15 @@ func (j *journey) skip(t *testing.T, issue int, what string) {
 // Deploy, and reading what it did
 // ---------------------------------------------------------------------------------------------------------
 
-// deploy runs the ruled form — a bare `writ deploy` plus whatever is named — when the binary has it. Until
-// #843 and #850 ship it names the implicit set itself: `common`, and each registered repository's own-named
-// project where a registered layer carries one. This is the one shim in the scenario, and it is logged.
+// deploy runs the ruled form: a bare `writ deploy` plus whatever is named (#843, #850). The implicit set --
+// `common`, and each registered repository's own-named project -- is the binary's to resolve.
 func (j *journey) deploy(t *testing.T, flags []string, named ...string) (stdout, stderr string, err error) {
 
 	t.Helper()
 
 	args := append([]string{"deploy"}, flags...)
-	if j.caps.bareDeploy {
-		args = append(args, named...)
-	} else {
-		implicit := j.implicitToday()
-		t.Logf("shim for #%d/#%d: naming the implicit set %v until the bare form ships", issueBareDeploy, issueImplicitProjects, implicit)
-		args = append(args, implicit...)
-		args = append(args, named...)
-	}
+	args = append(args, named...)
 	return runWrit(t, j.sandbox, args...)
-}
-
-// implicitToday is the implicit set #850 rules, computed by the harness: `common`, plus each registered
-// repository's name when any registered layer's Home carries a project by that name.
-func (j *journey) implicitToday() []string {
-
-	set := []string{"common"}
-	roles := j.registeredRoles()
-	for _, role := range roles {
-		name := j.layers[role].Name
-		for _, other := range roles {
-			entries, err := os.ReadDir(filepath.Join(j.registeredPath(other), "Home"))
-			if err != nil {
-				continue
-			}
-			for _, entry := range entries {
-				project := strings.SplitN(entry.Name(), ".", 2)[0]
-				if entry.IsDir() && project == name && !contains(set, name) {
-					set = append(set, name)
-				}
-			}
-		}
-	}
-	return set
 }
 
 // registeredPath resolves a registration to the working tree it points at.
@@ -942,12 +895,8 @@ func TestWritLayerJourneyScenario_Part1_Subsets(t *testing.T) {
 			assertPresence(t, has("team"), filepath.Join(home, ".config", "scenario", "team.conf"))
 			assertPresence(t, has("base") || has("personal"), filepath.Join(home, ".local", "bin", "Declare-BashScript"))
 			assertPresence(t, has("personal"), filepath.Join(home, ".config", "scenario", "personal.conf"))
-			// the repository-named project: personal's Home/devlore-cli deploys only when devlore-cli is a layer
+			// the repository-named project: personal's Home/devlore-cli deploys only when devlore-cli is a layer (#850)
 			wantOverrides := has("personal") && has("team")
-			if wantOverrides && !j.caps.implicitByName {
-				// the shim names it; the ruling makes it implicit — the same outcome, so no skip here
-				t.Logf("Home/devlore-cli deployed by the shim's naming; #%d makes it implicit", issueImplicitProjects)
-			}
 			assertPresence(t, wantOverrides, filepath.Join(home, ".config", "scenario", "devlore-cli.conf"))
 			// a project named for nothing configured never deploys unnamed
 			assertAbsent(t, filepath.Join(home, ".config", "scenario", "tn.conf"))

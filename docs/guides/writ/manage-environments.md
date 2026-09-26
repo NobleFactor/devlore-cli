@@ -21,16 +21,24 @@ what a deploy reads.
 
 ## Deploy projects
 
-Deploy one or more projects from your registered layers:
+A bare `writ deploy` deploys the implicit set: the reserved `common` project,
+configuration that applies everywhere, plus one project per registered layer
+repository, named for the repository. With the base layer registered from
+`noblefactor-ops`, the team layer from `devlore-cli` and the personal layer from
+`personal`, a bare deploy overlays `common`, `noblefactor-ops`, `devlore-cli`
+and `personal` from every layer that carries them, each with its platform
+variants. Naming a project adds it, and the record remembers it: a later bare
+deploy keeps every project the current deployment put in place.
 
 ```bash
+writ deploy
 writ deploy noblefactor
 writ deploy noblefactor thenobles
 ```
 
-The reserved `common` project — configuration that applies everywhere — deploys
-implicitly with every selection; there is nothing to add to the command line.
-To deploy every project, name them.
+There is never anything to add for `common`, and a name no registered layer
+carries is refused. The deploy says which projects were implicit, which the
+record already held, and which you named.
 
 Each `writ deploy` invocation is one deployment. Its receipts are the record
 until the next deploy replaces it.
