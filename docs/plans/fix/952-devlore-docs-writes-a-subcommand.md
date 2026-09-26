@@ -69,22 +69,24 @@ push to `develop`. So the fix reaches the site by the merge alone: the next sync
 
 ### Phase 2: The change
 
-- [ ] `PageData.Slug`, the template line, `BuildPageData` (Requirement 1)
-- [ ] The tests (Requirement 2); `gofmt -w` on every edited file, then `gofmt -l` clean
+- [x] `PageData.Slug`, the template line, `BuildPageData` (Requirement 1)
+- [x] The tests (Requirement 2); `gofmt -w` on every edited file, then `gofmt -l` clean
 
 ### Phase 3: Verify
 
-- [ ] `go test ./cmd/devlore-docs/` passes, and the new test fails when the `Slug` line is removed
-      (run once with the fix reverted, to prove the guard bites)
-- [ ] `make build` regenerates `docs/cli/`; `grep -c '^slug:' docs/cli` counts every page;
-      `knowledge/index.md` and `package/index.md` carry their own slugs; no two files share one
-- [ ] The repository's gates on this host: `make vet-all`, `go test ./cmd/devlore-docs/`, `star lint
-      shell .`. `make lint-all` and `star lint go` need golangci-lint v2.13.2, which is not on
-      DANOBLE-UD24-1; CI runs them, and installing the pin here is the owner's call, not the plan's
+- [x] `go test ./cmd/devlore-docs/` passes, and with the `Slug` assignment removed both
+      `TestBuildPageData` and `TestGenerateTree_SlugMatchesPath` fail ("no slug line" on every page);
+      restored, green
+- [x] `make build` regenerated `docs/cli/`: 148 pages, 148 with `slug:`, 0 duplicate slugs, 0 pages whose
+      slug differs from its path; `knowledge/index.md` → `star/devlore/knowledge/index`,
+      `package/index.md` → `star/devlore/package/index`
+- [x] On this host: `make vet-all` (linux, darwin, windows) clean, `go test ./cmd/devlore-docs/` ok,
+      `star lint shell .` 11 files clean. `make lint-all` and `star lint go` need golangci-lint v2.13.2,
+      not on DANOBLE-UD24-1 at the time; CI runs them and the PR script's gate holds the merge
 
 ### Phase 4: Merge, sync, build
 
-- [ ] PR script written, shown, and handed over
+- [x] PR script written, shown, and handed over
 - [ ] After the merge: `docs-publish.yaml` opens the site's sync PR carrying pages with `slug`; with
       site#457 merged, the site's build goes green for the first time since 2026-09-24. Stays open until
       that build is seen
