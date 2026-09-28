@@ -1,3 +1,4 @@
+#!/usr/bin/env pwsh
 # SPDX-License-Identifier: MIT
 # Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 #
@@ -32,6 +33,11 @@
 
 #Requires -Version 5.1
 
+[Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+    Justification = 'Prefix is read by Main below -- it defaults there to ~/.local, becomes the bin
+    directory, and is passed to `self install`. PowerShell resolves a script-scope parameter inside a
+    function in the same script dynamically, and the analyzer cannot see across that boundary. Deleting
+    it would silently drop a documented flag.')]
 [CmdletBinding()]
 param(
     [string]$Prefix,
@@ -42,8 +48,8 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 if ($Help) {
-    Write-Host "Usage: install.ps1 [-Prefix <dir>]"
-    Write-Host "  -Prefix <dir>  Installation prefix (default: ~/.local)"
+    Write-Information -InformationAction Continue "Usage: install.ps1 [-Prefix <dir>]"
+    Write-Information -InformationAction Continue "  -Prefix <dir>  Installation prefix (default: ~/.local)"
     exit 0
 }
 
@@ -66,12 +72,69 @@ $AuthToken = $env:GH_TOKEN
 # Helpers
 # -------------------------------------------------------------------
 
-function Write-Info { param([string]$Message) Write-Host "info: $Message" -ForegroundColor Blue }
-function Write-Success { param([string]$Message) Write-Host "success: $Message" -ForegroundColor Green }
-function Write-Warn { param([string]$Message) Write-Host "warning: $Message" -ForegroundColor Yellow }
+# Each level goes to the stream PowerShell already has for it: information, warning, error.
+#
+# Write-Host went to none of them. It cannot be captured or redirected, so a user whose install failed
+# could not pipe the run to a file or paste a log -- which for an installer people run under
+# `irm | iex`, and in CI, is exactly when a log matters. Separate streams also let a caller silence
+# warnings and keep progress, or capture errors alone with `2>`, which one stream carrying text prefixes
+# cannot offer.
+#
+# `-InformationAction Continue` is on every Write-Information call, so progress appears whatever
+# $InformationPreference the caller's session carries. Write-Warning is visible by default.
+#
+# The color is not replaced. $PSStyle is PowerShell 7.2 and later, and this script must run on Windows
+# PowerShell 5.1, which is what a fresh Windows machine has (#948). ANSI escapes are not reliable there
+# either. The streams carry the distinction the color used to, and Write-Warning and Write-Error label
+# their own output, so `info:` and `success:` are the only prefixes left.
+
+function Write-Info {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]
+        $Message
+    )
+
+    Write-Information -InformationAction Continue "info: $Message"
+}
+
+function Write-Success {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]
+        $Message
+    )
+
+    Write-Information -InformationAction Continue "success: $Message"
+}
+
+function Write-Warn {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]
+        $Message
+    )
+
+    Write-Warning $Message
+}
+
 function Write-Fatal {
-    param([string]$Message)
-    Write-Host "error: $Message" -ForegroundColor Red
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)]
+        [string]
+        $Message
+    )
+
+    # -ErrorAction Continue, deliberately. This script sets $ErrorActionPreference = 'Stop', under which
+    # a bare Write-Error throws and the exit below never runs. That would change how the installer
+    # terminates -- and how it terminates is devlore-cli#965, where `exit` under `irm | iex` ends the
+    # user's session rather than the script. #965 is its own issue with its own lane; this one puts the
+    # message on the error stream and leaves the exit path exactly as it found it.
+    Write-Error -ErrorAction Continue $Message
     exit 1
 }
 
@@ -81,6 +144,10 @@ function Write-Fatal {
 # does not exist is an error, so the edition is read first: Desktop is 5.1, which runs on Windows alone.
 # The automatic variables are consulted only on Core, where they exist.
 function Get-OSName {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+
     if ($PSVersionTable.PSEdition -ne 'Core') {
         return "windows"
     }
@@ -97,6 +164,10 @@ function Get-OSName {
 
 # Detect architecture
 function Get-ArchName {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+
     $arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
     switch ($arch) {
         'X64'   { return "amd64" }
@@ -107,7 +178,9 @@ function Get-ArchName {
 }
 
 # Build common headers for GitHub API requests
-function Get-ApiHeaders {
+function Get-ApiHeader {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
     param([string]$Accept = "application/vnd.github+json")
     $headers = @{ Accept = $Accept }
     if ($AuthToken) {
@@ -123,8 +196,9 @@ function Get-ApiHeaders {
 # Explorer engine, which hangs on a machine that has never run IE's first-launch dialog. PowerShell 7
 # accepts the switch and ignores it.
 function Invoke-ApiGet {
+    [CmdletBinding()]
     param([string]$Url)
-    $headers = Get-ApiHeaders
+    $headers = Get-ApiHeader
     Invoke-RestMethod -Uri $Url -Headers $headers -UseBasicParsing -ErrorAction Stop
 }
 
@@ -133,6 +207,9 @@ function Invoke-ApiGet {
 # Uses /releases?per_page=1 to get the most recent release (including prereleases)
 # Note: /releases/latest excludes prereleases, so we use the list endpoint instead
 function Get-LatestVersion {
+    [CmdletBinding()]
+    param()
+
     $url = "$GitHubApi/releases?per_page=1"
     $releases = Invoke-ApiGet -Url $url
     if (-not $releases -or $releases.Count -eq 0) {
@@ -144,6 +221,7 @@ function Get-LatestVersion {
 # Get release by tag
 # Per https://docs.github.com/en/rest/releases/releases#get-a-release-by-tag-name
 function Get-ReleaseByTag {
+    [CmdletBinding()]
     param([string]$Tag)
     $url = "$GitHubApi/releases/tags/$Tag"
     Invoke-ApiGet -Url $url
@@ -153,14 +231,16 @@ function Get-ReleaseByTag {
 # Per https://docs.github.com/en/rest/releases/assets#get-a-release-asset
 # Must use Accept: application/octet-stream to get binary content
 function Save-ReleaseAsset {
+    [CmdletBinding()]
     param([string]$AssetId, [string]$Destination)
     $url = "$GitHubApi/releases/assets/$AssetId"
-    $headers = Get-ApiHeaders -Accept "application/octet-stream"
+    $headers = Get-ApiHeader -Accept "application/octet-stream"
     Invoke-WebRequest -Uri $url -Headers $headers -OutFile $Destination -UseBasicParsing -ErrorAction Stop
 }
 
 # Verify checksum
 function Test-Checksum {
+    [CmdletBinding()]
     param([string]$File, [string]$Expected)
     $actual = (Get-FileHash -Path $File -Algorithm SHA256).Hash.ToLower()
     if ($actual -ne $Expected.ToLower()) {
@@ -173,8 +253,11 @@ function Test-Checksum {
 # -------------------------------------------------------------------
 
 function Main {
+    [CmdletBinding()]
+    param()
+
     Write-Info "DevLore CLI Installer"
-    Write-Host ""
+    Write-Information -InformationAction Continue ''
 
     # GitHub speaks TLS 1.2 and later. Windows PowerShell 5.1 takes its protocols from the .NET Framework's
     # default, which on an older machine stops at 1.0, so every request fails before it starts. Adding 1.2
@@ -272,7 +355,7 @@ function Main {
         if ($ext -eq "zip") {
             Expand-Archive -Path $archivePath -DestinationPath $pkg -Force
         } else {
-            # tar.gz — PowerShell 7+ on macOS/Linux has tar available
+            # tar.gz -- PowerShell 7+ on macOS/Linux has tar available
             tar -xzf $archivePath -C $pkg
         }
 
@@ -316,48 +399,48 @@ function Main {
             Write-Fatal "No binaries found in archive for DEVLORE_TOOLS=$Tools"
         }
 
-        Write-Host ""
+        Write-Information -InformationAction Continue ''
         Write-Success "Installed: $($installed -join ', ')"
         Write-Success "Location: $installDir"
-        Write-Host ""
+        Write-Information -InformationAction Continue ''
 
         # Check if install dir is in PATH
         $pathDirs = $env:PATH -split [System.IO.Path]::PathSeparator
         if ($installDir -notin $pathDirs) {
             Write-Warn "$installDir is not in your PATH"
-            Write-Host ""
+            Write-Information -InformationAction Continue ''
             if ($os -eq "windows") {
-                Write-Host "Add it to your PATH (run as Administrator):"
-                Write-Host ""
-                Write-Host "  [Environment]::SetEnvironmentVariable('Path',"
-                Write-Host "    `"$installDir;`" + [Environment]::GetEnvironmentVariable('Path', 'User'), 'User')"
-                Write-Host ""
-                Write-Host "Or add to your PowerShell profile (`$PROFILE):"
-                Write-Host ""
-                Write-Host "  `$env:PATH = `"$installDir;`$env:PATH`""
-                Write-Host ""
+                Write-Information -InformationAction Continue "Add it to your PATH (run as Administrator):"
+                Write-Information -InformationAction Continue ''
+                Write-Information -InformationAction Continue "  [Environment]::SetEnvironmentVariable('Path',"
+                Write-Information -InformationAction Continue "    `"$installDir;`" + [Environment]::GetEnvironmentVariable('Path', 'User'), 'User')"
+                Write-Information -InformationAction Continue ''
+                Write-Information -InformationAction Continue "Or add to your PowerShell profile (`$PROFILE):"
+                Write-Information -InformationAction Continue ''
+                Write-Information -InformationAction Continue "  `$env:PATH = `"$installDir;`$env:PATH`""
+                Write-Information -InformationAction Continue ''
             } else {
-                Write-Host "Add it to your shell profile:"
-                Write-Host ""
-                Write-Host "  # For PowerShell (`$PROFILE)"
-                Write-Host "  `$env:PATH = `"$installDir`:`$env:PATH`""
-                Write-Host ""
+                Write-Information -InformationAction Continue "Add it to your shell profile:"
+                Write-Information -InformationAction Continue ''
+                Write-Information -InformationAction Continue "  # For PowerShell (`$PROFILE)"
+                Write-Information -InformationAction Continue "  `$env:PATH = `"$installDir`:`$env:PATH`""
+                Write-Information -InformationAction Continue ''
             }
         }
 
         # Verify installation
         if ($installDir -in $pathDirs) {
-            Write-Host "Verify installation:"
+            Write-Information -InformationAction Continue "Verify installation:"
             foreach ($tool in $installed) {
-                Write-Host "  $tool --version"
+                Write-Information -InformationAction Continue "  $tool --version"
             }
         }
 
-        Write-Host ""
+        Write-Information -InformationAction Continue ''
         Write-Info "Next steps:"
-        Write-Host "  Adopt files:      writ adopt --project <name> <file>..."
-        Write-Host "  Migrate existing: writ migrate <directory>"
-        Write-Host ""
+        Write-Information -InformationAction Continue "  Adopt files:      writ adopt --project <name> <file>..."
+        Write-Information -InformationAction Continue "  Migrate existing: writ migrate <directory>"
+        Write-Information -InformationAction Continue ''
         Write-Info "Documentation: https://devlore.noblefactor.com"
 
     } finally {
