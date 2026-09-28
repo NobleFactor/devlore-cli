@@ -15,6 +15,12 @@ updated: 2026-09-27
 > superseded, since a restore read from the ref always reproduces the record; the "no reverse sync" reason lapses
 > for links, which retain branches now carry back; the exit status and the words move with that design's third
 > open ruling; and restore becomes a command flag. This plan resumes after the replan of #916.
+>
+> **Replanned 2026-09-28:** this lane is lane 5 of #916 in PR B′, after lane 18
+> ([#972](https://github.com/NobleFactor/devlore-cli/issues/972), the words and the exit code against the ref),
+> which waits on lane 17 ([#971](https://github.com/NobleFactor/devlore-cli/issues/971), kept snapshots in deploy).
+> The requirements below are rewritten against the ref when the lane resumes; the rulings they rest on are in the
+> kept-snapshots plan.
 
 ## Summary
 

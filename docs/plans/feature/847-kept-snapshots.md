@@ -24,8 +24,8 @@ This supersedes the 2026-08-08 ruling that links target the origin because snaps
 ends, and it widens [#847](https://github.com/NobleFactor/devlore-cli/issues/847) (pinned or live, per layer) into
 the model for every lifetime.
 
-**Draft. Not chartered, nothing built.** Six rulings are made, three remain (below); where this lands on #916 is
-one of them. This document exists so that nothing ruled on 2026-09-27 and 2026-09-28 is lost before the replan.
+**The design rulings are complete (2026-09-28), and the work is placed on #916 as lanes 16 to 19 with lanes 5, 11,
+12 and 13 revised (below).** Draft: each lane gets its own plan when its branch opens; nothing is built yet.
 
 ## Invariant: the maintainer owns every merge
 
@@ -82,6 +82,29 @@ Read 2026-09-27 at `5509da4d`.
    working tree, the index, HEAD or any other branch. Rejected: a writ-owned mirror of each layer, which keeps #792
    whole at the price of a second place to look and a second hop to a pull request.
 
+7. **The words and the exit code, against the ref** (2026-09-28, accepted as proposed). "When the system matches the
+   record, we exit 0; otherwise we exit 1" -- under `--dry-run` too; 66 when never deployed. A plain run restores
+   only what it can without discarding anything and preserves the rest. Revises lanes 2 and 4 (#923, #756); it is
+   [#972](https://github.com/NobleFactor/devlore-cli/issues/972), lane 18.
+
+   | Word | Means, against the ref | A plain `writ reconcile` | Exit after |
+   | --- | --- | --- | --- |
+   | `linked` | the link points into the recorded snapshot, and the file is as committed | nothing | 0 |
+   | `copied` | the copy holds the recorded content | nothing | 0 |
+   | `stale` | as recorded, but the checkout has moved past the recorded commit and this file differs there | nothing; names `writ upgrade` | 0 |
+   | `absent` | the target is missing | restores it from the ref | 0 |
+   | `dangling` | the snapshot a link points into is gone | rebuilds it from the ref | 0 |
+   | `edited` (new) | the file behind a link differs from its commit, or an editor replaced the link with a real file holding the edit | retains it on `retain/<host>/<date>`; restores only with the flag | 1 until tossed, merged and upgraded, or restored |
+   | `changed` | another occupant: another link, or a copy whose content moved | archives it to the recovery site; restores only with the flag | 1 until restored |
+   | `unpinned` (new) | the pinned ref is gone and its commit unreachable | nothing possible; names `writ deploy` | 1 |
+8. **Live is retired** (2026-09-28). Every layer is pinned; links never point at a working tree. "Conceptually, i
+   don't see a difference based on repo ownership. keeping personal, team, or base outside our data home should not
+   impact behavior ... i don't want personal to be live." #847's per-layer pinned-or-live policy is gone.
+9. **The replan** (2026-09-28, reading a): inside #916, the scope lanes first, then kept snapshots, then the revised
+   lanes. "If what you mean by (a) is that we get scope right before we deal with sparse checkouts, then i roll with
+   (a)." The owner approved splitting the words and exit code into their own lane (18) and closing #473 and #844
+   through lanes 17 and 11.
+
 **Amended by the owner:** the sparse checkout covers every scope directory -- `Home`, `System` and, especially on
 Windows, `ProgramFiles`, `ProgramData` and whatever `writ.scopes` adds
 ([#926](https://github.com/NobleFactor/devlore-cli/issues/926)).
@@ -126,24 +149,29 @@ default branch.
  into it    (writable)                                                            (ruling still open)
 ```
 
-## Still to rule
+## The lanes, on #916
 
-The owner asked for the count and for one question at a time: three remain.
+Approved 2026-09-28. Existing lanes keep their numbers; the order is C, D, E and B′, F.
 
-1. **The words and the exit code against the ref.** Put 2026-09-28 as one table: `stale` stops being drift (the
-   system is the record; the checkout moved past it); `dangling` means the snapshot is gone, and is restorable;
-   `edited` (new) is an edit behind a link, or an editor's real file in place of a link; `unpinned` (new) is a ref
-   whose commit is unreachable; a plain run restores only what it can without discarding anything (`absent`,
-   `dangling`) and preserves the rest; the exit is 0 exactly when the system is the record once the run returns.
-   Revises lane 4 ([#756](https://github.com/NobleFactor/devlore-cli/issues/756)) and lane 2's words
-   ([#923](https://github.com/NobleFactor/devlore-cli/issues/923)). Awaiting the owner's answer.
-2. **#847's per-layer live policy.** #847 proposed that `personal` stay live, its links at the working tree. The
-   rulings above keep snapshots for every layer, and writable snapshots with retain branches serve the authored
-   layer too; whether live survives is open.
-3. **The replan.** Where this lands on #916. Lane 5 (#924) waits on it.
+| Lane | Issue | What | PR | Waits on |
+| --- | --- | --- | --- | --- |
+| 6, 7, 8 | [#925](https://github.com/NobleFactor/devlore-cli/issues/925), [#926](https://github.com/NobleFactor/devlore-cli/issues/926), [#927](https://github.com/NobleFactor/devlore-cli/issues/927) | scope, `--scope`, the environment prefix | C | -- |
+| 16 | [#846](https://github.com/NobleFactor/devlore-cli/issues/846) | snapshots are kept state: the state home, locked, never leaked | D | lane 7 |
+| 17 | [#971](https://github.com/NobleFactor/devlore-cli/issues/971) | deploy pins by a private ref and links into a sparse snapshot; closes #473; absorbs #960 | D | lane 16 |
+| 11 | [#928](https://github.com/NobleFactor/devlore-cli/issues/928) | upgrade pins its own ref and moves links with copies; closes #844 | E | lane 17 |
+| 12 | [#929](https://github.com/NobleFactor/devlore-cli/issues/929) | decommission ends the lifetime; snapshots and refs kept for pruning | E | lane 17 |
+| 18 | [#972](https://github.com/NobleFactor/devlore-cli/issues/972) | reconcile reads against the ref: the words and the exit code | B′ | lane 17 |
+| 5 | [#924](https://github.com/NobleFactor/devlore-cli/issues/924) | reconcile repairs: restore, retain, the flag, the narration | B′ | lane 18 |
+| 13 | [#930](https://github.com/NobleFactor/devlore-cli/issues/930) | pruning, design only: receipts, refs, snapshots; never an unmerged `retain/*` branch | F | lanes 11, 12 |
+| 19 | [noblefactor-ops#250](https://github.com/NobleFactor/noblefactor-ops/issues/250) | the development process allows `retain/*` branches | ops | -- |
 
-Also to place with the replan: `docs/guides/development-process.md` in noblefactor-ops needs an exception for
-machine-originated retain branches, which no issue tracks.
+**#960 folds into lane 17** (agreed 2026-09-28 with the session that held it as schedule #949's lane 15): deploy loses
+a removed source precisely because it replaces the lifetime, so deploy's handling of the replaced lifetime's links is
+designed once, against snapshots. personal#236 (26 dangling links on DANOBLE-UD24-1) waits on it; the links can be
+removed by hand meanwhile, and only reconcile's false clean waits for lanes 17 and 18. One pull request at a time in
+`cmd/writ/writ`: that session's #959 first, then lane 6.
+
+The process exception for machine-originated retain branches is lane 19, noblefactor-ops#250.
 
 ## What the rulings change elsewhere
 
