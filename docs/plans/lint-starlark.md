@@ -9,9 +9,14 @@ updated: 2026-08-27
 
 # Charter — `LintStarlark`
 
-**Status:** `charter` — chartered 2026-08-27 from the docker package rewrite
+Written 2026-08-27 out of the docker package rewrite
 ([docker.devlore-package.md](docker.devlore-package.md)), where every phase script in the shipped
 package turned out to call an API that no longer exists.
+
+The status is the frontmatter's, and it is `draft`. It used to be restated here as `charter`, which is
+not one of the five — `draft`, `approved`, `active`, `complete`, `abandoned` — and was retired along
+with `in-progress` by [noblefactor-ops#219](https://github.com/NobleFactor/noblefactor-ops/issues/219).
+A status in two places is a second copy that drifts, so this line no longer carries one.
 
 **No solution is assumed.** This charter states the problem, the evidence, and what has to be
 discovered. The approaches at the end are candidates to evaluate.
