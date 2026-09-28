@@ -126,6 +126,47 @@ jobs:
           go install github.com/boyter/scc/v3@latest
           scc .
 
+      # PowerShell (#964). install.ps1 ships to users and was checked by nothing, while
+      # noblefactor-ops has had this gate since its #218 and personal since its #216.
+      #
+      # These are steps of quality-gate rather than a job of their own, deliberately. The develop
+      # ruleset requires exactly one check, `quality-gate`, so a separate job could not block a merge
+      # whatever it reported -- the same reason the `test` job below is described as non-blocking. A
+      # gate nobody has watched refuse anything is a claim, not a gate.
+      #
+      # Test-PowerShell.ps1 and PSScriptAnalyzerSettings.psd1 are the organization's, not this
+      # repository's, and the settings file says so in its own header. So the script runs out of the
+      # .base checkout rather than being copied here, and the rule set cannot drift between the three
+      # repositories. Two properties of the script make that work: it resolves $Settings relative to
+      # $PSScriptRoot, so running from .base finds .base/Home/common/.config/PSScriptAnalyzer/ with no
+      # argument; and its Get-TrackedScript never changes directory, so `git ls-files` runs against
+      # this repository rather than the base checkout.
+      #
+      # No -Path and no exemption list. Ruled 2026-09-28: everything is linted, always, with no
+      # exception absent a compelling argument -- which includes the two .ps1 test fixtures.
+      - name: Checkout the base layer, pinned
+        uses: actions/checkout@v4
+        with:
+          repository: NobleFactor/noblefactor-ops
+          ref: develop
+          path: .base
+
+      # The version noblefactor-ops pins, so a rule cannot change under this repository without the
+      # pin moving. pwsh ships on the ubuntu-latest image; only the analyzer is installed here.
+      - name: Install PSScriptAnalyzer
+        shell: pwsh
+        env:
+          PSSCRIPTANALYZER_VERSION: 1.25.0
+        run: |
+          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
+          Install-Module -Name PSScriptAnalyzer -RequiredVersion $env:PSSCRIPTANALYZER_VERSION -Scope CurrentUser -Force
+          $module = Get-Module -ListAvailable -Name PSScriptAnalyzer | Select-Object -First 1
+          Write-Output "PSScriptAnalyzer $($module.Version)"
+
+      - name: PowerShell format & lint (Test-PowerShell.ps1 from the base layer)
+        shell: pwsh
+        run: .base/.github/scripts/Test-PowerShell.ps1
+
   # Every test on every platform (docs/plans/platform-test-matrix.md, #373). The unit suite used to
   # run in quality-gate on ubuntu alone — 121 packages there, while macOS and Windows ran only the
   # single writ-deploy scenario below. A green scenario leg attested to one test, not to the suite.

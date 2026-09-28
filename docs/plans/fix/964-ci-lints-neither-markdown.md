@@ -204,15 +204,19 @@ other reason, not in a pass of their own. #721's was corrected here because this
 
 ### Phase 2: the PowerShell gate, and `install.ps1` clean (lane 7)
 
-- [ ] `ci.yaml` gains a PowerShell job on `ubuntu-latest`, modeled on noblefactor-ops's, checking the
-      base layer out at a pinned ref and installing PSScriptAnalyzer 1.25.0
-- [ ] `install.ps1`'s 47 findings resolved; the 30 `Write-Host` calls become
+- [x] `ci.yaml` gains the PowerShell gate, checking the base layer out at a pinned ref and installing
+      PSScriptAnalyzer 1.25.0. **Three steps of `quality-gate`, not a job of its own** -- and that is a
+      correction to what this box assumed. This repository's ruleset requires exactly one check,
+      `quality-gate`, so a separate job could not block a merge whatever it reported, which the workflow
+      already says of the `test` job beside it: *"A gate nobody has watched refuse anything is a claim,
+      not a gate."* personal#216 could use a separate job because that repository's ruleset admits one
+- [x] `install.ps1`'s 47 findings resolved; the 30 `Write-Host` calls become
       `Write-Information -InformationAction Continue`, the house form everywhere else
-- [ ] `install.ps1` still runs on **Windows PowerShell 5.1**, which is what a fresh Windows machine has
+- [x] `install.ps1` still runs on **Windows PowerShell 5.1**, which is what a fresh Windows machine has
       and what #948 landed it for. **`$PSStyle` is 7.2 and later, so it must not be used here**, unlike
       personal's `Install-Rustup.ps1` where it preserved the color
-- [ ] The two test fixtures fixed, 4 findings -- ruled in scope like everything else
-- [ ] The gate reports `3 checked, 0 with findings`
+- [x] The two test fixtures fixed, 4 findings -- ruled in scope like everything else
+- [x] The gate reports `3 checked, 0 with findings`
 - [ ] The other session told, because devlore-cli#950 and #965 are unblocked by this phase and by
       nothing else in this plan
 
