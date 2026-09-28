@@ -3,7 +3,7 @@ title: "Kept snapshots: a lifetime keeps its layer worktrees, pinned by private 
 issue: https://github.com/NobleFactor/devlore-cli/issues/847
 status: draft
 created: 2026-09-27
-updated: 2026-09-27
+updated: 2026-09-28
 ---
 
 # Plan: kept snapshots
@@ -24,8 +24,17 @@ This supersedes the 2026-08-08 ruling that links target the origin because snaps
 ends, and it widens [#847](https://github.com/NobleFactor/devlore-cli/issues/847) (pinned or live, per layer) into
 the model for every lifetime.
 
-**Draft. Not chartered, nothing built.** Four rulings are made, five remain (below); where this lands on #916 is
-one of them. This document exists so that nothing ruled on 2026-09-27 is lost before the replan.
+**Draft. Not chartered, nothing built.** Six rulings are made, three remain (below); where this lands on #916 is
+one of them. This document exists so that nothing ruled on 2026-09-27 and 2026-09-28 is lost before the replan.
+
+## Invariant: the maintainer owns every merge
+
+Stated by the owner 2026-09-28 and written into the design at
+[5.1-reconciliation.md](../../architecture/5.1-reconciliation.md), the kept-snapshots note in its header, with a
+pointer from [10-command-line-interface.md](../../architecture/10-command-line-interface.md) §3.1. Every ruling below
+is held to it, and so is every implementation step: writ never merges, commits to, moves or pushes any branch except
+its own `retain/*` branches, so every change that reaches HEAD, the default branch or main is a merge the maintainer
+makes, by a pull request.
 
 ## Today
 
@@ -39,7 +48,7 @@ Read 2026-09-27 at `5509da4d`.
 | upgrade | pins nothing and records no commit ([#844](https://github.com/NobleFactor/devlore-cli/issues/844)) |
 | reconcile (`cmd/writ/writ/reconcile/reconcile.go:196`) | reads the working-tree file at the recorded source path; never reads the recorded commit |
 
-## Rulings, 2026-09-27
+## Rulings, 2026-09-27 and 2026-09-28
 
 1. **A private ref namespace pins each snapshot's commit, not tags.** `refs/devlore/...`. The functional delta, as
    put: tags are pushed by `git push --tags` and then fetched by every other clone, deleted by
@@ -60,6 +69,18 @@ Read 2026-09-27 at `5509da4d`.
    knowingly. Restoring changes only what the deployment shows; the branch stays, and the developer tosses it,
    merges it, and upgrades as they like. What upgrade then does depends on what they did with the branch.
    Restoring by default was rejected: silent data loss.
+
+5. **Upgrade moves the links** (2026-09-28). When the checkout moves from C to D, upgrade pins D and relinks the
+   layer's links to the snapshot of D as well as re-rendering copies, so one lifetime shows one commit per layer,
+   links and copies agreeing. This revises lane 11 ([#928](https://github.com/NobleFactor/devlore-cli/issues/928),
+   "the stale copies only"), as #847 first proposed: "relink every target from the old generation to the new." A
+   file new in D waits for deploy; a file gone in D keeps its link on C's snapshot and is reported for deploy.
+6. **Writ writes into the owner's clones** (2026-09-28). The refs, retain branches and locked worktree registrations
+   live in the registered layer clone, whoever owns it: an exception to
+   [#792](https://github.com/NobleFactor/devlore-cli/issues/792), scoped to refs under `refs/devlore/`, branches
+   under `retain/` and locked worktree registrations, which writ removes when done with. Writ never touches the
+   working tree, the index, HEAD or any other branch. Rejected: a writ-owned mirror of each layer, which keeps #792
+   whole at the price of a second place to look and a second hop to a pull request.
 
 **Amended by the owner:** the sparse checkout covers every scope directory -- `Home`, `System` and, especially on
 Windows, `ProgramFiles`, `ProgramData` and whatever `writ.scopes` adds
@@ -107,22 +128,19 @@ default branch.
 
 ## Still to rule
 
-The owner asked for the count: five remain.
+The owner asked for the count and for one question at a time: three remain.
 
-1. **Upgrade and links.** Whether upgrade re-points links to the new snapshot as well as refreshing copies. Revises
-   lane 11 ([#928](https://github.com/NobleFactor/devlore-cli/issues/928), "the stale copies only");
-   [#845](https://github.com/NobleFactor/devlore-cli/issues/845) overlaps.
-2. **Writing into the owner's clones.** Refs, worktree registrations and retain branches in clones registered by
-   path: an exception to [#792](https://github.com/NobleFactor/devlore-cli/issues/792)'s rule that writ never
-   touches them.
-3. **The words and the exit code against the ref.** `stale` becomes "the checkout moved past the record", an
-   upgrade opportunity rather than drift; a copy whose working-tree source is gone is restorable from the ref; an
-   edit and a retained edit need words. Revises lane 4 ([#756](https://github.com/NobleFactor/devlore-cli/issues/756))
-   and lane 2's words ([#923](https://github.com/NobleFactor/devlore-cli/issues/923)).
-4. **#847's per-layer live policy.** #847 proposed that `personal` stay live, its links at the working tree. The
+1. **The words and the exit code against the ref.** Put 2026-09-28 as one table: `stale` stops being drift (the
+   system is the record; the checkout moved past it); `dangling` means the snapshot is gone, and is restorable;
+   `edited` (new) is an edit behind a link, or an editor's real file in place of a link; `unpinned` (new) is a ref
+   whose commit is unreachable; a plain run restores only what it can without discarding anything (`absent`,
+   `dangling`) and preserves the rest; the exit is 0 exactly when the system is the record once the run returns.
+   Revises lane 4 ([#756](https://github.com/NobleFactor/devlore-cli/issues/756)) and lane 2's words
+   ([#923](https://github.com/NobleFactor/devlore-cli/issues/923)). Awaiting the owner's answer.
+2. **#847's per-layer live policy.** #847 proposed that `personal` stay live, its links at the working tree. The
    rulings above keep snapshots for every layer, and writable snapshots with retain branches serve the authored
-   layer too; whether live survives is open. Found while writing this document.
-5. **The replan.** Where this lands on #916. Lane 5 (#924) waits on it.
+   layer too; whether live survives is open.
+3. **The replan.** Where this lands on #916. Lane 5 (#924) waits on it.
 
 Also to place with the replan: `docs/guides/development-process.md` in noblefactor-ops needs an exception for
 machine-originated retain branches, which no issue tracks.
@@ -131,6 +149,8 @@ machine-originated retain branches, which no issue tracks.
 
 | Where | Change |
 | --- | --- |
+| #928, lane 11 | ruling 5: upgrade moves links as well as copies |
+| #792 | ruling 6: an exception, scoped to `refs/devlore/`, `retain/` and locked worktree registrations |
 | #924, lane 5 | stopped 2026-09-27. Its open question 3, the restore precondition, is superseded: a restore read from the ref always reproduces the record. Its "no reverse sync" reason lapses for links, which retain branches now carry back. Its no-command-flags point is broken for restore |
 | #762 Requirement 2 | "no command flags" superseded in part: restore is a flag |
 | `docs/architecture/5.1-reconciliation.md`, `10-command-line-interface.md` §3.1 | dated notes, 2026-09-27 |

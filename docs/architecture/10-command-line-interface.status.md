@@ -83,7 +83,8 @@ carries the three exit codes (66 never deployed, 0 clean, 1 drifted) and where e
 names them. **Revised 2026-09-26 (#843, #850):** the `deploy` row says bare `writ deploy` deploys the implicit set:
 `common` and one project per configured layer repository. **Revised 2026-09-27 (#847):** §3.1 records that a lifetime
 keeps its snapshots and reconcile runs against the ref, with restore as reconcile's one command flag -- designed, not
-built.
+built. **Revised 2026-09-28 (#847):** §3.1 states that upgrade moves links and that the maintainer owns
+every merge, pointing at 5.1.
 
 ## Document discrepancies
 

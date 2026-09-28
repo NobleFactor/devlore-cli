@@ -151,6 +151,10 @@ Reconcile runs against the git ref that produced each entry, so the snapshot a d
 is kept as a worktree, pinned by a private ref, and links target it. Snapshots are writable; `writ reconcile`
 always preserves an edit on a branch `retain/<host>/<date>` cut from the pinned commit, and restores the record
 only when asked, by a command flag -- the one flag reconcile carries, an exception to Requirement 2 of #762.
+Upgrade moves a layer's links to its new snapshot as well as refreshing copies (ruled 2026-09-28). **The maintainer
+owns every merge:** writ never merges, commits to, moves or pushes any branch but its own `retain/*` branches, so
+every change that reaches HEAD, the default branch or main is a merge the maintainer makes by a pull request
+([5.1](5.1-reconciliation.md), the kept-snapshots note).
 
 The mechanics, per program:
 
