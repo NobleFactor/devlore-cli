@@ -145,6 +145,13 @@ In the store a lifetime is `lifetimes/<id>.yaml`, and `lifetimes/current` names 
 whole `writ deploy` invocation across the scopes it ran ([#922](https://github.com/NobleFactor/devlore-cli/issues/922);
 [5.1](5.1-reconciliation.md) "The lifetime in the store").
 
+**A lifetime keeps its snapshots** (ruled 2026-09-27, designed and not built;
+[#847](https://github.com/NobleFactor/devlore-cli/issues/847), [plan](../plans/feature/847-kept-snapshots.md)).
+Reconcile runs against the git ref that produced each entry, so the snapshot a deploy or an upgrade planned from
+is kept as a worktree, pinned by a private ref, and links target it. Snapshots are writable; `writ reconcile`
+always preserves an edit on a branch `retain/<host>/<date>` cut from the pinned commit, and restores the record
+only when asked, by a command flag -- the one flag reconcile carries, an exception to Requirement 2 of #762.
+
 The mechanics, per program:
 
 | Verb | `lore` -- a package | `writ` -- an environment |
