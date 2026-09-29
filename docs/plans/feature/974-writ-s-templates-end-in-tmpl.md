@@ -1,9 +1,9 @@
 ---
 title: "writ's templates end in .tmpl: .template is left to other tools, and New-LocationConfig finds its envsubst template"
 issue: https://github.com/NobleFactor/devlore-cli/issues/974
-status: active
+status: complete
 created: 2026-09-29
-updated: 2026-09-29
+updated: 2026-09-30
 ---
 
 # Plan: writ's templates end in .tmpl
@@ -137,7 +137,13 @@ on personal#239.
 ### Phase 4: Merge and converge
 
 - [x] PR script written, shown, and handed over. The PR resolves #974 and David-Noble-at-work/personal#237
-- [ ] After the merge and the pre-release: Requirement 5
+- [x] After the merge and the pre-release: Requirement 5. Done 2026-09-29 on DANOBLE-UD24-1: the official
+      `v0.1.0-dev.20260929155253` (build `e2653443`) installed from the develop site's `install.sh`, checksum
+      verified; `writ deploy` linked `certificate-request.conf.template`; the rendered `certificate-request.conf`,
+      byte-identical to its source, removed; the deployed `New-LocationConfig`, run from scratch with every option,
+      filled every placeholder (0 left) and exited 0; `writ reconcile` reported nothing out of place. The only
+      dangling links were four `git-protect-encrypted-files` links, which are personal#236's. Ticked in #962's PR, the
+      next devlore-cli commit
 
 ## Files to Create/Modify
 
