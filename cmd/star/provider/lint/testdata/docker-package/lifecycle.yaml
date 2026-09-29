@@ -1,0 +1,90 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2025 Noble Factor. All rights reserved.
+
+name: docker
+version: "28.0.1"
+description: Docker CE, CLI, containerd, buildx, and compose plugin
+homepage: https://docs.docker.com/engine/install/
+repository: https://github.com/moby/moby
+license: Apache-2.0
+maintainer: Noble Factor
+
+aliases:
+  - docker ce
+  - docker engine
+  - docker cli
+  - containerd
+  - docker-compose
+  - docker compose
+  - container runtime
+
+signatures:
+  brew: [docker]
+  apt: [docker-ce, docker.io]
+  dnf: [docker-ce]
+  choco: [docker-desktop]
+  winget: [Docker.DockerDesktop]
+
+platforms:
+  - Darwin
+  - Linux
+  - Windows
+
+provides:
+  - docker
+  - docker-compose
+  - containerd
+
+conflicts:
+  - docker.io
+  - docker-doc
+  - docker-compose
+  - docker-compose-v2
+  - podman-docker
+  - containerd
+  - runc
+
+features:
+  rootless:
+    description: Run Docker daemon without root privileges
+    default: false
+  purge-data:
+    description: Remove all Docker data (images, containers, volumes) during decommission
+    default: false
+
+settings:
+  storage-driver:
+    description: Storage driver for Docker
+    type: string
+    default: overlay2
+    values: [overlay2, btrfs, zfs, vfs]
+
+  log-driver:
+    description: Default logging driver
+    type: string
+    default: json-file
+    values: [json-file, syslog, journald, none]
+
+verification:
+  command: docker --version
+  pattern: "Docker version \\d+\\.\\d+"
+
+hardware_provisions:
+  ODROID-C4:
+    description: Requires cgroup v1 compatibility mode
+    reference: https://sipfront.com/blog/2024/01/running-docker-on-odroid-c4/
+    boot_arg: systemd.unified_cgroup_hierarchy=0
+  ODROID-C5:
+    description: Requires cgroup v1 compatibility mode
+    boot_arg: systemd.unified_cgroup_hierarchy=0
+
+notes: |
+  PLATFORM DIFFERENCES:
+  - Linux: Docker CE (open source, Apache 2.0 license)
+  - Darwin/Windows: Docker Desktop (proprietary, requires paid subscription for
+    enterprises with >250 employees or >$10M annual revenue)
+
+tags:
+  - container
+  - docker
+  - devops

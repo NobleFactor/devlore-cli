@@ -1,7 +1,7 @@
 ---
 title: "LintStarlark: nothing checks Starlark, and dead API calls survive for months"
 issue: https://github.com/NobleFactor/devlore-cli/issues/721
-status: approved
+status: active
 created: 2026-08-27
 updated: 2026-09-29
 ---
@@ -11,7 +11,7 @@ updated: 2026-09-29
 Opened `draft` on 2026-08-27 out of the docker package rewrite
 ([docker.devlore-package.md](../docker.devlore-package.md)), where every phase script in the shipped
 package called an API that no longer exists. `approved` on 2026-09-29, when the four things it left open
-were measured against the tree and everything no corpus demonstrates was cut.
+were measured against the tree. `active` the same day, with Phase 1 complete.
 
 It lived at `docs/plans/lint-starlark.md`, named for its subject. A plan named that way is reachable
 only by someone who already knows what it is called, so it now carries its issue and matches its
@@ -247,12 +247,28 @@ gh api repos/NobleFactor/devlore-registry/tarball/cc87c4f0 | tar -xz --strip-com
     NobleFactor-devlore-registry-cc87c4f/packages/docker
 ```
 
-- [ ] The 40 `.star` files of `packages/docker` at `cc87c4f0` are committed as a testdata fixture. The
-      corpus exists nowhere else: `develop` holds only `Darwin/`, `README.md` and `lifecycle.yaml`.
-- [ ] The three live rows map to named test cases -- 23 `plan.package.*`, 30 `plan.verify(`, and the
-      four `Upgrade/install.star` entry points.
-- [ ] The four commented rows are recorded in the fixture's README as out of a parser's reach, so that
-      a later reader does not take their absence from the results for a gap in the checker.
+- [x] The 40 `.star` files of `packages/docker` at `cc87c4f0` are committed as a testdata fixture, at
+      `cmd/star/provider/lint/testdata/docker-package/`. All 42 files, copied verbatim with the directory
+      layout intact -- Requirement 3b resolves a phase against its action directory, so flattening the
+      tree would destroy that evidence while leaving every file present. The corpus exists nowhere else:
+      the registry's `develop` holds only `Darwin/`, `README.md` and `lifecycle.yaml` there.
+- [x] The three live rows are inventoried in `testdata/docker-package.want.tsv`: **57 rows**, generated
+      from the fixture rather than typed, and counted twice by different means with the same answer.
+      23 `unknown-namespace`, 30 `unknown-method`, 4 `phase-not-in-order`. The `rule` names are the
+      contract; the finding wording is not, so a message can be reworded without regenerating the file.
+- [x] The four commented rows are in `testdata/README.md` with their counts -- `plan.download(` 12,
+      `plan.user.*` 8, `plan.file.write(` 6, `plan.notify(` 4 -- stated as out of a parser's reach, so
+      their absence from a run's results reads as correct rather than as a gap.
+- [x] The fixture proves itself. `TestStarlarkFixtureShape` asserts 40 scripts and the 16/12/12
+      Deploy/Upgrade/Decommission layout; `TestStarlarkFixtureInventory` resolves every one of the 57
+      rows to its file and line, requires the recorded call to be present, and **requires the line not to
+      be a comment** -- so a call that becomes commented cannot sit in the inventory as a defect the
+      checker could never report. Both pass; `go build ./...`, `go vet` and the package's other tests are
+      clean.
+
+The copyright gate is unaffected: `star/config.yaml` excludes `**/testdata`, which `develop` already
+relies on -- `cmd/star/provider/starindex/testdata/sample.star` carries no SPDX header and the gate is
+green. The fixture keeps the registry's `MIT` headers, as a verbatim copy must.
 
 ### Phase 2 -- the resolver
 
