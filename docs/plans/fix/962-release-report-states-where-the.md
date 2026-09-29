@@ -1,7 +1,7 @@
 ---
 title: "The release run's summary says what was built, where each platform's products are, and where the installers are, with no unused token"
 issue: https://github.com/NobleFactor/devlore-cli/issues/962
-status: approved
+status: active
 created: 2026-09-29
 updated: 2026-09-30
 ---
@@ -115,24 +115,31 @@ convergence of 2026-09-29, and the plan is set `complete`. What was checked:
 
 ### Phase 2: The change
 
-- [ ] Requirements 1–4 in `release.yaml`
-- [ ] Requirement 5
+- [x] Requirements 1–4 in `release.yaml`
+- [x] Requirement 5
 
 ### Phase 3: Verify
 
-- [ ] A dry run of the new Summary step. Extract its `run:` block from the branch's `release.yaml` and give it the
+- [x] A dry run of the new Summary step. Extract its `run:` block from the branch's `release.yaml` and give it the
       run of 2026-09-29's values through its `env:`, with a scratch `dist/` holding that release's seven file
       names. Run it under `bash -o errexit -o nounset -o pipefail`, with `GITHUB_STEP_SUMMARY` in scratch.
       - The output matches "The summary this plan produces".
       - It contains no `GITHUB_TOKEN`, `GH_TOKEN`, `<token>`, `devlore.noblefactor.com` or short `curl` option.
-- [ ] `bash -n` and `shellcheck` on the extracted block, since no CI gate reads workflow `run:` blocks
-- [ ] Every address in that output answers 200. The bash command, run as printed in a scratch home and prefix,
-      installs `v0.1.0-dev.20260929155253`
-- [ ] CI's gate on the branch
+      Run 2026-09-30: the output is that summary, line for line; 0 token, 0 dead site, 0 short option; seven
+      download addresses; the site's address spelled once in `release.yaml`
+- [x] `bash -n` and `shellcheck` on the extracted block, since no CI gate reads workflow `run:` blocks: clean, after
+      one scoped exemption (SC2016) for the Markdown code fences, which are printed as written
+- [x] Every address in that output answers 200. The bash command, run as printed in a scratch home and prefix,
+      installs `v0.1.0-dev.20260929155253`. Run 2026-09-30: all 10 addresses 200; the command, with `HOME`, the
+      XDG homes and `TMPDIR` in scratch, installed lore, star and writ, checksum verified, and writ there reports
+      build `e2653443`; the real `~/.local` binaries and devlore directories untouched
+- [x] CI's gate on the branch, as far as this change reaches: both workflows parse, `Test-GuideFrontmatter.sh`,
+      `star lint shell .` (the official `e2653443` build: 11 files) and the PowerShell gate (3 checked, 0 with
+      findings) pass. No Go changed. CI runs the whole gate on the PR
 
 ### Phase 4: Merge and prove
 
-- [ ] PR script written, shown, and handed over. The PR resolves #962
+- [x] PR script written, shown, and handed over. The PR resolves #962
 - [ ] After the merge: the merge commit's own release run shows the summary, naming its own tag, and its addresses
       answer 200
 
