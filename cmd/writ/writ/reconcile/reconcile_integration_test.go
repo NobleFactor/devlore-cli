@@ -46,7 +46,7 @@ func deployFixture(t *testing.T) (sourceRoot, targetRoot, templateSource string)
 	if err := os.WriteFile(filepath.Join(sourceRoot, "myproj", ".zshrc"), []byte("plain zsh"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	templateSource = filepath.Join(sourceRoot, "myproj", ".gitconfig.template")
+	templateSource = filepath.Join(sourceRoot, "myproj", ".gitconfig.tmpl")
 	if err := os.WriteFile(templateSource, []byte("os={{ .Segments.OS }}"), 0o644); err != nil {
 		t.Fatal(err)
 	}

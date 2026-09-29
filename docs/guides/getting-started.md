@@ -132,6 +132,6 @@ lore deploy gh jq ripgrep neovim
 
 - [Manage environments](/guides/writ/manage-environments/) — Learn conflict handling, removal, and upgrades
 - [Platform awareness](/guides/writ/platform-awareness/) — Configure platform-specific variants
-- [Secrets management](/guides/writ/secrets/) — Encrypt sensitive files with age
+- [Secrets](/guides/writ/#secrets) — Deploy sops-encrypted files
 - [Deploy packages](/guides/lore/deploy-packages/) — Use lore's four-phase pipeline
 - [Create manifests](/guides/lore/create-manifests/) — Package tribal knowledge for sharing

@@ -45,7 +45,7 @@ func deployFixture(t *testing.T) (sourceRoot, targetRoot string) {
 		t.Fatal(err)
 	}
 	template := []byte("os={{ .Segments.OS }}")
-	if err := os.WriteFile(filepath.Join(sourceRoot, "myproj", ".gitconfig.template"), template, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(sourceRoot, "myproj", ".gitconfig.tmpl"), template, 0o644); err != nil {
 		t.Fatal(err)
 	}
 

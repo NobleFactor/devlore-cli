@@ -19,13 +19,15 @@ func TestProcessingPipeline(t *testing.T) {
 		actions    []string
 	}{
 		{"foo", "foo", []string{"file.link"}},
-		{"foo.template", "foo", []string{"template.render_bytes", "file.copy"}},
+		{"foo.tmpl", "foo", []string{"template.render_bytes", "file.copy"}},
+		// Another tool's template carries `.template`; writ links it untouched (#974).
+		{"foo.template", "foo.template", []string{"file.link"}},
 		{"foo.age", "foo.age", []string{"file.link"}},
 		{"foo.sops", "foo", []string{"encryption.decrypt", "file.copy"}},
-		{"foo.template.sops", "foo", []string{"encryption.decrypt", "template.render_bytes", "file.copy"}},
+		{"foo.tmpl.sops", "foo", []string{"encryption.decrypt", "template.render_bytes", "file.copy"}},
 		{".bashrc", ".bashrc", []string{"file.link"}},
-		{".bashrc.template", ".bashrc", []string{"template.render_bytes", "file.copy"}},
-		{"config.yaml.template.sops", "config.yaml", []string{"encryption.decrypt", "template.render_bytes", "file.copy"}},
+		{".bashrc.tmpl", ".bashrc", []string{"template.render_bytes", "file.copy"}},
+		{"config.yaml.tmpl.sops", "config.yaml", []string{"encryption.decrypt", "template.render_bytes", "file.copy"}},
 		{"packages-manifest.yaml", "packages-manifest.yaml", []string{"manifest.resolve"}},
 	}
 
@@ -69,12 +71,12 @@ func TestBuild(t *testing.T) {
 
 	// Create test files
 	files := map[string]string{
-		"all/.bashrc":                      "bashrc content",
-		"all/.config/test.yaml":            "test config",
-		"all.Darwin/.config/darwin.yaml":   "darwin config",
-		"all.Unix/.config/unix.yaml":       "unix config",
-		"noblefactor/.ssh/config":          "ssh config",
-		"noblefactor.Unix/script.template": "template content",
+		"all/.bashrc":                    "bashrc content",
+		"all/.config/test.yaml":          "test config",
+		"all.Darwin/.config/darwin.yaml": "darwin config",
+		"all.Unix/.config/unix.yaml":     "unix config",
+		"noblefactor/.ssh/config":        "ssh config",
+		"noblefactor.Unix/script.tmpl":   "template content",
 	}
 
 	for path, content := range files {

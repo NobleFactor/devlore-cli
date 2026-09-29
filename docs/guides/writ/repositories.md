@@ -121,7 +121,7 @@ environment/
 ```
 
 Everything inside a project directory is home-relative: `Home/noblefactor/.config/git/config`
-deploys to `~/.config/git/config`. A file named `<name>.template` renders with
+deploys to `~/.config/git/config`. A file named `<name>.tmpl` renders with
 segment data and deploys as `<name>`.
 
 ## Multi-layer deployment

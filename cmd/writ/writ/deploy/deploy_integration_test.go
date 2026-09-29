@@ -46,7 +46,7 @@ func fixture(t *testing.T) (cfg *deploy.Config, sourceRoot, targetRoot string) {
 		t.Fatal(err)
 	}
 	template := []byte("os={{ .Segments.OS }}")
-	if err := os.WriteFile(filepath.Join(sourceRoot, "myproj", ".gitconfig.template"), template, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(sourceRoot, "myproj", ".gitconfig.tmpl"), template, 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -243,7 +243,7 @@ func TestExecute_RedeployFlowsUnderDefault(t *testing.T) {
 		t.Fatalf("first deploy: %v", err)
 	}
 
-	template := filepath.Join(sourceRoot, "myproj", ".gitconfig.template")
+	template := filepath.Join(sourceRoot, "myproj", ".gitconfig.tmpl")
 	if err := os.WriteFile(template, []byte("os={{ .Segments.OS }} v2"), 0o644); err != nil {
 		t.Fatal(err)
 	}

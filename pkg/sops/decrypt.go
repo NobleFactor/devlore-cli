@@ -77,9 +77,9 @@ func detectFormat(path string, data []byte) string {
 	ext := strings.ToLower(filepath.Ext(path))
 
 	// Strip the devlore processing suffixes to get the actual format: `.sops` marks encryption and
-	// `.template` marks rendering, so `config.yaml.template.sops` carries a YAML document.
+	// `.tmpl` marks rendering, so `config.yaml.tmpl.sops` carries a YAML document.
 	base := strings.TrimSuffix(path, ".sops")
-	base = strings.TrimSuffix(base, ".template")
+	base = strings.TrimSuffix(base, ".tmpl")
 	innerExt := strings.ToLower(filepath.Ext(base))
 
 	// Check inner extension for structured formats

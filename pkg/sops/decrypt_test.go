@@ -26,8 +26,8 @@ func TestDetectFormat(t *testing.T) {
 			"yaml",
 		},
 		{
-			"yaml.template.sops double suffix",
-			"config.yaml.template.sops",
+			"yaml.tmpl.sops double suffix",
+			"config.yaml.tmpl.sops",
 			nil,
 			"yaml",
 		},
