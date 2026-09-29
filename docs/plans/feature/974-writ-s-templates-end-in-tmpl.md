@@ -1,7 +1,7 @@
 ---
 title: "writ's templates end in .tmpl: .template is left to other tools, and New-LocationConfig finds its envsubst template"
 issue: https://github.com/NobleFactor/devlore-cli/issues/974
-status: approved
+status: active
 created: 2026-09-29
 updated: 2026-09-29
 ---
@@ -67,6 +67,17 @@ a link under its own name, with no change in personal.
 - `docs/guides/writ/index.md` § Secrets (`:86-94`): the section says `.age`, which is outdated and not
   supported. It now describes `.sops`, decrypted and deployed as a copy (`node.go:47-50`), including
   `.tmpl.sops`, decrypted and then rendered.
+- Two stale lines the review found, ruled 2026-09-29, "fix both in this PR":
+  - The "Secrets management" link to the deleted `/guides/writ/secrets/` page, whose blurb still says `.age`. It's
+    removed from `docs/guides/writ/index.md`'s guide list, and `docs/guides/getting-started.md` points to the
+    index's Secrets section instead.
+  - `docs/guides/writ/index.md:31-32`, "each file becomes a symlink", which now says a plain file does and names
+    templates, secrets and packages manifests as the exceptions.
+- Where writ finds sops keys, ruled 2026-09-29: "I would like a table in the docs that shows the platform-specific
+  locations with instructions on overrides." `docs/guides/writ/index.md` § Secrets carries a table of the default
+  age key file on Linux, macOS and Windows as sops v3.12.1 resolves it (`age/keysource.go:393-399`, `:440-444`),
+  a table of the environment variables that add keys, and the bash, zsh and PowerShell lines that keep the key at
+  `~/.config/sops/age/keys.txt` everywhere.
 
 ### Requirement 4: No migration
 
@@ -96,25 +107,36 @@ on personal#239.
 
 ### Phase 2: The change
 
-- [ ] Requirement 1, the suffix
-- [ ] Requirement 2, the tests and the fixture
-- [ ] Requirement 3, the guides
+- [x] Requirement 1, the suffix
+- [x] Requirement 2, the tests and the fixture
+- [x] Requirement 3, the guides. The design and issue links are absolute GitHub URLs, because the site
+      publishes the guides and not `docs/architecture`. The example variable is lower case (`.user_name`),
+      because viper folds configuration keys to lower case (recorded on #975), and a lower-case name
+      works both now and after #975
 
 ### Phase 3: Verify
 
-- [ ] `gofmt -l` over the changed Go files is empty
-- [ ] The tree, sops and writ integration tests pass through the Makefile's test target, as CI runs
-      them
-- [ ] A live check with this branch's writ in scratch XDG directories and a scratch layer:
+- [x] `gofmt -l` over the changed Go files is empty
+- [x] The tree, sops and writ integration tests pass through the Makefile's test target, as CI runs
+      them: `make test` (104 packages) and `make test-race`, 2026-09-29
+- [x] A live check with this branch's writ in scratch XDG directories and a scratch layer:
       `a.conf.tmpl` holding `{{ .OS }}` deploys as a rendered copy `a.conf`, and `b.conf.template`
       holding `{{ .OS }}` and `${VAR}` deploys as a link `b.conf.template`, byte for byte. The host's
-      `~/.config/devlore` is diffed before and after, to prove it untouched.
-- [ ] CI's gate: `make vet-all`, `make lint-all`, `./build/star lint go ./...` and
-      `./build/star lint shell .`
+      `~/.config/devlore` is diffed before and after, to prove it untouched. Run 2026-09-29: `a.conf` is a
+      copy reading `os=linux`, `b.conf.template` is a link identical to its source, and the host's writ
+      configuration, layers and home are untouched (the Home target aimed at scratch by `writ.targets.home`)
+- [x] CI's gate, every step `ci.yaml` runs: `make build PLATFORM=all`, the `go.mod` tidy check,
+      `make regenerate` with no diff, `Test-GuideFrontmatter.sh`, `make vet-all`, `./build/star lint go ./...`,
+      `make lint-all`, `./build/star lint shell .`, the PowerShell gate (3 checked, 0 with findings) and
+      `make test-scenario`, all exit 0
+- [x] An adversarial review in three lenses (missed references, correctness, the guides' accuracy). The first
+      two found nothing. The third found four faults in this change's guide text, fixed, and a defect in
+      the code, reproduced by running and filed as #977 (a secret with no format before `.sops` deploys as
+      a JSON wrapper)
 
 ### Phase 4: Merge and converge
 
-- [ ] PR script written, shown, and handed over. The PR resolves #974 and David-Noble-at-work/personal#237
+- [x] PR script written, shown, and handed over. The PR resolves #974 and David-Noble-at-work/personal#237
 - [ ] After the merge and the pre-release: Requirement 5
 
 ## Files to Create/Modify
@@ -126,7 +148,7 @@ on personal#239.
 | `cmd/writ/writ/tree/tree_test.go`, `pkg/sops/decrypt_test.go` | Modify: `.tmpl`, plus the `.template` row |
 | the six writ integration tests named in Requirement 2 | Modify: fixture names |
 | `cmd/writ/testdata/personal-repo/Home/noblefactor.Unix/.config/scenario/writ.conf.template` | Rename to `writ.conf.tmpl` |
-| `docs/guides/writ/repositories.md`, `docs/guides/writ/index.md` | Modify |
+| `docs/guides/writ/repositories.md`, `docs/guides/writ/index.md`, `docs/guides/getting-started.md` | Modify |
 
 ## Out of Scope
 

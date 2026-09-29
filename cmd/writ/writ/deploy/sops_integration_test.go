@@ -22,7 +22,7 @@ import (
 
 // TestExecute_SopsChains deploys the two encrypted pipelines end to end — the plain decrypt
 // (`secret.yaml.sops` → decrypted `secret.yaml`) and the decrypt+render chain
-// (`note.yaml.template.sops` → decrypted, rendered `note.yaml`) — asserting content and that both outputs are
+// (`note.yaml.tmpl.sops` → decrypted, rendered `note.yaml`) — asserting content and that both outputs are
 // private in the platform's own terms: 0600 mode bits on unix, a protected DACL on Windows
 // (assertPrivateFile, the portable-fact pair). The ambient age identity comes from SOPS_AGE_KEY, per the
 // sealed config-free decryption model.
@@ -50,7 +50,7 @@ func TestExecute_SopsChains(t *testing.T) {
 	}
 
 	templated, templateKey := sopsEncrypt(t, []byte("greeting: hi {{ .Segments.OS }}\n"))
-	if err := os.WriteFile(filepath.Join(sourceRoot, "myproj", "note.yaml.template.sops"), templated, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(sourceRoot, "myproj", "note.yaml.tmpl.sops"), templated, 0o644); err != nil {
 		t.Fatal(err)
 	}
 

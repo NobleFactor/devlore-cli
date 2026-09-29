@@ -43,7 +43,7 @@ func deployFixture(t *testing.T) (sourceRoot, targetRoot string) {
 		t.Fatal(err)
 	}
 	template := []byte("os={{ .Segments.OS }}")
-	nested := filepath.Join(sourceRoot, "myproj", ".config", "app", "config.template")
+	nested := filepath.Join(sourceRoot, "myproj", ".config", "app", "config.tmpl")
 	if err := os.WriteFile(nested, template, 0o644); err != nil {
 		t.Fatal(err)
 	}

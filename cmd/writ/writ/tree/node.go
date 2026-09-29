@@ -27,9 +27,10 @@ var PackagesManifestFiles = []string{
 // Examples:
 //
 //	"foo"                     → "foo",                     ["file.link"]
-//	"foo.template"            → "foo",                     ["template.render_bytes", "file.copy"]
+//	"foo.tmpl"                → "foo",                     ["template.render_bytes", "file.copy"]
+//	"foo.template"            → "foo.template",            ["file.link"]
 //	"foo.sops"                → "foo",                     ["encryption.decrypt", "file.copy"]
-//	"foo.template.sops"       → "foo",                     ["encryption.decrypt", "template.render_bytes", "file.copy"]
+//	"foo.tmpl.sops"           → "foo",                     ["encryption.decrypt", "template.render_bytes", "file.copy"]
 //	"packages-manifest.yaml"  → "packages-manifest.yaml",  ["manifest.resolve"]
 func ProcessingPipeline(filename string) (targetName string, actions []string) {
 	name := filename
@@ -49,8 +50,9 @@ func ProcessingPipeline(filename string) (targetName string, actions []string) {
 		pipeline = append(pipeline, "encryption.decrypt")
 	}
 
-	if strings.HasSuffix(name, ".template") {
-		name = strings.TrimSuffix(name, ".template")
+	// `.tmpl`, not `.template`: other tools' templates carry that word, and writ must link them untouched (#974).
+	if strings.HasSuffix(name, ".tmpl") {
+		name = strings.TrimSuffix(name, ".tmpl")
 		pipeline = append(pipeline, "template.render_bytes")
 	}
 

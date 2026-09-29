@@ -29,7 +29,8 @@ everywhere you work.
 ### Projects
 
 A project is a directory in your repository whose contents mirror your home
-directory structure. When deployed, each file becomes a symlink:
+directory structure. When deployed, each plain file becomes a symlink.
+Templates, secrets and packages manifests are the exceptions, below:
 
 ```
 repos/personal/noblefactor/
@@ -69,27 +70,92 @@ noblefactor.Linux/     # Linux-specific additions
 
 ### Templates
 
-Files with `.tmpl` extension are processed as Go templates during deployment.
-The rendered output is copied (not symlinked) to the target:
+Files ending in `.tmpl` are Go templates. Writ renders each one during
+deployment and copies the result to the target without the suffix; it is not
+symlinked:
 
 ```
-# .gitconfig.tmpl
+# .gitconfig.tmpl, deployed as .gitconfig
 [user]
-    name = {{.UserName}}
-    email = {{.UserEmail}}
+    name = {{ .user_name }}
+[core]
+    excludesFile = {{ .ConfigHome }}/git/ignore
 ```
 
-Template variables come from the config file (`writ config set`).
+Every template sees `.OS`, `.ARCH`, `.Hostname`, `.Home`, `.Username`, the
+segment values under `.Segments` (`.Segments.OS`, `.Segments.DISTRO`, …), and
+the XDG homes `.ConfigHome`, `.DataHome`, `.StateHome` and `.CacheHome`. Your
+own variables live under `writ.vars` in the configuration file, and a
+template names them in lower case: `USER_NAME` there is `.user_name` here.
+Like every setting, a variable can also come from the environment or the
+command line, the command line winning
+([configuration](https://github.com/NobleFactor/devlore-cli/blob/develop/docs/architecture/configuration.md)).
+Today writ reads variables from the configuration file only
+([#975](https://github.com/NobleFactor/devlore-cli/issues/975)).
+
+A file ending in `.template` is not writ's: other tools use that word for
+their own templates, so writ links it untouched.
 
 ### Secrets
 
-Files ending in `.age` are decrypted during deployment using your SSH key
-or age identity. The decrypted content is copied to the target:
+Files ending in `.sops` are [sops](https://github.com/getsops/sops)-encrypted.
+Writ decrypts each one during deployment and copies the plaintext to the
+target without the suffix. `.tmpl.sops` is decrypted, then rendered:
 
 ```
 noblefactor/
 └── .config/
-    └── github/token.age      # Encrypted at rest, decrypted on deploy
+    ├── app/secrets.yaml.sops      # encrypted at rest, decrypted on deploy
+    └── app/config.yaml.tmpl.sops  # decrypted, then rendered
+```
+
+Name the plaintext's format before `.sops`: `.yaml` or `.yml`, `.json`, `.env`
+or `.ini`. A secret without one deploys as a JSON wrapper today
+([#977](https://github.com/NobleFactor/devlore-cli/issues/977)).
+
+#### Where writ finds your keys
+
+Writ decrypts with the keys sops finds on its own
+([encryption provider](https://github.com/NobleFactor/devlore-cli/blob/develop/docs/architecture/3.5.13-encryption-provider.md#key-custody-and-break-glass-recovery)).
+The default age key file depends on the platform. This is how sops v3.12.1,
+the version writ is built with, resolves it:
+
+| Platform | Default age key file |
+| --- | --- |
+| Linux | `$XDG_CONFIG_HOME/sops/age/keys.txt`; `~/.config/sops/age/keys.txt` when `XDG_CONFIG_HOME` is unset |
+| macOS | `$XDG_CONFIG_HOME/sops/age/keys.txt`; `~/Library/Application Support/sops/age/keys.txt` when `XDG_CONFIG_HOME` is unset |
+| Windows | `%AppData%\sops\age\keys.txt`. sops does not read `XDG_CONFIG_HOME` on Windows |
+
+On every platform sops also tries the SSH keys `~/.ssh/id_ed25519` and
+`~/.ssh/id_rsa` (on Windows, `~` is `%USERPROFILE%`).
+
+sops tries every key it finds. These environment variables add keys to the
+defaults above rather than replacing them:
+
+| Variable | What it holds |
+| --- | --- |
+| `SOPS_AGE_KEY` | age identities, one per line |
+| `SOPS_AGE_KEY_FILE` | the path of an age key file |
+| `SOPS_AGE_KEY_CMD` | a command that prints age identities |
+| `SOPS_AGE_SSH_PRIVATE_KEY_FILE` | the path of an SSH private key |
+| `SOPS_AGE_SSH_PRIVATE_KEY_CMD` | a command that prints an SSH private key |
+
+To keep your age key at the same path on every platform,
+`~/.config/sops/age/keys.txt`, where devlore keeps configuration everywhere,
+point `SOPS_AGE_KEY_FILE` at it. On Linux with `XDG_CONFIG_HOME` unset, that is
+already the default, and setting the variable changes nothing.
+
+```bash
+# bash or zsh: add to ~/.bashrc or ~/.zshrc
+export SOPS_AGE_KEY_FILE="$HOME/.config/sops/age/keys.txt"
+```
+
+```powershell
+# PowerShell: add to $PROFILE for the sessions it starts
+$env:SOPS_AGE_KEY_FILE = "$HOME\.config\sops\age\keys.txt"
+
+# or set it once for every new process of your user
+[Environment]::SetEnvironmentVariable('SOPS_AGE_KEY_FILE', "$HOME\.config\sops\age\keys.txt", 'User')
 ```
 
 ### State tracking
@@ -103,6 +169,5 @@ tamper detection.
 - [Manage environments](/guides/writ/manage-environments/) — Deploy, update, and remove projects
 - [Platform awareness](/guides/writ/platform-awareness/) — Configure platform-specific variants
 - [Packages manifest](/guides/writ/packages-manifest/) — Declare software dependencies
-- [Secrets management](/guides/writ/secrets/) — Encrypt sensitive files with age
 - [Repositories](/guides/writ/repositories/) — Manage layered repositories
 - [Graphs and traces](/guides/writ/graphs-and-traces/) — Audit runs, detect drift, verify documents
