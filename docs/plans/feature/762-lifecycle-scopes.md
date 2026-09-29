@@ -101,6 +101,10 @@ like `git diff`. The repair half is chartered, not built here.
 `--dry-run` — and must utilize all of them faithfully. A command that registers a flag its root already
 provides is the defect #740 exists to stop.
 
+> **Superseded in part, 2026-09-27** ([#847](https://github.com/NobleFactor/devlore-cli/issues/847),
+> [plan](847-kept-snapshots.md)): reconcile always preserves an edit on a retain branch, and restoring the record
+> is a command flag -- the one flag reconcile carries, ruled knowingly.
+
 The selector between fix, diff and summary behaviors is **deferred to the reconciliation epic**. `5.1`'s
 "there is no `--fix`" is no longer the whole truth — reconcile will repair — but neither is a `--fix`
 flag settled: today there is none, and the surface for choosing is undesigned.
