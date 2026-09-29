@@ -1,21 +1,21 @@
 ---
 title: "LintStarlark: nothing checks Starlark, and dead API calls survive for months"
 issue: https://github.com/NobleFactor/devlore-cli/issues/721
-status: draft
+status: approved
 created: 2026-08-27
 updated: 2026-09-29
 ---
 
 # Plan: `LintStarlark`
 
-Written as a charter on 2026-08-27 out of the docker package rewrite
+Opened `draft` on 2026-08-27 out of the docker package rewrite
 ([docker.devlore-package.md](../docker.devlore-package.md)), where every phase script in the shipped
-package called an API that no longer exists. Promoted to a plan on 2026-09-29, when the four things the
-charter said had to be discovered were measured against the tree.
+package called an API that no longer exists. `approved` on 2026-09-29, when the four things it left open
+were measured against the tree and everything no corpus demonstrates was cut.
 
-The charter lived at `docs/plans/lint-starlark.md`, named for its subject. A plan named that way is
-reachable only by someone who already knows what it is called, so it now carries its issue and matches
-its branch.
+It lived at `docs/plans/lint-starlark.md`, named for its subject. A plan named that way is reachable
+only by someone who already knows what it is called, so it now carries its issue and matches its
+branch.
 
 ## Issue 721
 
@@ -36,12 +36,12 @@ against the **generated** provider tables, so the checker cannot drift from code
 
 ## The observed failure
 
-`devlore-registry/packages/docker/` shipped **40** `.star` files -- the charter said 28, and counted
+`devlore-registry/packages/docker/` shipped **40** `.star` files -- the draft said 28, and counted
 short. Read against the provider tree on 2026-08-26, the deploy path could not execute on any platform.
 
 The fixture is recoverable and its commit is named: **`cc87c4f0`**, *Binding unification Phases 6-9 --
 knowledge artifacts, slot_docs, docker lifecycle (#21)*, 2026-02-22. It is the last commit to touch
-`packages/docker` before 2026-08-27, so the tree at that commit **is** the state the charter read.
+`packages/docker` before 2026-08-27, so the tree at that commit **is** the state the draft read.
 `packages/docker` on `develop` today holds only `Darwin/`, `README.md` and `lifecycle.yaml`, so the
 corpus exists nowhere else.
 
@@ -67,7 +67,7 @@ That the dead API also appears in comments is worth noting and is not this tool'
 scanner is a different tool with a different false-positive profile, and inventing one here would widen
 the issue to chase 30 sites that never executed.
 
-The charter also said *"all four `verify.star` files are entirely these calls."* There are **eight**
+The draft also said *"all four `verify.star` files are entirely these calls."* There are **eight**
 `verify.star` files -- one per platform under `Deploy` and under `Upgrade` -- carrying 30 live
 `plan.verify(` calls between them.
 
@@ -89,10 +89,10 @@ provider surface.
 | `LintCopyright/Go/GoStyle/Markdown/Shell/Tools` | Present | Seven extensions; `LintAll` finds siblings itself |
 | `LintStarlark` | **Missing** | The hole this plan fills |
 
-## What the charter said to discover, and what it measures
+## What the draft said to discover, and what it measures
 
-The charter assumed no solution and listed four open questions. All four are now answered against the
-tree rather than guessed. The corpus is **169** `.star` files, not the 162 the charter counted.
+The draft assumed no solution and listed four open questions. All four are now answered against the
+tree rather than guessed. The corpus is **169** `.star` files, not the 162 the draft counted.
 
 ### 1. How much of `plan.<namespace>.<method>(...)` resolution is tractable statically?
 
@@ -129,13 +129,23 @@ Windows, where paths interpolated into source break escape parsing. That blocks 
 
 ### 3. Does it run against `devlore-registry` too?
 
-**Not in this issue.** The registry needs the checker as a built, published artifact, which is a
-different shape of problem from writing it. Phase 5 records what that would take; it should become its
-own issue rather than widening this one.
+**Yes, and it costs one step.** The registry's CI already builds star from source and runs it:
+
+```yaml
+# devlore-registry/.github/workflows/validate.yaml
+- name: Build star
+  run: go build -o ../star ./cmd/star
+- run: ../star devlore package validate --target=..
+```
+
+So `star lint starlark` arrives there the moment it is in star. There is no artifact to publish and no
+follow-on issue: the registry gains a step beside that one, and #721 does not close until the registry's
+CI is green. That matters because the registry is where the packages are -- `devlore-cli` holds no
+package phase scripts at all.
 
 ### 4. Adopt `buildifier` alongside as a parse gate?
 
-**No.** Ruled 2026-09-28: buildifier is being replaced, and it does not do nearly enough. The charter's
+**No.** Ruled 2026-09-28: buildifier is being replaced, and it does not do nearly enough. The draft's
 own evidence is that it would have caught none of the seven defects above, and its formatter rewrites
 `kwarg=value` to `kwarg = value`, which no file in the corpus uses and which cannot be configured off.
 Candidate approach 4 is struck rather than left standing as a baseline.
@@ -146,6 +156,16 @@ Candidate approach 4 is struck rather than left standing as a baseline.
 
 The checker reads `action_names.gen.go` for the valid `<namespace>.<method>` set and the `ParameterNames`
 tables for the valid keyword arguments of each. It holds no list of its own.
+
+**The valid set is context-dependent.** `cmd/lore/lore/builder.go` calls
+`starlarkbridge.DenyAttributes("plan", lifecycleVerbs...)` for phase-script runtimes, and two of those
+verbs are real, resolvable attributes of the plan provider -- `Clear` and `Run`, snake-cased to `clear`
+and `run` by `op.CamelToSnake`. A resolver reading the generated table alone accepts `plan.run()` and
+`plan.clear()`, which a phase script may not call. So the valid set for a phase script is the generated
+table **minus** the denied set, read from the same `lifecycleVerbs` slice so the two cannot drift.
+
+This is not a rule about style. `plan.run` in a phase script is unresolvable for the same reason
+`plan.nur` is, and it produces the same finding.
 
 **Proof**: add a provider method, regenerate, and observe the checker accept a call to it with no edit to
 the checker.
@@ -160,18 +180,61 @@ fixture for this requirement, and they exist already.
 
 ### Requirement 3: the phase entry point
 
-Every phase script defines `def <phase>(package, phase)` matching its filename and its action directory's
-phase order. `Upgrade/install.star` is the motivating failure: `install` is not an upgrade phase.
+Two checks. They matter for different reasons, and the second is the one nothing else can give you.
 
-### Requirement 4: lifecycle verbs
+**3a -- the entry function matches the phase.** `cmd/lore/lore/builder.go:589` looks the function up by
+the phase name and fails when it is absent:
 
-`cmd/lore/lore/builder.go:31` denies `plan.assemble`, `clear`, `load`, `run` and `save` to phase scripts
-at runtime. The checker rejects them at author time.
+```go
+entry, ok := scriptGlobals[action.PhaseName]
+if !ok {
+    return nil, fmt.Errorf("function %q not found in script %s", action.PhaseName, action.Path)
+}
+```
 
-**Not a requirement:** lambdas. A graph carrying one fails receipt writing, which is its own defect on its
-own merits; whether the linter should also flag it depends on whether that fix lands first. It is out of
-scope here and stays with
-[function-resource-receipts.md](../function-resource-receipts.md).
+Run time already names the function and the file, so the checker moves a good message earlier rather
+than supplying a missing one.
+
+**3b -- the filename is a phase that lifecycle has.** `cmd/lore/lore/builder.go:368` skips a phase with
+no actions, without a word:
+
+```go
+actions := release.PhaseActions(targetPlatform, lorepackage.Deploy, phaseName)
+if len(actions) == 0 {
+    continue
+}
+```
+
+A file whose name is outside its lifecycle's order is never opened. Nothing is logged and the step does
+not happen, so the symptom is an absence -- which is the class of defect that cannot be debugged from
+what it leaves behind. The checker is the only thing that can report it.
+
+The orders are in `cmd/internal/lorepackage/lifecycle.go`:
+
+| Action | Phases |
+| --- | --- |
+| `Deploy` | `prepare`, `install`, `provision`, `verify` |
+| `Upgrade` | `prepare`, `upgrade`, `migrate`, `verify` |
+| `Decommission` | `unprovision`, `uninstall`, `cleanup` |
+| `Reconcile` | `scan`, `repair`, `verify` |
+
+`Upgrade/install.star` in the fixture violates 3b on all four platforms: `install` is a `Deploy` phase,
+not an `Upgrade` one.
+
+**All four orders are checked, not only the one a builder currently walks.** `builder.go:367` is today's
+only `PhaseActions` caller and it is hardcoded to `Deploy`, so `Upgrade`, `Decommission` and `Reconcile`
+scripts are not built by anything yet. That does not make their phase orders less real: they are defined,
+packages are written against them, and a name that is wrong now is wrong when a builder arrives. The
+checker reads `PhaseOrder` for the directory it is in.
+
+**Not a separate requirement: the lifecycle verbs.** The draft listed rejecting `plan.assemble`,
+`clear`, `load`, `run` and `save` as a rule of its own. It is not one. Two of the five resolve on the
+plan provider and the other three do not, so all five are answered by Requirement 1's context-dependent
+valid set. A phase script calling `plan.run()` gets the finding that `plan.nur()` gets, for the reason
+`plan.nur()` gets it.
+
+**Not a requirement: lambdas.** A graph carrying one fails receipt writing. That is its own defect on its
+own merits and stays with [function-resource-receipts.md](../function-resource-receipts.md).
 
 ## Implementation Phases
 
@@ -201,34 +264,34 @@ gh api repos/NobleFactor/devlore-registry/tarball/cc87c4f0 | tar -xz --strip-com
 
 - [ ] Parse with `go.starlark.net/syntax`, reusing `starindex`'s walker where it fits.
 - [ ] Scope tracking per Requirement 2.
-- [ ] Requirements 3 and 4.
-- [ ] Zero findings across all 169 `.star` files; all seven fixture rows reported.
+- [ ] Requirement 3a and 3b, reading `PhaseOrder` for the action directory -- all four orders, not only
+      `Deploy`.
+- [ ] Zero findings across all 169 `.star` files; the three live fixture rows reported.
 
-### Phase 4 -- the extension and the gate
+### Phase 4 -- the extension, and both gates
 
 - [ ] `com.noblefactor.star.LintStarlark` with its `lint-starlark.star` command.
 - [ ] `LintAll` picks it up through `commands.siblings()` with no edit -- verified, not assumed.
-- [ ] CI runs it. Proof is a CI run reporting the count over 169 files, the same way the PowerShell gate
-      proved itself in #973.
-
-### Phase 5 -- the registry
-
-- [ ] Record what publishing the checker as an artifact for `devlore-registry` would take, and file it as
-      its own issue. **This phase closes by filing, not by building.**
+- [ ] `devlore-cli` CI runs it. Proof is a CI run reporting the count over 169 files, the same way the
+      PowerShell gate proved itself in #973.
+- [ ] `devlore-registry`'s `validate.yaml` runs it beside `star devlore package validate`, and its CI is
+      green. **This is where the checker earns its keep**: the registry holds the packages, and
+      `devlore-cli` holds no phase scripts at all. #721 does not close until this box is ticked.
 
 ## Exit criteria
 
 - [ ] The checker over the docker package at `cc87c4f0` reports **the three live rows**: 23
-      `plan.package.*` calls, 30 `plan.verify(` calls, and four `Upgrade/install.star` entry points.
-      The four commented rows are out of a parser's reach and are not required of it.
+      `plan.package.*` calls (Requirement 1), 30 `plan.verify(` calls (Requirement 1), and four
+      `Upgrade/install.star` files (Requirement 3b). The four commented rows are out of a parser's reach
+      and are not required of it.
 - [ ] The checker reads generated tables, proven by adding a provider method and observing acceptance
       with no edit.
 - [ ] Zero false positives across the 169 `.star` files in `devlore-cli`.
+- [ ] `devlore-registry`'s CI runs the checker and is green.
 
 ## Related
 
 - [Docker devlore package](../docker.devlore-package.md) -- the rewrite that surfaced this
 - [function-resource-receipts.md](../function-resource-receipts.md) -- the lambda defect, out of scope here
 - `cmd/star/provider/starindex/provider.go` -- the existing Starlark AST walker
-- `cmd/lore/lore/builder.go:31` -- the runtime denial Requirement 4 moves to author time
 - [#376](https://github.com/NobleFactor/devlore-cli/issues/376) -- extension loading on Windows
