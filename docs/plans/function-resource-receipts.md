@@ -129,7 +129,7 @@ Not a shortlist to choose from.
 ## Related
 
 - [Docker devlore package](docker.devlore-package.md) — Ruling 8 and the probe that found this
-- [LintStarlark charter](lint-starlark.md) — whether a linter should flag lambdas depends on
+- [LintStarlark plan](feature/721-lint-starlark.md) — whether a linter should flag lambdas depends on
   whether this fix lands first
 - `cmd/devlore-test/devloretest/data/test_choose_then_action.star` — the lambda-free fixture added
   during the probe; passes and writes its receipt
