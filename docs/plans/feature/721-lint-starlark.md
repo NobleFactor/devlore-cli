@@ -22,9 +22,9 @@ its branch.
 ## Summary
 
 Nothing in either repository reads the contents of a `.star` file. 169 of them ship in `devlore-cli` and
-28 shipped in `devlore-registry/packages/docker/` calling seven distinct APIs that do not exist. This
-plan adds `LintStarlark`, a star extension that parses each file and resolves every `plan.*` call against
-the **generated** provider tables, so the checker cannot drift from codegen.
+40 shipped in `devlore-registry/packages/docker/`, where 57 live call sites reach APIs that do not exist.
+This plan adds `LintStarlark`, a star extension that parses each file and resolves every `plan.*` call
+against the **generated** provider tables, so the checker cannot drift from codegen.
 
 ## Goals
 
@@ -36,25 +36,47 @@ the **generated** provider tables, so the checker cannot drift from codegen.
 
 ## The observed failure
 
-`devlore-registry/packages/docker/` shipped 28 `.star` files. Read against the provider tree on
-2026-08-26, the deploy path could not execute on any platform:
+`devlore-registry/packages/docker/` shipped **40** `.star` files -- the charter said 28, and counted
+short. Read against the provider tree on 2026-08-26, the deploy path could not execute on any platform.
 
-| Written in the package | Reality |
-| --- | --- |
-| `plan.package.install("docker-ce", "docker-ce-cli")` | No `package` namespace -- it is `pkg`, and it takes a list, not varargs |
-| `plan.verify(name, check=..., optional=True)` | No `Verify` method on any provider. **All four `verify.star` files are entirely these calls** |
-| `plan.file.write(path=..., content=...)` | It is `plan.file.write_text(destination_path=..., content=..., mode=...)` |
-| `plan.user.add_to_group(user, "docker")` | No `user` provider |
-| `plan.download(url, dest)` | `appnet.download(url)` returns bytes; there is no dest form |
-| `plan.notify(...)` | Does not exist |
-| `Upgrade/install.star` | `UpgradePhaseOrder` is `{prepare, upgrade, migrate, verify}` -- `install` is not an upgrade phase |
+The fixture is recoverable and its commit is named: **`cc87c4f0`**, *Binding unification Phases 6-9 --
+knowledge artifacts, slot_docs, docker lifecycle (#21)*, 2026-02-22. It is the last commit to touch
+`packages/docker` before 2026-08-27, so the tree at that commit **is** the state the charter read.
+`packages/docker` on `develop` today holds only `Darwin/`, `README.md` and `lifecycle.yaml`, so the
+corpus exists nowhere else.
+
+Counted in that tree, the seven rows do not carry equal weight, and the difference decides what the
+checker can be asked to prove:
+
+| Written in the package | Live sites | Commented | Reality |
+| --- | ---: | ---: | --- |
+| `plan.package.install("docker-ce", "docker-ce-cli")` | **23** | 7 | No `package` namespace -- it is `pkg`, and it takes a list, not varargs |
+| `plan.verify(name, check=..., optional=True)` | **30** | 0 | No `Verify` method on any provider |
+| `Upgrade/install.star` | **4** | 0 | `UpgradePhaseOrder` is `{prepare, upgrade, migrate, verify}` -- `install` is not an upgrade phase, and all four platforms define one |
+| `plan.file.write(path=..., content=...)` | 0 | 6 | It is `plan.file.write_text(destination_path=..., content=..., mode=...)` |
+| `plan.user.add_to_group(user, "docker")` | 0 | 8 | No `user` provider |
+| `plan.download(url, dest)` | 0 | 12 | `appnet.download(url)` returns bytes; there is no dest form |
+| `plan.notify(...)` | 0 | 4 | Does not exist |
+
+**Four of the seven rows are commented-out TODOs, not live code**, and a parser sees a comment as
+trivia. No checker built on `go.starlark.net/syntax` can report them, so an exit criterion demanding
+all seven would be unmeetable by construction. The criterion names the three live rows instead, and
+this table is why.
+
+That the dead API also appears in comments is worth noting and is not this tool's problem: a comment
+scanner is a different tool with a different false-positive profile, and inventing one here would widen
+the issue to chase 30 sites that never executed.
+
+The charter also said *"all four `verify.star` files are entirely these calls."* There are **eight**
+`verify.star` files -- one per platform under `Deploy` and under `Upgrade` -- carrying 30 live
+`plan.verify(` calls between them.
 
 The registry's CI validates knowledge schemas and package structure. None of it reads a `.star` file's
 contents, so all of the above passed continuously.
 
-**A syntax checker would not have helped.** Every line is syntactically valid Starlark. The defects are
-*resolution* errors, and a general-purpose Starlark formatter knows nothing about devlore's provider
-surface.
+**A syntax checker would not have helped.** Every live line is syntactically valid Starlark. The
+defects are *resolution* errors, and a general-purpose Starlark formatter knows nothing about devlore's
+provider surface.
 
 ## Current State
 
@@ -155,10 +177,19 @@ scope here and stays with
 
 ### Phase 1 -- the corpus is preserved as a fixture
 
-- [ ] `devlore-registry/packages/docker/` as it stood on 2026-08-26 is recovered and committed as a
-      testdata fixture. It is the regression corpus and the exit criterion names it; it must not be lost
-      to a cleanup before the checker exists to run against it.
-- [ ] Each of the seven rows in the failure table maps to a named test case.
+The commit is known and the recovery is one command, so this phase is bounded:
+
+```bash
+gh api repos/NobleFactor/devlore-registry/tarball/cc87c4f0 | tar -xz --strip-components=1 \
+    NobleFactor-devlore-registry-cc87c4f/packages/docker
+```
+
+- [ ] The 40 `.star` files of `packages/docker` at `cc87c4f0` are committed as a testdata fixture. The
+      corpus exists nowhere else: `develop` holds only `Darwin/`, `README.md` and `lifecycle.yaml`.
+- [ ] The three live rows map to named test cases -- 23 `plan.package.*`, 30 `plan.verify(`, and the
+      four `Upgrade/install.star` entry points.
+- [ ] The four commented rows are recorded in the fixture's README as out of a parser's reach, so that
+      a later reader does not take their absence from the results for a gap in the checker.
 
 ### Phase 2 -- the resolver
 
@@ -187,7 +218,9 @@ scope here and stays with
 
 ## Exit criteria
 
-- [ ] The checker over the 2026-08-26 docker package reports every row in the failure table.
+- [ ] The checker over the docker package at `cc87c4f0` reports **the three live rows**: 23
+      `plan.package.*` calls, 30 `plan.verify(` calls, and four `Upgrade/install.star` entry points.
+      The four commented rows are out of a parser's reach and are not required of it.
 - [ ] The checker reads generated tables, proven by adding a provider method and observing acceptance
       with no edit.
 - [ ] Zero false positives across the 169 `.star` files in `devlore-cli`.
