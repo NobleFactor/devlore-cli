@@ -272,9 +272,41 @@ green. The fixture keeps the registry's `MIT` headers, as a verbatim copy must.
 
 ### Phase 2 -- the resolver
 
-- [ ] A package that loads the generated tables and answers: does `<namespace>.<method>` exist, and does
-      it accept keyword `<k>`?
-- [ ] Table-driven tests over the real generated data, not a mock.
+**It does not read the generated tables.** It asks `op.ReceiverRegistry()`, which the generated `gen`
+packages populate in their `init` functions, so it holds exactly what a running binary offers. Reading the
+text would have lost the two things that decide real calls: `op.Parameter.Kwargs` — a method declaring
+`**kwargs` accepts any keyword — and `op.Method.Claims()`, which is how a hermetic runtime decides what it
+admits. Neither survives as a list of names.
+
+Modeling `prepareScriptEnv` turned up **three** things reaching a script through `plan`, filtered
+differently, where the plan assumed one:
+
+1. `plan.<method>` — the plan provider's own methods. Script-surface globals, so **hermetic-filtered**:
+   only a method claiming `op.ClaimDeterministic` is admitted.
+2. `plan.<namespace>.<method>` — the graph namespace. Workflow-surface providers by name, **not**
+   hermetic-filtered, because a graph accepts anything with an action signature.
+3. `plan.<method>` — a promoted provider's methods, surfacing at the namespace root. This is what the 278
+   bare `plan.<method>(` sites in the corpus are: `note`, `warn`, `fail`, `gather` and the rest, from `ui`
+   and `flow`.
+
+- [x] `cmd/star/provider/lint/starlint` resolves all three shapes and answers keywords through
+      `op.Method.ParameterByName`, with `Kwargs` short-circuiting to accept anything.
+- [x] `lifecycleVerbs` moved from `cmd/lore/lore/builder.go` to `lorepackage.LifecycleVerbs`, so lore's
+      run-time denial and the linter read **one slice**. `TestDeniedMatchesLore` fails if a second copy
+      reappears.
+- [x] Table-driven tests over the live registry, not a mock. Every distinct resolution is covered by a case
+      drawn from the fixture's real defects, and `TestRegistryIsPopulated` guards the vacuous pass — an
+      unlinked registry answers "unknown" to everything and would otherwise go green having checked nothing.
+
+**Two filters, reported apart, because the reason is the useful half of a finding.** `plan.clear` claims
+determinism, so hermetic admits it and the denial is what stops it. `plan.run` claims nothing, so it is
+gone before the denial is consulted. Both are refused; a package author needs to know which.
+
+`not-deterministic` is not a hypothetical branch: `load_definition`, `save_definition` and `spec` all reach
+it. That also settles something raised while reading the denial — of the three `*_definition` methods the
+denial's bare verbs fail to name, two are already unreachable from a phase script through hermeticity.
+`assemble_definition` is the one that is not, and the resolver reports it as resolved because that is what
+the runtime does: a linter that disagreed with the runtime would be a false positive.
 
 ### Phase 3 -- the checker
 

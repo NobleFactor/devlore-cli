@@ -26,10 +26,6 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/xdg"
 )
 
-// lifecycleVerbs are the plan.* orchestration attributes denied to phase-script runtimes. Scripts only contribute
-// invocations into the shared registry; lore alone assembles, runs, and persists.
-var lifecycleVerbs = []string{"assemble", "clear", "load", "run", "save"}
-
 // BuildResult contains the built execution graph and metadata for packages.
 type BuildResult struct {
 	// Graph is the execution graph ready for execution.
@@ -631,7 +627,7 @@ func prepareScriptEnv(
 	// graph namespace, which is unfiltered because a graph accepts anything with an action signature.
 	runtime := starlarkbridge.NewRuntime(sharedEnvironment,
 		starlarkbridge.Hermetic(),
-		starlarkbridge.DenyAttributes("plan", lifecycleVerbs...))
+		starlarkbridge.DenyAttributes("plan", lorepackage.LifecycleVerbs...))
 
 	lifecycle := release.Lifecycle()
 
