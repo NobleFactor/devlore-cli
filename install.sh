@@ -1,43 +1,61 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # SPDX-License-Identifier: Apache-2.0
 # Copyright Noble Factor. All rights reserved.
 
-#
-# DevLore CLI Installer
-# Usage: curl -sSL https://devlore.noblefactor.com/install.sh | bash
-#        curl -sSL https://devlore.noblefactor.com/install.sh | bash -s -- --prefix=/opt/devlore
-#
-# For private repo (requires GitHub token):
-#   curl -sSL https://devlore.noblefactor.com/install.sh | GH_TOKEN=$(unset GITHUB_TOKEN GH_TOKEN; gh auth token) bash
-#
-# Arguments:
-#   --prefix=<dir>       - Installation prefix (default: ~/.local per XDG)
-#                          Binaries go to <prefix>/bin, man pages to <prefix>/share/man, etc.
-#
-# Environment variables:
-#   GH_TOKEN             - GitHub token for private repo access
-#                          Use: GH_TOKEN=$(gh auth token) for OAuth token
-#   DEVLORE_VERSION      - Version to install (default: latest)
-#                          "latest" installs the most recent release (including prereleases)
-#                          Set explicitly (e.g., "v1.0.0") for a specific version
-#   DEVLORE_TOOLS        - Tools to install: "all", or one product: "writ", "lore", "star" (default: all)
-#
-# Documentation references:
-#   - GitHub Releases API: https://docs.github.com/en/rest/releases/releases
-#   - GitHub Release Assets API: https://docs.github.com/en/rest/releases/assets
+# install.sh - Install lore, star and writ, and register the layers given
+# for documentation: install.sh --help
 
-set -euo pipefail
+set -o errexit -o nounset -o pipefail
 
-# Parse arguments
+# Where the DevLore site serves this script. The site releases from develop, so this is its develop environment.
+INSTALLERS_URL="https://delightful-grass-0ac0a4c1e-develop.westus2.6.azurestaticapps.net"
+
+usage() {
+    cat <<EOF
+Usage: install.sh [--prefix=<dir>] [--base=<loc>] [--team=<loc>] [--personal=<loc>]
+
+Installs lore, star and writ into <prefix> (default ~/.local), then registers each layer given with
+writ repo set, base first. A layer not given is skipped and named at the end. Never asks.
+
+  --prefix=<dir>     installation prefix (default: ~/.local)
+  --base=<loc>       the base layer: a working-tree root or a repository URL (or DEVLORE_BASE)
+  --team=<loc>       the team layer (or DEVLORE_TEAM)
+  --personal=<loc>   the personal layer (or DEVLORE_PERSONAL)
+  -h, --help         show this help and exit
+
+A flag wins over its variable. Running the same command again is safe: it is also how to recover from a failure.
+
+Environment:
+  DEVLORE_VERSION    a release tag to install (default: the newest release, pre-releases included)
+  DEVLORE_TOOLS      all, writ, lore or star (default: all)
+  GH_TOKEN           optional; sent to GitHub's API, which lifts its limit of 60 anonymous requests an hour
+
+Served by the DevLore site's develop environment, from which devlore is released today:
+  curl --fail --silent --show-error --location ${INSTALLERS_URL}/install.sh | bash -s -- --base=<loc> --team=<loc> --personal=<loc>
+EOF
+}
+
+# Parse arguments. Each layer's variable is its default; a flag wins over it (#950).
 PREFIX=""
+BASE="${DEVLORE_BASE:-}"
+TEAM="${DEVLORE_TEAM:-}"
+PERSONAL="${DEVLORE_PERSONAL:-}"
 for arg in "$@"; do
     case "$arg" in
         --prefix=*) PREFIX="${arg#*=}" ;;
+        --base=*) BASE="${arg#*=}" ;;
+        --team=*) TEAM="${arg#*=}" ;;
+        --personal=*) PERSONAL="${arg#*=}" ;;
         --help | -h)
-            echo "Usage: install.sh [--prefix=<dir>]"
-            echo "  --prefix=<dir>  Installation prefix (default: ~/.local)"
+            usage
             exit 0
+            ;;
+        *)
+            # A typo such as --bsae=... would otherwise be dropped, and its layer reported skipped.
+            printf 'error: unknown argument: %s\n\n' "$arg" >&2
+            usage >&2
+            exit 1
             ;;
     esac
 done
@@ -60,8 +78,8 @@ INSTALL_DIR="${PREFIX}/bin"
 VERSION="${DEVLORE_VERSION:-latest}"
 TOOLS="${DEVLORE_TOOLS:-all}"
 
-# GitHub authentication (required for private repo)
-# Per https://docs.github.com/en/rest/releases/assets - requires "Contents" read permission
+# GitHub authentication (optional). The repository is public; a token only lifts the API's anonymous rate limit.
+# Per https://docs.github.com/en/rest/releases/assets
 # Note: Use "token" not "Bearer" for OAuth tokens from gh auth
 AUTH_HEADER=""
 if [[ -n "${GH_TOKEN:-}" ]]; then
@@ -101,31 +119,30 @@ detect_os() {
     esac
 }
 
-# Detect architecture
+# Detect architecture. The releases publish amd64 and arm64 only.
 detect_arch() {
     case "$(uname -m)" in
         x86_64 | amd64) echo "amd64" ;;
         arm64 | aarch64) echo "arm64" ;;
-        armv7l) echo "armv7" ;;
         *) error "Unsupported architecture: $(uname -m)" ;;
     esac
 }
 
-# Make authenticated API request
+# Make an API request, authenticated when GH_TOKEN is set
 # Per https://docs.github.com/en/rest/releases/releases
 api_get() {
     local url="$1"
     if command -v curl &>/dev/null; then
         if [[ -n "$AUTH_HEADER" ]]; then
-            curl -sSL -H "Accept: application/vnd.github+json" -H "$AUTH_HEADER" "$url"
+            curl --silent --show-error --location --header "Accept: application/vnd.github+json" --header "$AUTH_HEADER" "$url"
         else
-            curl -sSL -H "Accept: application/vnd.github+json" "$url"
+            curl --silent --show-error --location --header "Accept: application/vnd.github+json" "$url"
         fi
     elif command -v wget &>/dev/null; then
         if [[ -n "$AUTH_HEADER" ]]; then
-            wget -qO- --header="Accept: application/vnd.github+json" --header="$AUTH_HEADER" "$url"
+            wget --quiet --output-document=- --header="Accept: application/vnd.github+json" --header="$AUTH_HEADER" "$url"
         else
-            wget -qO- --header="Accept: application/vnd.github+json" "$url"
+            wget --quiet --output-document=- --header="Accept: application/vnd.github+json" "$url"
         fi
     else
         error "Neither curl nor wget found. Please install one of them."
@@ -141,7 +158,7 @@ get_latest_version() {
     local response
     response=$(api_get "$url")
     # Extract tag_name from JSON response (first item in array)
-    echo "$response" | grep -o '"tag_name"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/'
+    echo "$response" | grep --only-matching '"tag_name"[[:space:]]*:[[:space:]]*"[^"]*"' | awk 'NR == 1' | sed 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/'
 }
 
 # Get release by tag
@@ -158,7 +175,7 @@ get_asset_id() {
     local release_json="$1"
     local asset_name="$2"
     # Extract asset id where name matches
-    echo "$release_json" | grep -B5 "\"name\"[[:space:]]*:[[:space:]]*\"${asset_name}\"" | grep -o '"id"[[:space:]]*:[[:space:]]*[0-9]*' | head -1 | sed 's/.*:[[:space:]]*//'
+    echo "$release_json" | grep --before-context=5 "\"name\"[[:space:]]*:[[:space:]]*\"${asset_name}\"" | grep --only-matching '"id"[[:space:]]*:[[:space:]]*[0-9]*' | awk 'NR == 1' | sed 's/.*:[[:space:]]*//'
 }
 
 # Download release asset by ID
@@ -171,15 +188,15 @@ download_asset() {
 
     if command -v curl &>/dev/null; then
         if [[ -n "$AUTH_HEADER" ]]; then
-            curl -sSL -H "Accept: application/octet-stream" -H "$AUTH_HEADER" "$url" -o "$dest"
+            curl --silent --show-error --location --header "Accept: application/octet-stream" --header "$AUTH_HEADER" "$url" --output "$dest"
         else
-            curl -sSL -H "Accept: application/octet-stream" "$url" -o "$dest"
+            curl --silent --show-error --location --header "Accept: application/octet-stream" "$url" --output "$dest"
         fi
     elif command -v wget &>/dev/null; then
         if [[ -n "$AUTH_HEADER" ]]; then
-            wget -q --header="Accept: application/octet-stream" --header="$AUTH_HEADER" "$url" -O "$dest"
+            wget --quiet --header="Accept: application/octet-stream" --header="$AUTH_HEADER" "$url" --output-document="$dest"
         else
-            wget -q --header="Accept: application/octet-stream" "$url" -O "$dest"
+            wget --quiet --header="Accept: application/octet-stream" "$url" --output-document="$dest"
         fi
     else
         error "Neither curl nor wget found. Please install one of them."
@@ -195,7 +212,7 @@ verify_checksum() {
     if command -v sha256sum &>/dev/null; then
         actual=$(sha256sum "$file" | awk '{print $1}')
     elif command -v shasum &>/dev/null; then
-        actual=$(shasum -a 256 "$file" | awk '{print $1}')
+        actual=$(shasum --algorithm 256 "$file" | awk '{print $1}')
     else
         warn "No sha256sum or shasum found, skipping checksum verification"
         return 0
@@ -211,10 +228,10 @@ main() {
     info "DevLore CLI Installer"
     echo
 
-    # Check for auth token (required for private repo)
-    if [[ -z "$AUTH_HEADER" ]]; then
-        warn "No GH_TOKEN set. This will fail for private repositories."
-        warn "Set GH_TOKEN with a token that has 'Contents' read permission."
+    # A layer is registered by the writ this run installs, so a run that leaves writ out cannot register one. Refused
+    # before anything is downloaded (#950).
+    if [[ -n "${BASE}${TEAM}${PERSONAL}" && "$TOOLS" != "all" && "$TOOLS" != "writ" ]]; then
+        error "--base, --team and --personal register layers with writ, which DEVLORE_TOOLS=${TOOLS} does not install"
     fi
 
     # Detect platform
@@ -229,7 +246,7 @@ main() {
         info "Fetching latest version..."
         VERSION=$(get_latest_version)
         if [[ -z "$VERSION" ]]; then
-            error "Could not determine latest version. Check GH_TOKEN has correct permissions.\nFor private repos, token needs 'Contents' read permission."
+            error "Could not determine the latest release of ${GITHUB_REPO}"
         fi
     fi
     info "Version: $VERSION"
@@ -241,12 +258,12 @@ main() {
     # Check for any API error - GitHub API returns "message" field on errors
     # Per https://docs.github.com/en/rest/releases/releases
     if [[ -z "$release_json" ]]; then
-        error "Empty response from GitHub API. Check GH_TOKEN is set and valid."
+        error "Empty response from GitHub's API"
     fi
-    if echo "$release_json" | grep -q '"message"'; then
+    if echo "$release_json" | grep --quiet '"message"'; then
         local api_error
-        api_error=$(echo "$release_json" | grep -o '"message"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*:\s*"\([^"]*\)".*/\1/')
-        error "GitHub API error: $api_error\nCheck GH_TOKEN has Contents read permission."
+        api_error=$(echo "$release_json" | grep --only-matching '"message"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*:[[:space:]]*"\([^"]*\)".*/\1/')
+        error "GitHub API error: $api_error"
     fi
 
     # Determine archive extension
@@ -269,7 +286,8 @@ main() {
     local checksums_id
     checksums_id=$(get_asset_id "$release_json" "$checksums_name")
 
-    # Create temp directory; cleanup, trapped at script scope, removes it on every exit
+    # Create temp directory; cleanup, trapped at script scope, removes it on every exit. mktemp, rm, mkdir and unzip
+    # keep their short options: macOS's BSD tools have no long forms, and Info-ZIP has none anywhere.
     TMP_DIR=$(mktemp -d)
 
     # Download archive via GitHub API
@@ -301,7 +319,7 @@ main() {
     local pkg="${TMP_DIR}/pkg"
     mkdir -p "${pkg}/bin"
     if [[ "$ext" == "tar.gz" ]]; then
-        tar -xzf "${TMP_DIR}/${archive_name}" -C "${pkg}"
+        tar --extract --gzip --file "${TMP_DIR}/${archive_name}" --directory "${pkg}"
     else
         unzip -q "${TMP_DIR}/${archive_name}" -d "${pkg}"
     fi
@@ -330,25 +348,60 @@ main() {
         error "No binaries found in archive for DEVLORE_TOOLS=${TOOLS}"
     fi
 
+    # Register the layers given, base first, with the writ just installed (#950). The call runs in the user's working
+    # directory, so a relative location resolves where it was typed. writ's output is its own, and so are its errors:
+    # a failure ends the run, and running the same command again is the recovery. --unattended is writ's contract
+    # for a run nobody is there to answer.
+    local writ="${INSTALL_DIR}/writ"
+    if [[ "$os" == "windows" ]]; then
+        writ="${writ}.exe"
+    fi
+    local registered=()
+    local skipped=()
+    local layer location
+    for layer in base team personal; do
+        case "$layer" in
+            base) location="$BASE" ;;
+            team) location="$TEAM" ;;
+            *) location="$PERSONAL" ;;
+        esac
+        if [[ -z "$location" ]]; then
+            skipped+=("$layer")
+            continue
+        fi
+        info "Registering ${layer}: ${location}"
+        "$writ" repo set "$layer" "$location" --unattended
+        registered+=("$layer")
+    done
+
+    # The summary comes last, after writ's output, and its last lines are the layers skipped.
     echo
     success "Installed: ${installed[*]}"
     success "Location: ${INSTALL_DIR}"
+    if [[ ${#registered[@]} -gt 0 ]]; then
+        success "Registered: ${registered[*]}"
+    fi
     echo
 
-    # Check if install dir is in PATH
+    # Check if install dir is in PATH. The advice names the directory this run installed into, written from $HOME
+    # when it is under it, so that --prefix gets advice that works.
     if [[ ":$PATH:" != *":${INSTALL_DIR}:"* ]]; then
+        local shown="$INSTALL_DIR"
+        if [[ "$INSTALL_DIR" == "$HOME"/* ]]; then
+            shown="\$HOME/${INSTALL_DIR#"$HOME"/}"
+        fi
         warn "${INSTALL_DIR} is not in your PATH"
         echo
         echo "Add it to your shell profile:"
         echo
         echo "  # For bash (~/.bashrc or ~/.bash_profile)"
-        echo "  export PATH=\"\$HOME/.local/bin:\$PATH\""
+        echo "  export PATH=\"${shown}:\$PATH\""
         echo
         echo "  # For zsh (~/.zshrc)"
-        echo "  export PATH=\"\$HOME/.local/bin:\$PATH\""
+        echo "  export PATH=\"${shown}:\$PATH\""
         echo
         echo "  # For fish (~/.config/fish/config.fish)"
-        echo "  fish_add_path \$HOME/.local/bin"
+        echo "  fish_add_path ${shown}"
         echo
     fi
 
@@ -361,11 +414,21 @@ main() {
     fi
 
     echo
-    info "Next steps:"
-    echo "  Adopt files:      writ adopt --project <name> <file>..."
-    echo "  Migrate existing: writ migrate <directory>"
-    echo
-    info "Documentation: https://devlore.noblefactor.com"
+    info "Documentation: https://github.com/NobleFactor/devlore-cli#readme"
+
+    if [[ ${#registered[@]} -gt 0 || ${#skipped[@]} -gt 0 ]]; then
+        echo
+        info "Next steps:"
+    fi
+    if [[ ${#registered[@]} -gt 0 ]]; then
+        echo "  writ deploy"
+    fi
+    if [[ ${#skipped[@]} -gt 0 ]]; then
+        for layer in "${skipped[@]}"; do
+            echo "skipped: ${layer}; to register it later:"
+            echo "  writ repo set ${layer} <working-tree-root>|<repository-url>"
+        done
+    fi
 }
 
 main "$@"

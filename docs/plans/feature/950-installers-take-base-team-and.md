@@ -1,7 +1,7 @@
 ---
 title: "The installers take --base, --team and --personal and never ask; install.ps1 never exits the user's session; the guide and the README show the one command"
 issue: https://github.com/NobleFactor/devlore-cli/issues/950
-status: approved
+status: active
 created: 2026-09-25
 updated: 2026-09-30
 ---
@@ -118,6 +118,9 @@ spelled out:
   refuses unknown parameters.
 - **Next steps.** They stop suggesting `writ adopt` and `writ migrate`: `writ deploy` if a layer was registered,
   and the skipped lines, which come last.
+- **The PATH advice names the directory installed into** (found in Phase 4). `install.sh` told every user to add
+  `$HOME/.local/bin`, whatever `--prefix` said; it now prints the install directory, written from `$HOME` when it's
+  under it. `install.ps1` already printed the install directory.
 - **The standard script headers** (ruled 2026-09-30: "why are you not using my standard script headers?"). The
   header is the shebang, SPDX, the copyright, and `<name> - <what it does>`; usage never sits in comments.
   - `install.sh`: `# install.sh - Install lore, star and writ, and register the layers given`, then
@@ -157,6 +160,12 @@ spelled out:
   an in-session `2>` on the one-liner doesn't.
 - **Native exit codes.** `install.ps1:359` (`tar`) and `:383` (`chmod`) gain the `$LASTEXITCODE` check the style
   guide requires after every native command. Today a failed extraction runs on to "No binaries found".
+- **A caller's redirection doesn't end the run** (found by Requirement 12's review, 2026-09-30). Windows PowerShell
+  5.1 turns each stderr line of a native command into an error record when a caller redirects the error stream
+  (`*>&1 | Tee-Object`), and the script's `'Stop'` made the first one fatal: lore, star and writ narrate on stderr,
+  so a user who logged the install lost it at the first progress line. The four native calls (`tar`, `chmod`,
+  `self install`, `repo set`) run through `Invoke-NativeCommand`, which holds `'Continue'` for their duration;
+  `$LASTEXITCODE` still decides. PowerShell 7.2 and later leave native stderr alone.
 
 ### Requirement 7: The gates (#950, #965)
 
@@ -204,10 +213,10 @@ spelled out:
 
 - **`irm | iex` leaves the script's settings in the user's session:** `$ErrorActionPreference = 'Stop'`, strict
   mode, and the script's functions and variables. Only the script-block form avoids it. That's a design change to
-  `install.ps1`, so it's filed against #798; the documents note it beside the `iex` form (Requirement 8).
+  `install.ps1`, so it's filed as #982; the documents note it beside the `iex` form (Requirement 8).
 - **`writ repo set` refuses a URL layer whose clone directory exists** but isn't that layer's registration
   (`repo_cmd.go:520-522`). A rerun after a clone that landed but wasn't registered fails. That's against the
-  idempotency ruling, so it's filed against writ.
+  idempotency ruling, so it's filed as #983.
 
 ### Requirement 10: PR A's owed tick
 
@@ -219,16 +228,53 @@ is set `complete`.
 
 Ruled 2026-09-30: "fold them in".
 
-- **`docs/guides/getting-started.md`:**
-  - it registers a layer with `writ repo set`, after the `git init` it requires, instead of
-    `writ config set writ.repos.personal`, which nothing reads (`:57-58`);
-  - its project layout agrees with `docs/guides/writ/repositories.md` (`:68-71`);
-  - it names three tools, not two (`:11`, `:19`).
-- **`README.md`:** the `devlore.org` link, a parked domain, goes (`:98-99`).
+- **`docs/guides/getting-started.md`:** it names three tools, not two (`:11`, `:19`). Its "Initialize a
+  repository", "Create your first project" and "Deploy the project" stay as `develop` has them (ruled 2026-09-30:
+  "yes, take them out"). Phase 4 ran them in a scratch account, and a new user can't get through them:
+  - moving `~/.config/git/config` into the project takes git's name and email with it, so the commit that
+    `writ deploy` requires fails;
+  - copying `~/.zshrc` leaves the original, and `writ deploy` refuses to replace it;
+  - `writ adopt`, the product's way to bring a file under writ, refuses on a machine where nothing has been deployed
+    ("no current deployment to write into"), and a first `writ deploy` of a new layer refuses too ("no layer
+    configured").
+
+  That's the first-use scenario, which belongs to #894's replan (Out of Scope).
+- **`README.md`:** the `devlore.org` link, a parked domain, goes (`:98-99`). The Noble Factor link, found in Phase
+  4, points at https://github.com/NobleFactor instead of `https://noblefactor.com`, a registered domain with no
+  address (ruled 2026-09-30: "point it at the github organization.").
 - **`wiki/Releasing.md`:** it says the release copies both installers (since #948), and drops `DEVLORE_DOWNLOAD_BASE`,
   which the installer never reads.
 - **Both installers:** the `armv7` mapping goes (`install.sh:109`, `install.ps1:175`), because no `armv7` archive is
   published. An `armv7` machine is refused as unsupported, not failed with "Asset not found".
+
+### Requirement 12: The installers tested in CI (#950, #965)
+
+Ruled 2026-09-30: "we should test this in ci where we have more vanilla systems", and "yes, fold it into PR B". It
+replaces the owner's runs on the owner's machines, which carry GNU tools on macOS and PowerShell 7 on Windows.
+
+- **`.github/workflows/installers.yaml`,** its own file: `ci.yaml` is where the lint work lives. It runs on pull
+  requests and pushes to `develop`, `main` and `release/*` that touch `install.sh`, `install.ps1`, the test scripts,
+  the workflow itself or `release.yaml`, on the runners `ci.yaml`'s scenario matrix uses. `GH_TOKEN` is the job's
+  token.
+- **The tests are files, runnable by hand:** `scripts/Test-InstallScript.sh` for `install.sh` and
+  `scripts/Test-InstallScript.ps1` for `install.ps1`. Every run uses scratch `HOME`, XDG homes, temp and prefix.
+- **`install.sh`,** on `macos-latest`, `macos-15-intel`, `ubuntu-latest` and `ubuntu-24.04-arm`, through a pipe. On
+  macOS the installer runs under `/bin/bash` with `PATH=/usr/bin:/bin:/usr/sbin:/sbin`: bash 3.2, bsdtar, BSD grep
+  and sed, and `shasum`.
+  - `--personal=<the checkout>` and `--team=https://github.com/NobleFactor/noblefactor-ops.git`, twice: both
+    registered, the second run `unchanged`, the skipped base last;
+  - no flags: the three skipped layers last, exit 0;
+  - `DEVLORE_TOOLS=lore --base=…`, and an unknown argument: exit 1;
+  - the guide's checksum line against the release installed (`sha256sum --check`; on macOS
+    `shasum --algorithm 256 --check`).
+- **`install.ps1`,** on `windows-latest` and `windows-11-arm`, under Windows PowerShell 5.1 and PowerShell 7:
+  - the script-block form with `-Personal` and `-Team`, twice: both registered, the state unchanged;
+  - `-Help` prints the usage and returns;
+  - a forced failure throws, and the next statement runs;
+  - `irm | iex` with `$env:DEVLORE_BASE`, in a child session;
+  - with the caller's streams redirected (`*>&1 | Tee-Object`), the run finishes;
+  - run as a file, a failure exits 1 and `-Help` exits 0.
+- **Both scripts pass the gates:** `star lint shell`, and the PowerShell gate.
 
 ## Implementation Phases
 
@@ -238,54 +284,60 @@ Ruled 2026-09-30: "fold them in".
 
 ### Phase 2: The installers (#950, #965)
 
-- [ ] Requirements 1–5 in `install.sh` and `install.ps1`
-- [ ] Requirement 6 in `install.ps1`
-- [ ] Requirement 9's two issues filed
-- [ ] Requirement 11's installer part: the `armv7` mapping goes
+- [x] Requirements 1–5 in `install.sh` and `install.ps1`
+- [x] Requirement 6 in `install.ps1`
+- [x] Requirement 9's two issues filed
+- [x] Requirement 11's installer part: the `armv7` mapping goes
 
 ### Phase 3: The documents (#946)
 
-- [ ] Requirement 8, with every flag and line copied from the installers at this PR's head
-- [ ] Requirement 11's documents: `getting-started.md`, `README.md`, `wiki/Releasing.md`
-- [ ] Requirement 10: PR A's plan ticked and `complete`
+- [x] Requirement 8, with every flag and line copied from the installers at this PR's head
+- [x] Requirement 11's documents: `getting-started.md`, `README.md`, `wiki/Releasing.md`
+- [x] Requirement 10: PR A's plan ticked and `complete`
 
 ### Phase 4: Verify
 
 Every run uses scratch directories for `HOME`, the XDG homes, `TMPDIR` and the prefix. The assertion is `writ repo
-list` in that environment. Every run is made twice, and the second must equal the first, with writ's lines saying
-`unchanged`. Before and after, this machine's `~/.config/devlore` and `~/.local/share/devlore/writ/layers` are
-diffed to prove them untouched.
+list` in that environment. Every run that registers is made twice, and the second must equal the first, with
+writ's lines saying `unchanged`. Before and after, this machine's `~/.config/devlore` and
+`~/.local/share/devlore/writ/layers` are diffed to prove them untouched.
 
-- [ ] bash, flags, through the pipe (`cat install.sh | bash -s -- --base=… --team=… --personal=…`) with paths:
+- [x] bash, flags, through the pipe (`cat install.sh | bash -s -- --base=… --team=… --personal=…`) with paths:
       three registered
-- [ ] bash, a URL layer (`--team=https://github.com/NobleFactor/devlore-cli.git`): cloned into scratch, then
+- [x] bash, a URL layer (`--team=https://github.com/NobleFactor/devlore-cli.git`): cloned into scratch, then
       `unchanged`
-- [ ] bash, `DEVLORE_BASE` alone: base registered, two skipped. With `DEVLORE_BASE=<a>` and `--base=<b>`, the flag
+- [x] bash, `DEVLORE_BASE` alone: base registered, two skipped. With `DEVLORE_BASE=<a>` and `--base=<b>`, the flag
       wins
-- [ ] bash, no flags, once with a terminal and once `< /dev/null`: identical output, three skipped lines last, exit 0
-- [ ] bash, `DEVLORE_TOOLS=lore --base=…`: refused with exit 1 before any network call; an unknown argument: refused
+- [x] bash, no flags, once with a terminal and once `< /dev/null`: identical output once color is stripped (color
+      is on for a terminal alone, by design), three skipped lines last, exit 0
+- [x] bash, `DEVLORE_TOOLS=lore --base=…`: refused with exit 1 before any network call; an unknown argument: refused
       with the usage and exit 1
-- [ ] pwsh 7 on this host, from the tree (`Get-Content -Raw`) and from a local server (`irm`):
+- [x] pwsh 7 on this host, from the tree (`Get-Content -Raw`) and from a local server (`irm`):
       - the script-block form with `-Base`, `-Team` and `-Personal`;
       - `iex` with `$env:DEVLORE_BASE`;
       - `-Help` under the script-block form returns and the session survives;
       - a forced failure (`$env:DEVLORE_VERSION = 'v0.0.0-no-such-tag'`) leaves the session open with the message;
       - run as a file, the failure exits 1 and `-Help` exits 0.
       Control: the same failure against `f0d21c49`'s copy ends the session
-- [ ] No `exit` in `install.ps1`, by the parser, not by text: 0 `ExitStatementAst` nodes
-- [ ] The gates: `star lint shell .`; the PowerShell gate reports 0 findings in `install.ps1`; ASCII only;
+- [x] No `exit` in `install.ps1`, by the parser, not by text: 0 `ExitStatementAst` nodes
+- [x] The gates: `star lint shell .`; the PowerShell gate reports 0 findings in `install.ps1`; ASCII only;
       `Test-GuideFrontmatter.sh`
-- [ ] The documents: every address answers 200. The by-hand steps, run as written into a scratch prefix on this
+- [x] The documents: every address answers 200. The by-hand steps, run as written into a scratch prefix on this
       host, install a working writ, and star finds its extensions. Nothing stale remains
       (`releases/latest`, `writ-darwin-`, `devlore.noblefactor.com`, `/usr/local/bin`)
-- [ ] **The owner's runs:**
-      - Windows PowerShell 5.1 on DANOBLE-WD11-3: both forms, the forced failure and `-Help`, and whether 5.1
-        turns writ's stderr lines into errors when a caller redirects the installer's streams;
-      - on a Mac: `bsdtar`'s and `grep`'s long options
+- The owner's runs on a Mac and on DANOBLE-WD11-3 are replaced by Requirement 12's CI jobs (ruled 2026-09-30).
 
-### Phase 5: Merge
+### Phase 5: The installers in CI
 
-- [ ] PR script written, shown, and handed over. The PR resolves #950, #965 and #946
+- [x] `scripts/Test-InstallScript.sh` and `scripts/Test-InstallScript.ps1` written, and passing on this host (bash;
+      PowerShell 7)
+- [x] `.github/workflows/installers.yaml` written; it parses
+- [x] The gates pass on the three new files
+- [ ] On the pull request: every installers job passes, on all six runners and under both PowerShell editions
+
+### Phase 6: Merge
+
+- [x] PR script written, shown, and handed over. The PR resolves #950, #965 and #946
 - [ ] After the merge and the site's sync: the site's two installers equal `develop`'s, and the documented bash line,
       run as printed in scratch, registers its layers
 
@@ -293,6 +345,10 @@ diffed to prove them untouched.
 
 - **`self upgrade`** (#947, PR C) and **the distribution fix** (#959, the PR before it).
 - **Linking a PR and its release** (not requested).
+- **The first-use scenario** (ruled 2026-09-30): "I should be able to set my repos up and start adopting right away.
+  we might also allow 'empty' deployments." `writ adopt` and a first `writ deploy` on a fresh machine, and the
+  guide's repository and deploy sections that walk a new user through them, go to the replan of #894 ("writ works
+  on a machine that has never seen it"), which today leaves adopt out.
 
 ## Open Questions
 

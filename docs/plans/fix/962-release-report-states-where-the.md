@@ -1,7 +1,7 @@
 ---
 title: "The release run's summary says what was built, where each platform's products are, and where the installers are, with no unused token"
 issue: https://github.com/NobleFactor/devlore-cli/issues/962
-status: active
+status: complete
 created: 2026-09-29
 updated: 2026-09-30
 ---
@@ -140,8 +140,10 @@ convergence of 2026-09-29, and the plan is set `complete`. What was checked:
 ### Phase 4: Merge and prove
 
 - [x] PR script written, shown, and handed over. The PR resolves #962
-- [ ] After the merge: the merge commit's own release run shows the summary, naming its own tag, and its addresses
-      answer 200
+- [x] After the merge: the merge commit's own release run shows the summary, naming its own tag, and its addresses
+      answer 200. Run 36641566259 (`f0d21c49`) published `v0.1.0-dev.20260929224715`; its Summary step ran
+      clean, and the owner read the summary on the run page, 2026-09-30: "The summary looks good." Ticked in PR B, the
+      next devlore-cli commit
 
 ## Out of Scope
 
