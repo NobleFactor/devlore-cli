@@ -1,7 +1,7 @@
 ---
 title: "The installers take --base, --team and --personal and never ask; install.ps1 never exits the user's session; the guide and the README show the one command"
 issue: https://github.com/NobleFactor/devlore-cli/issues/950
-status: active
+status: complete
 created: 2026-09-25
 updated: 2026-09-30
 ---
@@ -333,13 +333,15 @@ writ's lines saying `unchanged`. Before and after, this machine's `~/.config/dev
       PowerShell 7)
 - [x] `.github/workflows/installers.yaml` written; it parses
 - [x] The gates pass on the three new files
-- [ ] On the pull request: every installers job passes, on all six runners and under both PowerShell editions
+- [x] On the pull request: every installers job passes, on all six runners and under both PowerShell editions
+      (#984)
 
 ### Phase 6: Merge
 
 - [x] PR script written, shown, and handed over. The PR resolves #950, #965 and #946
-- [ ] After the merge and the site's sync: the site's two installers equal `develop`'s, and the documented bash line,
-      run as printed in scratch, registers its layers
+- [x] After the merge and the site's sync: the site's two installers equal `develop`'s, and the documented bash line,
+      run as printed in scratch, registers its layers (release run 36653137431; the site served `e3b501d7`'s copies
+      on 2026-09-30, and the line registered base, team and personal)
 
 ## Out of Scope
 

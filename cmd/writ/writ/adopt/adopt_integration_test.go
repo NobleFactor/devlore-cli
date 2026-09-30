@@ -338,8 +338,8 @@ func TestAdopt_Platform(t *testing.T) {
 	if err := adopt.ValidatePlatform(cfg.Platform); err != nil {
 		t.Fatalf("ValidatePlatform(%q) refused this platform's own OS: %v", cfg.Platform, err)
 	}
-	if err := adopt.ValidatePlatform("Ubuntu"); err == nil {
-		t.Error("ValidatePlatform(\"Ubuntu\") accepted a word the layer tree never matches")
+	if err := adopt.ValidatePlatform("NoSuchPlatform"); err == nil {
+		t.Error("ValidatePlatform(\"NoSuchPlatform\") accepted a word the layer tree never matches")
 	}
 
 	if _, err := runForTest(t, cfg); err != nil {

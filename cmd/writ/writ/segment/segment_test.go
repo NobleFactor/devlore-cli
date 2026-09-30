@@ -7,8 +7,28 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 )
+
+// writeOSRelease writes an os-release fixture into a test's temporary directory.
+//
+// Parameters:
+//   - `t`: the test that owns the directory.
+//   - `content`: the fixture's lines.
+//
+// Returns:
+//   - `string`: the fixture's path.
+func writeOSRelease(t *testing.T, content string) string {
+
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "os-release")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write the os-release fixture: %v", err)
+	}
+	return path
+}
 
 func TestOSFamily(t *testing.T) {
 	tests := []struct {
@@ -227,6 +247,44 @@ func TestDetectSegments(t *testing.T) {
 	// ARCH should be set
 	if arch := segs.Get("ARCH"); arch == "" {
 		t.Error("ARCH segment is empty")
+	}
+
+	// DISTRO should be set on a Linux host whose os-release names its distribution (#959)
+	if runtime.GOOS == "linux" {
+		content, err := os.ReadFile("/etc/os-release")
+		if err == nil && strings.Contains("\n"+string(content), "\nID=") && segs.Get("DISTRO") == "" {
+			t.Error("DISTRO segment is empty, though /etc/os-release carries an ID")
+		}
+	}
+}
+
+// --- readDistro ---
+
+func TestReadDistro_Fixtures(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{"ubuntu, with its lineage", "NAME=\"Ubuntu\"\nID=ubuntu\nID_LIKE=debian\n", "Ubuntu"},
+		{"debian", "ID=debian\n", "Debian"},
+		{"quoted", "ID=\"fedora\"\n", "Fedora"},
+		{"unknown to the table", "ID=nixos\n", "Nixos"},
+		{"no ID line", "NAME=\"Somewhere\"\nID_LIKE=debian\n", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := readDistro(writeOSRelease(t, tt.content)); got != tt.want {
+				t.Errorf("readDistro() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestReadDistro_MissingFile(t *testing.T) {
+	if got := readDistro(filepath.Join(t.TempDir(), "os-release")); got != "" {
+		t.Errorf("readDistro() of a missing file = %q, want \"\"", got)
 	}
 }
 

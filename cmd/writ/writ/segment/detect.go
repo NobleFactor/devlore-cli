@@ -122,13 +122,24 @@ func detectDistro() string {
 		return ""
 	}
 
-	file, err := os.Open("/etc/os-release")
+	return readDistro("/etc/os-release")
+}
+
+// readDistro returns the distribution an os-release file's ID field names, capitalized.
+//
+// Parameters:
+//   - `path`: the os-release file: `/etc/os-release` on a Linux host, a fixture in a test.
+//
+// Returns:
+//   - `string`: the ID, capitalized by [capitalizeDistro]; empty when the file cannot be opened or has no ID line.
+func readDistro(path string) string {
+
+	file, err := os.Open(path)
 	if err != nil {
 		return ""
 	}
 
-	iox.Close(&err, file)
-
+	defer iox.Close(&err, file)
 	scanner := bufio.NewScanner(file)
 
 	for scanner.Scan() {
