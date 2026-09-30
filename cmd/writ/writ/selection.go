@@ -64,11 +64,22 @@ func resolveSelection(ctx context.Context, named []string) (Selection, error) {
 	if err != nil {
 		return Selection{}, fmt.Errorf("collect layer sources: %w", err)
 	}
+	// Named projects apply in command-line order, after the implicit ones and the recorded ones not named (#944, ruled
+	// 2026-09-30: "evaluate left to right in the order specified on the command line"). An implicit project is always
+	// applied first, so naming one is a command-line error; so is naming one twice, whose order would be ambiguous. A
+	// recorded project that is named takes its command-line place.
 	for _, project := range named {
-		if slices.Contains(selection.Projects(), project) {
-			continue
+		switch {
+		case slices.Contains(selection.Implicit, project):
+			return Selection{}, cli.ExitWith(cli.ExitUsage, fmt.Errorf(
+				"%q is implicit: it is always applied first, so it isn't named on the command line", project))
+		case slices.Contains(selection.Named, project):
+			return Selection{}, cli.ExitWith(cli.ExitUsage, fmt.Errorf(
+				"%q is named twice; projects apply in the order named, so name it once", project))
 		}
-		if err := knownProject(project, sources); err != nil {
+		if i := slices.Index(selection.Recorded, project); i >= 0 {
+			selection.Recorded = slices.Delete(selection.Recorded, i, i+1)
+		} else if err := knownProject(project, sources); err != nil {
 			return Selection{}, err
 		}
 		selection.Named = append(selection.Named, project)

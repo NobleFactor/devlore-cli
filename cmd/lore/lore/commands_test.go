@@ -4,6 +4,8 @@
 package lore
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,8 +15,10 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
+	"github.com/NobleFactor/devlore-cli/cmd/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/cmd/lore/lore/onboard"
 	"github.com/NobleFactor/devlore-cli/internal/manifest"
+	"github.com/NobleFactor/devlore-cli/pkg/selector"
 	"github.com/NobleFactor/devlore-cli/pkg/sink"
 	"github.com/NobleFactor/devlore-cli/pkg/status"
 )
@@ -458,5 +462,64 @@ func TestWriteOnboardManifest_FailsWhenTheDirectoryDoesNotExist(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "writing manifest") {
 		t.Errorf("error %q is not wrapped with 'writing manifest'", err)
+	}
+}
+
+// --- planDeployments ---
+
+// TestPlanDeployments_AGrammarErrorInAnyPackageRefusesTheRun: every package is planned before any deploys, and a
+// platform directory that breaks the selector grammar in any of them refuses the run with every one listed (#944,
+// Q19). A build error of another kind skips its package, as before.
+func TestPlanDeployments_AGrammarErrorInAnyPackageRefusesTheRun(t *testing.T) {
+
+	refusal := func(dir, name string) error {
+		return &lorepackage.GrammarRefusal{PackageDir: dir, Errors: []*selector.GrammarError{
+			{Name: name, Word: "Linux", Violation: selector.RepeatedPart, Part: "OS"}}}
+	}
+	build := func(cfg BuildConfig) (*BuildResult, error) {
+		switch cfg.Packages[0] {
+		case "docker":
+			return nil, refusal("/packages/docker", "Linux.Debian")
+		case "podman":
+			return nil, fmt.Errorf("lore.Build: wrapped: %w", refusal("/packages/podman", "Linux.Fedora"))
+		case "broken":
+			return nil, errors.New("reading the package failed")
+		}
+		return &BuildResult{}, nil
+	}
+	resolve := func(names ...string) []resolvedPackage {
+		var resolved []resolvedPackage
+		for _, name := range names {
+			resolved = append(resolved, resolvedPackage{pkg: &lorepackage.Release{Name: name}})
+		}
+		return resolved
+	}
+
+	planned, err := planDeployments(resolve("git", "docker", "broken", "podman"), &loreDeployConfig{}, build)
+	if err == nil {
+		t.Fatalf("planDeployments planned %d packages, want the run refused", len(planned))
+	}
+	if planned != nil {
+		t.Errorf("planDeployments returned %d plans with its refusal, want none", len(planned))
+	}
+	for _, want := range []string{"Linux.Debian", "Linux.Fedora", "/packages/docker", "/packages/podman"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("the refusal does not name %s:\n%v", want, err)
+		}
+	}
+
+	planned, err = planDeployments(resolve("git", "broken", "curl"), &loreDeployConfig{}, build)
+	if err != nil {
+		t.Fatalf("planDeployments: %v, want no refusal: a build error of another kind skips its package", err)
+	}
+	var names []string
+	for _, p := range planned {
+		names = append(names, p.name)
+		if (p.err != nil) != (p.name == "broken") {
+			t.Errorf("%s: err = %v", p.name, p.err)
+		}
+	}
+	if got := strings.Join(names, " "); got != "git broken curl" {
+		t.Errorf("planned %q, want every package in order: git broken curl", got)
 	}
 }

@@ -331,14 +331,15 @@ func TestAdopt_Platform(t *testing.T) {
 	}
 
 	cfg := configForTest(t, root, sourceFile)
-	cfg.Platform = segment.DetectSegments().Get("OS")
+	segs := segment.DetectSegments()
+	cfg.Platform = segs.Get("OS")
 	if cfg.Platform == "" {
 		t.Skip("no OS segment detected here")
 	}
-	if err := adopt.ValidatePlatform(cfg.Platform); err != nil {
+	if err := adopt.ValidatePlatform(cfg.Project, cfg.Platform, segs); err != nil {
 		t.Fatalf("ValidatePlatform(%q) refused this platform's own OS: %v", cfg.Platform, err)
 	}
-	if err := adopt.ValidatePlatform("NoSuchPlatform"); err == nil {
+	if err := adopt.ValidatePlatform(cfg.Project, "NoSuchPlatform", segs); err == nil {
 		t.Error("ValidatePlatform(\"NoSuchPlatform\") accepted a word the layer tree never matches")
 	}
 
@@ -348,6 +349,28 @@ func TestAdopt_Platform(t *testing.T) {
 	expected := filepath.Join(cfg.LayerPath, "Home", cfg.Project+"."+cfg.Platform, "source", "platform.toml")
 	if _, err := os.Stat(expected); err != nil {
 		t.Fatalf("the adopted file is not under the suffixed project directory %s: %v", expected, err)
+	}
+}
+
+// TestValidatePlatform_TheGrammar pins #944's --platform: every link of the host's chain is accepted, and a suffix
+// the next deploy would refuse or skip is refused here.
+func TestValidatePlatform_TheGrammar(t *testing.T) {
+
+	ubuntu := segment.Segments{
+		{Name: "OS", Value: "Linux"},
+		{Name: "DISTRO", Value: "Ubuntu", Lineage: []string{"Debian"}},
+		{Name: "ARCH", Value: "arm64"},
+	}
+
+	for _, platform := range []string{"Unix", "Linux", "Debian", "Ubuntu", "arm64", "aarch64", "Debian.arm64"} {
+		if err := adopt.ValidatePlatform("noblefactor", platform, ubuntu); err != nil {
+			t.Errorf("ValidatePlatform(%q) on Ubuntu arm64: %v, want it accepted", platform, err)
+		}
+	}
+	for _, platform := range []string{"Linux.Debian", "arm64.Debian", "Debain", "Fedora", "amd64"} {
+		if err := adopt.ValidatePlatform("noblefactor", platform, ubuntu); err == nil {
+			t.Errorf("ValidatePlatform(%q) on Ubuntu arm64 accepted it, want it refused", platform)
+		}
 	}
 }
 

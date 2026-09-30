@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/NobleFactor/devlore-cli/pkg/selector"
 )
 
 func TestRequiredPhase(t *testing.T) {
@@ -102,7 +104,11 @@ func TestRelease_PhaseActions_NativePM(t *testing.T) {
 	for _, tt := range tests {
 		name := string(tt.action) + "/" + tt.phase
 		t.Run(name, func(t *testing.T) {
-			actions := pkg.PhaseActions("Linux.Debian", tt.action, tt.phase)
+			actions, err := pkg.PhaseActions(selector.NewHostFromWords("Linux", "Ubuntu", []string{"Debian"}, "amd64"),
+				tt.action, tt.phase)
+			if err != nil {
+				t.Fatalf("PhaseActions: %v", err)
+			}
 
 			if len(actions) != tt.wantCount {
 				t.Errorf("PhaseActions() returned %d actions, want %d", len(actions), tt.wantCount)
@@ -176,7 +182,11 @@ platforms:
 	}
 
 	// Test install phase returns ScriptActions
-	actions := pkg.PhaseActions("Darwin", Deploy, "install")
+	darwin := selector.NewHostFromWords("Darwin", "", nil, "arm64")
+	actions, err := pkg.PhaseActions(darwin, Deploy, "install")
+	if err != nil {
+		t.Fatalf("PhaseActions: %v", err)
+	}
 
 	// Should have 2 scripts: Common and Darwin (Unix doesn't exist)
 	if len(actions) != 2 {
@@ -198,7 +208,10 @@ platforms:
 	}
 
 	// Test non-existent phase returns empty
-	actions = pkg.PhaseActions("Darwin", Deploy, "provision")
+	actions, err = pkg.PhaseActions(darwin, Deploy, "provision")
+	if err != nil {
+		t.Fatalf("PhaseActions(provision): %v", err)
+	}
 	if len(actions) != 0 {
 		t.Errorf("PhaseActions(provision) returned %d actions, want 0", len(actions))
 	}
@@ -223,5 +236,31 @@ func TestRelease_IsNative(t *testing.T) {
 				t.Errorf("IsNative() = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestSourceForPurlType: a native manager reports its purl type, and lore names the package by the manager's source;
+// lore resolving a package and lore search share the one mapping.
+func TestSourceForPurlType(t *testing.T) {
+
+	tests := []struct {
+		purlType string
+		want     PackageSource
+		ok       bool
+	}{
+		{"deb", SourceApt, true},
+		{"rpm", SourceDnf, true},
+		{"alpm", SourcePacman, true},
+		{"brew", SourceBrew, true},
+		{"port", SourcePort, true},
+		{"winget", SourceWinget, true},
+		{"flatpak", "", false},
+		{"apt", "", false},
+	}
+
+	for _, tt := range tests {
+		if got, ok := sourceForPurlType(tt.purlType); got != tt.want || ok != tt.ok {
+			t.Errorf("sourceForPurlType(%q) = %q, %v; want %q, %v", tt.purlType, got, ok, tt.want, tt.ok)
+		}
 	}
 }

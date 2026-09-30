@@ -4,180 +4,116 @@
 package segment
 
 import (
-	"bufio"
+	"fmt"
 	"os"
-	"runtime"
+	"slices"
 	"strings"
 
-	"github.com/NobleFactor/devlore-cli/pkg/iox"
+	"github.com/NobleFactor/devlore-cli/pkg/selector"
 )
 
-// DetectSegments returns segments for the current platform.
-// Returns OS, DISTRO (Linux only), and ARCH segments.
-func DetectSegments() Segments {
-	return Segments{
-		{Name: "OS", Value: capitalizeOS(runtime.GOOS)},
-		{Name: "DISTRO", Value: detectDistro()},
-		{Name: "ARCH", Value: runtime.GOARCH},
-	}
-}
-
-// DetectSegmentsWithNames returns segments with custom segment names from config.
-// Custom segment names (like ROLE, SITE) are appended after OS, DISTRO, ARCH.
-// Values are empty until set via CLI --segment flags.
-// Unassigned segments behave like DISTRO on macOS: directories with that suffix won't match.
-func DetectSegmentsWithNames(names []string) Segments {
-	segs := DetectSegments()
-	for _, name := range names {
-		segs = append(segs, Segment{Name: name, Value: ""})
-	}
-	return segs
-}
-
-// EnvVarPrefix is the prefix for segment environment variables.
-// Segments are set via WRIT_SEGMENT_<NAME>=<value> (e.g., WRIT_SEGMENT_ROLE=server).
+// EnvVarPrefix is the prefix of the environment variables that set a segment's value: WRIT_SEGMENT_ROLE=server.
 const EnvVarPrefix = "WRIT_SEGMENT_"
 
-// LoadFromEnv reads segment values from environment variables.
-// Only loads values for segments already defined in segs.
-// Environment variable format: WRIT_SEGMENT_<NAME>=<value>
-// Returns a new Segments with values populated from environment.
-func (s Segments) LoadFromEnv() Segments {
-	result := make(Segments, len(s))
-	copy(result, s)
+// region EXPORTED FUNCTIONS
 
-	for i := range result {
-		envVar := EnvVarPrefix + result[i].Name
-		if value := os.Getenv(envVar); value != "" {
-			result[i].Value = value
-		}
-	}
-
-	return result
-}
-
-// SetValues applies CLI --segment values to existing segments.
-// Returns an error if a value references a segment name not defined in segs.
-// Values format: map[name]value (e.g., {"ROLE": "server", "SITE": "aws"})
-func (s Segments) SetValues(values map[string]string) (Segments, error) {
-	result := make(Segments, len(s))
-	copy(result, s)
-
-	for name, value := range values {
-		found := false
-		for i := range result {
-			if result[i].Name == name {
-				result[i].Value = value
-				found = true
-				break
-			}
-		}
-		if !found {
-			return nil, &UndefinedSegmentError{Name: name}
-		}
-	}
-
-	return result, nil
-}
-
-// UndefinedSegmentError indicates a CLI --segment referenced an undefined segment name.
-type UndefinedSegmentError struct {
-	Name string
-}
-
-func (e *UndefinedSegmentError) Error() string {
-	return "undefined segment: " + e.Name + " (must be defined in config)"
-}
-
-// capitalizeOS converts runtime.GOOS to capitalized form.
-// darwin → Darwin, linux → Linux, windows → Windows
-func capitalizeOS(goos string) string {
-	switch goos {
-	case "darwin":
-		return "Darwin"
-	case "linux":
-		return "Linux"
-	case "windows":
-		return "Windows"
-	case "freebsd":
-		return "FreeBSD"
-	case "openbsd":
-		return "OpenBSD"
-	case "netbsd":
-		return "NetBSD"
-	default:
-		// Capitalize first letter for unknown OS
-		if goos == "" {
-			return goos
-		}
-		return strings.ToUpper(goos[:1]) + goos[1:]
-	}
-}
-
-// detectDistro returns the Linux distribution ID from /etc/os-release.
-// Returns empty string on non-Linux or if detection fails.
-func detectDistro() string {
-
-	if runtime.GOOS != "linux" {
-		return ""
-	}
-
-	return readDistro("/etc/os-release")
-}
-
-// readDistro returns the distribution an os-release file's ID field names, capitalized.
-//
-// Parameters:
-//   - `path`: the os-release file: `/etc/os-release` on a Linux host, a fixture in a test.
+// DetectSegments returns this machine's built-in segments: OS, DISTRO with its lineage, and ARCH.
 //
 // Returns:
-//   - `string`: the ID, capitalized by [capitalizeDistro]; empty when the file cannot be opened or has no ID line.
-func readDistro(path string) string {
+//   - `Segments`: the built-ins, from [selector.Detect]. DISTRO is empty off Linux and on a Linux host whose
+//     os-release names no distribution.
+func DetectSegments() Segments {
 
-	file, err := os.Open(path)
-	if err != nil {
-		return ""
-	}
-
-	defer iox.Close(&err, file)
-	scanner := bufio.NewScanner(file)
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.HasPrefix(line, "ID=") {
-			id := strings.TrimPrefix(line, "ID=")
-			id = strings.Trim(id, "\"")
-			return capitalizeDistro(id)
-		}
-	}
-
-	return ""
-}
-
-// capitalizeDistro converts distro ID to capitalized form.
-func capitalizeDistro(id string) string {
-	switch id {
-	case "debian":
-		return "Debian"
-	case "ubuntu":
-		return "Ubuntu"
-	case "fedora":
-		return "Fedora"
-	case "centos":
-		return "CentOS"
-	case "rhel":
-		return "RHEL"
-	case "arch":
-		return "Arch"
-	case "alpine":
-		return "Alpine"
-	case "opensuse", "opensuse-leap", "opensuse-tumbleweed":
-		return "OpenSUSE"
-	default:
-		// Capitalize first letter for unknown distro
-		if id == "" {
-			return id
-		}
-		return strings.ToUpper(id[:1]) + id[1:]
+	host := selector.Detect()
+	return Segments{
+		{Name: "OS", Value: host.OS},
+		{Name: "DISTRO", Value: host.Distro, Lineage: host.Lineage},
+		{Name: "ARCH", Value: host.Arch},
 	}
 }
+
+// Resolve returns this machine's segments: the built-ins detection supplies, then the extras configuration declares,
+// each value taken from the command line, else the environment, else configuration.
+//
+// An extra must be declared, and its value must be one of its declared values: a `--segment` or `WRIT_SEGMENT_`
+// variable naming anything else is refused, because a misspelling would otherwise match nothing and say nothing
+// (ruled 2026-09-30). The built-ins take a value without a declaration.
+//
+// Parameters:
+//   - `declared`: the extras declared in configuration, in configured order, each with its configured value.
+//   - `flags`: the `--segment NAME=value` flags, in command-line order.
+//
+// Returns:
+//   - `Segments`: the built-ins, then the extras.
+//   - `error`: the declaration's problems ([selector.ValidateSegments]), or a variable or flag the declaration refuses.
+func Resolve(declared []selector.Segment, flags []string) (Segments, error) {
+
+	if err := selector.ValidateSegments(declared); err != nil {
+		return nil, fmt.Errorf("writ.segments: %w", err)
+	}
+
+	segs := DetectSegments()
+	for _, extra := range declared {
+		segs = append(segs, Segment{Name: extra.Name, Value: extra.Value, Values: slices.Clone(extra.Values)})
+	}
+
+	for _, entry := range os.Environ() {
+		name, value, _ := strings.Cut(entry, "=")
+		if !strings.HasPrefix(name, EnvVarPrefix) || value == "" {
+			continue
+		}
+		name = strings.TrimPrefix(name, EnvVarPrefix)
+		if err := segs.admits(name, value); err != nil {
+			return nil, fmt.Errorf("%s%s: %w", EnvVarPrefix, name, err)
+		}
+		segs = segs.Set(name, value)
+	}
+
+	for _, flag := range flags {
+		name, value, found := strings.Cut(flag, "=")
+		if !found {
+			return nil, fmt.Errorf("invalid --segment %q: expected NAME=value", flag)
+		}
+		if err := segs.admits(name, value); err != nil {
+			return nil, fmt.Errorf("--segment %s: %w", flag, err)
+		}
+		segs = segs.Set(name, value)
+	}
+
+	return segs, nil
+}
+
+// endregion
+
+// region UNEXPORTED METHODS
+
+// region Behaviors
+
+// admits checks a value a variable or flag gives a segment.
+//
+// Parameters:
+//   - `name`: the segment's name.
+//   - `value`: the value.
+//
+// Returns:
+//   - `error`: nil for a built-in, or for a declared extra and one of its values; otherwise the refusal.
+func (s Segments) admits(name, value string) error {
+
+	if slices.Contains(selector.Builtins, name) {
+		return nil
+	}
+	for _, seg := range s {
+		if seg.Name != name {
+			continue
+		}
+		if !slices.Contains(seg.Values, value) {
+			return fmt.Errorf("%q is not one of %s's declared values %v", value, name, seg.Values)
+		}
+		return nil
+	}
+	return fmt.Errorf("%s is not a declared segment; declare it in writ.segments", name)
+}
+
+// endregion
+
+// endregion

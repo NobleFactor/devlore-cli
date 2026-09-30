@@ -5,6 +5,7 @@ package lore
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -150,8 +151,6 @@ func resolvePackages(cfg *loreDeployConfig) ([]resolvedPackage, error) {
 		return nil, fmt.Errorf("creating registry client: %w", err)
 	}
 
-	targetPlatform := detectPlatform()
-
 	// Narration: progress during a mutating command whose result is its exit, so every line is stderr.
 	cli.Note("Resolving packages...")
 	cli.Note("%-30s %-10s %-8s %s", "PACKAGE", "SOURCE", "CONF", "STATUS")
@@ -159,7 +158,7 @@ func resolvePackages(cfg *loreDeployConfig) ([]resolvedPackage, error) {
 
 	var resolved []resolvedPackage
 	for _, req := range cfg.Packages {
-		pkg, confidence, err := regClient.ResolveWithConfidence(req.Name, targetPlatform)
+		pkg, confidence, err := regClient.ResolveWithConfidence(req.Name)
 		if err != nil {
 			cli.Error("Error resolving package %q: %v", req.Name, err)
 			continue
@@ -230,10 +229,26 @@ func filterLowConfidence(resolved []resolvedPackage, cfg *loreDeployConfig) ([]r
 	return resolved, nil
 }
 
-// executeDeployments builds and runs the execution graph for each resolved package.
+// executeDeployments plans every resolved package, then runs each planned graph.
+//
+// Every package is planned before any deploys, so a platform directory that breaks the selector grammar in any of
+// them refuses the run before anything changes (#944, Q19).
+//
+// Parameters:
+//   - `ctx`: the deployment's context.
+//   - `resolved`: the packages, in the order they deploy.
+//   - `cfg`: the deploy configuration.
+//
+// Returns:
+//   - `error`: the refusal, or the last package's build or run error.
 func executeDeployments(ctx context.Context, resolved []resolvedPackage, cfg *loreDeployConfig) error {
 	if ctx == nil {
 		ctx = context.Background()
+	}
+
+	planned, err := planDeployments(resolved, cfg, Build)
+	if err != nil {
+		return err
 	}
 
 	cli.Note("Deploying packages...")
@@ -252,39 +267,80 @@ func executeDeployments(ctx context.Context, resolved []resolvedPackage, cfg *lo
 		})
 
 	var lastErr error
-	for _, rp := range resolved {
-		// Merge global and package-specific features
-		features := mergeFeatures(rp.features, cfg.GlobalFeatures)
-
-		// Build the execution graph for this package
-		buildResult, err := Build(BuildConfig{
-			Packages: []string{rp.pkg.Name},
-			Platform: detectPlatform(),
-			Features: features,
-			DryRun:   cfg.DryRun,
-		})
-		if err != nil {
-			cli.Error("Error building graph for %q: %v", rp.pkg.Name, err)
-			lastErr = err
+	for _, p := range planned {
+		if p.err != nil {
+			cli.Error("Error building graph for %q: %v", p.name, p.err)
+			lastErr = p.err
 			continue
 		}
 
-		if len(buildResult.Graph.Nodes()) == 0 {
+		if len(p.graph.Nodes()) == 0 {
 			if cfg.Verbose {
-				cli.Note("No actions for %q", rp.pkg.Name)
+				cli.Note("No actions for %q", p.name)
 			}
 			continue
 		}
 
-		executor := op.NewGraphExecutor(buildResult.Graph, spec)
+		executor := op.NewGraphExecutor(p.graph, spec)
 		if _, err := executor.Run(ctx, nil); err != nil {
-			cli.Error("Error deploying %q: %v", rp.pkg.Name, err)
+			cli.Error("Error deploying %q: %v", p.name, err)
 			lastErr = err
 			continue
 		}
 	}
 
 	return lastErr
+}
+
+// plannedDeployment is one package's plan: its graph, or the error building it.
+type plannedDeployment struct {
+	name  string
+	graph *op.Graph
+	err   error
+}
+
+// planDeployments builds every package's graph before any is run.
+//
+// A platform directory that breaks the selector grammar, in any package, refuses the run: the error lists every such
+// directory of every package, and nothing is planned. A build error of another kind is kept with its package, which
+// the run skips.
+//
+// Parameters:
+//   - `resolved`: the packages, in the order they deploy.
+//   - `cfg`: the deploy configuration.
+//   - `build`: builds one package's graph: [Build].
+//
+// Returns:
+//   - `[]plannedDeployment`: every package's plan, in order; nil with a refusal.
+//   - `error`: every package's [*lorepackage.GrammarRefusal], joined.
+func planDeployments(resolved []resolvedPackage, cfg *loreDeployConfig,
+	build func(BuildConfig) (*BuildResult, error)) ([]plannedDeployment, error) {
+
+	var planned []plannedDeployment
+	var refusals []error
+
+	for _, rp := range resolved {
+		buildResult, err := build(BuildConfig{
+			Packages: []string{rp.pkg.Name},
+			Features: mergeFeatures(rp.features, cfg.GlobalFeatures),
+			DryRun:   cfg.DryRun,
+		})
+
+		var refusal *lorepackage.GrammarRefusal
+		switch {
+		case errors.As(err, &refusal):
+			refusals = append(refusals, refusal)
+		case err != nil:
+			planned = append(planned, plannedDeployment{name: rp.pkg.Name, err: err})
+		default:
+			planned = append(planned, plannedDeployment{name: rp.pkg.Name, graph: buildResult.Graph})
+		}
+	}
+
+	if len(refusals) > 0 {
+		return nil, errors.Join(refusals...)
+	}
+	return planned, nil
 }
 
 // mergeFeatures combines per-package features with global features, deduplicating.

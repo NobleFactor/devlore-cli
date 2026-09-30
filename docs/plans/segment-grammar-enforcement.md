@@ -1,12 +1,18 @@
 ---
 title: "Segment grammar enforcement"
 issue: https://github.com/NobleFactor/devlore-cli/issues/369
-status: draft
+status: abandoned
 created: 2026-08-11
-updated: 2026-08-11
+updated: 2026-09-30
 ---
 
 # Plan: Segment grammar enforcement
+
+> **Abandoned, 2026-09-30:** superseded by [the one selector API](feature/944-one-selector-api-writ-and-lore.md)
+> (#944), which delivers this plan's order, its slots, a total order and its grammar errors, and answers this plan's
+> four open questions (#944's Q3, Q19 and Q20). One difference: there the OS and the distribution are one slot, a word
+> of the machine's chain. The rules are [Selectors](../guides/selectors.md). Phase 4, the `all` → `common` sweep, isn't
+> selector work and goes to a follow-up issue. The body below is kept as it was written.
 
 ## Summary
 

@@ -51,7 +51,7 @@ platforms:
 
 	reg := &Registry{cacheDir: tmpDir}
 
-	pkg, confidence, err := reg.ResolveWithConfidence("testpkg", "Darwin")
+	pkg, confidence, err := reg.ResolveWithConfidence("testpkg")
 	if err != nil {
 		t.Fatalf("ResolveWithConfidence() error = %v", err)
 	}
@@ -75,7 +75,7 @@ func TestResolveWithConfidence_NativePackage(t *testing.T) {
 	reg := &Registry{cacheDir: tmpDir}
 
 	// Resolve a package that doesn't exist in lore registry
-	pkg, confidence, err := reg.ResolveWithConfidence("curl", "Darwin")
+	pkg, confidence, err := reg.ResolveWithConfidence("curl")
 	if err != nil {
 		t.Fatalf("ResolveWithConfidence() error = %v", err)
 	}

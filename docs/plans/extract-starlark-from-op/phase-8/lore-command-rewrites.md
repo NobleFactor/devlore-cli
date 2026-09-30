@@ -3,8 +3,15 @@ title: "Lore command rewrites — ground-up against the sealed API"
 parent: "docs/plans/extract-starlark-from-op/phase-8/graph-immutability.md"
 status: in-progress
 created: 2026-05-30
-updated: 2026-05-30
+updated: 2026-09-30
 ---
+
+> **Changed by #944, 2026-09-30** ([plan](../../feature/944-one-selector-api-writ-and-lore.md)): the docker package's
+> `Linux.Debian` and `Linux.Fedora` directories are now `Debian` and `Fedora`. lore selects a package's platform
+> directories with `pkg/selector` along the host's chain, `Common` first, and runs every applicable directory's phase
+> script, general to specific: on Ubuntu, `Common`, `Unix`, `Linux`, `Debian`, `Ubuntu`. A `Linux.Debian/` names two
+> links of the chain and is a grammar error that refuses the package. The rules are
+> [Selectors](../../../guides/selectors.md).
 
 ## Problem statement
 
@@ -42,10 +49,10 @@ For the first command (`lore deploy`) against the docker package:
 4. **Cross-build**: build *every* OS's graph **on macOS** (graph construction is host-independent), then run
    each on its target. This is the portability payoff of the immutable, serializable graph.
 
-**Sequencing — Linux first.** The immediate target is **Ubuntu** (`Linux.Debian`): built on macOS, run on
+**Sequencing — Linux first.** The immediate target is **Ubuntu** (`Debian`): built on macOS, run on
 Ubuntu. **Darwin (macOS) is deferred** — its delta from Linux is substantial (Docker Desktop DMG vs. apt
 packages) and there is no macOS install procedure today; we cycle back to macOS once Linux is solid.
-`Linux.Fedora` / `Windows` stay in the package but out of immediate scope.
+`Fedora` / `Windows` stay in the package but out of immediate scope.
 
 ## Command matrix (full)
 
@@ -87,7 +94,7 @@ framework). Go style-guide compliance is non-negotiable per file touched.
 - **`lifecycle.yaml`** — manifest: name/version, `platforms: [Darwin, Linux, Windows]`, `features` (`rootless`,
   `purge-data`), `settings` (`storage-driver`, `log-driver`), `verification` (`docker --version`),
   `hardware_provisions`, `conflicts`, `provides`.
-- **Per-OS pipelines** under `Darwin/`, `Linux.Debian/`, `Linux.Fedora/`, `Windows/`, each with:
+- **Per-OS pipelines** under `Darwin/`, `Debian/`, `Fedora/`, `Windows/`, each with:
   - `Deploy/` — `prepare`, `install`, `provision`, `verify` (phase scripts, in `PhaseOrder`).
   - `Upgrade/` — `prepare`, `install`, `verify`.
   - `Decommission/` — `uninstall`, `unprovision`, `cleanup`.
@@ -110,10 +117,10 @@ verify`) and `Decommission/` dir disagree (code: Upgrade `prepare, upgrade, migr
 `unprovision, uninstall, cleanup`). Reconcile the package to the canonical orders when those pipelines' scripts
 are rewritten — **Deploy (the first target) is unaffected.**
 
-### Linux.Debian authoritative source — `Install-Docker`
+### Debian authoritative source — `Install-Docker`
 
 The working Ubuntu/Debian procedure lives at
-`~/Workspace/Personal/Home/Configs/noblefactor-Unix/.local/bin/Install-Docker`. The rewritten `Linux.Debian`
+`~/Workspace/Personal/Home/Configs/noblefactor-Unix/.local/bin/Install-Docker`. The rewritten `Debian`
 Deploy scripts are derived **from this procedure** against the current `plan.*` (the stale `.star` files are
 replaced, not ported):
 
@@ -187,9 +194,9 @@ All graphs are **built on macOS**; the "Run" column is the **target** OS.
 
 | Priority | Target OS | Package variant | Source of truth | Build | Save | Load | Run |
 |---|---|---|---|---|---|---|---|
-| **1 — now** | Ubuntu (`Linux.Debian`) | `docker/Linux.Debian/Deploy` | `Install-Docker` (working script) | ☐ | ☐ | ☐ | ☐ |
+| **1 — now** | Ubuntu (`Debian`) | `docker/Debian/Deploy` | `Install-Docker` (working script) | ☐ | ☐ | ☐ | ☐ |
 | later | macOS (Darwin) | `docker/Darwin/Deploy` | docs.docker.com — Desktop for Mac (instructions → package definition) | ☐ | ☐ | ☐ | ☐ |
-| later | Fedora (`Linux.Fedora`) | `docker/Linux.Fedora/Deploy` | docs.docker.com — Engine on Fedora | ☐ | ☐ | ☐ | ☐ |
+| later | Fedora (`Fedora`) | `docker/Fedora/Deploy` | docs.docker.com — Engine on Fedora | ☐ | ☐ | ☐ | ☐ |
 | later | Windows | `docker/Windows/Deploy` | docs.docker.com — Desktop for Windows | ☐ | ☐ | ☐ | ☐ |
 
 **Sources of truth per OS:** Linux/Ubuntu = the working `Install-Docker` script (above). macOS/Windows =

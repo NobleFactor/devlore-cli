@@ -20,7 +20,7 @@ pkg/        the public framework — the op engine, providers, and op-free capab
 
 The dependency rule: `pkg/` never imports `internal/` or `cmd/`; `internal/` imports `pkg/`; each binary under
 `cmd/` imports both. Within `pkg/`, `op` is the hub — the op-free capability packages (`fsroot`, `platform`,
-`status`, `result`, `sink`, `process`, `sops`, `signing`, `devconfig`, …) stand alone beneath it.
+`selector`, `status`, `result`, `sink`, `process`, `sops`, `signing`, `devconfig`, …) stand alone beneath it.
 
 ## The tree
 
@@ -65,6 +65,7 @@ pkg/
   platform/             op-free platform capability + the Composite package-manager router
   process/              the os/exec ↔ narration/result bridge
   result/               the primary structured-output channel
+  selector/             the one selector API writ and lore share: the host's chain, and directory selection
   signing/              graph/trace signing + verification (ssh-ed25519)
   sink/                 the byte-out endpoint contract
   sops/                 SOPS decryption/encryption over getsops

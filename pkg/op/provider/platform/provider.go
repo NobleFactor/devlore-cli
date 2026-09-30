@@ -44,10 +44,12 @@ func (p *Provider) Arch() string {
 	return ""
 }
 
-// Distro returns the OS distribution (e.g., "Ubuntu", "Fedora").
+// Distro returns the distribution as pkg/platform names it, lowercase: os-release's ID in pkg/platform's vocabulary
+// ("ubuntu", "fedora"; linuxmint is "mint", centos is "centos-stream"), or, on a distribution pkg/platform doesn't
+// list, the closest listed ancestor its os-release ID_LIKE names (#944); "macos" and "windows" off Linux.
 //
 // Returns:
-//   - `string`: the distribution name, or "" if unavailable or platform is nil.
+//   - `string`: the distribution, or "" if unavailable or platform is nil.
 //
 // +devlore:claim=deterministic
 func (p *Provider) Distro() string {

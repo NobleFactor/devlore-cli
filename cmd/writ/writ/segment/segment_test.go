@@ -7,446 +7,216 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/NobleFactor/devlore-cli/pkg/selector"
 )
 
-// writeOSRelease writes an os-release fixture into a test's temporary directory.
+// ubuntuArm64 is the owner's machine: Ubuntu, whose lineage is Debian, on arm64.
+//
+// Returns:
+//   - `Segments`: its built-in segments.
+func ubuntuArm64() Segments {
+
+	return Segments{
+		{Name: "OS", Value: "Linux"},
+		{Name: "DISTRO", Value: "Ubuntu", Lineage: []string{"Debian"}},
+		{Name: "ARCH", Value: "arm64"},
+	}
+}
+
+// layer makes a layer tree with the named directories, and returns its root.
 //
 // Parameters:
 //   - `t`: the test that owns the directory.
-//   - `content`: the fixture's lines.
+//   - `names`: the directories to make.
 //
 // Returns:
-//   - `string`: the fixture's path.
-func writeOSRelease(t *testing.T, content string) string {
+//   - `string`: the root.
+func layer(t *testing.T, names ...string) string {
 
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "os-release")
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
-		t.Fatalf("write the os-release fixture: %v", err)
-	}
-	return path
-}
-
-func TestOSFamily(t *testing.T) {
-	tests := []struct {
-		os     string
-		family string
-	}{
-		{"Darwin", "Unix"},
-		{"Linux", "Unix"},
-		{"Windows", ""},
-		{"FreeBSD", ""},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.os, func(t *testing.T) {
-			got := OSFamily(tt.os)
-			if got != tt.family {
-				t.Errorf("OSFamily(%q) = %q, want %q", tt.os, got, tt.family)
-			}
-		})
-	}
-}
-
-func TestParseDirName(t *testing.T) {
-	tests := []struct {
-		dirname  string
-		project  string
-		suffixes []string
-	}{
-		{"all", "all", nil},
-		{"all.Darwin", "all", []string{"Darwin"}},
-		{"all.Darwin.arm64", "all", []string{"Darwin", "arm64"}},
-		{"noblefactor.Unix", "noblefactor", []string{"Unix"}},
-		{"microsoft.Windows.amd64", "microsoft", []string{"Windows", "amd64"}},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.dirname, func(t *testing.T) {
-			project, suffixes := ParseDirName(tt.dirname)
-			if project != tt.project {
-				t.Errorf("project = %q, want %q", project, tt.project)
-			}
-			if len(suffixes) != len(tt.suffixes) {
-				t.Errorf("suffixes = %v, want %v", suffixes, tt.suffixes)
-			} else {
-				for i := range suffixes {
-					if suffixes[i] != tt.suffixes[i] {
-						t.Errorf("suffixes[%d] = %q, want %q", i, suffixes[i], tt.suffixes[i])
-					}
-				}
-			}
-		})
-	}
-}
-
-func TestSegmentsMatch(t *testing.T) {
-	// Simulate macOS arm64
-	darwinSegs := Segments{
-		{Name: "OS", Value: "Darwin"},
-		{Name: "DISTRO", Value: ""},
-		{Name: "ARCH", Value: "arm64"},
-	}
-
-	// Simulate Ubuntu amd64
-	ubuntuSegs := Segments{
-		{Name: "OS", Value: "Linux"},
-		{Name: "DISTRO", Value: "Ubuntu"},
-		{Name: "ARCH", Value: "amd64"},
-	}
-
-	tests := []struct {
-		name    string
-		segs    Segments
-		dirname string
-		match   bool
-	}{
-		// macOS tests
-		{"darwin-base", darwinSegs, "all", true},
-		{"darwin-os", darwinSegs, "all.Darwin", true},
-		{"darwin-unix", darwinSegs, "all.Unix", true},
-		{"darwin-arch", darwinSegs, "all.arm64", true},
-		{"darwin-os-arch", darwinSegs, "all.Darwin.arm64", true},
-		{"darwin-unix-arch", darwinSegs, "all.Unix.arm64", true},
-		{"darwin-wrong-os", darwinSegs, "all.Linux", false},
-		{"darwin-wrong-arch", darwinSegs, "all.amd64", false},
-		{"darwin-distro", darwinSegs, "all.Ubuntu", false},
-
-		// Ubuntu tests
-		{"ubuntu-base", ubuntuSegs, "all", true},
-		{"ubuntu-os", ubuntuSegs, "all.Linux", true},
-		{"ubuntu-unix", ubuntuSegs, "all.Unix", true},
-		{"ubuntu-distro", ubuntuSegs, "all.Ubuntu", true},
-		{"ubuntu-arch", ubuntuSegs, "all.amd64", true},
-		{"ubuntu-os-distro", ubuntuSegs, "all.Linux.Ubuntu", true},
-		{"ubuntu-unix-distro", ubuntuSegs, "all.Unix.Ubuntu", true},
-		{"ubuntu-wrong-os", ubuntuSegs, "all.Darwin", false},
-		{"ubuntu-wrong-distro", ubuntuSegs, "all.Debian", false},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got := tt.segs.Match(tt.dirname)
-			if got != tt.match {
-				t.Errorf("Match(%q) = %v, want %v", tt.dirname, got, tt.match)
-			}
-		})
-	}
-}
-
-func TestSegmentsAllValues(t *testing.T) {
-	segs := Segments{
-		{Name: "OS", Value: "Darwin"},
-		{Name: "DISTRO", Value: ""},
-		{Name: "ARCH", Value: "arm64"},
-	}
-
-	values := segs.AllValues()
-
-	// Should include: Darwin, Unix (family), arm64
-	expected := []string{"Darwin", "Unix", "arm64"}
-
-	if len(values) != len(expected) {
-		t.Errorf("AllValues() = %v, want %v", values, expected)
-		return
-	}
-
-	for i, v := range expected {
-		if values[i] != v {
-			t.Errorf("AllValues()[%d] = %q, want %q", i, values[i], v)
+	root := t.TempDir()
+	for _, name := range names {
+		if err := os.MkdirAll(filepath.Join(root, name), 0o755); err != nil {
+			t.Fatalf("make %s: %v", name, err)
 		}
 	}
+	return root
 }
 
-func TestMatchDirectories(t *testing.T) {
-	// Create temp directory with test structure
-	tmpDir := t.TempDir()
+// --- DetectSegments ---
 
-	dirs := []string{
-		"all",
-		"all.Darwin",
-		"all.Linux",
-		"all.Unix",
-		"noblefactor",
-		"noblefactor.Unix",
-		"microsoft",
-		"microsoft.Windows",
-	}
-
-	for _, d := range dirs {
-		if err := os.Mkdir(filepath.Join(tmpDir, d), 0o755); err != nil {
-			t.Fatalf("failed to create dir %s: %v", d, err)
-		}
-	}
-
-	darwinSegs := Segments{
-		{Name: "OS", Value: "Darwin"},
-		{Name: "DISTRO", Value: ""},
-		{Name: "ARCH", Value: "arm64"},
-	}
-
-	// Test matching specific projects
-	results, err := MatchDirectories(tmpDir, []string{"all", "noblefactor"}, darwinSegs)
-	if err != nil {
-		t.Fatalf("MatchDirectories failed: %v", err)
-	}
-
-	// Should match: all, all.Darwin, all.Unix, noblefactor, noblefactor.Unix
-	expectedDirs := []string{"all", "all.Darwin", "all.Unix", "noblefactor", "noblefactor.Unix"}
-	if len(results) != len(expectedDirs) {
-		var got []string
-		for _, r := range results {
-			got = append(got, filepath.Base(r.Path))
-		}
-		t.Errorf("got %d results %v, want %d %v", len(results), got, len(expectedDirs), expectedDirs)
-	}
-
-	// Verify projects are correct
-	for _, r := range results {
-		if r.Project != "all" && r.Project != "noblefactor" {
-			t.Errorf("unexpected project: %s", r.Project)
-		}
-	}
-}
-
-func TestMatchResultSpecificity(t *testing.T) {
-	tests := []struct {
-		suffixes    []string
-		specificity int
-	}{
-		{nil, 0},
-		{[]string{"Darwin"}, 1},
-		{[]string{"Darwin", "arm64"}, 2},
-		{[]string{"Unix", "Ubuntu", "amd64"}, 3},
-	}
-
-	for _, tt := range tests {
-		r := MatchResult{Suffixes: tt.suffixes}
-		if got := r.Specificity(); got != tt.specificity {
-			t.Errorf("Specificity() with %v = %d, want %d", tt.suffixes, got, tt.specificity)
-		}
-	}
-}
-
-func TestDetectSegments(t *testing.T) {
+func TestDetectSegments_Builtins(t *testing.T) {
 	segs := DetectSegments()
 
-	// Should always have OS, DISTRO, ARCH
 	if len(segs) != 3 {
-		t.Errorf("DetectSegments() returned %d segments, want 3", len(segs))
+		t.Fatalf("DetectSegments() returned %d segments, want OS, DISTRO and ARCH", len(segs))
 	}
-
-	// OS should be set
-	if osVal := segs.Get("OS"); osVal == "" {
+	if segs.Get("OS") == "" {
 		t.Error("OS segment is empty")
 	}
-
-	// ARCH should be set
-	if arch := segs.Get("ARCH"); arch == "" {
+	if segs.Get("ARCH") == "" {
 		t.Error("ARCH segment is empty")
 	}
 
-	// DISTRO should be set on a Linux host whose os-release names its distribution (#959)
+	// DISTRO is set on a Linux host whose os-release names its distribution (#959).
 	if runtime.GOOS == "linux" {
-		content, err := os.ReadFile("/etc/os-release")
-		if err == nil && strings.Contains("\n"+string(content), "\nID=") && segs.Get("DISTRO") == "" {
-			t.Error("DISTRO segment is empty, though /etc/os-release carries an ID")
+		release, ok := selector.ReadOSRelease()
+		if ok && release.ID != "" && segs.Get("DISTRO") == "" {
+			t.Error("DISTRO segment is empty, though os-release carries an ID")
 		}
 	}
 }
 
-// --- readDistro ---
+// --- Segments.Host ---
 
-func TestReadDistro_Fixtures(t *testing.T) {
+func TestSegmentsHost_ChainFollowsTheLineage(t *testing.T) {
+	host := ubuntuArm64().Host()
+
+	if want := []string{"Unix", "Linux", "Debian", "Ubuntu"}; !reflect.DeepEqual(host.Chain, want) {
+		t.Errorf("Chain = %v, want %v", host.Chain, want)
+	}
+}
+
+func TestSegmentsHost_ADistroOverrideKeepsTheLineage(t *testing.T) {
+	host := ubuntuArm64().Set("DISTRO", "Mint").Host()
+
+	if want := []string{"Unix", "Linux", "Debian", "Mint"}; !reflect.DeepEqual(host.Chain, want) {
+		t.Errorf("Chain = %v, want %v", host.Chain, want)
+	}
+}
+
+// --- MatchDirectories ---
+
+func TestMatchDirectories_SelectsInOrderOfApplication(t *testing.T) {
+	root := layer(t, "common.Ubuntu", "common", "common.Unix", "common.Darwin", "common.Debian.arm64", "common.Debian",
+		"noblefactor", "other.Ubuntu", ".git")
+
+	matches, grammarErrors, err := MatchDirectories(root, []string{"common", "noblefactor"}, ubuntuArm64())
+	if err != nil {
+		t.Fatalf("MatchDirectories: %v", err)
+	}
+	if len(grammarErrors) != 0 {
+		t.Errorf("grammar errors: %v", grammarErrors)
+	}
+
+	var got []string
+	for _, m := range matches {
+		got = append(got, filepath.Base(m.Path))
+	}
+	want := []string{"common", "common.Unix", "common.Debian", "common.Debian.arm64", "common.Ubuntu", "noblefactor"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("order of application:\n got %v\nwant %v", got, want)
+	}
+}
+
+func TestMatchDirectories_ReportsEveryGrammarError(t *testing.T) {
+	root := layer(t, "common.Linux.Debian", "common.arm64.Debian", "common.Debain", "unrequested.Debain", "common")
+
+	matches, grammarErrors, err := MatchDirectories(root, []string{"common"}, ubuntuArm64())
+	if err != nil {
+		t.Fatalf("MatchDirectories: %v", err)
+	}
+	if len(matches) != 1 {
+		t.Errorf("matches = %v, want common alone", matches)
+	}
+
+	var names []string
+	for _, e := range grammarErrors {
+		names = append(names, e.Name)
+	}
+	want := []string{"common.Debain", "common.Linux.Debian", "common.arm64.Debian", "unrequested.Debain"}
+	if !reflect.DeepEqual(names, want) {
+		t.Errorf("grammar errors = %v, want %v: every directory in the layer is judged", names, want)
+	}
+}
+
+// --- Resolve ---
+
+func TestResolve_ValuesFromConfigurationEnvironmentAndFlags(t *testing.T) {
+	declared := []selector.Segment{
+		{Name: "ROLE", Values: []string{"desktop", "server"}, Value: "desktop"},
+		{Name: "SITE", Values: []string{"aws", "home"}, Value: "home"},
+	}
+	t.Setenv(EnvVarPrefix+"SITE", "aws")
+
+	segs, err := Resolve(declared, []string{"ROLE=server"})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if got := segs.Get("ROLE"); got != "server" {
+		t.Errorf("ROLE = %q, want server: the flag beats configuration", got)
+	}
+	if got := segs.Get("SITE"); got != "aws" {
+		t.Errorf("SITE = %q, want aws: the environment beats configuration", got)
+	}
+	if extras := segs.Extras(); len(extras) != 2 || extras[0].Name != "ROLE" || extras[1].Name != "SITE" {
+		t.Errorf("Extras = %+v, want ROLE then SITE, in configured order", extras)
+	}
+}
+
+func TestResolve_BuiltinsTakeAValueWithoutADeclaration(t *testing.T) {
+	segs, err := Resolve(nil, []string{"DISTRO=Debian"})
+	if err != nil {
+		t.Fatalf("Resolve: %v", err)
+	}
+	if got := segs.Get("DISTRO"); got != "Debian" {
+		t.Errorf("DISTRO = %q, want Debian", got)
+	}
+}
+
+func TestResolve_Refusals(t *testing.T) {
+	declared := []selector.Segment{{Name: "ROLE", Values: []string{"desktop", "server"}}}
+
 	tests := []struct {
-		name    string
-		content string
-		want    string
+		name     string
+		declared []selector.Segment
+		flags    []string
+		env      string
+		want     string
 	}{
-		{"ubuntu, with its lineage", "NAME=\"Ubuntu\"\nID=ubuntu\nID_LIKE=debian\n", "Ubuntu"},
-		{"debian", "ID=debian\n", "Debian"},
-		{"quoted", "ID=\"fedora\"\n", "Fedora"},
-		{"unknown to the table", "ID=nixos\n", "Nixos"},
-		{"no ID line", "NAME=\"Somewhere\"\nID_LIKE=debian\n", ""},
+		{"an undeclared segment", declared, []string{"SITE=aws"}, "", "SITE is not a declared segment"},
+		{"an undeclared value", declared, []string{"ROLE=laptop"}, "", `"laptop" is not one of ROLE's`},
+		{"an undeclared variable", declared, nil, "SITE=aws", "SITE is not a declared segment"},
+		{"a flag without a value", declared, []string{"ROLE"}, "", "expected NAME=value"},
+		{"a malformed declaration", []selector.Segment{{Name: "OS", Values: []string{"a"}}}, nil, "", "built in"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := readDistro(writeOSRelease(t, tt.content)); got != tt.want {
-				t.Errorf("readDistro() = %q, want %q", got, tt.want)
+			if tt.env != "" {
+				name, value, _ := strings.Cut(tt.env, "=")
+				t.Setenv(EnvVarPrefix+name, value)
+			}
+			_, err := Resolve(tt.declared, tt.flags)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Errorf("Resolve: %v, want an error containing %q", err, tt.want)
 			}
 		})
 	}
 }
 
-func TestReadDistro_MissingFile(t *testing.T) {
-	if got := readDistro(filepath.Join(t.TempDir(), "os-release")); got != "" {
-		t.Errorf("readDistro() of a missing file = %q, want \"\"", got)
+// --- Refusal ---
+
+func TestRefusal_ListsEveryName(t *testing.T) {
+	refusal := &Refusal{Entries: []RefusalEntry{
+		{Root: "/base/Home", Err: &selector.GrammarError{Name: "common.Debain", Word: "Debain", Violation: selector.UnknownWord}},
+		{Root: "/personal/Home", Err: &selector.GrammarError{Name: "common.Linux.Debian", Word: "Debian",
+			Violation: selector.RepeatedPart, Part: "OS"}},
+	}}
+
+	var target *Refusal
+	if !errors.As(error(refusal), &target) {
+		t.Fatal("a Refusal is not an error")
 	}
-}
-
-func TestDetectSegmentsWithNames(t *testing.T) {
-	// Config defines segment names (no values)
-	segs := DetectSegmentsWithNames([]string{"ROLE", "SITE"})
-
-	// Should have OS, DISTRO, ARCH + ROLE, SITE
-	if len(segs) != 5 {
-		t.Errorf("got %d segments, want 5", len(segs))
-	}
-
-	// Custom segments should have empty values (like DISTRO on macOS)
-	if segs.Get("ROLE") != "" {
-		t.Errorf("ROLE = %q, want empty", segs.Get("ROLE"))
-	}
-	if segs.Get("SITE") != "" {
-		t.Errorf("SITE = %q, want empty", segs.Get("SITE"))
-	}
-}
-
-func TestSetValues(t *testing.T) {
-	// Config defines segment names, values are empty
-	segs := Segments{
-		{Name: "OS", Value: "Darwin"},
-		{Name: "DISTRO", Value: ""},
-		{Name: "ARCH", Value: "arm64"},
-		{Name: "ROLE", Value: ""}, // defined in config, no value yet
-		{Name: "SITE", Value: ""}, // defined in config, no value yet
-	}
-
-	// Set value for ROLE via CLI --segment ROLE=server
-	result, err := segs.SetValues(map[string]string{"ROLE": "server"})
-	if err != nil {
-		t.Errorf("SetValues with valid segment failed: %v", err)
-	}
-	if result.Get("ROLE") != "server" {
-		t.Errorf("ROLE = %q, want %q", result.Get("ROLE"), "server")
-	}
-	// SITE remains empty (unassigned, like DISTRO on macOS)
-	if result.Get("SITE") != "" {
-		t.Errorf("SITE = %q, want empty", result.Get("SITE"))
-	}
-	// Original should be unchanged
-	if segs.Get("ROLE") != "" {
-		t.Error("original segs was modified")
-	}
-
-	// Invalid: ENV is not defined in config
-	_, err = segs.SetValues(map[string]string{"ENV": "prod"})
-	if err == nil {
-		t.Error("SetValues with undefined segment should fail")
-	}
-	var undefinedErr *UndefinedSegmentError
-	if !errors.As(err, &undefinedErr) {
-		t.Errorf("error should be UndefinedSegmentError, got %T", err)
-	}
-	if undefinedErr != nil && undefinedErr.Name != "ENV" {
-		t.Errorf("UndefinedSegmentError.ReceiverName = %q, want %q", undefinedErr.Name, "ENV")
-	}
-}
-
-func TestUnassignedSegmentMatching(t *testing.T) {
-	// Segments with ROLE defined but unassigned (empty value)
-	segs := Segments{
-		{Name: "OS", Value: "Darwin"},
-		{Name: "DISTRO", Value: ""}, // empty on macOS
-		{Name: "ARCH", Value: "arm64"},
-		{Name: "ROLE", Value: ""}, // defined but unassigned
-	}
-
-	// Directory with ROLE suffix should NOT match (ROLE is empty)
-	if segs.Match("noblefactor.desktop") {
-		t.Error("noblefactor.desktop should not match when ROLE is empty")
-	}
-
-	// ProviderBase directory should match
-	if !segs.Match("noblefactor") {
-		t.Error("noblefactor should match")
-	}
-
-	// Now assign ROLE
-	segs, _ = segs.SetValues(map[string]string{"ROLE": "desktop"})
-
-	// Directory with ROLE suffix should now match
-	if !segs.Match("noblefactor.desktop") {
-		t.Error("noblefactor.desktop should match when ROLE=desktop")
-	}
-
-	// Wrong ROLE value should not match
-	if segs.Match("noblefactor.server") {
-		t.Error("noblefactor.server should not match when ROLE=desktop")
-	}
-}
-
-func TestLoadFromEnv(t *testing.T) {
-	// Set up test environment variables
-	t.Setenv("WRIT_SEGMENT_ROLE", "server")
-	t.Setenv("WRIT_SEGMENT_SITE", "aws")
-
-	// Segments with custom names defined
-	segs := Segments{
-		{Name: "OS", Value: "Darwin"},
-		{Name: "DISTRO", Value: ""},
-		{Name: "ARCH", Value: "arm64"},
-		{Name: "ROLE", Value: ""},
-		{Name: "SITE", Value: ""},
-	}
-
-	// Load values from environment
-	result := segs.LoadFromEnv()
-
-	// Check values were loaded
-	if result.Get("ROLE") != "server" {
-		t.Errorf("ROLE = %q, want %q", result.Get("ROLE"), "server")
-	}
-	if result.Get("SITE") != "aws" {
-		t.Errorf("SITE = %q, want %q", result.Get("SITE"), "aws")
-	}
-
-	// Original should be unchanged
-	if segs.Get("ROLE") != "" {
-		t.Error("original segs was modified")
-	}
-
-	// System segments should be preserved
-	if result.Get("OS") != "Darwin" {
-		t.Errorf("OS = %q, want %q", result.Get("OS"), "Darwin")
-	}
-}
-
-func TestLoadFromEnvIgnoresUndefined(t *testing.T) {
-	// Set env var for segment not in our list
-	t.Setenv("WRIT_SEGMENT_UNKNOWN", "value")
-
-	segs := Segments{
-		{Name: "OS", Value: "Darwin"},
-		{Name: "ROLE", Value: ""},
-	}
-
-	// Should not error, just ignores undefined env vars
-	result := segs.LoadFromEnv()
-
-	// ROLE should remain empty (no env var set for it)
-	if result.Get("ROLE") != "" {
-		t.Errorf("ROLE = %q, want empty", result.Get("ROLE"))
-	}
-}
-
-func TestLoadFromEnvOverridesExisting(t *testing.T) {
-	// Set env var that overrides an existing value
-	t.Setenv("WRIT_SEGMENT_ROLE", "server")
-
-	segs := Segments{
-		{Name: "OS", Value: "Darwin"},
-		{Name: "ROLE", Value: "desktop"}, // has a value
-	}
-
-	result := segs.LoadFromEnv()
-
-	// Env var should override existing value
-	if result.Get("ROLE") != "server" {
-		t.Errorf("ROLE = %q, want %q", result.Get("ROLE"), "server")
+	message := refusal.Error()
+	for _, want := range []string{"2 directory name(s)", "/base/Home: common.Debain", "/personal/Home: common.Linux.Debian"} {
+		if !strings.Contains(message, want) {
+			t.Errorf("Error() = %q, want it to contain %q", message, want)
+		}
 	}
 }

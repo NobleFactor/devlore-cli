@@ -22,7 +22,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/pkg"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/plan"
 	"github.com/NobleFactor/devlore-cli/pkg/op/starlarkbridge"
-	"github.com/NobleFactor/devlore-cli/pkg/platform"
+	"github.com/NobleFactor/devlore-cli/pkg/selector"
 	"github.com/NobleFactor/devlore-cli/pkg/xdg"
 )
 
@@ -34,8 +34,8 @@ type BuildResult struct {
 	// Packages lists the resolved package names.
 	Packages []string
 
-	// Platform is the detected or specified platform.
-	Platform string
+	// Host is the host the graph was planned for.
+	Host selector.Host
 }
 
 // BuildConfig holds configuration for building a package graph.
@@ -46,8 +46,8 @@ type BuildConfig struct {
 	// Packages is a list of package names to install. Mutually exclusive with ManifestPath.
 	Packages []string
 
-	// Platform is the target platform (e.g., "Darwin", "Linux.Debian"). If empty, auto-detected.
-	Platform string
+	// Host is the host to plan for; when its chain is empty, this machine, detected ([selector.Detect]).
+	Host selector.Host
 
 	// Features are optional feature flags to enable.
 	Features []string
@@ -67,7 +67,7 @@ type BuildConfig struct {
 // One Planner drives one build: every package and every phase registers its invocations into the same provider's
 // session ledger, and the phases are grouped into subgraphs by [Planner.buildPackage].
 type Planner struct {
-	Platform       string
+	Host           selector.Host
 	RegistryClient *lorepackage.Registry
 	Features       []string
 	Settings       map[string]string
@@ -97,10 +97,7 @@ func Build(cfg BuildConfig) (*BuildResult, error) {
 		return nil, fmt.Errorf("lore.Build: must specify either ManifestPath or Packages")
 	}
 
-	targetPlatform := cfg.Platform
-	if targetPlatform == "" {
-		targetPlatform = detectPlatform()
-	}
+	host := hostOrDetected(cfg.Host)
 
 	sharedEnvironment, err := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("lore").
 		WithStatus(cli.UI()).
@@ -116,7 +113,7 @@ func Build(cfg BuildConfig) (*BuildResult, error) {
 	}
 
 	planner := &Planner{
-		Platform:       targetPlatform,
+		Host:           host,
 		RegistryClient: cfg.RegistryClient,
 		Features:       cfg.Features,
 		Settings:       cfg.Settings,
@@ -137,7 +134,7 @@ func Build(cfg BuildConfig) (*BuildResult, error) {
 
 	origin := op.NewOriginBase("lore", strings.Join(packages, "+"), op.NewAnnotationMap(map[string]any{
 		"packages": packages,
-		"platform": targetPlatform,
+		"platform": host.Chain,
 		"features": cfg.Features,
 		"settings": cfg.Settings,
 	}))
@@ -152,33 +149,7 @@ func Build(cfg BuildConfig) (*BuildResult, error) {
 		return nil, fmt.Errorf("lore.Build: %w", err)
 	}
 
-	return &BuildResult{Graph: graph, Packages: packages, Platform: targetPlatform}, nil
-}
-
-// BuildFromManifest creates an execution graph from a packages-manifest.yaml file.
-//
-// Parameters:
-//   - `manifestPath`: the path to the packages-manifest file.
-//   - `targetPlatform`: the platform string (empty for auto-detect).
-//
-// Returns:
-//   - `*BuildResult`: the execution graph and metadata.
-//   - `error`: non-nil if graph building fails.
-func BuildFromManifest(manifestPath, targetPlatform string) (*BuildResult, error) {
-	return Build(BuildConfig{ManifestPath: manifestPath, Platform: targetPlatform})
-}
-
-// BuildFromPackages creates an execution graph from a list of package names.
-//
-// Parameters:
-//   - `packages`: the package names to resolve and install.
-//   - `targetPlatform`: the platform string (empty for auto-detect).
-//
-// Returns:
-//   - `*BuildResult`: the execution graph and metadata.
-//   - `error`: non-nil if graph building fails.
-func BuildFromPackages(packages []string, targetPlatform string) (*BuildResult, error) {
-	return Build(BuildConfig{Packages: packages, Platform: targetPlatform})
+	return &BuildResult{Graph: graph, Packages: packages, Host: host}, nil
 }
 
 // region EXPORTED METHODS
@@ -223,7 +194,7 @@ func (p *Planner) planEntries(
 	provider *plan.Provider, sharedEnvironment *op.RuntimeEnvironment, entries []manifest.PackageEntry,
 ) ([]string, []op.ExecutableUnit, error) {
 
-	targetPlatform, registryClient, err := p.resolve()
+	host, registryClient, err := p.resolve()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -232,14 +203,14 @@ func (p *Planner) planEntries(
 	var phases []op.ExecutableUnit
 
 	for _, entry := range entries {
-		release, err := registryClient.Resolve(entry.Name, targetPlatform)
+		release, err := registryClient.Resolve(entry.Name)
 		if err != nil {
 			return nil, nil, fmt.Errorf("resolving package %q: %w", entry.Name, err)
 		}
 
 		cfg := BuildConfig{Features: mergeFeatures(entry.With, p.Features), Settings: p.Settings, DryRun: p.DryRun}
 
-		built, err := p.buildPackage(provider, sharedEnvironment, release, targetPlatform, cfg)
+		built, err := p.buildPackage(provider, sharedEnvironment, release, host, cfg)
 		if err != nil {
 			return nil, nil, fmt.Errorf("building %q: %w", entry.Name, err)
 		}
@@ -266,7 +237,7 @@ func (p *Planner) PlanByName(
 	provider *plan.Provider, sharedEnvironment *op.RuntimeEnvironment, packages []string,
 ) ([]string, []op.ExecutableUnit, error) {
 
-	targetPlatform, registryClient, err := p.resolve()
+	host, registryClient, err := p.resolve()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -277,12 +248,12 @@ func (p *Planner) PlanByName(
 	var phases []op.ExecutableUnit
 
 	for _, name := range packages {
-		release, err := registryClient.Resolve(name, targetPlatform)
+		release, err := registryClient.Resolve(name)
 		if err != nil {
 			return nil, nil, fmt.Errorf("resolving package %q: %w", name, err)
 		}
 
-		built, err := p.buildPackage(provider, sharedEnvironment, release, targetPlatform, cfg)
+		built, err := p.buildPackage(provider, sharedEnvironment, release, host, cfg)
 		if err != nil {
 			return nil, nil, fmt.Errorf("building %q: %w", name, err)
 		}
@@ -302,29 +273,26 @@ func (p *Planner) PlanByName(
 
 // region Behaviors
 
-// resolve returns the resolved platform and package registry client, auto-creating any that are nil.
+// resolve returns the host and the package registry client, auto-creating any that are unset.
 //
 // Returns:
-//   - `string`: the target platform string.
+//   - `selector.Host`: the host to plan for: the Planner's, or this machine's when the Planner names none.
 //   - `*lorepackage.Registry`: the package registry client (created if nil on the Planner).
 //   - `error`: non-nil if creating the registry client fails.
-func (p *Planner) resolve() (string, *lorepackage.Registry, error) {
+func (p *Planner) resolve() (selector.Host, *lorepackage.Registry, error) {
 
-	targetPlatform := p.Platform
-	if targetPlatform == "" {
-		targetPlatform = detectPlatform()
-	}
+	host := hostOrDetected(p.Host)
 
 	registryClient := p.RegistryClient
 	if registryClient == nil {
 		client, err := lorepackage.NewRegistry()
 		if err != nil {
-			return "", nil, fmt.Errorf("creating registry client: %w", err)
+			return selector.Host{}, nil, fmt.Errorf("creating registry client: %w", err)
 		}
 		registryClient = client
 	}
 
-	return targetPlatform, registryClient, nil
+	return host, registryClient, nil
 }
 
 // buildPackage plans every lifecycle phase of `release` into `provider` and returns one subgraph per non-empty phase.
@@ -340,7 +308,7 @@ func (p *Planner) resolve() (string, *lorepackage.Registry, error) {
 //   - `provider`: the shared plan provider.
 //   - `sharedEnvironment`: the shared runtime environment the scripts run against.
 //   - `release`: the resolved package release.
-//   - `targetPlatform`: the target platform string.
+//   - `host`: the host the package is planned for.
 //   - `cfg`: the per-package build configuration.
 //
 // Returns:
@@ -348,7 +316,7 @@ func (p *Planner) resolve() (string, *lorepackage.Registry, error) {
 //   - `error`: non-nil if script execution, native planning, or subgraph construction fails.
 func (p *Planner) buildPackage(
 	provider *plan.Provider, sharedEnvironment *op.RuntimeEnvironment, release *lorepackage.Release,
-	targetPlatform string, cfg BuildConfig,
+	host selector.Host, cfg BuildConfig,
 ) ([]op.ExecutableUnit, error) {
 
 	subgraphAction, err := op.ReceiverRegistry().BuildAction(flow.Subgraph)
@@ -360,7 +328,10 @@ func (p *Planner) buildPackage(
 
 	for _, phaseName := range lorepackage.PhaseOrder(lorepackage.Deploy) {
 
-		actions := release.PhaseActions(targetPlatform, lorepackage.Deploy, phaseName)
+		actions, err := release.PhaseActions(host, lorepackage.Deploy, phaseName)
+		if err != nil {
+			return nil, err
+		}
 		if len(actions) == 0 {
 			continue
 		}
@@ -649,15 +620,19 @@ func prepareScriptEnv(
 	return thread, runtime.Predeclared(), packageContext
 }
 
-// detectPlatform returns the host's canonical platform token.
+// hostOrDetected returns the host given, or this machine when none is given.
 //
-// The rendering lives in [platform.DetectToken] — the token vocabulary ("Darwin", "Linux.Debian", ...) is
-// devlore-wide, shared with writ's segment variants and manifest planning (phase-8 step 47 slice 4).
+// Parameters:
+//   - `host`: a host; its zero value names none.
 //
 // Returns:
-//   - `string`: the host's canonical token, or "Linux" when detection fails.
-func detectPlatform() string {
-	return platform.DetectToken()
+//   - `selector.Host`: the host given, or [selector.Detect]'s.
+func hostOrDetected(host selector.Host) selector.Host {
+
+	if len(host.Chain) == 0 {
+		return selector.Detect()
+	}
+	return host
 }
 
 // endregion

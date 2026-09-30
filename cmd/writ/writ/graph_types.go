@@ -90,21 +90,10 @@ type AdoptConfig struct {
 	// Project to adopt into.
 	Project string
 
-	// Platform is the segment suffix the adopted files carry (`Darwin`, `Unix`, `Linux.Debian`, ...), or "" for the
-	// platform-neutral project directory (#931).
+	// Platform is the suffix the adopted files carry (`Darwin`, `Unix`, `Debian`, `Debian.arm64`, ...), or "" for the
+	// platform-neutral project directory (#931, #944).
 	Platform string
 
 	// FromReceipt adopts from a lore receipt.
 	FromReceipt bool
-}
-
-// SegmentMap returns the segments as a string map for template data.
-func (c *Config) SegmentMap() map[string]string {
-	m := make(map[string]string)
-	for _, seg := range c.Segments {
-		if seg.Value != "" {
-			m[seg.Name] = seg.Value
-		}
-	}
-	return m
 }
