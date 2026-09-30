@@ -1,7 +1,7 @@
 ---
 title: "AGENTS.md is ignored at the repository root"
 issue: https://github.com/NobleFactor/devlore-cli/issues/987
-status: approved
+status: complete
 created: 2026-09-30
 updated: 2026-09-30
 ---
@@ -33,7 +33,7 @@ is a Codex instruction file, a copy of `CLAUDE.md`, that keeps reappearing at th
 
 ### Phase 2: The change
 
-- [ ] `/AGENTS.md` at the top of `.gitignore`; CI's gate green on the merged tree.
+- [x] `/AGENTS.md` at the top of `.gitignore`; CI's gate green on the merged tree.
 
 ## Files to Create/Modify
 
