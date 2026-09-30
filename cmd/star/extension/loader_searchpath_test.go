@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/cmd/star/config"
@@ -21,9 +20,6 @@ import (
 //
 // A path derived from the running binary is deliberately absent: it served no scope, and `self install`
 // writes no extensions for it to find (#990).
-//
-// The exe-relative probe sits second, after the repository and ahead of every installed location: a star run
-// from a checkout uses that checkout, and otherwise uses the tree it was installed into (#989).
 func TestDefaultSearchPaths_PrefersTheDevlorePaths(t *testing.T) {
 
 	root := t.TempDir()
@@ -136,8 +132,8 @@ func TestSourceOf(t *testing.T) {
 
 // TestDefaultSearchPaths_HasNoDuplicates asserts the list does not repeat a directory.
 //
-// The sources overlap by construction: an exe-relative path for an install under `~/.local` names the same
-// directory XDG_DATA_HOME does, and XDG_DATA_DIRS may repeat one of its own defaults. A repeat is not wrong
+// The sources overlap by construction: a machine carrying both the pre-#918 and post-#918 layouts names one
+// directory twice, and XDG_DATA_DIRS may repeat one of its own defaults. A repeat is not wrong
 // in itself, but it makes one extension look like two.
 func TestDefaultSearchPaths_HasNoDuplicates(t *testing.T) {
 
@@ -148,10 +144,9 @@ func TestDefaultSearchPaths_HasNoDuplicates(t *testing.T) {
 	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
 
 	// The same directory twice, and one of them with a redundant separator.
-	t.Setenv("XDG_DATA_DIRS", strings.Join([]string{
-		filepath.Join(root, "sys"),
-		filepath.Join(root, "sys") + string(filepath.Separator),
-	}, string(os.PathListSeparator)))
+	t.Setenv("XDG_DATA_DIRS", filepath.Join(root, "sys")+
+		string(os.PathListSeparator)+
+		filepath.Join(root, "sys")+string(filepath.Separator))
 
 	paths := defaultSearchPaths()
 

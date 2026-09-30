@@ -345,23 +345,38 @@ coincidence. Any other -- `/opt/devlore`, a container prefix -- installed somewh
 | ~~No exe-relative search path~~ **withdrawn** | A probe derived from the binary was implemented, committed, and reverted. It served no scope in the design: `self install` should write no extensions, so there is no prefix payload to find. Accommodating that payload instead of reading the design that forbids it is what produced it. The payload itself is [#990](https://github.com/NobleFactor/devlore-cli/issues/990) |
 | `findExtensionsDir()` resolved its source from the **working directory** | It now uses `config.GitWorkspaceRoot()`, which is what the loader already used one file away, and which handles a linked worktree's `.git` file |
 | `/usr/local/share` was a string literal and `xdg.DataDirs()` was never called | The system probes come from `xdg.DataDirs()`, so `/usr/share` is searched and `XDG_DATA_DIRS` is honored. The specification's user half was already respected here; its system half was not |
-| `Source` labels were assigned by array index, so `${XDG_DATA_HOME}/star/extensions` reported as `system` | `sourceOf` classifies a path by what it is. Adding probes would otherwise have shifted every later label |
+| `Source` labels were assigned by array index, so `${XDG_DATA_HOME}/star/extensions` reported as `system` | A `Source` travels with its path, decided where the path is added: `sourceOf` classifies the default paths, and an explicit list is taken in the scope order its caller declares. Adding probes would otherwise have shifted every later label |
 
-**Tests.** `TestSourceOf` pins the labels, including that an
-install into a prefix under `$HOME` is the user's. `TestDefaultSearchPaths_HasNoDuplicates` covers the
-overlap the longer list creates, since an exe-relative path for a `~/.local` install names the same
-directory `XDG_DATA_HOME` does.
+**Tests.** `TestSourceOf` pins the labels, including that an install into a prefix under `$HOME` is the
+user's. `TestDefaultSearchPaths_HasNoDuplicates` covers the overlap the list creates, since a machine
+carrying both the pre-#918 and post-#918 layouts names one directory twice.
 
 Three existing tests in `cmd/star/star` were coupled to the working-directory behavior and now set the root
 explicitly with `config.SetGitWorkspaceRoot`, which is how the loader's own tests already controlled scope.
 That coupling was not incidental: `GitWorkspaceRoot` caches through a `sync.Once`, so a `Chdir` after
 anything else has resolved it changes nothing.
 
-- [x] The loader searches exe-relative, so an install to any prefix is found.
+**A `Source` travels with its path, and that was a regression before it was a design.** Deriving the label
+from the path alone broke `NewLoaderWithPaths`, whose contract is that the caller declares the order: a
+`t.TempDir()` standing in for a checkout is under neither a repository nor `$HOME`, so it was labeled
+`system` and `TestLifecycle_DeduplicationProjectOverridesEmbedded` failed. Carrying the two in parallel
+slices then panicked `TestConfigIntegration`, because a `Loader` struct literal -- which
+`Application.LoadExtensionsFrom` builds in production code -- filled one slice and not the other. The
+shipped form is one `searchPath{dir, source}` per entry, so the pair cannot fall out of step and no literal
+can hold a path whose scope is missing. Both failures were found by `make test-race`, not by testing the
+package that changed; only `-tags 'integration,e2e'` builds either test.
+
 - [x] `findExtensionsDir()` resolves its source from `config.GitWorkspaceRoot()`.
 - [x] `xdg.DataDirs()` supplies the system paths; no `/usr/local/share` literal remains in the loader.
-- [x] A `Source` label is derived from the path that produced it, not from its index.
-- [x] A test installs to a prefix that is neither `~/.local` nor `/usr/local` and finds the extensions.
+- [x] A `Source` label is decided where the path is added -- by `sourceOf` for the default paths, by the
+      caller's declared order for explicit ones -- and never by an index into a list it does not own.
+- [x] `TestSourceOf` pins each label, including that a prefix under `$HOME` is the user's and not the
+      system's.
+- [x] ~~The loader searches exe-relative, so an install to any prefix is found.~~ **Withdrawn**, with the
+      requirement above: the probe served no scope, and `self install` writes no extensions for it to find
+      ([#990](https://github.com/NobleFactor/devlore-cli/issues/990)).
+- [x] ~~A test installs to a prefix that is neither `~/.local` nor `/usr/local` and finds the
+      extensions.~~ **Withdrawn** with the probe it tested.
 
 ## Related documents
 
