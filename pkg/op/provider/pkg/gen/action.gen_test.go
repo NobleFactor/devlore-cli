@@ -14,6 +14,7 @@ import (
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/pkg/gen"
 )
 
+// TestActionNames asserts every announced pkg action name is a registered constant.
 func TestActionNames(t *testing.T) {
 
 	names := []op.ActionName{
@@ -34,6 +35,7 @@ func TestActionNames(t *testing.T) {
 	}
 }
 
+// TestRegister asserts registering the pkg provider announces exactly its expected actions.
 func TestRegister(t *testing.T) {
 
 	expected := []op.ActionName{
@@ -51,6 +53,7 @@ func TestRegister(t *testing.T) {
 	}
 }
 
+// TestInstallAction_DryRun asserts Install plans and narrates without executing.
 func TestInstallAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Install)
@@ -74,6 +77,7 @@ func TestInstallAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestInstalledAction_DryRun asserts Installed plans and narrates without executing.
 func TestInstalledAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Installed)
@@ -97,6 +101,7 @@ func TestInstalledAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestNotInstalledAction_DryRun asserts NotInstalled plans and narrates without executing.
 func TestNotInstalledAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.NotInstalled)
@@ -120,6 +125,7 @@ func TestNotInstalledAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestObserveAction_DryRun asserts Observe plans and narrates without executing.
 func TestObserveAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Observe)
@@ -143,6 +149,7 @@ func TestObserveAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestRemoveAction_DryRun asserts Remove plans and narrates without executing.
 func TestRemoveAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Remove)
@@ -166,6 +173,7 @@ func TestRemoveAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestUpdateAction_DryRun asserts Update plans and narrates without executing.
 func TestUpdateAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Update)
@@ -189,6 +197,7 @@ func TestUpdateAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestUpgradeAction_DryRun asserts Upgrade plans and narrates without executing.
 func TestUpgradeAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Upgrade)
@@ -212,6 +221,7 @@ func TestUpgradeAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestVersionGTEAction_DryRun asserts VersionGTE plans and narrates without executing.
 func TestVersionGTEAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.VersionGTE)
@@ -235,21 +245,25 @@ func TestVersionGTEAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestInstallAction_CompensableInterface asserts Install satisfies op.CompensableAction.
 func TestInstallAction_CompensableInterface(t *testing.T) {
 
 	_ = getCompensable(t, provider.Install)
 }
 
+// TestRemoveAction_CompensableInterface asserts Remove satisfies op.CompensableAction.
 func TestRemoveAction_CompensableInterface(t *testing.T) {
 
 	_ = getCompensable(t, provider.Remove)
 }
 
+// TestUpgradeAction_CompensableInterface asserts Upgrade satisfies op.CompensableAction.
 func TestUpgradeAction_CompensableInterface(t *testing.T) {
 
 	_ = getCompensable(t, provider.Upgrade)
 }
 
+// TestCompensableActions_UndoNil asserts every compensable pkg action tolerates a nil undo.
 func TestCompensableActions_UndoNil(t *testing.T) {
 
 	ctx := newCtx(t)

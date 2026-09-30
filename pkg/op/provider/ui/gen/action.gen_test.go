@@ -14,6 +14,7 @@ import (
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/ui/gen"
 )
 
+// TestActionNames asserts every announced ui action name is a registered constant.
 func TestActionNames(t *testing.T) {
 
 	names := []op.ActionName{
@@ -32,6 +33,7 @@ func TestActionNames(t *testing.T) {
 	}
 }
 
+// TestRegister asserts registering the ui provider announces exactly its expected actions.
 func TestRegister(t *testing.T) {
 
 	expected := []op.ActionName{
@@ -47,6 +49,7 @@ func TestRegister(t *testing.T) {
 	}
 }
 
+// TestErrorAction_DryRun asserts Error plans and narrates without executing.
 func TestErrorAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Error)
@@ -70,6 +73,7 @@ func TestErrorAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestFailAction_DryRun asserts Fail plans and narrates without executing.
 func TestFailAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Fail)
@@ -93,6 +97,7 @@ func TestFailAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestNoteAction_DryRun asserts Note plans and narrates without executing.
 func TestNoteAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Note)
@@ -116,6 +121,7 @@ func TestNoteAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestPrintAction_DryRun asserts Print plans and narrates without executing.
 func TestPrintAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Print)
@@ -139,6 +145,7 @@ func TestPrintAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestSucceedAction_DryRun asserts Succeed plans and narrates without executing.
 func TestSucceedAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Succeed)
@@ -162,6 +169,7 @@ func TestSucceedAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestWarnAction_DryRun asserts Warn plans and narrates without executing.
 func TestWarnAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Warn)
@@ -185,6 +193,7 @@ func TestWarnAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestCompensableActions_UndoNil asserts every compensable ui action tolerates a nil undo.
 func TestCompensableActions_UndoNil(t *testing.T) {
 
 	ctx := newCtx(t)

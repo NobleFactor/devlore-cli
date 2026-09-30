@@ -14,6 +14,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
+// TestActionNames asserts every announced shellcheck action name is a registered constant.
 func TestActionNames(t *testing.T) {
 
 	names := []op.ActionName{
@@ -30,6 +31,7 @@ func TestActionNames(t *testing.T) {
 	}
 }
 
+// TestRegister asserts registering the shellcheck provider announces exactly its expected actions.
 func TestRegister(t *testing.T) {
 
 	expected := []op.ActionName{
@@ -43,6 +45,7 @@ func TestRegister(t *testing.T) {
 	}
 }
 
+// TestComplexityAction_DryRun asserts Complexity plans and narrates without executing.
 func TestComplexityAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Complexity)
@@ -66,6 +69,7 @@ func TestComplexityAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestFormatAction_DryRun asserts Format plans and narrates without executing.
 func TestFormatAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Format)
@@ -89,6 +93,7 @@ func TestFormatAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestLintAction_DryRun asserts Lint plans and narrates without executing.
 func TestLintAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Lint)
@@ -112,6 +117,7 @@ func TestLintAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestParseAction_DryRun asserts Parse plans and narrates without executing.
 func TestParseAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Parse)
@@ -135,6 +141,7 @@ func TestParseAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestCompensableActions_UndoNil asserts every compensable shellcheck action tolerates a nil undo.
 func TestCompensableActions_UndoNil(t *testing.T) {
 
 	ctx := newCtx(t)

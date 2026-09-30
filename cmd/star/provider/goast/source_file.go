@@ -151,6 +151,9 @@ func (sf *SourceFile) Name() string { return sf.filename }
 
 // CheckCompliance reports style violations. No mutation, no I/O.
 //
+// A test entry point is exempt from the Parameters section and from nothing else -- see
+// [SourceFile.isTestEntryPoint].
+//
 // Returns:
 //   - `[]ComplianceViolation`: one entry per violation; empty when the tree is compliant.
 func (sf *SourceFile) CheckCompliance() []ComplianceViolation {
@@ -168,7 +171,7 @@ func (sf *SourceFile) CheckCompliance() []ComplianceViolation {
 				continue
 			}
 			text := docToText(d.comment.doc)
-			if len(d.Params) > 0 && !strings.Contains(text, "Parameters:") {
+			if len(d.Params) > 0 && !sf.isTestEntryPoint(d.Name) && !strings.Contains(text, "Parameters:") {
 				violations = append(violations, ComplianceViolation{
 					Name:    d.Name,
 					Kind:    d.DeclKind(),
@@ -194,6 +197,38 @@ func (sf *SourceFile) CheckCompliance() []ComplianceViolation {
 	}
 
 	return violations
+}
+
+// isTestEntryPoint reports whether a function is one the testing framework calls, in a test file.
+//
+// Approved 2026-09-29, and it is the ONE exception to "everything is linted". Such a function's signature is
+// fixed by the framework -- `(t *testing.T)`, `(b *testing.B)`, `(f *testing.F)`, `(m *testing.M)` -- so a
+// Parameters section restates the same thing for every one of them. It was 756 of the 5,455 violations in
+// this repository, saying the same words 756 times.
+//
+// **It is narrow on purpose, in three ways.** The doc comment is still required, because a test's name is not
+// its purpose. A helper that happens to live in a test file is NOT exempt: `lineOf(t, path, number)` has
+// parameters worth documenting, and 303 such violations remain debt. And a `Test`-prefixed function in
+// ordinary source is not exempt either, because the file suffix is part of the test.
+//
+// Parameters:
+//   - `name`: the function's name.
+//
+// Returns:
+//   - `bool`: true when the file is a test file and the name is a framework entry point.
+func (sf *SourceFile) isTestEntryPoint(name string) bool {
+
+	if !strings.HasSuffix(sf.filename, "_test.go") {
+		return false
+	}
+
+	for _, prefix := range []string{"Test", "Benchmark", "Fuzz", "Example"} {
+		if strings.HasPrefix(name, prefix) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // Cleanup dispatches the single styler for each declaration based on its node type.

@@ -220,7 +220,7 @@ other reason, not in a pass of their own. #721's was corrected here because this
 - [ ] The other session told, because devlore-cli#950 and #965 are unblocked by this phase and by
       nothing else in this plan
 
-### Phase 3: every remaining linter (lane 8)
+### Phase 3: every remaining linter (lane 9)
 
 - [ ] `star lint powershell`, `star lint spelling`, `star lint starlark`, and `lint.all` running them
 - [ ] `make lint`, `make lint-fix`, `make lint-tools`; `make check` calls `make lint`
@@ -230,22 +230,157 @@ other reason, not in a pass of their own. #721's was corrected here because this
 - [ ] copyright (984 files, passing today), markdown (471, unmeasured), spelling, and **`star lint
       starlark` from lane 8, not buildifier** (162 `.star` files) all clean
 
-### Phase 4: the go-style sweep (lane 9)
+### Phase 4: the go-style debt (lane 10)
 
-- [ ] devlore-cli#938 has landed
-- [ ] `star lint go-style --fix` run over the tree, then `git diff -w` read for anything that moved
-      **outside** the intended class, then `make vet-all` and the full suite. The compiler and the tests
-      are the review; nobody reads 843 files
-- [ ] `go-style` added to CI
+**5,455 violations across 848 files**, measured 2026-09-29 with `star lint go-style`. Ruled the same day:
+*"you need to fix all 5,455 violations across 848 files. that is your debt and you must address it."*
+
+The shape decides the work, so it was measured before anything was proposed:
+
+| Where | Violations | Missing doc comment | Missing Parameters | Missing Returns |
+| --- | ---: | ---: | ---: | ---: |
+| `_test.go` | 3,901 | 2,293 | 1,204 | 404 |
+| `.gen.go`, `gen_test.go` | 778 | n/a | n/a | n/a |
+| ordinary `.go` | 1,508 | 197 | 583 | 728 |
+
+This phase said "`star lint go-style --fix` over the tree, after #938". That is right for most of it and
+wrong for the largest single block, so it splits.
+
+#### Phase 4a: the templates -- unblocked, and the only legal route
+
+778 violations are in **generated** files, which say `DO NOT EDIT`. They cannot be sweep-fixed and they cannot
+be hand-edited; they are fixed where they are emitted. Three templates emit all of them, under
+`star/extensions/com.noblefactor.devlore.Actions/templates/`:
+
+- `action.gen_test.go.template`
+- `module.gen_test.go.template`
+- `receiver_type.gen_test.go.template`
+
+The repetition is the proof: `providerReceiverType`, `newCtx`, `getCompensable`, `getAction` and `dryRunCtx`
+each appear **58 times**, `init` 46 -- one template across 29 providers. A doc comment in the template
+interpolates the method name, so what is generated is specific rather than filler:
+
+```go
+// Test{{.name}}Action_DryRun asserts the {{.name}} action plans without executing.
+func Test{{.name}}Action_DryRun(t *testing.T) {
+```
+
+- [x] **Six** templates, not three -- the plan undercounted. `receiver_type.gen_test.go.template` (377),
+      `action.gen_test.go.template` (239), `module.gen_test.go.template` (116),
+      `provider.gen.go.template` (29), `resource.gen.go.template` (8) and
+      `dependent_type.gen.go.template` (9). 377+239+116+29+8+9 = 778, exactly.
+- [x] **`make generate` was not enough, and that is a finding.** The codegen rules depend on each provider's
+      source, not on the templates, so editing a template marks nothing stale and `make generate` reported
+      only the inventories. `make regenerate` exists for exactly this -- *"Regenerate every generated file
+      from scratch, ignoring mtimes"* -- and it touched the sources and rewrote 131 files.
+- [x] `star lint go-style` reports **774 fewer** -- 4,701 to 3,927 -- and not one generated file was edited by
+      hand. The estimate was 778; four of them were in files the regeneration left byte-identical.
+
+**This phase needs neither #938 nor `--fix`**, which is why it is first: it was sitting behind a dependency
+that does not apply to it.
+
+#### Phase 4b: the test-function rule, narrowed in config
+
+1,204 `Parameters` and 404 `Returns` violations are on test functions whose only parameter is `t *testing.T`.
+Documenting it 1,204 times adds nothing a reader wants, and the ruling that everything is linted admits a
+compelling argument.
+
+**This is a narrowing, not an exemption.** A test function still needs a doc comment -- a test's name is not
+its purpose, and the 2,293 missing ones are worth writing -- and does not need the sections. Every file stays
+linted.
+
+- [x] Implemented in `goast/source_file.go` as `SourceFile.isTestEntryPoint`, checked by `CheckCompliance`.
+      **In code, not config**: `CheckCompliance` takes no configuration today, and inventing a knob for one
+      rule would have been a bigger change than the rule. 5,455 to 4,701 -- **754 cleared**, not the 756
+      estimated.
+- [ ] The rule is stated in the Go style guide, so the code is not the only place it lives. **That guide is
+      `noblefactor-ops/docs/guides/go-style-guidelines.md`, a different repository**, so it is a separate pull
+      request there and not this one -- one repository at a time.
+- [x] **754** resolved without a file leaving the gate. The figure was 1,608 until the boundary was measured:
+      that lumped test-file HELPERS in with framework entry points, and a helper keeps the full rule --
+      `lineOf(t, path, number)` has parameters worth documenting. 303 Parameters and 259 Returns on test-file
+      helpers remain debt.
+- [x] `TestCheckComplianceExemptsTestEntryPoints` keeps the exemption narrow, six cases: an entry point needs
+      no Parameters; Benchmark, Fuzz and Example count too; an entry point still needs a doc comment; a
+      helper in a test file is NOT exempt; a `Test`-prefixed function in ordinary source is NOT exempt; and
+      an entry point that returns something still needs Returns.
+
+#### Phase 4c: the sweep -- waits on #938
+
+- [ ] devlore-cli#938 has landed, so `--fix` can emit Parameters and Returns from signatures rather than
+      having 1,311 sections typed by hand.
+- [ ] `star lint go-style --fix` run over the tree, then `git diff -w` read for anything that moved that
+      should not have.
+- [ ] The 197 missing doc comments in ordinary `.go` written -- prose, not generated.
+- [ ] The 2,293 missing doc comments in `_test.go` written.
+- [ ] `go-style` added to CI, and `star lint all` passes.
+
+**Rough division of 5,455:** 778 by template, 1,608 by config, 1,311 by `--fix`, and **2,490 written by
+hand.** Only the last is unavoidable prose.
 
 ### Phase 5: green, and the documents this makes stale
 
 - [ ] #964's own table corrected from 33 to 51, with the reason
 - [ ] This document set to `complete` in the last commit of the last pull request
 
+## Issue 989
+
+**The design governs this, and I did not read it first.** `docs/architecture/9-star-extensions.md` defines four
+scopes and says which tool writes each. The first fix committed here added a fifth search path derived from the
+running binary -- which serves no scope, and looked for a payload `star self install` should never write. It was
+reverted, and the design document is corrected in this branch rather than left stale behind the commit that made
+it so (rule 12, one commit late).
+
+`star` installs its extensions where it does not search. Found 2026-09-30 while tracing why a template edit
+produced no regenerated output, and fixed on this branch because it was found here -- a worktree may resolve
+more than one issue.
+
+`self install` writes to `$PREFIX/share/devlore/star/extensions`; the search list in
+`extension.defaultSearchPaths` was written independently of it and matched exactly two prefixes by
+coincidence. Any other -- `/opt/devlore`, a container prefix -- installed somewhere nothing looked, while
+`make install` reported success.
+
+| Defect | Fix |
+| --- | --- |
+| ~~No exe-relative search path~~ **withdrawn** | A probe derived from the binary was implemented, committed, and reverted. It served no scope in the design: `self install` should write no extensions, so there is no prefix payload to find. Accommodating that payload instead of reading the design that forbids it is what produced it. The payload itself is [#990](https://github.com/NobleFactor/devlore-cli/issues/990) |
+| `findExtensionsDir()` resolved its source from the **working directory** | It now uses `config.GitWorkspaceRoot()`, which is what the loader already used one file away, and which handles a linked worktree's `.git` file |
+| `/usr/local/share` was a string literal and `xdg.DataDirs()` was never called | The system probes come from `xdg.DataDirs()`, so `/usr/share` is searched and `XDG_DATA_DIRS` is honored. The specification's user half was already respected here; its system half was not |
+| `Source` labels were assigned by array index, so `${XDG_DATA_HOME}/star/extensions` reported as `system` | A `Source` travels with its path, decided where the path is added: `sourceOf` classifies the default paths, and an explicit list is taken in the scope order its caller declares. Adding probes would otherwise have shifted every later label |
+
+**Tests.** `TestSourceOf` pins the labels, including that an install into a prefix under `$HOME` is the
+user's. `TestDefaultSearchPaths_HasNoDuplicates` covers the overlap the list creates, since a machine
+carrying both the pre-#918 and post-#918 layouts names one directory twice.
+
+Three existing tests in `cmd/star/star` were coupled to the working-directory behavior and now set the root
+explicitly with `config.SetGitWorkspaceRoot`, which is how the loader's own tests already controlled scope.
+That coupling was not incidental: `GitWorkspaceRoot` caches through a `sync.Once`, so a `Chdir` after
+anything else has resolved it changes nothing.
+
+**A `Source` travels with its path, and that was a regression before it was a design.** Deriving the label
+from the path alone broke `NewLoaderWithPaths`, whose contract is that the caller declares the order: a
+`t.TempDir()` standing in for a checkout is under neither a repository nor `$HOME`, so it was labeled
+`system` and `TestLifecycle_DeduplicationProjectOverridesEmbedded` failed. Carrying the two in parallel
+slices then panicked `TestConfigIntegration`, because a `Loader` struct literal -- which
+`Application.LoadExtensionsFrom` builds in production code -- filled one slice and not the other. The
+shipped form is one `searchPath{dir, source}` per entry, so the pair cannot fall out of step and no literal
+can hold a path whose scope is missing. Both failures were found by `make test-race`, not by testing the
+package that changed; only `-tags 'integration,e2e'` builds either test.
+
+- [x] `findExtensionsDir()` resolves its source from `config.GitWorkspaceRoot()`.
+- [x] `xdg.DataDirs()` supplies the system paths; no `/usr/local/share` literal remains in the loader.
+- [x] A `Source` label is decided where the path is added -- by `sourceOf` for the default paths, by the
+      caller's declared order for explicit ones -- and never by an index into a list it does not own.
+- [x] `TestSourceOf` pins each label, including that a prefix under `$HOME` is the user's and not the
+      system's.
+- [x] ~~The loader searches exe-relative, so an install to any prefix is found.~~ **Withdrawn**, with the
+      requirement above: the probe served no scope, and `self install` writes no extensions for it to find
+      ([#990](https://github.com/NobleFactor/devlore-cli/issues/990)).
+- [x] ~~A test installs to a prefix that is neither `~/.local` nor `/usr/local` and finds the
+      extensions.~~ **Withdrawn** with the probe it tested.
+
 ## Related documents
 
-- [noblefactor-ops#232](https://github.com/NobleFactor/noblefactor-ops/issues/232) -- the lint tooling schedule; this is lanes 7, 8 and 9
+- [noblefactor-ops#232](https://github.com/NobleFactor/noblefactor-ops/issues/232) -- the lint tooling schedule; this is lanes 7, 9 and 10, with lane 11 fixed here
 - [personal#216](https://github.com/David-Noble-at-work/personal/issues/216) -- the same gate in personal, 234 findings to zero; the precedent for Requirement 1
 - [devlore-cli#938](https://github.com/NobleFactor/devlore-cli/issues/938) -- why Phase 4 waits
 - [devlore-cli#949](https://github.com/NobleFactor/devlore-cli/issues/949) -- the schedule whose lanes 11, 13 and 21 Phase 2 unblocks

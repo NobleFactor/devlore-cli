@@ -14,6 +14,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
+// TestActionNames asserts every announced staranalysis action name is a registered constant.
 func TestActionNames(t *testing.T) {
 
 	names := []op.ActionName{
@@ -27,6 +28,7 @@ func TestActionNames(t *testing.T) {
 	}
 }
 
+// TestRegister asserts registering the staranalysis provider announces exactly its expected actions.
 func TestRegister(t *testing.T) {
 
 	expected := []op.ActionName{
@@ -37,6 +39,7 @@ func TestRegister(t *testing.T) {
 	}
 }
 
+// TestAnalyzeAction_DryRun asserts Analyze plans and narrates without executing.
 func TestAnalyzeAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Analyze)
@@ -60,6 +63,7 @@ func TestAnalyzeAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestCompensableActions_UndoNil asserts every compensable staranalysis action tolerates a nil undo.
 func TestCompensableActions_UndoNil(t *testing.T) {
 
 	ctx := newCtx(t)

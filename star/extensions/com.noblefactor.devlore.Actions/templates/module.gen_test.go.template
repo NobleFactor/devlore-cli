@@ -17,6 +17,7 @@ import (
 {{- end}}
 )
 
+// TestModule_AttrNames asserts the {{.provider}} module advertises exactly its announced attributes.
 func TestModule_AttrNames(t *testing.T) {
 
 {{- if eq .surface "module"}}
@@ -38,6 +39,7 @@ func TestModule_AttrNames(t *testing.T) {
 	}
 }
 
+// TestModule_Attr asserts every advertised {{.provider}} attribute resolves.
 func TestModule_Attr(t *testing.T) {
 
 {{- if eq .surface "module"}}
@@ -60,6 +62,7 @@ func TestModule_Attr(t *testing.T) {
 	}
 }
 
+// TestModule_Attr_Unknown asserts an attribute the {{.provider}} module does not have is an error.
 func TestModule_Attr_Unknown(t *testing.T) {
 
 	var r starlark.HasAttrs
@@ -78,6 +81,7 @@ func TestModule_Attr_Unknown(t *testing.T) {
 	}
 }
 
+// TestModule_Type asserts the {{.provider}} module reports its own Starlark type name.
 func TestModule_Type(t *testing.T) {
 
 {{- if eq .surface "module"}}

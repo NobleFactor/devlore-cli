@@ -40,7 +40,7 @@ func TestConfigIntegration(t *testing.T) {
 	}
 	extDir := filepath.Join(projectRoot, "cmd", "star", "extensions")
 
-	loader := &Loader{searchPaths: []string{extDir}}
+	loader := NewLoaderWithPaths([]string{extDir}, nil)
 	allExts, err := loader.DiscoverAll()
 	if err != nil {
 		t.Fatalf("DiscoverAll(%s): %v", extDir, err)

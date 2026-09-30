@@ -238,9 +238,7 @@ func (r *Application) DiscoverAndLoad(loader *Loader) error {
 //   - error: non-nil if discovery, config registration, config loading, or activation fails.
 func (r *Application) LoadExtensionsFrom(dir string) error {
 
-	loader := &Loader{
-		searchPaths: []string{dir},
-	}
+	loader := NewLoaderWithPaths([]string{dir}, nil)
 
 	extensions, err := loader.DiscoverAll()
 	if err != nil {

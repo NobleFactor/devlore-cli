@@ -14,6 +14,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
+// TestActionNames asserts every announced starcode action name is a registered constant.
 func TestActionNames(t *testing.T) {
 
 	names := []op.ActionName{
@@ -27,6 +28,7 @@ func TestActionNames(t *testing.T) {
 	}
 }
 
+// TestRegister asserts registering the starcode provider announces exactly its expected actions.
 func TestRegister(t *testing.T) {
 
 	expected := []op.ActionName{
@@ -37,6 +39,7 @@ func TestRegister(t *testing.T) {
 	}
 }
 
+// TestCaptureAction_DryRun asserts Capture plans and narrates without executing.
 func TestCaptureAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Capture)
@@ -60,6 +63,7 @@ func TestCaptureAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestCompensableActions_UndoNil asserts every compensable starcode action tolerates a nil undo.
 func TestCompensableActions_UndoNil(t *testing.T) {
 
 	ctx := newCtx(t)

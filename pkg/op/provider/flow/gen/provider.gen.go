@@ -12,6 +12,9 @@ import (
 	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/flow"
 )
 
+// init announces the flow provider to the receiver registry, with its flags, its constructor and
+// the metadata of every method it offers. Registration happens on import, which is why a provider is reached
+// by a blank import of its gen package.
 func init() {
 	op.AnnounceProvider(reflect.TypeFor[provider.Provider](),
 		op.NewProviderFlags(op.SurfaceWorkflow, op.PlacementPromoted),

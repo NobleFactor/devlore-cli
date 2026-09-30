@@ -14,6 +14,7 @@ import (
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/json/gen"
 )
 
+// TestActionNames asserts every announced json action name is a registered constant.
 func TestActionNames(t *testing.T) {
 
 	names := []op.ActionName{
@@ -30,6 +31,7 @@ func TestActionNames(t *testing.T) {
 	}
 }
 
+// TestRegister asserts registering the json provider announces exactly its expected actions.
 func TestRegister(t *testing.T) {
 
 	expected := []op.ActionName{
@@ -43,6 +45,7 @@ func TestRegister(t *testing.T) {
 	}
 }
 
+// TestDecodeAction_DryRun asserts Decode plans and narrates without executing.
 func TestDecodeAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Decode)
@@ -66,6 +69,7 @@ func TestDecodeAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestEncodeAction_DryRun asserts Encode plans and narrates without executing.
 func TestEncodeAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Encode)
@@ -89,6 +93,7 @@ func TestEncodeAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestEncodeIndentAction_DryRun asserts EncodeIndent plans and narrates without executing.
 func TestEncodeIndentAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.EncodeIndent)
@@ -112,6 +117,7 @@ func TestEncodeIndentAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestParseAction_DryRun asserts Parse plans and narrates without executing.
 func TestParseAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Parse)
@@ -135,6 +141,7 @@ func TestParseAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestCompensableActions_UndoNil asserts every compensable json action tolerates a nil undo.
 func TestCompensableActions_UndoNil(t *testing.T) {
 
 	ctx := newCtx(t)

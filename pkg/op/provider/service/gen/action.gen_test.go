@@ -14,6 +14,7 @@ import (
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/service/gen"
 )
 
+// TestActionNames asserts every announced service action name is a registered constant.
 func TestActionNames(t *testing.T) {
 
 	names := []op.ActionName{
@@ -34,6 +35,7 @@ func TestActionNames(t *testing.T) {
 	}
 }
 
+// TestRegister asserts registering the service provider announces exactly its expected actions.
 func TestRegister(t *testing.T) {
 
 	expected := []op.ActionName{
@@ -51,6 +53,7 @@ func TestRegister(t *testing.T) {
 	}
 }
 
+// TestDisableAction_DryRun asserts Disable plans and narrates without executing.
 func TestDisableAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Disable)
@@ -74,6 +77,7 @@ func TestDisableAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestEnableAction_DryRun asserts Enable plans and narrates without executing.
 func TestEnableAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Enable)
@@ -97,6 +101,7 @@ func TestEnableAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestEnabledAction_DryRun asserts Enabled plans and narrates without executing.
 func TestEnabledAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Enabled)
@@ -120,6 +125,7 @@ func TestEnabledAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestExistsAction_DryRun asserts Exists plans and narrates without executing.
 func TestExistsAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Exists)
@@ -143,6 +149,7 @@ func TestExistsAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestRestartAction_DryRun asserts Restart plans and narrates without executing.
 func TestRestartAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Restart)
@@ -166,6 +173,7 @@ func TestRestartAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestRunningAction_DryRun asserts Running plans and narrates without executing.
 func TestRunningAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Running)
@@ -189,6 +197,7 @@ func TestRunningAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestStartAction_DryRun asserts Start plans and narrates without executing.
 func TestStartAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Start)
@@ -212,6 +221,7 @@ func TestStartAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestStopAction_DryRun asserts Stop plans and narrates without executing.
 func TestStopAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Stop)
@@ -235,31 +245,37 @@ func TestStopAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestDisableAction_CompensableInterface asserts Disable satisfies op.CompensableAction.
 func TestDisableAction_CompensableInterface(t *testing.T) {
 
 	_ = getCompensable(t, provider.Disable)
 }
 
+// TestEnableAction_CompensableInterface asserts Enable satisfies op.CompensableAction.
 func TestEnableAction_CompensableInterface(t *testing.T) {
 
 	_ = getCompensable(t, provider.Enable)
 }
 
+// TestRestartAction_CompensableInterface asserts Restart satisfies op.CompensableAction.
 func TestRestartAction_CompensableInterface(t *testing.T) {
 
 	_ = getCompensable(t, provider.Restart)
 }
 
+// TestStartAction_CompensableInterface asserts Start satisfies op.CompensableAction.
 func TestStartAction_CompensableInterface(t *testing.T) {
 
 	_ = getCompensable(t, provider.Start)
 }
 
+// TestStopAction_CompensableInterface asserts Stop satisfies op.CompensableAction.
 func TestStopAction_CompensableInterface(t *testing.T) {
 
 	_ = getCompensable(t, provider.Stop)
 }
 
+// TestCompensableActions_UndoNil asserts every compensable service action tolerates a nil undo.
 func TestCompensableActions_UndoNil(t *testing.T) {
 
 	ctx := newCtx(t)

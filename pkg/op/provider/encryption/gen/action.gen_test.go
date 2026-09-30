@@ -14,6 +14,7 @@ import (
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/encryption/gen"
 )
 
+// TestActionNames asserts every announced encryption action name is a registered constant.
 func TestActionNames(t *testing.T) {
 
 	names := []op.ActionName{
@@ -28,6 +29,7 @@ func TestActionNames(t *testing.T) {
 	}
 }
 
+// TestRegister asserts registering the encryption provider announces exactly its expected actions.
 func TestRegister(t *testing.T) {
 
 	expected := []op.ActionName{
@@ -39,6 +41,7 @@ func TestRegister(t *testing.T) {
 	}
 }
 
+// TestDecryptSopsFileAction_DryRun asserts DecryptSopsFile plans and narrates without executing.
 func TestDecryptSopsFileAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.DecryptSopsFile)
@@ -62,6 +65,7 @@ func TestDecryptSopsFileAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestEncryptFileAction_DryRun asserts EncryptFile plans and narrates without executing.
 func TestEncryptFileAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.EncryptFile)
@@ -85,16 +89,19 @@ func TestEncryptFileAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestDecryptSopsFileAction_CompensableInterface asserts DecryptSopsFile satisfies op.CompensableAction.
 func TestDecryptSopsFileAction_CompensableInterface(t *testing.T) {
 
 	_ = getCompensable(t, provider.DecryptSopsFile)
 }
 
+// TestEncryptFileAction_CompensableInterface asserts EncryptFile satisfies op.CompensableAction.
 func TestEncryptFileAction_CompensableInterface(t *testing.T) {
 
 	_ = getCompensable(t, provider.EncryptFile)
 }
 
+// TestCompensableActions_UndoNil asserts every compensable encryption action tolerates a nil undo.
 func TestCompensableActions_UndoNil(t *testing.T) {
 
 	ctx := newCtx(t)

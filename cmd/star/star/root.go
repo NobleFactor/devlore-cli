@@ -19,6 +19,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
+	"github.com/NobleFactor/devlore-cli/cmd/star/config"
 	"github.com/NobleFactor/devlore-cli/cmd/star/extension"
 	bundled "github.com/NobleFactor/devlore-cli/cmd/star/extensions"
 	"github.com/NobleFactor/devlore-cli/pkg/application"
@@ -369,10 +370,24 @@ func copiedExtensionFiles(srcExtDir, targetRel string) []string {
 }
 
 // findExtensionsDir looks for the star/extensions/ directory.
+//
+// Project-local resolution goes through [config.GitWorkspaceRoot], which is what the loader uses
+// ([extension.defaultSearchPaths]) and which walks up for the repository root. It previously checked
+// `star/extensions` relative to the WORKING DIRECTORY, so `self install` found the repository's extensions
+// only when run from the repository root and silently installed none from anywhere else -- and a linked
+// worktree, whose `.git` is a file rather than a directory, is exactly the case a naive walk gets wrong
+// (#989).
+//
+// Returns:
+//   - `string`: the directory to install extensions from, or "" when there is none.
 func findExtensionsDir() string {
-	// Check relative to cwd (project-local).
-	if info, err := os.Stat(filepath.Join("star", "extensions")); err == nil && info.IsDir() {
-		return filepath.Join("star", "extensions")
+
+	// Project-local: the repository this star was invoked inside.
+	if root := config.GitWorkspaceRoot(); root != "" {
+		candidate := filepath.Join(root, "star", "extensions")
+		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+			return candidate
+		}
 	}
 
 	// Check relative to the executable: an unpacked release archive, whose share/ sits beside its bin/. The path

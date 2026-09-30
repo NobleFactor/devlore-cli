@@ -14,6 +14,7 @@ import (
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gen"
 )
 
+// TestActionNames asserts every announced file action name is a registered constant.
 func TestActionNames(t *testing.T) {
 
 	names := []op.ActionName{
@@ -51,6 +52,7 @@ func TestActionNames(t *testing.T) {
 	}
 }
 
+// TestRegister asserts registering the file provider announces exactly its expected actions.
 func TestRegister(t *testing.T) {
 
 	expected := []op.ActionName{
@@ -85,6 +87,7 @@ func TestRegister(t *testing.T) {
 	}
 }
 
+// TestBackupAction_DryRun asserts Backup plans and narrates without executing.
 func TestBackupAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Backup)
@@ -108,6 +111,7 @@ func TestBackupAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestCopyAction_DryRun asserts Copy plans and narrates without executing.
 func TestCopyAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Copy)
@@ -131,6 +135,7 @@ func TestCopyAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestDiscoverAction_DryRun asserts Discover plans and narrates without executing.
 func TestDiscoverAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Discover)
@@ -154,6 +159,7 @@ func TestDiscoverAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestExistsAction_DryRun asserts Exists plans and narrates without executing.
 func TestExistsAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Exists)
@@ -177,6 +183,7 @@ func TestExistsAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestFindAction_DryRun asserts Find plans and narrates without executing.
 func TestFindAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Find)
@@ -200,6 +207,7 @@ func TestFindAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestGlobAction_DryRun asserts Glob plans and narrates without executing.
 func TestGlobAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Glob)
@@ -223,6 +231,7 @@ func TestGlobAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestIsDirAction_DryRun asserts IsDir plans and narrates without executing.
 func TestIsDirAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.IsDir)
@@ -246,6 +255,7 @@ func TestIsDirAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestIsFileAction_DryRun asserts IsFile plans and narrates without executing.
 func TestIsFileAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.IsFile)
@@ -269,6 +279,7 @@ func TestIsFileAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestJoinAction_DryRun asserts Join plans and narrates without executing.
 func TestJoinAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Join)
@@ -292,6 +303,7 @@ func TestJoinAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestLinkAction_DryRun asserts Link plans and narrates without executing.
 func TestLinkAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Link)
@@ -315,6 +327,7 @@ func TestLinkAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestMkdirAction_DryRun asserts Mkdir plans and narrates without executing.
 func TestMkdirAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Mkdir)
@@ -338,6 +351,7 @@ func TestMkdirAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestMoveAction_DryRun asserts Move plans and narrates without executing.
 func TestMoveAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Move)
@@ -361,6 +375,7 @@ func TestMoveAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestNameAction_DryRun asserts Name plans and narrates without executing.
 func TestNameAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Name)
@@ -384,6 +399,7 @@ func TestNameAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestObserveAction_DryRun asserts Observe plans and narrates without executing.
 func TestObserveAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Observe)
@@ -407,6 +423,7 @@ func TestObserveAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestParentAction_DryRun asserts Parent plans and narrates without executing.
 func TestParentAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Parent)
@@ -430,6 +447,7 @@ func TestParentAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestReadBytesAction_DryRun asserts ReadBytes plans and narrates without executing.
 func TestReadBytesAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.ReadBytes)
@@ -453,6 +471,7 @@ func TestReadBytesAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestReadTextAction_DryRun asserts ReadText plans and narrates without executing.
 func TestReadTextAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.ReadText)
@@ -476,6 +495,7 @@ func TestReadTextAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestRemoveAction_DryRun asserts Remove plans and narrates without executing.
 func TestRemoveAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Remove)
@@ -499,6 +519,7 @@ func TestRemoveAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestRemoveAllAction_DryRun asserts RemoveAll plans and narrates without executing.
 func TestRemoveAllAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.RemoveAll)
@@ -522,6 +543,7 @@ func TestRemoveAllAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestResolveAction_DryRun asserts Resolve plans and narrates without executing.
 func TestResolveAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Resolve)
@@ -545,6 +567,7 @@ func TestResolveAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestRootAction_DryRun asserts Root plans and narrates without executing.
 func TestRootAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Root)
@@ -568,6 +591,7 @@ func TestRootAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestWalkTreeAction_DryRun asserts WalkTree plans and narrates without executing.
 func TestWalkTreeAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.WalkTree)
@@ -591,6 +615,7 @@ func TestWalkTreeAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestWriteBytesAction_DryRun asserts WriteBytes plans and narrates without executing.
 func TestWriteBytesAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.WriteBytes)
@@ -614,6 +639,7 @@ func TestWriteBytesAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestWriteFileAction_DryRun asserts WriteFile plans and narrates without executing.
 func TestWriteFileAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.WriteFile)
@@ -637,6 +663,7 @@ func TestWriteFileAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestWriteTextAction_DryRun asserts WriteText plans and narrates without executing.
 func TestWriteTextAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.WriteText)
@@ -660,11 +687,13 @@ func TestWriteTextAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestWalkTreeAction_CompensableInterface asserts WalkTree satisfies op.CompensableAction.
 func TestWalkTreeAction_CompensableInterface(t *testing.T) {
 
 	_ = getCompensable(t, provider.WalkTree)
 }
 
+// TestCompensableActions_UndoNil asserts every compensable file action tolerates a nil undo.
 func TestCompensableActions_UndoNil(t *testing.T) {
 
 	ctx := newCtx(t)

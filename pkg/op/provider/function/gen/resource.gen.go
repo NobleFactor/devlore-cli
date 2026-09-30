@@ -13,6 +13,8 @@ import (
 	"go.starlark.net/starlark"
 )
 
+// init announces the Resource resource to the receiver registry, with the discovery function that
+// turns an identity into one. Registration happens on import.
 func init() {
 	op.AnnounceResource(
 		reflect.TypeFor[provider.Resource](),

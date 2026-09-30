@@ -14,6 +14,9 @@ import (
 {{- end}}
 )
 
+// init announces the {{.provider}} provider to the receiver registry, with its flags, its constructor and
+// the metadata of every method it offers. Registration happens on import, which is why a provider is reached
+// by a blank import of its gen package.
 func init() {
 	op.AnnounceProvider(reflect.TypeFor[{{.provider_type_prefix}}Provider](),
 		{{.flags}},

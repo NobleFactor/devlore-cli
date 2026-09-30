@@ -14,6 +14,8 @@ import (
 {{- end}}
 )
 
+// init announces the {{.type_name}} dependent type to the receiver registry, with the metadata of every
+// method and property it offers. Registration happens on import.
 func init() {
 	op.AnnounceType(reflect.TypeFor[{{.provider_type_prefix}}{{.type_name}}](), map[string]op.MethodMetadata{
 {{- range .methods}}

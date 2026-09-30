@@ -14,6 +14,7 @@ import (
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/git/gen"
 )
 
+// TestActionNames asserts every announced git action name is a registered constant.
 func TestActionNames(t *testing.T) {
 
 	names := []op.ActionName{
@@ -30,6 +31,7 @@ func TestActionNames(t *testing.T) {
 	}
 }
 
+// TestRegister asserts registering the git provider announces exactly its expected actions.
 func TestRegister(t *testing.T) {
 
 	expected := []op.ActionName{
@@ -43,6 +45,7 @@ func TestRegister(t *testing.T) {
 	}
 }
 
+// TestCheckoutAction_DryRun asserts Checkout plans and narrates without executing.
 func TestCheckoutAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Checkout)
@@ -66,6 +69,7 @@ func TestCheckoutAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestCloneAction_DryRun asserts Clone plans and narrates without executing.
 func TestCloneAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Clone)
@@ -89,6 +93,7 @@ func TestCloneAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestObserveAction_DryRun asserts Observe plans and narrates without executing.
 func TestObserveAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Observe)
@@ -112,6 +117,7 @@ func TestObserveAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestPullAction_DryRun asserts Pull plans and narrates without executing.
 func TestPullAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Pull)
@@ -135,11 +141,13 @@ func TestPullAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestCloneAction_CompensableInterface asserts Clone satisfies op.CompensableAction.
 func TestCloneAction_CompensableInterface(t *testing.T) {
 
 	_ = getCompensable(t, provider.Clone)
 }
 
+// TestCompensableActions_UndoNil asserts every compensable git action tolerates a nil undo.
 func TestCompensableActions_UndoNil(t *testing.T) {
 
 	ctx := newCtx(t)
