@@ -108,6 +108,21 @@ var DecommissionPhaseOrder = []string{"unprovision", "uninstall", "cleanup"}
 // Scan discovers drift, repair corrects it, verify confirms the system is good.
 var ReconcilePhaseOrder = []string{"scan", "repair", "verify"}
 
+// LifecycleVerbs are the plan.* orchestration attributes denied to phase-script runtimes. Scripts only
+// contribute invocations into the shared registry; lore alone assembles, runs, and persists.
+//
+// It lives here, rather than in lore where it was, because two things read it: lore denies these attributes
+// at run time through starlarkbridge.DenyAttributes, and lint.starlark subtracts them from the valid set it
+// resolves a phase script's calls against (devlore-cli#721). One slice, so a verb cannot be denied at run
+// time and still accepted by the linter.
+//
+// Two of the five name real attributes of the plan provider: Clear and Run, snake-cased to clear and run.
+// The other three do not -- the provider's methods are AssembleDefinition, LoadDefinition and
+// SaveDefinition -- so assemble, load and save deny nothing. That is recorded here because this slice reads
+// as five effective denials and is two. Whether the denial should instead cover the three real names is a
+// separate question from either of its readers, and is not decided here.
+var LifecycleVerbs = []string{"assemble", "clear", "load", "run", "save"}
+
 // RequiredPhase returns the required phase for an action.
 // Each action has exactly one required phase that must be implemented.
 // Native PM packages implement only this phase; lore packages may add others.

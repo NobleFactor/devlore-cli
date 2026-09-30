@@ -17,4 +17,5 @@ const (
 	Go          op.ActionName = "lint.go"
 	Markdown    op.ActionName = "lint.markdown"
 	Shell       op.ActionName = "lint.shell"
+	Starlark    op.ActionName = "lint.starlark"
 )

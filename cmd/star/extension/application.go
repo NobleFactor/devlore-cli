@@ -278,18 +278,26 @@ func (r *Application) LoadExtensionsFrom(dir string) error {
 
 // RunCommand executes the registered command identified by name with the given flags and positional args.
 //
-// Implements the [commands.CommandTree] contract. The name is matched against the space-separated form stored in the
-// command map.
+// Implements the [commands.CommandTree] contract. Accepts dotted or space-separated names by normalizing dots to
+// spaces, which is what [Application.CommandFlags] and [Application.CommandHelp] already do.
+//
+// It did not, and that is why `star lint all` could never run a linter. The command map is keyed by the
+// space-separated form ("lint go"), while [commands.CommandRef] holds the dotted name that
+// [Application.CommandNames] hands out and passes it to all three methods. Two of them normalized, so
+// `cmd.flags` and `cmd.help` worked and `cmd.run` returned `command "lint.go" not found` for every sibling
+// commands.siblings() produced. The aggregator discarded the reason, so it reported seven silent failures.
 //
 // Parameters:
-//   - name: the space-separated command name (e.g., "lint go").
+//   - name: the dotted or space-separated command name (e.g., "lint.go" or "lint go").
 //   - flags: the parsed flag values.
 //   - positional: the positional arguments.
 //
 // Returns:
 //   - error: non-nil if no command matches name or if command execution fails.
 func (r *Application) RunCommand(name string, flags map[string]string, positional ...string) error {
-	cmd, ok := r.commands[name]
+	spaceName := strings.ReplaceAll(name, ".", " ")
+
+	cmd, ok := r.commands[spaceName]
 	if !ok {
 		return fmt.Errorf("command %q not found", name)
 	}

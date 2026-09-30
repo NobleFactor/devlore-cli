@@ -15,6 +15,7 @@ import (
 	"runtime"
 	"strings"
 
+	"github.com/NobleFactor/devlore-cli/cmd/star/provider/lint/starlint"
 	shellcheckprov "github.com/NobleFactor/devlore-cli/cmd/star/provider/shellcheck"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
@@ -202,6 +203,55 @@ func (p *Provider) Markdown(files []string, fix bool) (MarkdownResult, error) {
 			File: issue.file, Message: issue.message,
 		})
 	}
+
+	return result, nil
+}
+
+// Starlark resolves every `plan.*` call in the given files against the action surface devlore actually has,
+// and checks each package phase script against its lifecycle's phase order.
+//
+// The checker is embedded rather than shelled out to, so there is no tool to install and no tool to be
+// missing. Findings are resolution errors -- wrong namespace, absent method, wrong keyword -- and phase
+// mistakes, which is what #721 established a syntax checker structurally cannot see.
+//
+// +devlore:defaults files=nil
+//
+// Parameters:
+//   - files: Starlark files to check
+//
+// Returns:
+//   - StarlarkResult: findings and pass/fail status
+//   - error: if a file cannot be read
+func (p *Provider) Starlark(files []string) (StarlarkResult, error) {
+
+	if len(files) == 0 {
+		return StarlarkResult{Passed: true}, nil
+	}
+
+	checker := starlint.NewChecker()
+
+	result := StarlarkResult{FilesChecked: len(files)}
+
+	for _, path := range files {
+
+		findings, err := checker.CheckFile(path)
+		if err != nil {
+			return StarlarkResult{}, err
+		}
+
+		for _, finding := range findings {
+			result.Issues = append(result.Issues, StarlarkIssue{
+				File:    finding.Path,
+				Line:    finding.Line,
+				Rule:    finding.Rule,
+				Call:    finding.Call,
+				Message: finding.Message,
+			})
+		}
+	}
+
+	result.IssueCount = len(result.Issues)
+	result.Passed = result.IssueCount == 0
 
 	return result, nil
 }
