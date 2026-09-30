@@ -400,8 +400,8 @@ func (c *Checker) checkPhaseScript(path string, file *syntax.File) []Finding {
 			Path: path,
 			Line: line,
 			Call: phase,
-			Message: fmt.Sprintf("%s is not a %s phase, so this file is never opened; %s runs %s",
-				phase, action, action, strings.Join(order, ", ")),
+			Message: fmt.Sprintf("%s is not %s %s phase, so this file is never opened; %s runs %s",
+				phase, article(string(action)), action, action, strings.Join(order, ", ")),
 		})
 	}
 
@@ -439,11 +439,14 @@ func (c *Checker) checkPhaseScript(path string, file *syntax.File) []Finding {
 //	plan.method(...)            -> ("", "method", true)
 //	plan.namespace.method(...)  -> ("namespace", "method", true)
 //
+// Parameters:
+//   - `fn`: the call expression's function.
+//
 // Returns:
 //   - `string`: the namespace, or "" for a call directly on `plan`.
 //   - `string`: the method.
 //   - `bool`: true when this is a `plan.*` call at all.
-func planCallShape(fn syntax.Expr) (string, string, bool) {
+func planCallShape(fn syntax.Expr) (namespace, method string, isPlanCall bool) {
 
 	dot, ok := fn.(*syntax.DotExpr)
 	if !ok {
@@ -474,50 +477,58 @@ func planCallShape(fn syntax.Expr) (string, string, bool) {
 // It does not descend into a nested [syntax.DefStmt] or [syntax.LambdaExpr] body: those are their own scopes,
 // and a binding there does not shadow `plan` for the statements around them.
 //
+// Parameters:
+//   - `stmts`: the statements of one scope.
+//
 // Returns:
 //   - `bool`: true when `plan` is bound here.
 func bindsPlan(stmts []syntax.Stmt) bool {
 
 	for _, stmt := range stmts {
+		if statementBindsPlan(stmt) {
+			return true
+		}
+	}
 
-		switch typed := stmt.(type) {
+	return false
+}
 
-		case *syntax.AssignStmt:
-			// An IndexExpr or DotExpr on the left mutates its receiver and binds nothing, which is exactly
-			// what `plan[namespace] = []` does. Only a bare name, or a name inside an unpacking target, binds.
-			if targetBindsPlan(typed.LHS) {
+// statementBindsPlan reports whether one statement binds `plan` in its own scope.
+//
+// Split out of [bindsPlan] so each statement kind reads on its own; the combined switch and loop measured 35
+// cognitive complexity against a limit of 20.
+//
+// Parameters:
+//   - `stmt`: the statement to examine.
+//
+// Returns:
+//   - `bool`: true when this statement binds `plan`.
+func statementBindsPlan(stmt syntax.Stmt) bool {
+
+	switch typed := stmt.(type) {
+
+	case *syntax.AssignStmt:
+		// An IndexExpr or DotExpr on the left mutates its receiver and binds nothing, which is exactly what
+		// `plan[namespace] = []` does. Only a bare name, or a name inside an unpacking target, binds.
+		return targetBindsPlan(typed.LHS)
+
+	case *syntax.ForStmt:
+		return targetBindsPlan(typed.Vars) || bindsPlan(typed.Body)
+
+	case *syntax.WhileStmt:
+		return bindsPlan(typed.Body)
+
+	case *syntax.IfStmt:
+		return bindsPlan(typed.True) || bindsPlan(typed.False)
+
+	case *syntax.DefStmt:
+		// The nested function's NAME is bound here, though its body is not this scope's business.
+		return typed.Name != nil && typed.Name.Name == planReceiver
+
+	case *syntax.LoadStmt:
+		for _, ident := range typed.To {
+			if ident != nil && ident.Name == planReceiver {
 				return true
-			}
-
-		case *syntax.ForStmt:
-			if targetBindsPlan(typed.Vars) {
-				return true
-			}
-			if bindsPlan(typed.Body) {
-				return true
-			}
-
-		case *syntax.WhileStmt:
-			if bindsPlan(typed.Body) {
-				return true
-			}
-
-		case *syntax.IfStmt:
-			if bindsPlan(typed.True) || bindsPlan(typed.False) {
-				return true
-			}
-
-		case *syntax.DefStmt:
-			// The nested function's NAME is bound here, though its body is not this scope's business.
-			if typed.Name != nil && typed.Name.Name == planReceiver {
-				return true
-			}
-
-		case *syntax.LoadStmt:
-			for _, ident := range typed.To {
-				if ident != nil && ident.Name == planReceiver {
-					return true
-				}
 			}
 		}
 	}
@@ -529,6 +540,9 @@ func bindsPlan(stmts []syntax.Stmt) bool {
 //
 // A parameter is `ident`, `ident=expr`, `*`, `*ident` or `**ident`, so the name sits at a different depth in
 // each form.
+//
+// Parameters:
+//   - `params`: the parameter list.
 //
 // Returns:
 //   - `bool`: true when a parameter is named `plan`.
@@ -559,6 +573,9 @@ func paramsBindPlan(params []syntax.Expr) bool {
 }
 
 // targetBindsPlan reports whether an assignment target binds `plan`, descending through unpacking.
+//
+// Parameters:
+//   - `target`: the assignment target.
 //
 // Returns:
 //   - `bool`: true when `plan` is one of the names bound.
@@ -598,6 +615,10 @@ type entryPoint struct {
 
 // topLevelFunction finds a top-level `def` by name.
 //
+// Parameters:
+//   - `file`: the parsed file.
+//   - `name`: the function name to find.
+//
 // Returns:
 //   - `entryPoint`: its line and parameter count, zero when absent.
 //   - `bool`: true when a top-level def of that name exists.
@@ -617,6 +638,9 @@ func topLevelFunction(file *syntax.File, name string) (entryPoint, bool) {
 // A package phase script is `<platform>/<Action>/<phase>.star`, so the action is the parent directory's name.
 // A file anywhere else is not a phase script and neither requirement applies to it.
 //
+// Parameters:
+//   - `path`: the script's path.
+//
 // Returns:
 //   - `lorepackage.Action`: the action.
 //   - `bool`: true when the path is inside a recognized action directory.
@@ -635,7 +659,34 @@ func actionOf(path string) (lorepackage.Action, bool) {
 	return "", false
 }
 
+// article returns "a" or "an" for a word, so a message reads as English.
+//
+// The action names are a closed set -- Deploy, Upgrade, Decommission, Reconcile -- so a vowel test is
+// sufficient and there is no need for the exceptions a general rule would want.
+//
+// Parameters:
+//   - `word`: the word the article precedes.
+//
+// Returns:
+//   - `string`: "an" before a vowel, else "a".
+func article(word string) string {
+
+	if word == "" {
+		return "a"
+	}
+
+	if strings.ContainsRune("AEIOUaeiou", rune(word[0])) {
+		return "an"
+	}
+
+	return "a"
+}
+
 // contains reports whether a slice holds a value.
+//
+// Parameters:
+//   - `values`: the slice to search.
+//   - `want`: the value to find.
 //
 // Returns:
 //   - `bool`: true when found.
@@ -655,6 +706,10 @@ func contains(values []string, want string) bool {
 // A near miss is most of the value in a finding: `plan.file.write` against `write_text`, and
 // `plan.package.install` against `pkg`, are both one suggestion away from being fixed without a doc search.
 // Only a genuinely close candidate is offered -- a bad suggestion is worse than none.
+//
+// Parameters:
+//   - `name`: the name as written.
+//   - `candidates`: the names it could have been.
 //
 // Returns:
 //   - `string`: a parenthetical suggestion, or "".
@@ -683,6 +738,10 @@ func nearest(name string, candidates []string) string {
 }
 
 // editDistance is Levenshtein distance between two short identifiers.
+//
+// Parameters:
+//   - `a`: one identifier.
+//   - `b`: the other.
 //
 // Returns:
 //   - `int`: the number of single-character edits between them.
@@ -716,6 +775,9 @@ func editDistance(a, b string) int {
 }
 
 // parseErrorLine digs the line out of a [syntax.Error], falling back to 1.
+//
+// Parameters:
+//   - `err`: the parse error.
 //
 // Returns:
 //   - `int`: the 1-based line the parser objected to.

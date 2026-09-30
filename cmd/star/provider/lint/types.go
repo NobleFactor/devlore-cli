@@ -81,6 +81,27 @@ type FrontmatterIssue struct {
 	Message string `starlark:"message"`
 }
 
+// StarlarkResult holds the outcome of a Starlark lint run.
+//
+// Unlike every other result here there is no tool to be missing: the checker is embedded. That is the point
+// of #721 -- buildifier is installable today and would have caught none of the seven defects that motivated
+// the work, because they are resolution errors against devlore's own provider surface rather than syntax.
+type StarlarkResult struct {
+	Issues       []StarlarkIssue `starlark:"issues"`
+	FilesChecked int             `starlark:"files_checked"`
+	IssueCount   int             `starlark:"issue_count"`
+	Passed       bool            `starlark:"passed"`
+}
+
+// StarlarkIssue represents a single `lint.starlark` finding.
+type StarlarkIssue struct {
+	File    string `starlark:"file"`
+	Line    int    `starlark:"line"`
+	Rule    string `starlark:"rule"`
+	Call    string `starlark:"call"`
+	Message string `starlark:"message"`
+}
+
 // ToolsResult holds the outcome of a tool availability check.
 type ToolsResult struct {
 	AllInstalled bool       `starlark:"all_installed"`

@@ -129,19 +129,33 @@ Windows, where paths interpolated into source break escape parsing. That blocks 
 
 ### 3. Does it run against `devlore-registry` too?
 
-**Yes, and it costs one step.** The registry's CI already builds star from source and runs it:
+**Yes, and it costs one step.** The registry's CI already builds star from this repository's source:
 
 ```yaml
-# devlore-registry/.github/workflows/validate.yaml
+# devlore-registry/.github/workflows/validate.yaml, on develop
+- name: Checkout devlore-cli        # devlore-cli first, or its checkout cleans away the nested one
+  with: { repository: NobleFactor/devlore-cli, path: devlore-cli }
+- name: Checkout                    # this repository, INSIDE devlore-cli
+  with: { path: devlore-cli/devlore-registry }
 - name: Build star
+  working-directory: devlore-cli
   run: go build -o ../star ./cmd/star
-- run: ../star devlore package validate --target=..
+- name: Validate
+  working-directory: devlore-cli
+  run: ../star devlore ${{ matrix.command }} validate --target=devlore-registry
 ```
 
 So `star lint starlark` arrives there the moment it is in star. There is no artifact to publish and no
-follow-on issue: the registry gains a step beside that one, and #721 does not close until the registry's
-CI is green. That matters because the registry is where the packages are -- `devlore-cli` holds no
-package phase scripts at all.
+follow-on issue.
+
+Two constraints that workflow states and the registry step must respect. **star resolves its extensions
+relative to the working directory**, which is why the commands run from `devlore-cli` and the registry is
+checked out inside it — a parent-relative target failed fsroot confinement. And its check name,
+`json-schema-validate.${{ matrix.corpus }}`, is *"the check context a ruleset must match exactly"*, so the
+lint must be a **step**, not a new job, for the same reason it is a step of `quality-gate` here.
+
+#721 does not close until the registry's CI is green. That matters because the registry is where the
+packages are: `devlore-cli` holds no package phase scripts at all.
 
 ### 4. Adopt `buildifier` alongside as a parse gate?
 
@@ -352,24 +366,96 @@ has no line — but the phase name does appear in the source, and a reader needs
 
 ### Phase 4 -- the extension, and both gates
 
-- [ ] `com.noblefactor.star.LintStarlark` with its `lint-starlark.star` command.
-- [ ] `LintAll` picks it up through `commands.siblings()` with no edit -- verified, not assumed.
-- [ ] `devlore-cli` CI runs it. Proof is a CI run reporting the count over 169 files, the same way the
-      PowerShell gate proved itself in #973.
-- [ ] `devlore-registry`'s `validate.yaml` runs it beside `star devlore package validate`, and its CI is
-      green. **This is where the checker earns its keep**: the registry holds the packages, and
-      `devlore-cli` holds no phase scripts at all. #721 does not close until this box is ticked.
+- [x] `lint.starlark` is an action of the lint provider, beside `EnsureTools`, `Go`, `Markdown` and `Shell`.
+      The Go method was added and `make generate` regenerated the tables — *"Found 5 methods for Provider"*,
+      up from four — producing `Starlark op.ActionName = "lint.starlark"` and
+      `ParameterNames: []string{"files?"}`. No generated file was edited by hand.
+- [x] `com.noblefactor.star.LintStarlark` with its `lint-starlark.star` command. Verified end to end against
+      the real CLI, not only the Go tests: **`star lint starlark` reports 57 issues on the fixture and exit
+      1, and `Starlark lint passed (170 files)` with exit 0 over everything else.** The 57 are the same 57
+      the inventory holds.
+- [x] `LintAll` discovers it through `commands.siblings()` with **no edit** — `=== STARLARK ===` appears in
+      `star lint all`'s output, which is the aggregator finding and invoking it.
+- [x] `devlore-cli` CI runs it, as a step of `quality-gate`. A separate job could not block a merge: this
+      repository's ruleset requires exactly one check by that name, the same constraint #964 hit.
+- [ ] `devlore-registry`'s `validate.yaml` runs it and its CI is green. **This is a second pull request in a
+      second repository**, and it cannot be written until this one merges, because the registry builds star
+      from `devlore-cli`'s default branch. #721 does not close until this box is ticked.
+
+**One exclusion, and it is not a blanket testdata exemption.** `star/config.yaml` excludes
+`cmd/star/provider/lint/testdata/docker-package` from `lint.starlark` and nothing else: the other 170 files
+are checked, including all 11 extension commands and the 112 devlore-test scripts. The fixture's entire
+purpose is to hold the 57 defects the checker must report, so requiring it to be free of them would delete
+the test. It is not unchecked, only not gated there — `TestCheckFixtureMatchesInventory` asserts the checker
+reports exactly those 57 rows and no others, which is a stricter claim than "reports nothing".
+
+### `star lint all` could never run a linter, and three defects were why
+
+Ruled 2026-09-29: `star lint all` must pass. It reported all seven linters as failed with **no output** —
+`copyright`, `go`, `go-style`, `markdown`, `shell`, `starlark` and `tools` alike — while standalone they
+worked, `star lint copyright` passing 990 files and `star lint starlark` 170, both exit 0.
+
+**[#829](https://github.com/NobleFactor/devlore-cli/issues/829) does not address this.** It governs extension
+*loading* narration — the noisy success banner, and making load failures narrate. Nothing to do with sibling
+invocation. Three separate defects were:
+
+1. **`Application.RunCommand` did not normalize dots to spaces.** Its map is keyed by the space-separated
+   form, `"lint go"`, while `commands.CommandRef` holds the dotted name `CommandNames` hands out and passes
+   it to all three tree methods. `CommandFlags` and `CommandHelp` normalize; `RunCommand` did not. So
+   `cmd.flags` and `cmd.help` worked and `cmd.run` answered `command "lint.go" not found` for **every**
+   sibling. `star lint all` has never been able to invoke a linter.
+2. **`lint-all.star` discarded `result.error`.** `commands.run` already returns the cause; the aggregator
+   read only `result.passed`, so a linter that could not be *invoked* was indistinguishable from one that ran
+   and found problems. It now reports the error, which is what made the first defect visible at all.
+3. **`lint.all` imposed its own `path` default on every sibling.** Its `extension.yaml` declared
+   `default: "."`, forwarded as `cmd.run(fix=fix, path=paths)`, overriding the default each linter declares
+   for itself. `lint.go`'s is `./...` because golangci-lint reads `.` as the root package alone, which holds
+   no `.go` files — so `lint all` failed with *"no go files to analyze"* while `lint go` passed. The default
+   is gone: a linter knows its own corpus better than the aggregator does.
+
+**After the three: `copyright`, `go` and `starlark` pass.** The remaining four are not this issue's, and none
+is a defect in the aggregator:
+
+| Linter | Why it fails | Whose |
+| --- | --- | --- |
+| `go-style` | **5,455 violations in 848 files** — 2,536 missing doc comment, 1,787 missing Parameters, 1,132 missing Returns. Repo-wide, and it flags every test function including `provider_test.go`'s | the Go style backlog |
+| `markdown` | `markdownlint-cli2 failed: The command line is too long` — Windows only, 476 paths as arguments | lane 2, [#932](https://github.com/NobleFactor/devlore-cli/issues/932) |
+| `shell` | `shellcheck is not installed` | this host |
+| `tools` | `shellcheck` and `shfmt` not installed | this host |
+
+In CI, `shell` and `tools` would pass (the workflow installs them) and `markdown` would not hit the Windows
+limit. **`go-style` is the one real blocker to `lint all` passing**, and clearing 5,455 violations is its own
+piece of work.
+
+**My own code is clean under both Go gates.** `star lint go ./...` found four issues, all mine, all fixed:
+`bindsPlan` at cognitive complexity 35 and `newResolver` at 23 are decomposed, `planCallShape`'s results are
+named, and the test's `exec.Command` is `exec.CommandContext`. `go-style` found 14 in the non-test files —
+missing `Parameters` sections — and those are added. The 11 that remain are in test files, where every test
+in the repository stands, and they belong to the backlog above rather than to a convention invented here.
+
+The `lint.starlark` command declares a `fix` flag it cannot honor, because `lint-all.star` calls every sibling
+with one. Nothing here is auto-fixable — a dead `plan.*` call needs a human to decide what was meant — so it
+warns and checks anyway.
 
 ## Exit criteria
 
-- [ ] The checker over the docker package at `cc87c4f0` reports **the three live rows**: 23
+- [x] The checker over the docker package at `cc87c4f0` reports **the three live rows**: 23
       `plan.package.*` calls (Requirement 1), 30 `plan.verify(` calls (Requirement 1), and four
-      `Upgrade/install.star` files (Requirement 3b). The four commented rows are out of a parser's reach
-      and are not required of it.
-- [ ] The checker reads generated tables, proven by adding a provider method and observing acceptance
-      with no edit.
-- [ ] Zero false positives across the 169 `.star` files in `devlore-cli`.
-- [ ] `devlore-registry`'s CI runs the checker and is green.
+      `Upgrade/install.star` files (Requirement 3b). The four commented rows are out of a parser's reach and
+      are not required of it. Asserted by `TestCheckFixtureMatchesInventory` and confirmed against the real
+      CLI: `star lint starlark` reports 57 issues and exits 1.
+- [x] The checker reads generated truth, **proven by construction rather than asserted.** `lint.starlark`
+      itself is the experiment: the Go method was added, `make generate` regenerated the tables, and
+      `plan.lint.starlark(files = [...])` — a method that did not exist beforehand — is accepted with **no
+      edit to the checker**, while `plan.lint.nonexistent_action(...)` is still rejected. It reads
+      `op.ReceiverRegistry()`, which the generated `init` functions populate, so drift from codegen is not
+      possible rather than merely unlikely.
+- [x] Zero false positives across the `.star` files in `devlore-cli`: `Starlark lint passed (170 files)`,
+      exit 0, kept honest permanently by `TestRepositoryIsClean`. Reaching it required fixing two real dead
+      calls the checker found, in `flow/testdata/integration.star` and `devloretest/data/test_pkg.star`.
+- [ ] `devlore-registry`'s CI runs the checker and is green. **A second pull request in a second
+      repository**, which cannot be written until this one merges: the registry builds star from
+      `devlore-cli`'s default branch.
 
 ## Related
 

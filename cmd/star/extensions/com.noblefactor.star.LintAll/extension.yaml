@@ -9,9 +9,12 @@ commands:
     help: Run all configured linters
     implementation: commands/lint-all.star
     args:
+      # No default, deliberately. A default here is forwarded to every sibling and overrides the default each
+      # one declares for itself, which is not the aggregator's business: lint.go's is "./..." because
+      # golangci-lint reads "." as the root package alone, and this repository has no .go files there. With a
+      # default of "." here, `lint all` failed with "no go files to analyze" while `lint go` passed.
       - name: path
-        help: Paths to lint (files or directories)
-        default: "."
+        help: Paths to lint (files or directories); omit to let each linter use its own default
         variadic: true
     flags:
       - name: fix

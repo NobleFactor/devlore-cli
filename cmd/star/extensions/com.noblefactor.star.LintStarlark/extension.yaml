@@ -1,0 +1,35 @@
+# SPDX-License-Identifier: MIT
+# Copyright Noble Factor. All rights reserved.
+
+extension: com.noblefactor.star.LintStarlark
+description: Resolve plan.* calls in Starlark against the action surface devlore has
+
+commands:
+  - name: lint.starlark
+    help: Check Starlark files for dead plan.* references and phase-script mistakes
+    implementation: commands/lint-starlark.star
+    args:
+      - name: path
+        help: Paths to lint (files or directories)
+        default: "."
+        variadic: true
+    flags:
+      # Declared because lint.all invokes every sibling as cmd.run(fix=fix, path=paths), so a command
+      # without it is rejected and reports failure with no output. Nothing here is auto-fixable -- a dead
+      # plan.* call needs a human to decide what was meant -- so the flag is accepted and warns.
+      - name: fix
+        type: bool
+        default: "false"
+        help: Accepted for lint.all; no finding here is auto-fixable
+
+config:
+  path: lint.starlark
+  type: StarlarkLintConfig
+  fields:
+    path: string
+    exclude: "[]string"
+  defaults:
+    path: "."
+    exclude:
+      - vendor
+      - .git

@@ -8,7 +8,12 @@
 def run(command, ctx):
     """Run all configured linters."""
     fix = ctx.args.get("fix", False)
-    paths = ctx.args.get("path", ["."])
+
+    # None, not ["."], when the caller named no path. Forwarding a default of "." overrode each linter's own
+    # default, and lint.go's is "./..." for a reason: golangci-lint reads "." as the root package alone, which
+    # holds no .go files, so `lint all` failed with "no go files to analyze" while `lint go ./...` passed.
+    # A linter knows its own corpus better than the aggregator does.
+    paths = ctx.args.get("path", None)
 
     # Get all sibling lint commands (lint.go, lint.shell, etc.)
     siblings = commands.siblings()
@@ -34,8 +39,8 @@ def run(command, ctx):
                 note("Skipped (disabled in star.yaml)")
                 continue
 
-        # lint.tools doesn't take paths
-        if short_name == "tools":
+        # lint.tools doesn't take paths, and neither does a run where the caller named none.
+        if short_name == "tools" or paths == None:
             result = cmd.run(fix=fix)
         else:
             result = cmd.run(fix=fix, path=paths)
@@ -43,6 +48,11 @@ def run(command, ctx):
         if result.passed:
             passed.append(cmd.name)
         else:
+            # Report why. Without this the aggregator says "failed" and nothing else, so a linter that
+            # could not be INVOKED is indistinguishable from one that ran and found problems -- and the
+            # cause, which commands.run already returns, is discarded.
+            if result.error:
+                error(result.error)
             failures.append(cmd.name)
 
     # Summary

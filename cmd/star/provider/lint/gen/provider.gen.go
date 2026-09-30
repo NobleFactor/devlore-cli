@@ -21,5 +21,6 @@ func init() {
 			"Go":          {ParameterNames: []string{"paths?", "config?=\"\"", "skip_mod_tidy?=false"}},
 			"Markdown":    {ParameterNames: []string{"files?", "fix?=false"}},
 			"Shell":       {ParameterNames: []string{"files?", "severity?=\"warning\"", "indent?=0"}},
+			"Starlark":    {ParameterNames: []string{"files?"}},
 		})
 }

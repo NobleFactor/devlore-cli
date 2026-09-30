@@ -118,6 +118,7 @@ func TestReceiverType_Methods(t *testing.T) {
 		"Go",
 		"Markdown",
 		"Shell",
+		"Starlark",
 	}
 
 	var got []string

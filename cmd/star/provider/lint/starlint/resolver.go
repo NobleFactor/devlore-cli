@@ -168,9 +168,23 @@ func newResolver(phaseScript bool) *Resolver {
 		}
 	}
 
+	// Each pass obtains the registry itself. It is a sync.OnceValue singleton, so they all see the same
+	// object, and its type is unexported and so cannot be named in a signature here.
+	resolver.addGraphNamespaces()
+	resolver.addPlanOwnMethods(phaseScript)
+	resolver.addPromotedMethods()
+
+	return resolver
+}
+
+// addGraphNamespaces registers `plan.<namespace>.<method>`: workflow-surface providers by name.
+//
+// Not hermetic-filtered. A graph accepts anything with an action signature, which is why `file` contributes
+// its mutators here while a script global gets only its path algebra.
+func (r *Resolver) addGraphNamespaces() {
+
 	registry := op.ReceiverRegistry()
 
-	// 1. The graph namespace: workflow-surface providers by name, unfiltered.
 	for _, provider := range registry.Workflows() {
 
 		methods := methodsOf(provider)
@@ -178,10 +192,21 @@ func newResolver(phaseScript bool) *Resolver {
 			continue
 		}
 
-		resolver.namespaces[provider.Name()] = methods
+		r.namespaces[provider.Name()] = methods
 	}
+}
 
-	// 2. The plan provider's own methods, which are script-surface globals and so hermetic-filtered.
+// addPlanOwnMethods registers `plan.<method>` for the plan provider's own methods.
+//
+// These are script-surface globals, so a planning runtime admits only a method claiming
+// [op.ClaimDeterministic] -- a plan must produce the same graph on any machine.
+//
+// Parameters:
+//   - `phaseScript`: true to record which methods a hermetic runtime would withhold.
+func (r *Resolver) addPlanOwnMethods(phaseScript bool) {
+
+	registry := op.ReceiverRegistry()
+
 	for _, provider := range registry.Scripts() {
 
 		if provider.Name() != planReceiver {
@@ -190,17 +215,25 @@ func newResolver(phaseScript bool) *Resolver {
 
 		for attribute, method := range methodsOf(provider) {
 
-			resolver.bare[attribute] = method
+			r.bare[attribute] = method
 
 			if phaseScript && method.Claims()&op.ClaimDeterministic == 0 {
-				resolver.hermeticFiltered[attribute] = true
+				r.hermeticFiltered[attribute] = true
 			}
 		}
 	}
+}
 
-	// 3. Promoted providers, which surface at the namespace root. PromotedProviders is deliberately not
-	//    filtered by surface -- placement applies to every surface a provider reaches -- so the workflow
-	//    filter is applied here. These sit in the graph namespace's root and are not hermetic-filtered.
+// addPromotedMethods registers `plan.<method>` for promoted providers, which surface at the namespace root.
+//
+// [op.Registry.PromotedProviders] is deliberately not filtered by surface -- placement applies to every
+// surface a provider reaches -- so the workflow filter is applied here. These sit in the graph namespace's
+// root and are not hermetic-filtered. The plan provider's own methods win a collision, having been
+// registered first.
+func (r *Resolver) addPromotedMethods() {
+
+	registry := op.ReceiverRegistry()
+
 	for _, provider := range registry.PromotedProviders() {
 
 		if provider.Flags().Surfaces()&op.SurfaceWorkflow == 0 {
@@ -209,15 +242,13 @@ func newResolver(phaseScript bool) *Resolver {
 
 		for attribute, method := range methodsOf(provider) {
 
-			if _, own := resolver.bare[attribute]; own {
+			if _, own := r.bare[attribute]; own {
 				continue
 			}
 
-			resolver.bare[attribute] = method
+			r.bare[attribute] = method
 		}
 	}
-
-	return resolver
 }
 
 // endregion
@@ -348,6 +379,9 @@ func methodsOf(provider op.ProviderReceiverType) map[string]*op.Method {
 }
 
 // sortedKeys returns a map's keys in order.
+//
+// Parameters:
+//   - `m`: the map whose keys are wanted.
 //
 // Returns:
 //   - `[]string`: the keys, sorted.

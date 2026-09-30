@@ -89,7 +89,7 @@ func TestRepositoryIsClean(t *testing.T) {
 
 	root := "../../../../.."
 
-	out, err := exec.Command("git", "-C", root, "ls-files", "*.star").Output()
+	out, err := exec.CommandContext(t.Context(), "git", "-C", root, "ls-files", "*.star").Output()
 	if err != nil {
 		t.Skipf("git ls-files is unavailable: %v", err)
 	}
