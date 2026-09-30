@@ -21,26 +21,38 @@ executable, verifiable package, not a wiki page.
 |--------|---------|
 | `lore` | Deploys software with its tribal knowledge: prepare → install → provision → verify, with receipts recording what actually happened |
 | `writ` | Manages your environment: dotfiles, configuration layers, drift detection, and reconciliation as role definitions evolve |
+| `star` | Runs Starlark-powered operations, defined as extensions |
 
-Both are single native binaries with man pages and completions for bash, zsh,
-fish, and PowerShell. The CLI surface is being unified under the `devlore`
-name; `lore` and `writ` are the current entry points.
+All three are single native binaries with man pages and completions for bash,
+zsh, fish, and PowerShell. The CLI surface is being unified under the `devlore`
+name; `lore`, `star` and `writ` are the current entry points.
 
 ## Install
 
+One command installs lore, star and writ, and registers the layers you give it.
+The installers are served by the DevLore site's develop environment, from which
+devlore is released today.
+
+On macOS and Linux:
+
 ```bash
-# From source
-go install github.com/NobleFactor/devlore-cli/cmd/lore@latest
-go install github.com/NobleFactor/devlore-cli/cmd/writ@latest
-
-# Or use the install scripts
-./install.sh      # macOS, Linux
-./install.ps1     # Windows
-
-# Then let the tools finish their own setup (completions, man pages)
-lore self install
-writ self install
+curl --fail --silent --show-error --location https://delightful-grass-0ac0a4c1e-develop.westus2.6.azurestaticapps.net/install.sh |
+  bash -s -- --base=<path-or-url> --team=<path-or-url> --personal=<path-or-url>
 ```
+
+On Windows, in Windows PowerShell 5.1 or PowerShell 7:
+
+```powershell
+& ([scriptblock]::Create((irm https://delightful-grass-0ac0a4c1e-develop.westus2.6.azurestaticapps.net/install.ps1))) `
+    -Base <path-or-url> `
+    -Team <path-or-url> `
+    -Personal <path-or-url>
+```
+
+Every flag is optional, and the installer never asks. The
+[getting-started guide](docs/guides/getting-started.md) describes the flags,
+the `irm | iex` form, and the install by hand. To build from source, see
+[Building](#building).
 
 Homebrew and MacPorts packaging are staged in [`packaging/`](packaging/) and
 will ship with the first tagged release.
@@ -95,5 +107,4 @@ Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
 
 ---
 
-DevLore is a [Noble Factor](https://noblefactor.com) project. Project home:
-[devlore.org](https://devlore.org).
+DevLore is a [Noble Factor](https://github.com/NobleFactor) project.

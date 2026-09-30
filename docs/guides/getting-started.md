@@ -8,41 +8,116 @@ order: 1
 
 # Getting Started with DevLore
 
-DevLore is a two-tool suite for managing portable development environments.
+DevLore is a suite of three tools for managing portable development environments.
 **Writ** orchestrates your portable environment through platform-aware symlinks, decryption, and template expansion.
 **Lore** handles software installation by capturing tribal knowledge about packages.
+**Star** runs Starlark-powered operations, defined as extensions.
 
 Together, they let you declare your environment once and deploy it everywhere you work.
 
 ## What you'll learn
 
-- Install writ and lore
-- Initialize an environment repository
+- Install lore, star and writ
+- Create an environment repository
 - Deploy your first project
 - Install software from a manifest
 
 ## Install
 
-Download the latest release for your platform:
+One command installs lore, star and writ, and registers the layers you give it. The installers are served by
+the DevLore site's develop environment, from which devlore is released today.
+
+On macOS and Linux:
 
 ```bash
-# macOS (Apple Silicon)
-curl -L https://github.com/NobleFactor/devlore-cli/releases/latest/download/writ-darwin-arm64 -o writ
-curl -L https://github.com/NobleFactor/devlore-cli/releases/latest/download/lore-darwin-arm64 -o lore
-
-# Linux (amd64)
-curl -L https://github.com/NobleFactor/devlore-cli/releases/latest/download/writ-linux-amd64 -o writ
-curl -L https://github.com/NobleFactor/devlore-cli/releases/latest/download/lore-linux-amd64 -o lore
-
-chmod +x writ lore
-sudo mv writ lore /usr/local/bin/
+curl --fail --silent --show-error --location https://delightful-grass-0ac0a4c1e-develop.westus2.6.azurestaticapps.net/install.sh |
+  bash -s -- --base=<path-or-url> --team=<path-or-url> --personal=<path-or-url>
 ```
 
-Or use the self install command for shell completions and man pages:
+On Windows, in Windows PowerShell 5.1 or PowerShell 7, the preferred form:
+
+```powershell
+& ([scriptblock]::Create((irm https://delightful-grass-0ac0a4c1e-develop.westus2.6.azurestaticapps.net/install.ps1))) `
+    -Base <path-or-url> `
+    -Team <path-or-url> `
+    -Personal <path-or-url>
+```
+
+Or through `irm | iex`, which takes no parameters, so the layers come from the environment. This form leaves
+the installer's settings in your PowerShell session
+([#982](https://github.com/NobleFactor/devlore-cli/issues/982)); the form above leaves nothing behind.
+
+```powershell
+$env:DEVLORE_BASE = '<path-or-url>'
+$env:DEVLORE_TEAM = '<path-or-url>'
+$env:DEVLORE_PERSONAL = '<path-or-url>'
+irm https://delightful-grass-0ac0a4c1e-develop.westus2.6.azurestaticapps.net/install.ps1 | iex
+```
+
+| bash | PowerShell | Environment | Layer |
+| --- | --- | --- | --- |
+| `--base=<loc>` | `-Base <loc>` | `DEVLORE_BASE` | base |
+| `--team=<loc>` | `-Team <loc>` | `DEVLORE_TEAM` | team |
+| `--personal=<loc>` | `-Personal <loc>` | `DEVLORE_PERSONAL` | personal |
+
+- Each is optional. A location is a working-tree root or a repository URL, as `writ repo set` takes it; an
+  SSH URL clones over SSH. A flag wins over its variable.
+- The installer never asks. A layer you don't give is skipped, and the run's last lines name the
+  `writ repo set` command that registers it later.
+- It installs into `~/.local` on every platform: the programs in `~/.local/bin`, with their man pages,
+  completions and star's extensions. `--prefix` (`-Prefix`) changes that. `DEVLORE_VERSION` installs a
+  particular release, and `DEVLORE_TOOLS` one program. `GH_TOKEN`, if you set it, lifts GitHub's limit of 60
+  anonymous API requests an hour.
+- Running the command again is safe. It's also how to recover from a failure.
+
+### By hand
+
+The installer does five things you can do yourself. Pick a release from
+[the releases page](https://github.com/NobleFactor/devlore-cli/releases); every file's name carries its tag.
 
 ```bash
-writ self install
-lore self install
+tag=v0.1.0-dev.20260929224715
+platform=linux_arm64    # darwin_amd64, darwin_arm64, linux_amd64 or linux_arm64
+archive=devlore-cli_${tag}_${platform}.tar.gz
+release=https://github.com/NobleFactor/devlore-cli/releases/download/$tag
+
+# 1. Download the archive and the checksums file
+curl --fail --silent --show-error --location --remote-name "$release/$archive"
+curl --fail --silent --show-error --location --remote-name "$release/devlore-cli_${tag}_checksums.txt"
+
+# 2. Verify the archive (on macOS: shasum --algorithm 256 --check)
+grep "$archive" "devlore-cli_${tag}_checksums.txt" | sha256sum --check
+
+# 3. Extract it, with the programs in bin/ beside share/, where star finds its extensions
+mkdir -p devlore/bin
+tar --extract --gzip --file "$archive" --directory devlore
+mv devlore/lore devlore/star devlore/writ devlore/bin/
+
+# 4. Let each program install itself into ~/.local
+for program in lore star writ; do devlore/bin/$program self install; done
+
+# 5. Register your layers
+writ repo set personal <path-or-url>
+```
+
+On Windows the archive is `devlore-cli_<tag>_windows_amd64.zip` or `…_windows_arm64.zip`:
+
+```powershell
+$tag = 'v0.1.0-dev.20260929224715'
+$archive = "devlore-cli_${tag}_windows_amd64.zip"
+$release = "https://github.com/NobleFactor/devlore-cli/releases/download/$tag"
+
+Invoke-WebRequest -Uri "$release/$archive" -OutFile $archive -UseBasicParsing
+Invoke-WebRequest -Uri "$release/devlore-cli_${tag}_checksums.txt" -OutFile checksums.txt -UseBasicParsing
+$expected = ((Get-Content checksums.txt | Where-Object { $_ -match $archive }) -split '\s+')[0]
+if ((Get-FileHash -Path $archive -Algorithm SHA256).Hash -ne $expected) { throw "Checksum mismatch for $archive" }
+
+Expand-Archive -Path $archive -DestinationPath devlore
+New-Item -ItemType Directory -Path devlore\bin -Force | Out-Null
+Move-Item -Path devlore\lore.exe, devlore\star.exe, devlore\writ.exe -Destination devlore\bin
+foreach ($program in 'lore', 'star', 'writ') { & "devlore\bin\$program.exe" self install }
+
+writ repo set personal <path-or-url>
 ```
 
 ## Initialize a repository
