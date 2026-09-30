@@ -310,11 +310,45 @@ the runtime does: a linter that disagreed with the runtime would be a false posi
 
 ### Phase 3 -- the checker
 
-- [ ] Parse with `go.starlark.net/syntax`, reusing `starindex`'s walker where it fits.
-- [ ] Scope tracking per Requirement 2.
-- [ ] Requirement 3a and 3b, reading `PhaseOrder` for the action directory -- all four orders, not only
-      `Deploy`.
-- [ ] Zero findings across all 169 `.star` files; the three live fixture rows reported.
+- [x] Parsed with `go.starlark.net/syntax`. **`starindex`'s walker does not fit**: `indexStmts` walks only
+      top-level statements and never enters a function body, so it cannot see a call site. `syntax.Walk` is
+      used instead — it is complete by construction, and it signals node exit by calling the visitor with
+      `nil`, which is what makes a scope stack possible without hand-rolling a traversal over 30 node types
+      and risking a missed call shape.
+- [x] Scope tracking per Requirement 2, covered by nine cases. The one that matters in the other direction:
+      **`plan[k] = v` is an `IndexExpr` on the left and does not bind** — it mutates. Treating it as a
+      binding would silently exempt every file that mutates the real plan, which is most of the corpus.
+- [x] Requirements 3a and 3b, reading `PhaseOrder` for whichever action directory a script sits in — all
+      four orders, not only `Deploy`.
+- [x] **Zero findings across the 169 `.star` files, and exactly the 57 inventoried rows on the fixture.**
+      `TestRepositoryIsClean` keeps the first true permanently rather than measuring it once.
+
+**Two things only running it could have shown.**
+
+*The checker had 12 false positives, and they were an error of model, not of code.* It applied the
+phase-script runtime — hermetic, lifecycle verbs denied — to every `.star` file. But a `.star` file is not one
+kind of thing: `cmd/devlore-test/devloretest/data` runs under an **ambient** runtime where
+`plan.save_definition` is entirely legal, and `star` is a scripting tool where effects are the point. There
+are now two resolvers, `NewPhaseScriptResolver` and `NewAmbientResolver`, chosen by the same
+action-directory test that drives Requirement 3b. Requirement 2 was the false positive the plan predicted;
+this was one it did not.
+
+*Reaching zero on the 169 meant fixing two real dead calls the checker found.* Neither was caught by
+anything before:
+
+| File | Was | Is |
+| --- | --- | --- |
+| `pkg/op/provider/flow/testdata/integration.star` | `plan.fatal(...)` | `plan.failed(...)` |
+| `cmd/devlore-test/devloretest/data/test_pkg.star` | `plan.pkg.update(manager="")` | `plan.pkg.update()` |
+
+No provider defines a `Fatal` action; `flow`'s three terminal actions are `Complete`, `Degraded` and
+`Failed`, which that file's own comment says while calling something else. And `func (p *Provider) Update()`
+takes no parameters at all, so `manager=""` was never bindable — its neighbors `remove` and `upgrade`
+declare `**kwargs`, which is why the same keyword is legal there. `TestPkgActions` executes that file and
+passed anyway, because it dry-runs and never binds the slots; that is precisely the gap the checker closes.
+
+**3b anchors its finding at the entry point's `def`, not at line 1.** The defect is the file's *name*, which
+has no line — but the phase name does appear in the source, and a reader needs somewhere to look.
 
 ### Phase 4 -- the extension, and both gates
 

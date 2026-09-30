@@ -69,6 +69,10 @@ type Resolver struct {
 
 	// denied is the set of `plan` attributes lore withholds from phase scripts.
 	denied map[string]bool
+
+	// phaseScript is true when this resolver models lore's hermetic planning runtime. False models an
+	// ambient one -- a star extension command or a devlore-test script -- where neither filter applies.
+	phaseScript bool
 }
 
 // Resolution is the outcome of resolving one call. Its [Resolution.String] is the rule a finding carries.
@@ -123,17 +127,45 @@ func (r Resolution) String() string {
 //
 // Returns:
 //   - `*Resolver`: ready to resolve.
-func NewPhaseScriptResolver() *Resolver {
+func NewPhaseScriptResolver() *Resolver { return newResolver(true) }
+
+// NewAmbientResolver builds a Resolver for a script running outside lore's planning runtime -- a `star`
+// extension command, or a devlore-test data script.
+//
+// Neither restriction applies there. `star` is a scripting tool where effects are the point, so nothing is
+// hermetic-filtered, and lore's lifecycle denial is lore's policy for phase scripts, not a property of the
+// action surface.
+//
+// This constructor exists because assuming otherwise was wrong in a way only running the checker showed:
+// applied to the repository's own corpus, a phase-script resolver reported `plan.save_definition` twelve
+// times across `cmd/devlore-test/devloretest/data`, where it is entirely legal. Those were false positives
+// against the requirement that there be none.
+//
+// Returns:
+//   - `*Resolver`: ready to resolve.
+func NewAmbientResolver() *Resolver { return newResolver(false) }
+
+// newResolver builds a Resolver for one of the two runtimes.
+//
+// Parameters:
+//   - `phaseScript`: true to apply the hermetic filter and lore's lifecycle denial.
+//
+// Returns:
+//   - `*Resolver`: ready to resolve.
+func newResolver(phaseScript bool) *Resolver {
 
 	resolver := &Resolver{
 		namespaces:       map[string]map[string]*op.Method{},
 		bare:             map[string]*op.Method{},
 		hermeticFiltered: map[string]bool{},
 		denied:           map[string]bool{},
+		phaseScript:      phaseScript,
 	}
 
-	for _, verb := range lorepackage.LifecycleVerbs {
-		resolver.denied[verb] = true
+	if phaseScript {
+		for _, verb := range lorepackage.LifecycleVerbs {
+			resolver.denied[verb] = true
+		}
 	}
 
 	registry := op.ReceiverRegistry()
@@ -160,7 +192,7 @@ func NewPhaseScriptResolver() *Resolver {
 
 			resolver.bare[attribute] = method
 
-			if method.Claims()&op.ClaimDeterministic == 0 {
+			if phaseScript && method.Claims()&op.ClaimDeterministic == 0 {
 				resolver.hermeticFiltered[attribute] = true
 			}
 		}
