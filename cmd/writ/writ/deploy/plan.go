@@ -41,7 +41,8 @@ type BuildResult struct {
 	// Graphs holds one assembled, immutable graph per populated target scope.
 	Graphs []*op.Graph
 
-	// Collisions are the cross-layer/specificity conflicts the tree build resolved.
+	// Collisions are the files the tree build found in more than one selected directory, each taken from the one
+	// applied later.
 	Collisions []tree.Collision
 
 	// Duplicates are the products more than one manifest claimed, with what the merge did (#814).

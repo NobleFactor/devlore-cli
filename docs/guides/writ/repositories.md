@@ -112,13 +112,16 @@ environment/
     ├── noblefactor/                  # Project: every platform
     │   ├── .config/git/config
     │   └── packages-manifest.yaml    # Optional: the project's software
-    ├── noblefactor.Unix/             # Variant: Darwin and Linux only
+    ├── noblefactor.Unix/             # Variant: macOS, Linux, FreeBSD, OpenBSD and NetBSD
     │   └── local/bin/my-script
     ├── thenobles/                    # Project: family-shared config
     │   └── .config/shared/family.conf
     └── thenobles.Darwin/             # Variant: macOS only
         └── local/bin/Backup-TimeCapsule
 ```
+
+`Unix` is the first link of the chain on macOS, Linux, FreeBSD, OpenBSD and NetBSD, so `noblefactor.Unix/` applies on
+each of them; see [The chain](/guides/selectors/#the-chain).
 
 Everything inside a project directory is home-relative: `Home/noblefactor/.config/git/config`
 deploys to `~/.config/git/config`. A file named `<name>.tmpl` renders with

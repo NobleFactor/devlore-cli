@@ -3,7 +3,7 @@ title: "Lane 17: the ledger snapshot compares etags and recomputes only what cha
 issue: https://github.com/NobleFactor/devlore-cli/issues/904
 status: complete
 created: 2026-09-21
-updated: 2026-09-22
+updated: 2026-09-30
 ---
 
 # Plan: Lane 17 of the command line schedule
@@ -36,7 +36,8 @@ snapshot never applies: "a changed Etag is the trigger for the full Digest compa
       etag in the ledger and no digest; a tree writ produced or moved keeps both tiers, so `reconcile` can still ask
       whether a directory writ deployed has changed since. Nothing that reads a ledger loses anything: `readback`
       looks up targets and sources by path, and a boundary is neither.
-- [ ] `writ deploy common` on this machine ends in under five seconds, the trace recorded, both VM sequences green.
+- [ ] `writ deploy` (the bare form since #944) on this machine ends in under five seconds, the trace recorded, both VM
+      sequences green.
 
 ## Current State
 

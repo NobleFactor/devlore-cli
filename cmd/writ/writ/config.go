@@ -8,19 +8,20 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 
 	"filippo.io/age"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
+	devconfig "github.com/NobleFactor/devlore-cli/cmd/internal/config"
 	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/adopt"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/identity"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/segment"
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/selector"
 )
 
 // parseDeployConfig resolves all settings for a deploy operation.
@@ -90,14 +91,8 @@ func parseDeployConfig(cmd *cobra.Command, args []string) (*DeployConfig, error)
 	cfg.TargetRoot = TargetHome()
 
 	// Segments
-	cfg.Segments = segment.DetectSegments().LoadFromEnv()
-	segmentFlags, _ := cmd.Flags().GetStringArray("segment") //nolint:errcheck // flag registered by AddCommand
-	for _, sf := range segmentFlags {
-		parts := strings.SplitN(sf, "=", 2)
-		if len(parts) != 2 {
-			return nil, fmt.Errorf("invalid segment flag %q: expected KEY=value", sf)
-		}
-		cfg.Segments = cfg.Segments.Set(parts[0], parts[1])
+	if cfg.Segments, err = resolveSegments(cmd); err != nil {
+		return nil, err
 	}
 
 	// Template variables
@@ -146,7 +141,9 @@ func parseUpgradeConfig(cmd *cobra.Command, args []string) (*UpgradeConfig, erro
 	cfg.TargetRoot = TargetHome()
 
 	// Segments
-	cfg.Segments = segment.DetectSegments().LoadFromEnv()
+	if cfg.Segments, err = resolveSegments(cmd); err != nil {
+		return nil, err
+	}
 
 	// Template variables
 	cfg.TemplateData = make(map[string]any)
@@ -167,16 +164,22 @@ func parseUpgradeConfig(cmd *cobra.Command, args []string) (*UpgradeConfig, erro
 }
 
 // parseReconcileConfig resolves all settings for a reconcile operation.
-func parseReconcileConfig(args []string) *ReconcileConfig {
+//
+// Reconcile reads the deployed inventory from the store, not the layer trees, so it selects no directory; it resolves
+// the segments the way every other command does, so `--segment` and `WRIT_SEGMENT_<NAME>` mean one thing everywhere
+// and a bad value is refused here as there (#944).
+func parseReconcileConfig(cmd *cobra.Command, args []string) (*ReconcileConfig, error) {
 	cfg := &ReconcileConfig{}
 	cfg.Tool = "writ"
 	cfg.Projects = args
 
 	// Behavior flags
 	cfg.Verbose = viper.GetBool("writ.verbose")
-	// Segments and template variables feed the freshness comparison; reconcile needs no repo — the deployed
-	// inventory (sources included) comes from the store readback.
-	cfg.Segments = segment.DetectSegments().LoadFromEnv()
+
+	var err error
+	if cfg.Segments, err = resolveSegments(cmd); err != nil {
+		return nil, err
+	}
 	cfg.TemplateData = make(map[string]any)
 	if varsMap := viper.GetStringMapString("writ.vars"); varsMap != nil {
 		for k, v := range varsMap {
@@ -184,7 +187,7 @@ func parseReconcileConfig(args []string) *ReconcileConfig {
 		}
 	}
 
-	return cfg
+	return cfg, nil
 }
 
 // parseDecommissionConfig resolves all settings for a decommission operation.
@@ -240,7 +243,11 @@ func parseAdoptConfig(cmd *cobra.Command, args []string) (*AdoptConfig, error) {
 	if cfg.Layer != "personal" && cfg.Layer != "team" && cfg.Layer != "base" {
 		return nil, fmt.Errorf("invalid --layer %q: must be personal, team, or base", cfg.Layer)
 	}
-	if err := adopt.ValidatePlatform(cfg.Platform); err != nil {
+	segs, err := resolveSegments(cmd)
+	if err != nil {
+		return nil, err
+	}
+	if err := adopt.ValidatePlatform(cfg.Project, cfg.Platform, segs); err != nil {
 		return nil, cli.ExitWith(cli.ExitUsage, err)
 	}
 
@@ -262,6 +269,40 @@ func parseAdoptConfig(cmd *cobra.Command, args []string) (*AdoptConfig, error) {
 	cfg.TargetRoot = TargetHome()
 
 	return cfg, nil
+}
+
+// resolveSegments resolves this machine's segments for a command: the built-ins detection supplies, then the extras
+// writ.segments declares, each value from `--segment`, else WRIT_SEGMENT_<NAME>, else configuration (#944).
+//
+// Parameters:
+//   - `cmd`: the command, whose `--segment` flags are read when it has them.
+//
+// Returns:
+//   - `segment.Segments`: the segments.
+//   - `error`: an [cli.ExitUsage]-coded refusal of a malformed declaration, or of a flag or variable naming an
+//     undeclared segment or value.
+func resolveSegments(cmd *cobra.Command) (segment.Segments, error) {
+
+	var declared []devconfig.SegmentDeclaration
+	if err := viper.UnmarshalKey("writ.segments", &declared); err != nil {
+		return nil, cli.ExitWith(cli.ExitUsage, fmt.Errorf("writ.segments: %w", err))
+	}
+
+	extras := make([]selector.Segment, 0, len(declared))
+	for _, d := range declared {
+		extras = append(extras, selector.Segment{Name: d.Name, Values: d.Values, Value: d.Value})
+	}
+
+	var flags []string
+	if cmd != nil && cmd.Flags().Lookup("segment") != nil {
+		flags = assert.Must(cmd.Flags().GetStringArray("segment"))
+	}
+
+	segs, err := segment.Resolve(extras, flags)
+	if err != nil {
+		return nil, cli.ExitWith(cli.ExitUsage, err)
+	}
+	return segs, nil
 }
 
 // parseConflictPolicy parses the --conflict flag value ({stop, skip, replace} — phase-8 step 49).

@@ -40,13 +40,9 @@ func (r *BuildResult) String() string {
 
 	if r.HasCollisions() {
 		_, _ = fmt.Fprintf(&sb, "Collisions (%d):\n", len(r.Collisions))
-		for _, c := range r.Collisions {
-			_, _ = fmt.Fprintf(&sb, "  %s: %s (specificity %d) overrides %s (specificity %d)\n",
-				c.Target,
-				filepath.Base(filepath.Dir(c.Winner)),
-				c.WinnerSpecificity,
-				filepath.Base(filepath.Dir(c.Loser)),
-				c.LoserSpecificity)
+		for i := range r.Collisions {
+			c := &r.Collisions[i]
+			_, _ = fmt.Fprintf(&sb, "  %s: %s overrides %s: %s\n", c.Target, c.WinnerDir, c.LoserDir, c.Reason)
 		}
 		sb.WriteString("\n")
 	}

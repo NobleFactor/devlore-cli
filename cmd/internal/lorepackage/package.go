@@ -4,9 +4,13 @@
 package lorepackage
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/NobleFactor/devlore-cli/pkg/platform"
+	"github.com/NobleFactor/devlore-cli/pkg/selector"
 )
 
 // PackageSource indicates where a package was resolved from.
@@ -17,6 +21,7 @@ const (
 	SourceLore   PackageSource = "lore"   // Lore registry (full lifecycle)
 	SourceApt    PackageSource = "apt"    // Debian/Ubuntu apt
 	SourceDnf    PackageSource = "dnf"    // Fedora/RHEL dnf
+	SourcePacman PackageSource = "pacman" // Arch/Manjaro pacman
 	SourceBrew   PackageSource = "brew"   // macOS Homebrew
 	SourcePort   PackageSource = "port"   // macOS MacPorts
 	SourceWinget PackageSource = "winget" // Windows winget
@@ -72,16 +77,20 @@ func (rel *Release) Lifecycle() *Lifecycle {
 // most general to most specific for chained execution.
 //
 // For native PM packages, returns empty (the engine handles install directly).
-func (rel *Release) DiscoverPhaseScripts(targetPlatform string, action Action, phase string) []string {
+//
+// Parameters:
+//   - `host`: the host the package is planned for.
+//   - `action`: the lifecycle action.
+//   - `phase`: the phase.
+//
+// Returns:
+//   - `[]string`: the scripts, general to specific.
+//   - `error`: a [*GrammarRefusal] when a platform directory's name breaks the selector grammar.
+func (rel *Release) DiscoverPhaseScripts(host selector.Host, action Action, phase string) ([]string, error) {
 	if rel.Source != SourceLore || rel.Dir == "" {
-		return nil // Native PM packages don't have scripts
+		return nil, nil // Native PM packages don't have scripts
 	}
-	return rel.Lifecycle().DiscoverPhaseScripts(rel.Dir, targetPlatform, action, phase)
-}
-
-// HasPhase returns true if at least one phase script exists for this phase.
-func (rel *Release) HasPhase(targetPlatform string, action Action, phase string) bool {
-	return len(rel.DiscoverPhaseScripts(targetPlatform, action, phase)) > 0
+	return rel.Lifecycle().DiscoverPhaseScripts(rel.Dir, host, action, phase)
 }
 
 // PhaseActions returns the executable actions for a phase.
@@ -89,25 +98,33 @@ func (rel *Release) HasPhase(targetPlatform string, action Action, phase string)
 //
 // For lore packages: returns ScriptAction items for each discovered script.
 // For native PM packages: returns a NativePMAction for install/uninstall phases.
-func (rel *Release) PhaseActions(targetPlatform string, action Action, phase string) []PhaseAction {
+//
+// Parameters:
+//   - `host`: the host the package is planned for.
+//   - `action`: the lifecycle action.
+//   - `phase`: the phase.
+//
+// Returns:
+//   - `[]PhaseAction`: the phase's actions.
+//   - `error`: a [*GrammarRefusal] when a platform directory's name breaks the selector grammar.
+func (rel *Release) PhaseActions(host selector.Host, action Action, phase string) ([]PhaseAction, error) {
 	if rel.Source == SourceLore && rel.Dir != "" {
 		// Lore package: return script actions
-		scripts := rel.DiscoverPhaseScripts(targetPlatform, action, phase)
+		scripts, err := rel.DiscoverPhaseScripts(host, action, phase)
+		if err != nil {
+			return nil, err
+		}
 		actions := make([]PhaseAction, 0, len(scripts))
 		for _, script := range scripts {
-			actions = append(actions, &ScriptAction{
-				Path:      script,
-				PhaseName: phase,
-				Platform:  platformFromPath(script, rel.Dir),
-			})
+			actions = append(actions, &ScriptAction{Path: script, PhaseName: phase})
 		}
-		return actions
+		return actions, nil
 	}
 
 	// Native PM package: return native PM action for relevant phases
 	pmCmd, ok := phaseToNativePMCmd(action, phase)
 	if !ok {
-		return nil // Phase not applicable for native PM
+		return nil, nil // Phase not applicable for native PM
 	}
 
 	pkgName := rel.NativeName
@@ -122,21 +139,7 @@ func (rel *Release) PhaseActions(targetPlatform string, action Action, phase str
 			Packages:  []string{pkgName},
 			PhaseName: phase,
 		},
-	}
-}
-
-// platformFromPath extracts the platform directory name from a script path.
-func platformFromPath(scriptPath, packageDir string) string {
-	rel, err := filepath.Rel(packageDir, scriptPath)
-	if err != nil {
-		return ""
-	}
-	// Path is like "Darwin/Deploy/install.star" - extract first component
-	parts := strings.Split(rel, string(filepath.Separator))
-	if len(parts) > 0 {
-		return parts[0]
-	}
-	return ""
+	}, nil
 }
 
 // phaseToNativePMCmd maps action+phase to native PM command.
@@ -172,8 +175,8 @@ func (rel *Release) IsSynthetic() bool {
 }
 
 // Resolve looks up a package by name in the registry.
-// It checks the lore registry first, then falls back to native package managers.
-func (r *Registry) Resolve(name, targetPlatform string) (*Release, error) {
+// It checks the lore registry first, then falls back to this host's native package manager.
+func (r *Registry) Resolve(name string) (*Release, error) {
 	// First, check lore registry
 	pkgDir := filepath.Join(r.cacheDir, "packages", name)
 	if dirExists(pkgDir) {
@@ -191,25 +194,26 @@ func (r *Registry) Resolve(name, targetPlatform string) (*Release, error) {
 		}, nil
 	}
 
-	// Fall back to native package manager based on platform
-	return r.resolveNative(name, targetPlatform)
+	// Fall back to this host's native package manager
+	return r.resolveNative(name)
 }
 
 // resolveNative creates a synthetic Release for a native PM package.
 // It uses the synthetic cache to avoid repeated lookups and store verification results.
-func (r *Registry) resolveNative(name, targetPlatform string) (*Release, error) {
-	var source PackageSource
-	switch {
-	case strings.HasPrefix(targetPlatform, "Linux.Debian") || targetPlatform == "Linux":
-		source = SourceApt
-	case strings.HasPrefix(targetPlatform, "Linux.Fedora"):
-		source = SourceDnf
-	case targetPlatform == "Darwin":
-		source = SourceBrew
-	case targetPlatform == "Windows":
-		source = SourceWinget
-	default:
-		source = SourceApt // Default fallback
+//
+// The native source is this host's default package manager, as pkg/platform detects it (#944): a distribution it
+// doesn't list takes its closest listed ancestor's, so Pop!_OS uses apt; Arch and Manjaro use pacman.
+//
+// Parameters:
+//   - `name`: the package's name.
+//
+// Returns:
+//   - `*Release`: the synthetic release.
+//   - `error`: non-nil when this host's package manager can't be detected.
+func (r *Registry) resolveNative(name string) (*Release, error) {
+	source, err := nativeSource()
+	if err != nil {
+		return nil, err
 	}
 
 	// Check synthetic cache first
@@ -283,4 +287,57 @@ func ParsePackagePrefix(name string) (packageName, prefix string) {
 		return strings.TrimPrefix(name, "port:"), "port"
 	}
 	return name, ""
+}
+
+// nativeSource names this host's default native package manager.
+//
+// Returns:
+//   - `PackageSource`: the source for the host's default manager's purl type: deb is apt, rpm dnf, alpm pacman.
+//   - `error`: non-nil when pkg/platform can't detect this host, or its default manager has no lore source.
+func nativeSource() (PackageSource, error) {
+
+	spec, err := platform.Detect()
+	if err != nil {
+		return "", fmt.Errorf("native package manager: %w", err)
+	}
+	host, err := platform.New(spec)
+	if err != nil {
+		return "", fmt.Errorf("native package manager: %w", err)
+	}
+
+	purlType := host.DefaultPurlType()
+	source, ok := sourceForPurlType(purlType)
+	if !ok {
+		return "", fmt.Errorf("native package manager: lore has no source for %q packages", purlType)
+	}
+	return source, nil
+}
+
+// sourceForPurlType names the source a native package manager's packages come from, by the purl type the manager
+// reports.
+//
+// Parameters:
+//   - `purlType`: the manager's purl type: deb, rpm, alpm, brew, port, winget.
+//
+// Returns:
+//   - `PackageSource`: deb is apt, rpm dnf, alpm pacman; brew, port and winget are themselves.
+//   - `bool`: false when lore has no source for the type, as for flatpak and snap.
+func sourceForPurlType(purlType string) (PackageSource, bool) {
+
+	switch purlType {
+	case "deb":
+		return SourceApt, true
+	case "rpm":
+		return SourceDnf, true
+	case "alpm":
+		return SourcePacman, true
+	case "brew":
+		return SourceBrew, true
+	case "port":
+		return SourcePort, true
+	case "winget":
+		return SourceWinget, true
+	default:
+		return "", false
+	}
 }

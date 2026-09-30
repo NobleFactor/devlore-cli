@@ -3,7 +3,7 @@ title: "Lane 10: the implicit projects are common and one per configured layer r
 issue: https://github.com/NobleFactor/devlore-cli/issues/850
 status: complete
 created: 2026-09-25
-updated: 2026-09-26
+updated: 2026-09-30
 ---
 
 # Plan: Lane 10 of the writ lifecycle schedule
@@ -63,8 +63,10 @@ One function in `cmd/writ/writ`, `resolveSelection(ctx, named []string) (Selecti
   registration's `Root`, deduplicated.
 - `Recorded`: every project with an entry in the current record (`readback.Fold`), minus the implicit ones;
   not-found means none. **Ruled 2026-09-26: the bare form is `writ deploy common`, and it remembers everything it
-  deployed.** The record is the selection: a project stays selected while the record holds a file of it, so a bare
-  deploy after `writ deploy thenobles` keeps thenobles wherever thenobles put a file. No selection list of its own.
+  deployed.** (Superseded 2026-09-30 by #944's Q27: `writ deploy common` is a command-line error, and the bare form is
+  `writ deploy`. The record half stands.) The record is the selection: a project stays selected while the record
+  holds a file of it, so a bare deploy after `writ deploy thenobles` keeps thenobles wherever thenobles put a file. No
+  selection list of its own.
 - `Named`: the command line, minus anything already selected. A name no registered layer carries, in any suffix
   form, is refused: `unknown project "x": no registered layer has Home/x or Home/x.<suffix>`, exit 64.
 - `Projects()`: implicit, recorded, named, in that order, which is what the tree builds.
@@ -153,7 +155,8 @@ on a case-sensitive filesystem. The rule stands as ruled; whether the repository
 
 ## Open questions
 
-1. **Ruled 2026-09-26: the record is the selection.** The bare form is `writ deploy common`, and it remembers
+1. **Ruled 2026-09-26: the record is the selection.** (2026-09-30, #944's Q27: the bare form is now `writ deploy`;
+   `writ deploy common` is a command-line error.) The bare form is `writ deploy common`, and it remembers
    everything it deployed; a project that put no file on this machine has nothing to be remembered by, and is not.
    No selection record beside the receipts.
 

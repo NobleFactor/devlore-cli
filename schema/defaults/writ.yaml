@@ -4,15 +4,19 @@
 # See: writ config --schema
 
 writ:
-  # Custom segments, as name to value (beyond built-in OS, DISTRO, ARCH)
+  # Extra segments, beyond the built-in OS, DISTRO and ARCH, in the order a directory name carries
+  # them: noblefactor.Debian.arm64.desktop.home reads project, OS, architecture, ROLE, SITE.
   #
-  # A key introduces the segment name; its value sets the segment. A key with no value declares a
-  # segment set elsewhere -- by WRIT_SEGMENT_<NAME> or --segment NAME=value. A directory suffix
-  # matches only a segment that has a value, so an unset segment behaves like DISTRO on macOS:
-  # nothing carrying that suffix is selected.
+  # Each declares the values it may take, and a directory name carries one of them. Values are unique
+  # across every segment, so a value names its segment. A value comes from --segment NAME=value, else
+  # WRIT_SEGMENT_<NAME>, else `value` here; a segment with none matches no directory name. A value or
+  # a name not declared here is refused. See docs/guides/selectors.md.
   # segments:
-  #   ROLE: desktop
-  #   SITE:
+  #   - name: ROLE
+  #     values: [desktop, server]
+  #     value: desktop
+  #   - name: SITE
+  #     values: [aws, home]
 
   # Scopes, as name to root directory
   #
@@ -54,8 +58,8 @@ writ:
 
   # Template variables
   #
-  # What templates interpolate, and nothing else. Segment values live under segments; scope roots
-  # live under scopes.
+  # What templates interpolate, and nothing else. Segments live under segments; scope roots live
+  # under scopes.
   # vars:
   #   USER_NAME: "Your Name"
   #   USER_EMAIL: "you@example.com"

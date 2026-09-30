@@ -8,6 +8,8 @@ package platform
 import (
 	"runtime"
 	"testing"
+
+	"github.com/NobleFactor/devlore-cli/pkg/selector"
 )
 
 // region detectHost (linux)
@@ -67,6 +69,36 @@ func TestLinuxDistroAliasesContainsExpectedEntries(t *testing.T) {
 		if got != want {
 			t.Errorf("linuxDistroAliases[%q] = %q, want %q", raw, got, want)
 		}
+	}
+}
+
+// endregion
+
+// region resolveLinuxDistro
+
+// TestResolveLinuxDistroFallsBackAlongIDLike: a distribution this package doesn't list takes the closest listed
+// ancestor its ID_LIKE names (#944); one with no listed ancestor resolves to nothing.
+func TestResolveLinuxDistroFallsBackAlongIDLike(t *testing.T) {
+
+	for _, tc := range []struct {
+		name    string
+		release selector.OSRelease
+		want    string
+		wantOK  bool
+	}{
+		{"a listed ID", selector.OSRelease{ID: "ubuntu", IDLike: []string{"debian"}}, "ubuntu", true},
+		{"an aliased ID", selector.OSRelease{ID: "linuxmint", IDLike: []string{"ubuntu", "debian"}}, "mint", true},
+		{"CentOS Stream", selector.OSRelease{ID: "centos", IDLike: []string{"rhel", "fedora"}}, "centos-stream", true},
+		{"Pop!_OS takes Ubuntu's", selector.OSRelease{ID: "pop", IDLike: []string{"ubuntu", "debian"}}, "ubuntu", true},
+		{"past an unlisted ancestor", selector.OSRelease{ID: "x", IDLike: []string{"y", "fedora"}}, "fedora", true},
+		{"no listed ancestor", selector.OSRelease{ID: "alpine"}, "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := resolveLinuxDistro(tc.release)
+			if got != tc.want || ok != tc.wantOK {
+				t.Errorf("resolveLinuxDistro = %q, %v; want %q, %v", got, ok, tc.want, tc.wantOK)
+			}
+		})
 	}
 }
 

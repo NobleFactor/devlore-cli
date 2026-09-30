@@ -31,7 +31,6 @@ func TestScriptAction(t *testing.T) {
 	action := &ScriptAction{
 		Path:      "/pkg/Common/Deploy/install.star",
 		PhaseName: "install",
-		Platform:  "Common",
 	}
 
 	if action.Type() != ActionScript {

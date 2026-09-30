@@ -141,15 +141,6 @@ func (r *Registry) searchNative(query string, limit int) []SearchResultItem {
 		return nil
 	}
 
-	// Map each hit's self-identified manager (its purl type) to a source.
-	sourceMap := map[string]PackageSource{
-		"brew":   SourceBrew,
-		"port":   SourcePort,
-		"apt":    SourceApt,
-		"dnf":    SourceDnf,
-		"winget": SourceWinget,
-	}
-
 	// Search fans out across the router's leaves; each hit self-identifies its manager.
 	searchResults := router.Search(query, limit)
 	if searchResults == nil {
@@ -160,9 +151,11 @@ func (r *Registry) searchNative(query string, limit int) []SearchResultItem {
 	for _, sr := range searchResults {
 		purl := platform.PURL{Type: sr.Manager, Name: sr.Name}
 
-		source := sourceMap[sr.Manager]
-		if source == "" {
-			source = SourceApt // Default fallback
+		// Each hit self-identifies its manager by purl type. A type lore has no source for, flatpak or snap, is shown
+		// as itself.
+		source, ok := sourceForPurlType(sr.Manager)
+		if !ok {
+			source = PackageSource(sr.Manager)
 		}
 
 		// Check if it's installed.
@@ -236,14 +229,13 @@ func (r *Registry) ListPackages() ([]SearchResultItem, error) {
 //
 // Parameters:
 //   - `name`: the package name to resolve.
-//   - `targetPlatform`: the platform token the release must satisfy.
 //
 // Returns:
 //   - `*Release`: the resolved release; nil when resolution failed.
 //   - `Confidence`: the rating described above.
 //   - `error`: non-nil when the package could not be resolved.
-func (r *Registry) ResolveWithConfidence(name, targetPlatform string) (*Release, Confidence, error) {
-	release, err := r.Resolve(name, targetPlatform)
+func (r *Registry) ResolveWithConfidence(name string) (*Release, Confidence, error) {
+	release, err := r.Resolve(name)
 	if err != nil {
 		return nil, ConfidenceLow, err
 	}

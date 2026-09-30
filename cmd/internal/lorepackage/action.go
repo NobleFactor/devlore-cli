@@ -70,9 +70,6 @@ type ScriptAction struct {
 
 	// PhaseName is the phase name (function to call in the script).
 	PhaseName string
-
-	// Platform is the platform directory this script came from.
-	Platform string
 }
 
 // Type returns ActionScript.

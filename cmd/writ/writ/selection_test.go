@@ -70,21 +70,33 @@ func TestResolveSelection_Implicit(t *testing.T) {
 	}
 }
 
-// TestResolveSelection_Named pins the named kind: a name adds once, a name already implicit is not repeated, and a
-// name no registered layer carries is refused with the name in the message, exit 64.
+// TestResolveSelection_Named pins the named kind: a name adds, in command-line order; naming an implicit project, or
+// one project twice, is a command-line error (#944, Q27); and a name no registered layer carries is refused with the
+// name in the message, exit 64.
 func TestResolveSelection_Named(t *testing.T) {
 
 	registerLayers(t, []string{"noblefactor-ops", "devlore-cli", "personal"}, map[string][]string{"personal": {"thenobles", "thenobles.Darwin"}})
 
-	selection, err := resolveSelection(context.Background(), []string{"thenobles", "devlore-cli", "thenobles"})
+	selection, err := resolveSelection(context.Background(), []string{"thenobles"})
 	if err != nil {
 		t.Fatalf("resolveSelection: %v", err)
 	}
 	if !slices.Equal(selection.Named, []string{"thenobles"}) {
-		t.Errorf("Named = %v, want [thenobles]: devlore-cli is implicit and thenobles adds once", selection.Named)
+		t.Errorf("Named = %v, want [thenobles]", selection.Named)
 	}
 	if got := selection.Narration(); got != "common, noblefactor-ops, devlore-cli, personal (implicit); thenobles (named)" {
 		t.Errorf("Narration = %q", got)
+	}
+
+	for _, named := range [][]string{{"thenobles", "common"}, {"thenobles", "devlore-cli"}, {"thenobles", "thenobles"}} {
+		_, err = resolveSelection(context.Background(), named)
+		if err == nil {
+			t.Errorf("resolveSelection(%v) was accepted, want a command-line error", named)
+			continue
+		}
+		if code := cli.ExitCode(err); code != cli.ExitUsage {
+			t.Errorf("resolveSelection(%v): ExitCode = %d, want %d", named, code, cli.ExitUsage)
+		}
 	}
 
 	_, err = resolveSelection(context.Background(), []string{"noblefamily"})
@@ -132,5 +144,14 @@ func TestResolveSelection_Recorded(t *testing.T) {
 	}
 	if got := selection.Narration(); got != "common, noblefactor-ops, devlore-cli, personal (implicit); thenobles (recorded)" {
 		t.Errorf("Narration = %q", got)
+	}
+
+	// Named, a recorded project takes its command-line place (#944, Q28).
+	selection, err = resolveSelection(context.Background(), []string{"thenobles"})
+	if err != nil {
+		t.Fatalf("resolveSelection: %v", err)
+	}
+	if len(selection.Recorded) != 0 || !slices.Equal(selection.Named, []string{"thenobles"}) {
+		t.Errorf("Recorded = %v, Named = %v; want thenobles named, not recorded", selection.Recorded, selection.Named)
 	}
 }

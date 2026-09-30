@@ -20,6 +20,13 @@ The directory structure is load-bearing and must not be flattened. Requirement 3
 phase against the action directory that contains it — `Deploy/`, `Upgrade/`, `Decommission/` — so the
 layout is part of the fixture, not packaging around it.
 
+Its `Linux.Debian/` and `Linux.Fedora/` directories are the retired form of lore's platform selectors. Since
+[#944](https://github.com/NobleFactor/devlore-cli/issues/944) they are `Debian/` and `Fedora/`, and lore refuses a
+package that still carries the two-word form. They are kept verbatim here all the same, because this tree is #721's
+regression corpus and the linter never reads the platform directory, only the action directory inside it; nothing
+selects over this tree. That is #944's ruling, Q17 in
+[its plan](../../../../../docs/plans/feature/944-one-selector-api-writ-and-lore.md#decisions).
+
 ## `docker-package.want.tsv`
 
 The live defect sites, by `rule`, `path`, `line` and `call`. **57 rows**, generated from the fixture
@@ -53,9 +60,9 @@ false-positive profile. It is not in #721's scope.
 
 ## The lifecycles nothing builds
 
-24 of the 40 scripts are under `Upgrade/` and `Decommission/`. `cmd/lore/lore/builder.go:367` is the
-only caller of `Release.PhaseActions` and is hardcoded to `lorepackage.Deploy`, so nothing in the tree
-builds those lifecycles today.
+24 of the 40 scripts are under `Upgrade/` and `Decommission/`. `Planner.buildPackage`, in
+`cmd/lore/lore/builder.go`, is the only caller of `Release.PhaseActions` and is hardcoded to
+`lorepackage.Deploy`, so nothing in the tree builds those lifecycles today.
 
 That does not reduce the fixture. Their phase orders are defined in
 `cmd/internal/lorepackage/lifecycle.go` and packages are written against them, so a name that is wrong

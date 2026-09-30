@@ -202,29 +202,36 @@ graph declaratively — operations are scheduled, not executed immediately.
 
 ### Cross-platform targeting
 
-**Platform-specific logic belongs in the directory structure, not in script
-conditionals.** The platform directory hierarchy determines which scripts run
-for a given target:
+**Platform-specific logic belongs in the directory structure, not in script conditionals.** A package's platform
+directories decide which scripts run on a machine:
 
 ```
-Common/Deploy/install.star        → runs for all targets
-Unix/Deploy/install.star          → runs for Darwin and Linux targets
-Linux/Deploy/install.star         → runs for all Linux targets
-Linux.Debian/Deploy/install.star  → runs for Debian-family targets only
-Darwin/Deploy/install.star        → runs for macOS targets only
+Common/Deploy/install.star  → runs on every machine
+Unix/Deploy/install.star    → runs on macOS, Linux and the BSDs
+Linux/Deploy/install.star   → runs on every Linux machine
+Debian/Deploy/install.star  → runs on every Debian-lineage machine: Debian, Ubuntu, Mint, Pop!_OS
+Ubuntu/Deploy/install.star  → runs on Ubuntu, Mint and Pop!_OS
+Darwin/Deploy/install.star  → runs on macOS only
 ```
 
-Scripts are selected based on the **target platform**, not the machine building
-the graph. You can build a Linux.Debian graph on a Mac:
+The directory names are selectors, in the grammar writ's project directories use, without the project. `Common` is the
+name with no selector words; every other name is an OS word, an architecture, or both, as in `Debian.arm64/`.
+[Selectors](/guides/selectors/) is the one description of the grammar, its words and its order.
 
-```bash
-lore manifest test mypackage --target-os linux --target-distro debian
-```
+lore selects for the machine it runs on. The resolver reads the package's directories and takes `Common/` first, then
+the directories that name this machine, from the most general link of its chain to the most specific. On Linux the
+chain follows the lineage the distribution states in os-release, so on Ubuntu the order is `Common/`, `Unix/`,
+`Linux/`, `Debian/`, `Ubuntu/`; on macOS it is `Common/`, `Unix/`, `Darwin/`. Every selected directory that holds the
+phase's script contributes, general to specific. A directory named for another machine, such as `Fedora/` on Ubuntu,
+is skipped. Planning on one machine for another is [#282](https://github.com/NobleFactor/devlore-cli/issues/282).
 
-The resolver selects `Linux.Debian/`, `Linux/`, `Unix/`, and `Common/` scripts
-in that hierarchy. Your Mac's platform is irrelevant — the graph targets the
-specified platform. This makes graphs deterministic and signable: same manifest
-+ same target = same graph, regardless of which machine builds it.
+A directory name that breaks the grammar refuses the package before anything is planned, and the refusal lists every
+such name. `Linux.Debian/` and `Linux.Fedora/`, the names lore read before
+[#944](https://github.com/NobleFactor/devlore-cli/issues/944), carry two OS words and are refused: they are `Debian/`
+and `Fedora/` now.
+
+The lifecycle file's `platforms:` list and lore's `--platform` flags take no part in this selection. They are declared
+but unread, which is [#969](https://github.com/NobleFactor/devlore-cli/issues/969).
 
 **Do not use conditionals for platform branching.** Instead, put platform-specific
 logic in the appropriate directory:

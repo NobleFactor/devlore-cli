@@ -24,6 +24,7 @@
 | `pkg/platform` | the platform capability + Composite package-manager router, op-free ([3.4](architecture/3.4-platform-package-managers.md)) |
 | `pkg/process` | the single bridge between `os/exec` and narration/result emission |
 | `pkg/result` | the primary output channel: `Pipeline` (filter → formatter → sink) |
+| `pkg/selector` | the one selector API writ and lore share: the host's chain, and the selection and order of directory names by it, op-free ([Selectors](guides/selectors.md)) |
 | `pkg/signing` | signing + verification of graphs and traces, ssh-ed25519 ([5](architecture/5-graph-trace-integrity.md)) |
 | `pkg/sink` | the byte-out endpoint contract (`Stdout` / `Stderr` / `Discard`) |
 | `pkg/sops` | SOPS decryption/encryption over getsops |

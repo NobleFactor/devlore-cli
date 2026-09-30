@@ -4,13 +4,64 @@
 package tree
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/segment"
 )
+
+// plant writes the same file, `.bashrc`, into each named directory of a layer, its content the directory's name.
+//
+// Parameters:
+//   - `t`: the test.
+//   - `root`: the layer's root.
+//   - `dirs`: the directories.
+func plant(t *testing.T, root string, dirs ...string) {
+
+	t.Helper()
+	for _, dir := range dirs {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(root, dir, ".bashrc"), []byte(dir), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// ubuntuArm64 is the owner's machine: Ubuntu, whose lineage is Debian, on arm64.
+//
+// Returns:
+//   - `segment.Segments`: its built-in segments.
+func ubuntuArm64() segment.Segments {
+
+	return segment.Segments{
+		{Name: "OS", Value: "Linux"},
+		{Name: "DISTRO", Value: "Ubuntu", Lineage: []string{"Debian"}},
+		{Name: "ARCH", Value: "arm64"},
+	}
+}
+
+// winningDir returns the directory the only file of a build came from.
+//
+// Parameters:
+//   - `t`: the test.
+//   - `result`: the build.
+//
+// Returns:
+//   - `string`: the directory's name.
+func winningDir(t *testing.T, result *BuildResult) string {
+
+	t.Helper()
+	if len(result.Files) != 1 {
+		t.Fatalf("got %d files, want 1", len(result.Files))
+	}
+	return filepath.Base(filepath.Dir(result.Files[0].Source))
+}
 
 func TestProcessingPipeline(t *testing.T) {
 	tests := []struct {
@@ -215,11 +266,8 @@ func TestBuildWithCollisions(t *testing.T) {
 		if c.Target != ".bashrc" {
 			t.Errorf("collision target = %q, want %q", c.Target, ".bashrc")
 		}
-		if c.WinnerSpecificity != 1 {
-			t.Errorf("winner specificity = %d, want 1", c.WinnerSpecificity)
-		}
-		if c.LoserSpecificity != 0 {
-			t.Errorf("loser specificity = %d, want 0", c.LoserSpecificity)
+		if c.WinnerDir != "all.Darwin" || c.LoserDir != "all" {
+			t.Errorf("collision = %s over %s, want all.Darwin over all", c.WinnerDir, c.LoserDir)
 		}
 	}
 
@@ -512,11 +560,8 @@ func TestBuildMultiSourceSpecificityWithinLayer(t *testing.T) {
 		t.Errorf("got %d collisions, want 1", len(result.Collisions))
 	} else {
 		c := result.Collisions[0]
-		if c.WinnerSpecificity != 1 {
-			t.Errorf("winner specificity = %d, want 1", c.WinnerSpecificity)
-		}
-		if c.LoserSpecificity != 0 {
-			t.Errorf("loser specificity = %d, want 0", c.LoserSpecificity)
+		if c.WinnerDir != "all.Darwin" || c.LoserDir != "all" {
+			t.Errorf("collision = %s over %s, want all.Darwin over all", c.WinnerDir, c.LoserDir)
 		}
 	}
 }
@@ -580,13 +625,9 @@ func TestBuildMultiSourceLayerBeatsSpecificity(t *testing.T) {
 		t.Errorf("got %d collisions, want 1", len(result.Collisions))
 	} else {
 		c := result.Collisions[0]
-		// Personal wins with specificity 0
-		if c.WinnerSpecificity != 0 {
-			t.Errorf("winner specificity = %d, want 0 (personal/all)", c.WinnerSpecificity)
-		}
-		// ProviderBase loses with specificity 1
-		if c.LoserSpecificity != 1 {
-			t.Errorf("loser specificity = %d, want 1 (base/all.Darwin)", c.LoserSpecificity)
+		// Personal's all wins over base's more specific all.Darwin: layers are processed left to right (Q4)
+		if c.WinnerDir != "all" || c.LoserDir != "all.Darwin" {
+			t.Errorf("collision = %s over %s, want personal's all over base's all.Darwin", c.WinnerDir, c.LoserDir)
 		}
 		if c.WinnerLayer != "personal" {
 			t.Errorf("winner layer = %s, want personal", c.WinnerLayer)
@@ -594,5 +635,182 @@ func TestBuildMultiSourceLayerBeatsSpecificity(t *testing.T) {
 		if c.LoserLayer != "base" {
 			t.Errorf("loser layer = %s, want base", c.LoserLayer)
 		}
+	}
+}
+
+// --- The one selector API's ordering (#944) ---
+
+// TestBuild_TheMostSpecificLinkWins pins "the most specific link in the chain wins" and the ruled order of application
+// (Q3), in a single-source build and within one layer of a multi-source build.
+func TestBuild_TheMostSpecificLinkWins(t *testing.T) {
+
+	dirs := []string{"common", "common.Unix", "common.Linux", "common.Debian", "common.Debian.arm64", "common.Ubuntu",
+		"common.Linux.arm64"}
+
+	single := t.TempDir()
+	plant(t, single, dirs...)
+	result, err := Build(BuildConfig{SourceRoot: single, TargetRoot: t.TempDir(), Projects: []string{"common"},
+		Segments: ubuntuArm64()})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if got := winningDir(t, result); got != "common.Ubuntu" {
+		t.Errorf("single source: .bashrc from %s, want common.Ubuntu", got)
+	}
+
+	var applied []string
+	for _, m := range result.MatchedDirs {
+		applied = append(applied, filepath.Base(m.Path))
+	}
+	want := []string{"common", "common.Unix", "common.Linux", "common.Linux.arm64", "common.Debian",
+		"common.Debian.arm64", "common.Ubuntu"}
+	if !reflect.DeepEqual(applied, want) {
+		t.Errorf("order of application:\n got %v\nwant %v", applied, want)
+	}
+
+	layerDir := t.TempDir()
+	plant(t, layerDir, dirs...)
+	result, err = Build(BuildConfig{
+		Sources:  []LayerSource{{Layer: "personal", Order: 2, SourceRoot: layerDir, TargetRoot: t.TempDir()}},
+		Projects: []string{"common"},
+		Segments: ubuntuArm64(),
+	})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if got := winningDir(t, result); got != "common.Ubuntu" {
+		t.Errorf("multi-source: .bashrc from %s, want common.Ubuntu", got)
+	}
+}
+
+// TestBuild_DarwinBeatsUnix: the chain ranks Darwin above Unix; the suffix count tied them, and Unix won.
+func TestBuild_DarwinBeatsUnix(t *testing.T) {
+
+	root := t.TempDir()
+	plant(t, root, "common.Unix", "common.Darwin")
+	darwin := segment.Segments{{Name: "OS", Value: "Darwin"}, {Name: "ARCH", Value: "arm64"}}
+
+	result, err := Build(BuildConfig{SourceRoot: root, TargetRoot: t.TempDir(), Projects: []string{"common"},
+		Segments: darwin})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if got := winningDir(t, result); got != "common.Darwin" {
+		t.Errorf(".bashrc from %s, want common.Darwin", got)
+	}
+}
+
+// TestBuild_ProjectsApplyInOrder pins Q27: projects in the order given, then the platform ranking within each.
+func TestBuild_ProjectsApplyInOrder(t *testing.T) {
+
+	root := t.TempDir()
+	plant(t, root, "common.Ubuntu", "noblefactor", "thenobles")
+
+	result, err := Build(BuildConfig{SourceRoot: root, TargetRoot: t.TempDir(),
+		Projects: []string{"common", "noblefactor", "thenobles"}, Segments: ubuntuArm64()})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if got := winningDir(t, result); got != "thenobles" {
+		t.Errorf(".bashrc from %s, want thenobles, the last project named", got)
+	}
+
+	result, err = Build(BuildConfig{SourceRoot: root, TargetRoot: t.TempDir(),
+		Projects: []string{"common", "thenobles", "noblefactor"}, Segments: ubuntuArm64()})
+	if err != nil {
+		t.Fatalf("Build: %v", err)
+	}
+	if got := winningDir(t, result); got != "noblefactor" {
+		t.Errorf(".bashrc from %s, want noblefactor, the last project named", got)
+	}
+}
+
+// TestBuild_TheCollisionSaysWhatDecided: a collision carries both directories' ranks and names the part that put the
+// winner after the loser (Requirement 2).
+func TestBuild_TheCollisionSaysWhatDecided(t *testing.T) {
+
+	desktop := append(ubuntuArm64(), segment.Segment{Name: "ROLE", Value: "desktop", Values: []string{"desktop"}})
+
+	tests := []struct {
+		name     string
+		base     []string
+		personal []string
+		projects []string
+		segments segment.Segments
+		reason   string
+	}{
+		{"the OS word", []string{"common.Debian", "common.Ubuntu"}, nil, []string{"common"}, ubuntuArm64(),
+			"a more specific OS word"},
+		{"the architecture", []string{"common.Debian", "common.Debian.arm64"}, nil, []string{"common"},
+			ubuntuArm64(), "it names the architecture"},
+		{"an extra", []string{"common.Debian", "common.Debian.desktop"}, nil, []string{"common"}, desktop,
+			"it names the ROLE segment"},
+		{"the project", []string{"common.Ubuntu", "noblefactor"}, nil, []string{"common", "noblefactor"},
+			ubuntuArm64(), "a later project"},
+		{"the layer", []string{"common.Ubuntu"}, []string{"common"}, []string{"common"}, ubuntuArm64(),
+			"a later layer"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			base := t.TempDir()
+			plant(t, base, tt.base...)
+			sources := []LayerSource{{Layer: "base", Order: 0, SourceRoot: base, TargetRoot: t.TempDir()}}
+			if tt.personal != nil {
+				personal := t.TempDir()
+				plant(t, personal, tt.personal...)
+				sources = append(sources, LayerSource{Layer: "personal", Order: 2, SourceRoot: personal,
+					TargetRoot: sources[0].TargetRoot})
+			}
+
+			result, err := Build(BuildConfig{Sources: sources, Projects: tt.projects, Segments: tt.segments})
+			if err != nil {
+				t.Fatalf("Build: %v", err)
+			}
+			if len(result.Collisions) != 1 {
+				t.Fatalf("got %d collisions, want 1", len(result.Collisions))
+			}
+			c := result.Collisions[0]
+			if c.Reason != tt.reason {
+				t.Errorf("Reason = %q, want %q", c.Reason, tt.reason)
+			}
+			if tt.personal == nil && c.WinnerRank.Compare(c.LoserRank) <= 0 {
+				t.Errorf("WinnerRank %+v does not rank after LoserRank %+v", c.WinnerRank, c.LoserRank)
+			}
+			if summary := result.String(); !strings.Contains(summary, tt.reason) {
+				t.Errorf("the summary does not give the reason %q:\n%s", tt.reason, summary)
+			}
+		})
+	}
+}
+
+// TestBuild_GrammarErrorsRefuseTheBuild: a malformed directory name in any layer refuses the build before a file is
+// read, and every one is listed (Q19).
+func TestBuild_GrammarErrorsRefuseTheBuild(t *testing.T) {
+
+	base, personal := t.TempDir(), t.TempDir()
+	plant(t, base, "common", "common.Debain")
+	plant(t, personal, "common.Linux.Debian", "common.arm64.Debian", "common.Fedora")
+
+	_, err := Build(BuildConfig{
+		Sources: []LayerSource{
+			{Layer: "base", Order: 0, SourceRoot: base, TargetRoot: t.TempDir()},
+			{Layer: "personal", Order: 2, SourceRoot: personal, TargetRoot: t.TempDir()},
+		},
+		Projects: []string{"common"},
+		Segments: ubuntuArm64(),
+	})
+
+	var refusal *segment.Refusal
+	if !errors.As(err, &refusal) {
+		t.Fatalf("Build: %v, want a *segment.Refusal", err)
+	}
+	var names []string
+	for _, entry := range refusal.Entries {
+		names = append(names, entry.Err.Name)
+	}
+	want := []string{"common.Debain", "common.Linux.Debian", "common.arm64.Debian"}
+	if !reflect.DeepEqual(names, want) {
+		t.Errorf("refused %v, want %v; common.Fedora is another machine's, and silent", names, want)
 	}
 }

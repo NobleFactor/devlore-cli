@@ -93,7 +93,8 @@ Its home is `pkg/selector` (**Q1**).
   most one word (**Q20**). A name that breaks the grammar is out of order, has two OS words, or holds a word outside
   the vocabulary.
 - **Selection** takes a list of directory names and returns two things: the names this machine includes, in the order
-  to apply them (**Q3**), total and stable so no result depends on walk order; and every grammar error, each naming the
+  to apply them, total and stable so no result depends on walk order: projects in the caller's order (**Q27**), and
+  within a project the platform ranking (**Q3**); and every grammar error, each naming the
   directory and the rule it breaks (**Q19**). A well-formed name for another machine, `common.Darwin` on Ubuntu, is
   excluded silently.
 - It replaces writ's `readDistro`, `capitalizeDistro`, `capitalizeOS` and `OSFamily`, `pkg/platform`'s `readOSRelease`,
@@ -105,8 +106,12 @@ Its home is `pkg/selector` (**Q1**).
   templates' `.Segments.OS`, `.Segments.DISTRO` and `.Segments.ARCH` keep their meaning.
 - Within each layer, the tree builder applies the directories selection returns, in its order; layers are processed
   left to right (**Q4**). Manifests contribute in the same order.
-- `writ deploy`, `writ upgrade` and `writ reconcile` collect the grammar errors of every layer before planning, and
-  refuse the run with all of them listed (**Q19**).
+- Projects are ordered as the command line reads (**Q27**): the implicit projects first (`common`, then the one named
+  after each layer repository, as writ lists them today), then the named projects left to right. Naming an implicit
+  project on the command line is a command-line error, `writ deploy common` included: the bare form is `writ deploy`.
+- `writ deploy` collects the grammar errors of every layer before planning, and refuses the run with all of them
+  listed (**Q19**). `writ upgrade` and `writ reconcile` read the deployed inventory, not the layer trees, so they
+  select no directory and have no name to judge. (Corrected 2026-09-30: this named them too.)
 - `writ adopt --platform` validates `<project>.<platform>` through the grammar and against this machine (**Q13**). Its
   help, examples and doc comments say `Debian`, not `Linux.Debian`.
 - The collision record and its narration carry the winning directory's rank, and name the matched directory rather
@@ -128,7 +133,9 @@ Its home is `pkg/selector` (**Q1**).
   name the configuration doesn't declare and a value its segment doesn't declare. The built-ins take them without a
   declaration (**Q22**).
 - **Seen by every command that selects:** `writ deploy`, `writ upgrade`, `writ reconcile` and `writ adopt --platform`,
-  the same way. That resolves #970. #765 keeps its scopes; its segments half is this PR's (**Q26**).
+  the same way, each taking `--segment`. That resolves #970. Reconcile reads the deployed inventory from the store, not
+  the layer trees, so it selects nothing and its `Config.Segments` stays unread; it resolves segments all the same, so
+  a bad value is refused there as everywhere. #765 keeps its scopes; its segments half is this PR's (**Q26**).
 - **A declared segment with no value** matches no directory name.
 
 ### Requirement 4: pkg/platform detects through the one package and falls back along ID_LIKE
@@ -137,9 +144,11 @@ Its home is `pkg/selector` (**Q1**).
   closest `ID_LIKE` ancestor it lists. Pop!_OS takes Ubuntu's.
 - An ID with no listed ancestor (Alpine, Void) is still refused here; turning the nil `Platform` that follows into a
   named error is #968's (**Q9**). Selection still works on such a host: its chain names its own ID.
-- `pkg/platform`'s tests that pin the ten, the aliases and the refusal are corrected: `token_test.go` goes with `Token`;
-  `detect_linux_test.go:19-71`, `detect_test.go:17-47`, `constructors_test.go:49-59`, `spec_test.go:70-82` and
-  `defaults_test.go:86-91` follow the fallback.
+- A host that falls back reports the ancestor as its `Platform.Distro()`, the distro whose managers it takes.
+- `resolveLinuxDistro` is the resolution, pure, and tested from synthetic os-release fields. The tests that pin the
+  ten, the aliases and `New`'s refusal of an unlisted distro (`detect_linux_test.go`, `detect_test.go`,
+  `constructors_test.go`, `spec_test.go`, `defaults_test.go`) still hold, checked against the change: the ten and the
+  aliases are unchanged, and `New` still refuses Alpine. `token_test.go` goes with `Token` (Requirement 5).
 
 ### Requirement 5: lore selects its phase scripts through the one package
 
@@ -149,11 +158,19 @@ Its home is `pkg/selector` (**Q1**).
 - lore lists the package's directories and selects through the one package (**Q8**). On Ubuntu:
   `Common → Unix → Linux → Debian → Ubuntu`. A grammar error refuses the run, so a leftover `Linux.Debian/`, with two
   OS words, is reported (**Q19**).
-- `resolveNative` takes the native manager from the detected `Platform`, not a token prefix (**Q11**).
+- `resolveNative` takes the native manager from the detected `Platform`'s default, not a token prefix (**Q11**): deb is
+  apt, rpm dnf, and alpm a new pacman source, so Arch and Manjaro stop being labeled apt. A host `pkg/platform` can't
+  detect gets an error naming it rather than a guess. `Registry.Resolve` and `ResolveWithConfidence` lose their token
+  parameter.
 - The token parameter threaded through `builder.go`, `commands.go`, `package.go`, `lifecycle.go`, `search.go` and
   `origin.go` becomes the chain. The graph origin's `platform` annotation records the chain (**Q12**).
-- Starlark's `platform.distro` stays the raw ID (**Q23**).
-- Dead code goes: `GetPhaseScript`, and the never-read `ScriptAction.Platform`.
+- Starlark's `platform.distro` stays pkg/platform's distro (**Q23**).
+- A grammar error in any package refuses the run: `lore deploy` plans every package before any deploys, and the
+  refusal lists every malformed directory of every package; nothing deploys.
+- Dead code goes: `GetPhaseScript`, `HasPhase` and `DiscoverAllPhases` (no callers), the never-read
+  `ScriptAction.Platform`, `BuildFromManifest` and `BuildFromPackages` (no callers), and `pkg/platform`'s `Token` and
+  `DetectToken` with `token_test.go`. The Starlark accessor's doc says what `platform.distro` returns: pkg/platform's
+  distro, lowercase.
 
 ### Requirement 6: Tests
 
@@ -163,6 +180,9 @@ Its home is `pkg/selector` (**Q1**).
   of the owner's personal layer) are excluded silently, with no error.
 - **The ranking:** Q3's order of application on a synthetic Ubuntu arm64 host, for one file, in single- and
   multi-source builds; `Darwin > Unix`; manifests' contribution order.
+- **Projects:** `.bashrc` in `common/`, `noblefactor/` and `thenobles/`, with `writ deploy noblefactor thenobles`,
+  resolves to `thenobles/.bashrc`, and `common.Ubuntu/.bashrc` loses to `noblefactor/.bashrc`;
+  `writ deploy noblefactor thenobles common` is refused as a command-line error.
 - **Grammar errors:** `common.arm64.Debian`, `common.Linux.Debian` and `common.Debain` are reported together, in one
   refusal before anything changes, in a multi-layer writ build and in a lore package with a `Linux.Debian/` directory;
   `common.Fedora` on Ubuntu is excluded silently.
@@ -170,8 +190,10 @@ Its home is `pkg/selector` (**Q1**).
   the configuration loads; `--segment` with an undeclared name or value is refused.
 - **adopt:** each link of a synthetic Ubuntu chain is a valid `--platform`; `Linux.Debian` and `arm64.Debian` are
   refused.
-- **The pinning tests corrected:** `segment_test.go:124-125` (two OS words, now an error), `:127` (Debian matches on
-  Ubuntu) and `TestMatchResultSpecificity`; lore's `builder_test.go:39`, `:42`, `:92` and `:112-113` and
+- **The pinning tests corrected:** writ's `segment_test.go` is rewritten against the one package, so its cases that
+  pinned two OS words (`:124-125`), Debian refused on Ubuntu (`:127`) and the suffix count
+  (`TestMatchResultSpecificity`) went with the functions they tested; the tree tests assert collisions by directory;
+  lore's `builder_test.go:39`, `:42`, `:92` and `:112-113` and
   `package_test.go:105`, which pass the `Linux.Debian` token, onto a synthetic chain.
 - **lore:** a lifecycle test that selects over `Common/`, `Unix/`, `Linux/`, `Debian/` and `Ubuntu/` with a synthetic
   Ubuntu chain. None exists today.
@@ -199,7 +221,9 @@ Its home is `pkg/selector` (**Q1**).
   descent" claim; the command-line document's segments section takes the ordered list and stops saying DISTRO
   resolves on every platform.
 - **The plans:** #855's, #931's and #762's are brought into line; #369's (`docs/plans/segment-grammar-enforcement.md`)
-  is set superseded by this one, and its `all` → `common` sweep goes to a follow-up issue (**Q25**).
+  is set `abandoned`, noting this plan supersedes it (the process has no superseded status), and its `all` → `common`
+  sweep goes to a follow-up issue (**Q25**). Plans that describe the retired token or `Linux.Debian` as current get a
+  dated note.
 - `docs/package-reference.md` and `docs/package-hierarchy.md` name the one package.
 
 ### Requirement 9: #959's owed boxes
@@ -220,37 +244,40 @@ Its home is `pkg/selector` (**Q1**).
 
 ### Phase 2: The one package, and pkg/platform on it (Requirements 1, 4, 6)
 
-- [ ] The package, with its tests first, failing: the per-row chains, the vocabulary, the grammar and its errors
-- [ ] `pkg/platform` detects through it and falls back along `ID_LIKE`; its pinning tests corrected
+- [x] The package, with its tests first, failing: the per-row chains, the vocabulary, the grammar and its errors
+- [x] `pkg/platform` detects through it and falls back along `ID_LIKE`; its pinning tests checked
 
 ### Phase 3: writ (Requirements 2, 3, 6)
 
-- [ ] Detection and selection; the builder; the refusal on grammar errors; adopt; the collision record
-- [ ] The extra segments: the configuration, its schema and defaults, validation, and every command taking them
-- [ ] The ranking, grammar-error, extras and adopt tests; the pinning tests corrected; the dead code removed
+- [x] Detection and selection; the builder; the refusal on grammar errors; adopt; the collision record
+- [x] The extra segments: the configuration, its schema and defaults, validation, and every command taking them
+- [x] The ranking, grammar-error, extras and adopt tests; the pinning tests corrected; the dead code removed
 
 ### Phase 4: lore (Requirements 5, 6)
 
-- [ ] Selection with `Common` first; the refusal; `resolveNative`; the chain threaded through; the dead code removed
-- [ ] The lifecycle test; lore's pinning tests corrected
+- [x] Selection with `Common` first; the refusal; `resolveNative`; the chain threaded through; the dead code removed
+- [x] The lifecycle test; lore's pinning tests corrected
 
 ### Phase 5: The scenarios and the documents (Requirements 7, 8)
 
-- [ ] The scenarios
-- [ ] `docs/guides/selectors.md`; the guides, the architecture documents, the plans and the package maps
+- [x] The scenarios
+- [x] `docs/guides/selectors.md`; the guides, the architecture documents, the plans and the package maps
 
 ### Phase 6: Verify
 
-- [ ] `gofmt`; `make test`; CI's quality gate; `make test-scenario`
-- [ ] #959's owed boxes (Requirement 9)
+- [x] `gofmt`; `make test`; CI's quality gate; `make test-scenario`
+- [x] #959's owed boxes (Requirement 9)
 
 ### Phase 7: Merge
 
-- [ ] PR script written, shown, and handed over. The PR resolves #944, #369 and #970
+- [x] PR script written, shown, and handed over. The PR resolves #944, #369 and #970
 - [ ] After the merge, DANOBLE-UD24-1 converges on the official pre-release: `Home/common.Debian`'s four files deploy on
       this Ubuntu host, and no other link changes
 - [ ] The follow-up issues filed: the registry's text (**Q16**), a non-Ubuntu CI leg (**Q18**) and #369's `all` →
       `common` sweep (**Q25**); comments left on #849 and #765
+- [ ] The bare form's follow-up issues filed (**Q27**), one in noblefactor-ops and one in personal: their open boxes
+      that say `writ deploy common` say `writ deploy`, and noblefactor-ops's README drops "the binary still spells these
+      two lines `writ repo add` and `writ deploy common`"
 
 ## Out of Scope
 
@@ -261,8 +288,8 @@ Its home is `pkg/selector` (**Q1**).
 
 ## Decisions
 
-No question is open. Q3, Q4, Q15, Q19, Q20 and Q21 are the owner's rulings. The others follow from the rulings or are
-engineering choices, decided here, and the owner's review of this plan can overrule any of them.
+No question is open. Q3, Q4, Q15, Q19, Q20, Q21 and Q27 are the owner's rulings. The others follow from the rulings or
+are engineering choices, decided here, and the owner's review of this plan can overrule any of them.
 
 - **Q1. Where does the one package live?** A new leaf package, `pkg/selector`. writ's `segment`, lore's `lifecycle`
   and `pkg/platform`'s `detectHost` call it. `pkg/platform.Detect` doesn't fit writ: it spawns `systemctl`, `sw_vers`
@@ -327,12 +354,26 @@ engineering choices, decided here, and the owner's review of this plan can overr
   complain if we encounter a host such as `common.Nixos` that we don't know."
 - **Q22. Do the built-ins take overrides without a declaration?** Yes: OS, DISTRO and ARCH take `--segment` and
   `WRIT_SEGMENT_*` as today, with DISTRO's meaning per Q5; no declaration may use their names.
-- **Q23. What does Starlark's `platform.distro` report?** The raw ID, as DISTRO does (Q5). No lineage accessor in this
-  PR: the directories carry the lineage.
+- **Q23. What does Starlark's `platform.distro` report?** pkg/platform's distro, as before: the ID in its vocabulary
+  (`linuxmint` is `mint`, `centos` is `centos-stream`), lowercase, and `macos` or `windows` off Linux. On a distribution
+  it doesn't list, that's now the closest listed `ID_LIKE` ancestor (Requirement 4). No lineage accessor in this PR:
+  the directories carry the lineage. (Corrected 2026-09-30: this said "the raw ID", which it never was.)
 - **Q24. How do lore's names read?** Without a project: `Common`, or `<os>[.<arch>]`, and an architecture alone
   (`arm64/`) is valid. The one package takes the project part as optional, and each caller says whether its names
   carry one.
-- **Q25. What happens to #369's plan?** It is set superseded by this plan, which delivers its order, its slots, a total
-  order and its errors. Its `all` → `common` sweep, which isn't selector work, goes to a follow-up issue.
+- **Q25. What happens to #369's plan?** It is set `abandoned`, with a note that this plan supersedes it, delivering
+  its order, its slots, a total order and its errors. Its `all` → `common` sweep, which isn't selector work, goes to a
+  follow-up issue.
 - **Q26. What happens to #765?** Its segments half is this PR's (Requirement 3); it keeps its scopes, and gets a
   comment that links this plan.
+- **Q27. How are projects ordered?** As the command line reads: the implicit projects first (`common`, then the one
+  named after each layer repository), then the named projects left to right; within each project, the platform
+  ranking (Q3). So with `writ deploy noblefactor thenobles`, `thenobles/.bashrc` beats `noblefactor/.bashrc`, which
+  beats `common.Ubuntu/.bashrc`. Naming an implicit project (`writ deploy noblefactor thenobles common`) is a
+  command-line error: `common` is always first. Ruled 2026-09-30: "The evaluate left to right in the order specified on
+  the command line", and of refusing an explicit `common`, "agreed. it's a command line error." Ruled again the same
+  day, of #850's bare form: "`writ deploy common` is an error", and "the bare form is `writ deploy`". This supersedes
+  #850's 2026-09-26 ruling, and #850's and #918's plans carry dated notes.
+- **Q28. Where does a named project go when it is also recorded?** In its command-line place: the recorded projects not
+  named apply after the implicit ones, and the named ones after them, in command-line order, as Q27 rules. Naming a
+  project twice is refused as a command-line error, because its order would be ambiguous.

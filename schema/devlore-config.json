@@ -239,20 +239,62 @@
           ]
         },
         "segments": {
-          "type": "object",
-          "description": "Custom segments, as name to value (beyond built-in OS, DISTRO, ARCH). A key introduces the segment name; its value sets the segment. A key with no value declares a segment that is set elsewhere -- by WRIT_SEGMENT_<NAME> or --segment NAME=value. A directory suffix matches only a segment that has a value.",
-          "additionalProperties": {
-            "type": [
-              "string",
-              "null"
+          "type": "array",
+          "description": "Extra segments, beyond the built-in OS, DISTRO and ARCH, in the order a directory name carries them (#944). Each declares the values it may take; a directory name carries one of them. Values are unique across every segment, so a value names its segment. A value comes from --segment NAME=value, else WRIT_SEGMENT_<NAME>, else `value`; a segment with none matches no directory name. See docs/guides/selectors.md.",
+          "items": {
+            "type": "object",
+            "required": [
+              "name",
+              "values"
             ],
-            "description": "The segment's value, or null to declare it and set it elsewhere."
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[A-Z][A-Z0-9_]*$",
+                "not": {
+                  "enum": [
+                    "OS",
+                    "DISTRO",
+                    "ARCH"
+                  ]
+                },
+                "description": "The segment's name, in capitals. Not a built-in: OS, DISTRO, ARCH."
+              },
+              "values": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "description": "The values it may take. None may be an OS, distribution or architecture word."
+              },
+              "value": {
+                "type": "string",
+                "description": "This machine's value, one of values."
+              }
+            }
           },
           "examples": [
-            {
-              "ROLE": "desktop",
-              "SITE": null
-            }
+            [
+              {
+                "name": "ROLE",
+                "values": [
+                  "desktop",
+                  "server"
+                ],
+                "value": "desktop"
+              },
+              {
+                "name": "SITE",
+                "values": [
+                  "aws",
+                  "home"
+                ]
+              }
+            ]
           ]
         },
         "vars": {

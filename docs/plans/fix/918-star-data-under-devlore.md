@@ -3,7 +3,7 @@ title: "star keeps its data under devlore/, like writ"
 issue: https://github.com/NobleFactor/devlore-cli/issues/918
 status: active
 created: 2026-09-22
-updated: 2026-09-22
+updated: 2026-09-30
 ---
 
 # Plan: star's data moves under devlore/
@@ -104,8 +104,8 @@ both are present while the deprecation lasts.
 ### Phase 3: The base layer, and the live path
 
 - [ ] noblefactor-ops PR: `com.noblefactor.ops.GitHub` moves to `Home/common/.local/share/devlore/star/extensions`
-- [ ] `writ deploy common`, then `star gh issues report` resolves from the new path. (It still fails for the
-      `shell.exec` reason of #799 and #801; "resolves" here means the command is found.)
+- [ ] `writ deploy` (the bare form since #944), then `star gh issues report` resolves from the new path. (It still
+      fails for the `shell.exec` reason of #799 and #801; "resolves" here means the command is found.)
 - [ ] `Remove-BrokenLinks` clears the old links, and the empty `~/.local/share/star` is gone
 
 ## Out of Scope

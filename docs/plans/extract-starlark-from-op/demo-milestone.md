@@ -4,7 +4,7 @@ parent: "docs/plans/extract-starlark-from-op.md"
 issue: TBD
 status: in-progress
 created: 2026-06-02
-updated: 2026-06-02
+updated: 2026-09-30
 ---
 
 # Demo Milestone Exit Criteria
@@ -57,18 +57,26 @@ be green (criterion 16) — no sanctioned-red carve-outs survive into the demo.
 ## Scenario 1 — deploy docker to Linux + macOS
 
 **Goal:** `lore deploy docker` installs and verifies Docker on macOS (`Darwin`) and
-Linux (`Linux.Debian` / `Linux.Fedora`) through the lore packaging model.
+Linux (`Debian` / `Fedora`) through the lore packaging model.
 
 **How lore adapts (NOT `plan.choose`):** lore runs `detectPlatform()` and
 `registry.Resolve(name, platform)` to pick the script set — flat root scripts for
 cross-platform packages (e.g. terraform), `<Platform>/<Action>/` directories for
 platform-partitioned packages (e.g. `docker/Darwin/Deploy/`,
-`docker/Linux.Debian/Deploy/`; distro is part of the token, `Linux.Debian` vs
+`docker/Debian/Deploy/`; distro is part of the token, `Linux.Debian` vs
 `Linux.Fedora`). Each phase script is `def <phase>(package, phase):` and registers
 `plan.*` invocations; **lore assembles the `op.Graph` and executes it from Go**
 (`cmd/lore/lore/builder.go` `Planner.buildPackageNodes` → executor → receipt). The
 author never branches on platform; feature toggles (`package.has_feature("rootless")`)
 are immediate package-metadata branches.
+
+> **Changed by #944, 2026-09-30** ([plan](../feature/944-one-selector-api-writ-and-lore.md)): lore selects a package's
+> platform directories with `pkg/selector`, along the host's chain, `Common` first, and runs every applicable
+> directory's phase script, general to specific: on Ubuntu, `Common`, `Unix`, `Linux`, `Debian`, `Ubuntu`.
+> `detectPlatform()` and the platform token (`Linux.Debian` vs `Linux.Fedora` above) are gone, and
+> `Registry.Resolve(name)` takes no platform. The directories `Linux.Debian` and `Linux.Fedora` are now `Debian` and
+> `Fedora`; a `Linux.Debian/`, which names two links of the chain, is a grammar error that refuses the package. The
+> rules are [Selectors](../../guides/selectors.md).
 
 **NOT on this scenario's path:** `plan.choose` (criterion 12 / step 13) — adaptation
 is directory resolution, not a Starlark conditional — and the Starlark `plan.run`
@@ -92,7 +100,7 @@ end-to-end** (see [phase-8/graph-immutability.md](phase-8/graph-immutability.md)
 - lore deploy end-to-end: resolve → `detectPlatform()` → `registry.Resolve` →
   `buildPackageNodes` → executor → receipt.
 - Rewrite the stale registry scripts to the current API:
-  `../devlore-registry/packages/docker/Darwin/Deploy/*` and `.../Linux.Debian/Deploy/*`.
+  `../devlore-registry/packages/docker/Darwin/Deploy/*` and `.../Debian/Deploy/*`.
 - Close the planned primitives the docker scripts flag: `platform.arch`,
   `plan.download(url, dest)`, planned `plan.file.remove`, `phase.env(...)`.
 - Receipt verify status: `docker --version` matches `lifecycle.yaml`'s

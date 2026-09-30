@@ -12,6 +12,13 @@ parent: ../../phase-8.md
 > repair was chartered, and [#774](https://github.com/NobleFactor/devlore-cli/issues/774) landed it: the
 > command is `writ reconcile` again. The text below is kept as the record of the original decision.
 
+> **Changed by #944, 2026-09-30** ([plan](../../../feature/944-one-selector-api-writ-and-lore.md)): `pkg/platform`'s
+> `Token` and `DetectToken` are gone, with `token_test.go`, and so is `lore.detectPlatform`. Selection is
+> `pkg/selector`'s: writ and lore detect the host with `selector.Detect`, which follows os-release's `ID_LIKE`
+> lineage, and select their directories along the host's chain. The one vocabulary item 4 ruled lives there, and the
+> dotted token below is no longer a name: a directory names one link of the chain, `Debian`, not `Linux.Debian`. The
+> rules are [Selectors](../../../../guides/selectors.md).
+
 **Chartered 2026-07-15** from the settled design in [writ-deploy-family.md](../writ-deploy-family.md) (nine settled
 items, no open questions; the design round ran 2026-07-15). This is the deploy-family crater formerly tracked as
 "step 33 slice C" — chartered as its own step per step 33's ruling that the crater needs its own spec.

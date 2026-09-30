@@ -3,10 +3,18 @@ title: "Docker devlore Package — a clean-slate rewrite that proves the lifecyc
 issue: TBD
 status: draft
 created: 2026-08-26
-updated: 2026-08-26
+updated: 2026-09-30
 ---
 
 # Plan: Docker devlore Package
+
+> **Changed by #944, 2026-09-30** ([plan](feature/944-one-selector-api-writ-and-lore.md)): this plan's `Linux.Debian`
+> directories, phases and scenarios are now `Debian`, and `Linux.Fedora` is `Fedora`. lore selects a package's
+> platform directories along the host's chain, `Common` first, and runs every applicable directory's phase script,
+> general to specific: on Ubuntu, `Common`, `Unix`, `Linux`, `Debian`, `Ubuntu`. So `Debian/` serves Debian and
+> Ubuntu alike, and a `Linux.Debian/`, which names two links of the chain, is a grammar error that refuses the
+> package. The package being replaced is described under Current State as it was on 2026-08-26. The rules are
+> [Selectors](../guides/selectors.md).
 
 ## Summary
 
@@ -99,7 +107,7 @@ These were decided in session. Each is overturnable; none is a discovery.
    present. Colima being scriptable makes it a far easier install to automate, but that is a
    consequence, not the reason.
 3. **MacPorts before Homebrew.** `Install-Dependencies` tries `port` first and falls back to `brew`.
-4. **`Linux.Fedora` is not in this package.** No dnf in the router. Driving it through
+4. **`Fedora` is not in this package.** No dnf in the router. Driving it through
    `plan.shell.exec` would work but forfeits receipts, which would defeat the decommission proof.
    Chartered separately.
 5. **`Windows` is not in this pass.** `winget` is wired, so it is viable later; it is simply not
@@ -220,12 +228,12 @@ Each scenario states preconditions, the graph the phase scripts contribute, the 
 verification, and postconditions. A scenario is proven when it runs end to end on a disposable
 target and its postconditions hold.
 
-### Scenario 1 — Deploy Docker on Linux.Debian
+### Scenario 1 — Deploy Docker on Debian
 
 **Precondition**: a Debian or Ubuntu host with no Docker present, and no Docker apt repository
 configured. Distribution packages (`docker.io`, `podman-docker`, …) may or may not be installed.
 
-**Prepare** — `Linux.Debian/Deploy/prepare.star`
+**Prepare** — `Debian/Deploy/prepare.star`
 
 1. Remove the seven conflicting packages, each guarded so absence is not an error:
    `containerd`, `docker-compose`, `docker-compose-v2`, `docker-doc`, `docker.io`,
@@ -235,7 +243,7 @@ configured. Distribution packages (`docker.io`, `podman-docker`, …) may or may
    distribution codename, `Signed-By:` pointing at the keyring.
 4. `plan.pkg.update()`.
 
-**Install** — `Linux.Debian/Deploy/install.star`
+**Install** — `Debian/Deploy/install.star`
 
 `plan.pkg.install(["containerd.io", "docker-buildx-plugin", "docker-ce", "docker-ce-cli",
 "docker-compose-plugin", "lshw"])`.
@@ -243,7 +251,7 @@ configured. Distribution packages (`docker.io`, `podman-docker`, …) may or may
 `lshw` is not a Docker dependency. It is installed because verification is hardware-gated, and the
 bash installs it for exactly that reason.
 
-**Provision** — `Linux.Debian/Deploy/provision.star`
+**Provision** — `Debian/Deploy/provision.star`
 
 `plan.service.enable("docker")` then `plan.service.start("docker")`.
 
@@ -279,7 +287,7 @@ ODROID hardware lacking the boot argument.
 **Receipts produced**: one per removed conflict, one per installed package, one for `enable`, one
 for `start`.
 
-### Scenario 2 — Upgrade Docker on Linux.Debian
+### Scenario 2 — Upgrade Docker on Debian
 
 **Precondition**: Scenario 1 has run; a trace exists supplying the from-state.
 
@@ -299,7 +307,7 @@ the service is still enabled and running.
 therefore an *addition* to what the bash does, and is the first place the package is more precise
 than its source.
 
-### Scenario 3 — Decommission Docker on Linux.Debian
+### Scenario 3 — Decommission Docker on Debian
 
 **Precondition**: Scenario 1 has run and its receipts are durable.
 
@@ -446,13 +454,13 @@ moment it is written, and the runtime-detection branch is exercised immediately 
 - [ ] Scenario 5
 - [ ] Record what each scenario actually did, and correct this document
 
-### Phase 5: Linux.Debian
+### Phase 5: Debian
 
 - [ ] `Deploy/prepare.star`, `Deploy/install.star`, `Deploy/provision.star`
 - [ ] `Upgrade/prepare.star`, `Upgrade/install.star`
 - [ ] Decommission: prove it needs no scripts, or write the minimum that compensation cannot express
 
-### Phase 6: Prove Linux.Debian
+### Phase 6: Prove Debian
 
 - [ ] Scenarios 1–3 against a disposable Debian target
 - [ ] Record what each scenario actually did, and correct this document
@@ -464,7 +472,7 @@ moment it is written, and the runtime-detection branch is exercised immediately 
 | `devlore-registry/packages/docker/**` | Delete | Clean slate; user performs the deletion |
 | `devlore-registry/packages/docker/lifecycle.yaml` | Create | Manifest rewritten from the bash |
 | `devlore-registry/packages/docker/README.md` | Create | Tribal knowledge, sourced and dated |
-| `devlore-registry/packages/docker/Linux.Debian/**` | Create | Deploy and Upgrade phases |
+| `devlore-registry/packages/docker/Debian/**` | Create | Deploy and Upgrade phases |
 | `devlore-registry/packages/docker/Darwin/**` | Create | Deploy and Upgrade phases |
 
 ## Related Documents
