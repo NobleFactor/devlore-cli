@@ -86,18 +86,18 @@ The issue's `## Plan and design documents` row links this plan on `develop`, whe
 
 ### Phase 2: The fix and its tests (#959)
 
-- [ ] Requirement 2's tests, run against the current code: they fail
-- [ ] Requirement 1 in `detect.go`: the tests pass
-- [ ] Requirement 3
-- [ ] `gofmt`; `make test`; CI's quality gate (`make vet-all`, `./build/star lint go ./...`, `make lint-all`)
+- [x] Requirement 2's tests, run against the current code: they fail
+- [x] Requirement 1 in `detect.go`: the tests pass
+- [x] Requirement 3
+- [x] `gofmt`; `make test`; CI's quality gate (`make vet-all`, `./build/star lint go ./...`, `make lint-all`)
 
 ### Phase 3: PR B's owed ticks
 
-- [ ] Requirement 5
+- [x] Requirement 5
 
 ### Phase 4: Merge
 
-- [ ] PR script written, shown, and handed over. The PR resolves #959
+- [x] PR script written, shown, and handed over. The PR resolves #959
 - [ ] After the merge, DANOBLE-UD24-1 converges (agent rule 5): the official pre-release from the site's
       `install.sh`, then `writ deploy`; the new graph records `DISTRO: Ubuntu`, and no link is added
 - [ ] The other session is told that #959 has merged, and that #944 touches `cmd/writ/writ/segment` and `pkg/platform`
