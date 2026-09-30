@@ -12,6 +12,8 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
+// init announces the Sources dependent type to the receiver registry, with the metadata of every
+// method and property it offers. Registration happens on import.
 func init() {
 	op.AnnounceType(reflect.TypeFor[provider.Sources](), map[string]op.MethodMetadata{
 		"Analyze": {ParameterNames: []string{"cfg"}},

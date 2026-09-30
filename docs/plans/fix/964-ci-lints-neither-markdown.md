@@ -265,9 +265,16 @@ interpolates the method name, so what is generated is specific rather than fille
 func Test{{.name}}Action_DryRun(t *testing.T) {
 ```
 
-- [ ] The three templates carry a doc comment on every function they emit.
-- [ ] `make generate` run, and the regenerated files committed.
-- [ ] `star lint go-style` reports **778 fewer** violations, and no generated file was edited by hand.
+- [x] **Six** templates, not three -- the plan undercounted. `receiver_type.gen_test.go.template` (377),
+      `action.gen_test.go.template` (239), `module.gen_test.go.template` (116),
+      `provider.gen.go.template` (29), `resource.gen.go.template` (8) and
+      `dependent_type.gen.go.template` (9). 377+239+116+29+8+9 = 778, exactly.
+- [x] **`make generate` was not enough, and that is a finding.** The codegen rules depend on each provider's
+      source, not on the templates, so editing a template marks nothing stale and `make generate` reported
+      only the inventories. `make regenerate` exists for exactly this -- *"Regenerate every generated file
+      from scratch, ignoring mtimes"* -- and it touched the sources and rewrote 131 files.
+- [x] `star lint go-style` reports **774 fewer** -- 4,701 to 3,927 -- and not one generated file was edited by
+      hand. The estimate was 778; four of them were in files the regeneration left byte-identical.
 
 **This phase needs neither #938 nor `--fix`**, which is why it is first: it was sitting behind a dependency
 that does not apply to it.
@@ -282,10 +289,21 @@ compelling argument.
 its purpose, and the 2,293 missing ones are worth writing -- and does not need the sections. Every file stays
 linted.
 
-- [ ] `star lint go-style` requires a doc comment on a test function and not the sections, configured rather
-      than special-cased in code.
-- [ ] The rule is stated in the Go style guide, so the config is not the only place it lives.
-- [ ] 1,608 violations resolved without a file leaving the gate.
+- [x] Implemented in `goast/source_file.go` as `SourceFile.isTestEntryPoint`, checked by `CheckCompliance`.
+      **In code, not config**: `CheckCompliance` takes no configuration today, and inventing a knob for one
+      rule would have been a bigger change than the rule. 5,455 to 4,701 -- **754 cleared**, not the 756
+      estimated.
+- [ ] The rule is stated in the Go style guide, so the code is not the only place it lives. **That guide is
+      `noblefactor-ops/docs/guides/go-style-guidelines.md`, a different repository**, so it is a separate pull
+      request there and not this one -- one repository at a time.
+- [x] **754** resolved without a file leaving the gate. The figure was 1,608 until the boundary was measured:
+      that lumped test-file HELPERS in with framework entry points, and a helper keeps the full rule --
+      `lineOf(t, path, number)` has parameters worth documenting. 303 Parameters and 259 Returns on test-file
+      helpers remain debt.
+- [x] `TestCheckComplianceExemptsTestEntryPoints` keeps the exemption narrow, six cases: an entry point needs
+      no Parameters; Benchmark, Fuzz and Example count too; an entry point still needs a doc comment; a
+      helper in a test file is NOT exempt; a `Test`-prefixed function in ordinary source is NOT exempt; and
+      an entry point that returns something still needs Returns.
 
 #### Phase 4c: the sweep -- waits on #938
 

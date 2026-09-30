@@ -14,6 +14,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
+// TestActionNames asserts every announced goast action name is a registered constant.
 func TestActionNames(t *testing.T) {
 
 	names := []op.ActionName{
@@ -44,6 +45,7 @@ func TestActionNames(t *testing.T) {
 	}
 }
 
+// TestRegister asserts registering the goast provider announces exactly its expected actions.
 func TestRegister(t *testing.T) {
 
 	expected := []op.ActionName{
@@ -71,6 +73,7 @@ func TestRegister(t *testing.T) {
 	}
 }
 
+// TestCallableAction_DryRun asserts Callable plans and narrates without executing.
 func TestCallableAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Callable)
@@ -94,6 +97,7 @@ func TestCallableAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestCallsAction_DryRun asserts Calls plans and narrates without executing.
 func TestCallsAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Calls)
@@ -117,6 +121,7 @@ func TestCallsAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestCheckLineWidthAction_DryRun asserts CheckLineWidth plans and narrates without executing.
 func TestCheckLineWidthAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.CheckLineWidth)
@@ -140,6 +145,7 @@ func TestCheckLineWidthAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestCompositesAction_DryRun asserts Composites plans and narrates without executing.
 func TestCompositesAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Composites)
@@ -163,6 +169,7 @@ func TestCompositesAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestConstGroupsAction_DryRun asserts ConstGroups plans and narrates without executing.
 func TestConstGroupsAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.ConstGroups)
@@ -186,6 +193,7 @@ func TestConstGroupsAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestDepsAction_DryRun asserts Deps plans and narrates without executing.
 func TestDepsAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Deps)
@@ -209,6 +217,7 @@ func TestDepsAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestFormatAction_DryRun asserts Format plans and narrates without executing.
 func TestFormatAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Format)
@@ -232,6 +241,7 @@ func TestFormatAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestFuncsAction_DryRun asserts Funcs plans and narrates without executing.
 func TestFuncsAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Funcs)
@@ -255,6 +265,7 @@ func TestFuncsAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestLoadSourceFileAction_DryRun asserts LoadSourceFile plans and narrates without executing.
 func TestLoadSourceFileAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.LoadSourceFile)
@@ -278,6 +289,7 @@ func TestLoadSourceFileAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestMethodsAction_DryRun asserts Methods plans and narrates without executing.
 func TestMethodsAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Methods)
@@ -301,6 +313,7 @@ func TestMethodsAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestMetricsAction_DryRun asserts Metrics plans and narrates without executing.
 func TestMetricsAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Metrics)
@@ -324,6 +337,7 @@ func TestMetricsAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestRawStringAction_DryRun asserts RawString plans and narrates without executing.
 func TestRawStringAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.RawString)
@@ -347,6 +361,7 @@ func TestRawStringAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestRenderAction_DryRun asserts Render plans and narrates without executing.
 func TestRenderAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Render)
@@ -370,6 +385,7 @@ func TestRenderAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestReturnStringAction_DryRun asserts ReturnString plans and narrates without executing.
 func TestReturnStringAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.ReturnString)
@@ -393,6 +409,7 @@ func TestReturnStringAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestReturnStringsAction_DryRun asserts ReturnStrings plans and narrates without executing.
 func TestReturnStringsAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.ReturnStrings)
@@ -416,6 +433,7 @@ func TestReturnStringsAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestSortDeclarationsAction_DryRun asserts SortDeclarations plans and narrates without executing.
 func TestSortDeclarationsAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.SortDeclarations)
@@ -439,6 +457,7 @@ func TestSortDeclarationsAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestStructsAction_DryRun asserts Structs plans and narrates without executing.
 func TestStructsAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Structs)
@@ -462,6 +481,7 @@ func TestStructsAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestTypeDocAction_DryRun asserts TypeDoc plans and narrates without executing.
 func TestTypeDocAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.TypeDoc)
@@ -485,6 +505,7 @@ func TestTypeDocAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestCompensableActions_UndoNil asserts every compensable goast action tolerates a nil undo.
 func TestCompensableActions_UndoNil(t *testing.T) {
 
 	ctx := newCtx(t)

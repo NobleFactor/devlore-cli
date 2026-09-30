@@ -14,6 +14,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
+// TestActionNames asserts every announced commands action name is a registered constant.
 func TestActionNames(t *testing.T) {
 
 	names := []op.ActionName{
@@ -33,6 +34,7 @@ func TestActionNames(t *testing.T) {
 	}
 }
 
+// TestRegister asserts registering the commands provider announces exactly its expected actions.
 func TestRegister(t *testing.T) {
 
 	expected := []op.ActionName{
@@ -49,6 +51,7 @@ func TestRegister(t *testing.T) {
 	}
 }
 
+// TestChildrenAction_DryRun asserts Children plans and narrates without executing.
 func TestChildrenAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Children)
@@ -72,6 +75,7 @@ func TestChildrenAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestCurrentAction_DryRun asserts Current plans and narrates without executing.
 func TestCurrentAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Current)
@@ -95,6 +99,7 @@ func TestCurrentAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestGetAction_DryRun asserts Get plans and narrates without executing.
 func TestGetAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Get)
@@ -118,6 +123,7 @@ func TestGetAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestParentAction_DryRun asserts Parent plans and narrates without executing.
 func TestParentAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Parent)
@@ -141,6 +147,7 @@ func TestParentAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestQueryAction_DryRun asserts Query plans and narrates without executing.
 func TestQueryAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Query)
@@ -164,6 +171,7 @@ func TestQueryAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestRunAction_DryRun asserts Run plans and narrates without executing.
 func TestRunAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Run)
@@ -187,6 +195,7 @@ func TestRunAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestSiblingsAction_DryRun asserts Siblings plans and narrates without executing.
 func TestSiblingsAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Siblings)
@@ -210,6 +219,7 @@ func TestSiblingsAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestCompensableActions_UndoNil asserts every compensable commands action tolerates a nil undo.
 func TestCompensableActions_UndoNil(t *testing.T) {
 
 	ctx := newCtx(t)

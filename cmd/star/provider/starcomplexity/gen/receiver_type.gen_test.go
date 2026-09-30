@@ -21,6 +21,12 @@ import (
 )
 
 // providerReceiverType returns the ProviderReceiverType for the provider under test.
+//
+// Parameters:
+//   - `t`: the test, whose Fatal ends it when the type is not registered.
+//
+// Returns:
+//   - `op.ProviderReceiverType`: the registered provider type.
 func providerReceiverType(t *testing.T) op.ProviderReceiverType {
 
 	t.Helper()
@@ -38,6 +44,12 @@ func providerReceiverType(t *testing.T) op.ProviderReceiverType {
 // newCtx creates a test context with a discarding status narrator. Use when the test does not
 // assert on what was narrated; for narration-asserting tests, use [dryRunCtx] which returns the
 // captured-bytes buffer alongside the context.
+//
+// Parameters:
+//   - `t`: the test.
+//
+// Returns:
+//   - `*op.RuntimeEnvironment`: a context whose narration is discarded.
 func newCtx(t *testing.T) *op.RuntimeEnvironment {
 
 	t.Helper()
@@ -55,6 +67,13 @@ func newCtx(t *testing.T) *op.RuntimeEnvironment {
 // against the returned buffer. Dry-run is set via the [application.Application]'s Flags map under the
 // canonical snake-case key "dry_run" (normalized from cobra's "dry-run" at
 // [application.NewApplication] time); the framework reads it via [application.Application.DryRun].
+//
+// Parameters:
+//   - `t`: the test.
+//
+// Returns:
+//   - `*op.RuntimeEnvironment`: a dry-run context.
+//   - `*bytes.Buffer`: what its narrator wrote.
 func dryRunCtx(t *testing.T) (*op.RuntimeEnvironment, *bytes.Buffer) {
 
 	t.Helper()
@@ -70,6 +89,13 @@ func dryRunCtx(t *testing.T) (*op.RuntimeEnvironment, *bytes.Buffer) {
 }
 
 // getAction retrieves a named action from the registry via RuntimeEnvironment.
+//
+// Parameters:
+//   - `t`: the test, whose Fatalf ends it when the action is absent.
+//   - `name`: the action to retrieve.
+//
+// Returns:
+//   - `op.Action`: the registered action.
 func getAction(t *testing.T, name op.ActionName) op.Action {
 
 	t.Helper()
@@ -82,6 +108,13 @@ func getAction(t *testing.T, name op.ActionName) op.Action {
 }
 
 // getCompensable retrieves a named compensable action.
+//
+// Parameters:
+//   - `t`: the test, whose Fatalf ends it when the action does not compensate.
+//   - `name`: the action to retrieve.
+//
+// Returns:
+//   - `op.CompensableAction`: the registered action, as a compensable one.
 func getCompensable(t *testing.T, name op.ActionName) op.CompensableAction {
 
 	t.Helper()
@@ -93,6 +126,7 @@ func getCompensable(t *testing.T, name op.ActionName) op.CompensableAction {
 	return ca
 }
 
+// TestReceiverType_Name asserts the starcomplexity provider is registered under its own name.
 func TestReceiverType_Name(t *testing.T) {
 
 	rt := providerReceiverType(t)
@@ -101,6 +135,7 @@ func TestReceiverType_Name(t *testing.T) {
 	}
 }
 
+// TestReceiverType_ProviderType asserts the registered type is the starcomplexity provider's own.
 func TestReceiverType_ProviderType(t *testing.T) {
 
 	rt := providerReceiverType(t)
@@ -110,6 +145,7 @@ func TestReceiverType_ProviderType(t *testing.T) {
 	}
 }
 
+// TestReceiverType_Methods asserts every announced starcomplexity method is registered, and no other.
 func TestReceiverType_Methods(t *testing.T) {
 
 	rt := providerReceiverType(t)

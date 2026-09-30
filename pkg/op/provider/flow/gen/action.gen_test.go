@@ -14,6 +14,7 @@ import (
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/flow/gen"
 )
 
+// TestActionNames asserts every announced flow action name is a registered constant.
 func TestActionNames(t *testing.T) {
 
 	names := []op.ActionName{
@@ -33,6 +34,7 @@ func TestActionNames(t *testing.T) {
 	}
 }
 
+// TestRegister asserts registering the flow provider announces exactly its expected actions.
 func TestRegister(t *testing.T) {
 
 	expected := []op.ActionName{
@@ -49,6 +51,7 @@ func TestRegister(t *testing.T) {
 	}
 }
 
+// TestChooseAction_DryRun asserts Choose plans and narrates without executing.
 func TestChooseAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Choose)
@@ -72,6 +75,7 @@ func TestChooseAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestCompleteAction_DryRun asserts Complete plans and narrates without executing.
 func TestCompleteAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Complete)
@@ -95,6 +99,7 @@ func TestCompleteAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestDegradedAction_DryRun asserts Degraded plans and narrates without executing.
 func TestDegradedAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Degraded)
@@ -118,6 +123,7 @@ func TestDegradedAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestFailedAction_DryRun asserts Failed plans and narrates without executing.
 func TestFailedAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Failed)
@@ -141,6 +147,7 @@ func TestFailedAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestGatherAction_DryRun asserts Gather plans and narrates without executing.
 func TestGatherAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Gather)
@@ -164,6 +171,7 @@ func TestGatherAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestSubgraphAction_DryRun asserts Subgraph plans and narrates without executing.
 func TestSubgraphAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Subgraph)
@@ -187,6 +195,7 @@ func TestSubgraphAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestWaitUntilAction_DryRun asserts WaitUntil plans and narrates without executing.
 func TestWaitUntilAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.WaitUntil)
@@ -210,26 +219,31 @@ func TestWaitUntilAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestChooseAction_CompensableInterface asserts Choose satisfies op.CompensableAction.
 func TestChooseAction_CompensableInterface(t *testing.T) {
 
 	_ = getCompensable(t, provider.Choose)
 }
 
+// TestGatherAction_CompensableInterface asserts Gather satisfies op.CompensableAction.
 func TestGatherAction_CompensableInterface(t *testing.T) {
 
 	_ = getCompensable(t, provider.Gather)
 }
 
+// TestSubgraphAction_CompensableInterface asserts Subgraph satisfies op.CompensableAction.
 func TestSubgraphAction_CompensableInterface(t *testing.T) {
 
 	_ = getCompensable(t, provider.Subgraph)
 }
 
+// TestWaitUntilAction_CompensableInterface asserts WaitUntil satisfies op.CompensableAction.
 func TestWaitUntilAction_CompensableInterface(t *testing.T) {
 
 	_ = getCompensable(t, provider.WaitUntil)
 }
 
+// TestCompensableActions_UndoNil asserts every compensable flow action tolerates a nil undo.
 func TestCompensableActions_UndoNil(t *testing.T) {
 
 	ctx := newCtx(t)

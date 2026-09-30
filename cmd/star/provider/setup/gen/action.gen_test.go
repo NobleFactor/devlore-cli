@@ -14,6 +14,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
+// TestActionNames asserts every announced setup action name is a registered constant.
 func TestActionNames(t *testing.T) {
 
 	names := []op.ActionName{
@@ -33,6 +34,7 @@ func TestActionNames(t *testing.T) {
 	}
 }
 
+// TestRegister asserts registering the setup provider announces exactly its expected actions.
 func TestRegister(t *testing.T) {
 
 	expected := []op.ActionName{
@@ -49,6 +51,7 @@ func TestRegister(t *testing.T) {
 	}
 }
 
+// TestCheckHookAction_DryRun asserts CheckHook plans and narrates without executing.
 func TestCheckHookAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.CheckHook)
@@ -72,6 +75,7 @@ func TestCheckHookAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestInitConfigAction_DryRun asserts InitConfig plans and narrates without executing.
 func TestInitConfigAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.InitConfig)
@@ -95,6 +99,7 @@ func TestInitConfigAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestInstallHookAction_DryRun asserts InstallHook plans and narrates without executing.
 func TestInstallHookAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.InstallHook)
@@ -118,6 +123,7 @@ func TestInstallHookAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestPrecommitCheckAction_DryRun asserts PrecommitCheck plans and narrates without executing.
 func TestPrecommitCheckAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.PrecommitCheck)
@@ -141,6 +147,7 @@ func TestPrecommitCheckAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestPrecommitInstallAction_DryRun asserts PrecommitInstall plans and narrates without executing.
 func TestPrecommitInstallAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.PrecommitInstall)
@@ -164,6 +171,7 @@ func TestPrecommitInstallAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestToolsAction_DryRun asserts Tools plans and narrates without executing.
 func TestToolsAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Tools)
@@ -187,6 +195,7 @@ func TestToolsAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestUninstallHookAction_DryRun asserts UninstallHook plans and narrates without executing.
 func TestUninstallHookAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.UninstallHook)
@@ -210,6 +219,7 @@ func TestUninstallHookAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestCompensableActions_UndoNil asserts every compensable setup action tolerates a nil undo.
 func TestCompensableActions_UndoNil(t *testing.T) {
 
 	ctx := newCtx(t)

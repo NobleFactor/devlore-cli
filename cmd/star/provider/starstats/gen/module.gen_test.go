@@ -15,6 +15,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op/starlarkbridge"
 )
 
+// TestModule_AttrNames asserts the starstats module advertises exactly its announced attributes.
 func TestModule_AttrNames(t *testing.T) {
 	r, err := starlarkbridge.NewGoReceiver(provider.NewProvider(newCtx(t)))
 	if err != nil {
@@ -31,6 +32,7 @@ func TestModule_AttrNames(t *testing.T) {
 	}
 }
 
+// TestModule_Attr asserts every advertised starstats attribute resolves.
 func TestModule_Attr(t *testing.T) {
 	r, err := starlarkbridge.NewGoReceiver(provider.NewProvider(newCtx(t)))
 	if err != nil {
@@ -48,6 +50,7 @@ func TestModule_Attr(t *testing.T) {
 	}
 }
 
+// TestModule_Attr_Unknown asserts an attribute the starstats module does not have is an error.
 func TestModule_Attr_Unknown(t *testing.T) {
 
 	var r starlark.HasAttrs
@@ -62,6 +65,7 @@ func TestModule_Attr_Unknown(t *testing.T) {
 	}
 }
 
+// TestModule_Type asserts the starstats module reports its own Starlark type name.
 func TestModule_Type(t *testing.T) {
 	r, err := starlarkbridge.NewGoReceiver(provider.NewProvider(newCtx(t)))
 	if err != nil {

@@ -14,6 +14,7 @@ import (
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/regex/gen"
 )
 
+// TestActionNames asserts every announced regex action name is a registered constant.
 func TestActionNames(t *testing.T) {
 
 	names := []op.ActionName{
@@ -34,6 +35,7 @@ func TestActionNames(t *testing.T) {
 	}
 }
 
+// TestRegister asserts registering the regex provider announces exactly its expected actions.
 func TestRegister(t *testing.T) {
 
 	expected := []op.ActionName{
@@ -51,6 +53,7 @@ func TestRegister(t *testing.T) {
 	}
 }
 
+// TestFindAction_DryRun asserts Find plans and narrates without executing.
 func TestFindAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Find)
@@ -74,6 +77,7 @@ func TestFindAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestFindAllAction_DryRun asserts FindAll plans and narrates without executing.
 func TestFindAllAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.FindAll)
@@ -97,6 +101,7 @@ func TestFindAllAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestFindAllSubmatchAction_DryRun asserts FindAllSubmatch plans and narrates without executing.
 func TestFindAllSubmatchAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.FindAllSubmatch)
@@ -120,6 +125,7 @@ func TestFindAllSubmatchAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestFindSubmatchAction_DryRun asserts FindSubmatch plans and narrates without executing.
 func TestFindSubmatchAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.FindSubmatch)
@@ -143,6 +149,7 @@ func TestFindSubmatchAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestMatchAction_DryRun asserts Match plans and narrates without executing.
 func TestMatchAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Match)
@@ -166,6 +173,7 @@ func TestMatchAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestReplaceAction_DryRun asserts Replace plans and narrates without executing.
 func TestReplaceAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Replace)
@@ -189,6 +197,7 @@ func TestReplaceAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestReplaceLiteralAction_DryRun asserts ReplaceLiteral plans and narrates without executing.
 func TestReplaceLiteralAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.ReplaceLiteral)
@@ -212,6 +221,7 @@ func TestReplaceLiteralAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestSplitAction_DryRun asserts Split plans and narrates without executing.
 func TestSplitAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Split)
@@ -235,6 +245,7 @@ func TestSplitAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestCompensableActions_UndoNil asserts every compensable regex action tolerates a nil undo.
 func TestCompensableActions_UndoNil(t *testing.T) {
 
 	ctx := newCtx(t)

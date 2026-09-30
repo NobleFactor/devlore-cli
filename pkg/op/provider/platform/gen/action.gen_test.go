@@ -14,6 +14,7 @@ import (
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/platform/gen"
 )
 
+// TestActionNames asserts every announced platform action name is a registered constant.
 func TestActionNames(t *testing.T) {
 
 	names := []op.ActionName{
@@ -31,6 +32,7 @@ func TestActionNames(t *testing.T) {
 	}
 }
 
+// TestRegister asserts registering the platform provider announces exactly its expected actions.
 func TestRegister(t *testing.T) {
 
 	expected := []op.ActionName{
@@ -45,6 +47,7 @@ func TestRegister(t *testing.T) {
 	}
 }
 
+// TestArchAction_DryRun asserts Arch plans and narrates without executing.
 func TestArchAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Arch)
@@ -68,6 +71,7 @@ func TestArchAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestDistroAction_DryRun asserts Distro plans and narrates without executing.
 func TestDistroAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Distro)
@@ -91,6 +95,7 @@ func TestDistroAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestHostnameAction_DryRun asserts Hostname plans and narrates without executing.
 func TestHostnameAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Hostname)
@@ -114,6 +119,7 @@ func TestHostnameAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestOSAction_DryRun asserts OS plans and narrates without executing.
 func TestOSAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.OS)
@@ -137,6 +143,7 @@ func TestOSAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestVersionAction_DryRun asserts Version plans and narrates without executing.
 func TestVersionAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Version)
@@ -160,6 +167,7 @@ func TestVersionAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestCompensableActions_UndoNil asserts every compensable platform action tolerates a nil undo.
 func TestCompensableActions_UndoNil(t *testing.T) {
 
 	ctx := newCtx(t)

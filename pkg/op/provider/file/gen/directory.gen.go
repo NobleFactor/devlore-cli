@@ -12,6 +12,8 @@ import (
 	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )
 
+// init announces the Directory resource to the receiver registry, with the discovery function that
+// turns an identity into one. Registration happens on import.
 func init() {
 	op.AnnounceResource(
 		reflect.TypeFor[provider.Directory](),

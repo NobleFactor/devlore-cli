@@ -14,6 +14,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
+// TestActionNames asserts every announced lint action name is a registered constant.
 func TestActionNames(t *testing.T) {
 
 	names := []op.ActionName{
@@ -31,6 +32,7 @@ func TestActionNames(t *testing.T) {
 	}
 }
 
+// TestRegister asserts registering the lint provider announces exactly its expected actions.
 func TestRegister(t *testing.T) {
 
 	expected := []op.ActionName{
@@ -45,6 +47,7 @@ func TestRegister(t *testing.T) {
 	}
 }
 
+// TestEnsureToolsAction_DryRun asserts EnsureTools plans and narrates without executing.
 func TestEnsureToolsAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.EnsureTools)
@@ -68,6 +71,7 @@ func TestEnsureToolsAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestGoAction_DryRun asserts Go plans and narrates without executing.
 func TestGoAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Go)
@@ -91,6 +95,7 @@ func TestGoAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestMarkdownAction_DryRun asserts Markdown plans and narrates without executing.
 func TestMarkdownAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Markdown)
@@ -114,6 +119,7 @@ func TestMarkdownAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestShellAction_DryRun asserts Shell plans and narrates without executing.
 func TestShellAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Shell)
@@ -137,6 +143,7 @@ func TestShellAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestStarlarkAction_DryRun asserts Starlark plans and narrates without executing.
 func TestStarlarkAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Starlark)
@@ -160,6 +167,7 @@ func TestStarlarkAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestCompensableActions_UndoNil asserts every compensable lint action tolerates a nil undo.
 func TestCompensableActions_UndoNil(t *testing.T) {
 
 	ctx := newCtx(t)

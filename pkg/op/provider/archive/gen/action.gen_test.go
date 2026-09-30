@@ -14,6 +14,7 @@ import (
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/archive/gen"
 )
 
+// TestActionNames asserts every announced archive action name is a registered constant.
 func TestActionNames(t *testing.T) {
 
 	names := []op.ActionName{
@@ -28,6 +29,7 @@ func TestActionNames(t *testing.T) {
 	}
 }
 
+// TestRegister asserts registering the archive provider announces exactly its expected actions.
 func TestRegister(t *testing.T) {
 
 	expected := []op.ActionName{
@@ -39,6 +41,7 @@ func TestRegister(t *testing.T) {
 	}
 }
 
+// TestExtractAction_DryRun asserts Extract plans and narrates without executing.
 func TestExtractAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.Extract)
@@ -62,6 +65,7 @@ func TestExtractAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestExtractStreamAction_DryRun asserts ExtractStream plans and narrates without executing.
 func TestExtractStreamAction_DryRun(t *testing.T) {
 
 	action := getAction(t, provider.ExtractStream)
@@ -85,16 +89,19 @@ func TestExtractStreamAction_DryRun(t *testing.T) {
 	}
 }
 
+// TestExtractAction_CompensableInterface asserts Extract satisfies op.CompensableAction.
 func TestExtractAction_CompensableInterface(t *testing.T) {
 
 	_ = getCompensable(t, provider.Extract)
 }
 
+// TestExtractStreamAction_CompensableInterface asserts ExtractStream satisfies op.CompensableAction.
 func TestExtractStreamAction_CompensableInterface(t *testing.T) {
 
 	_ = getCompensable(t, provider.ExtractStream)
 }
 
+// TestCompensableActions_UndoNil asserts every compensable archive action tolerates a nil undo.
 func TestCompensableActions_UndoNil(t *testing.T) {
 
 	ctx := newCtx(t)
