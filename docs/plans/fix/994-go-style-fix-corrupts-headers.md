@@ -1,7 +1,7 @@
 ---
 title: "star lint go-style --fix corrupts what it rewrites, and the copyright checker cannot see it"
 issue: https://github.com/NobleFactor/devlore-cli/issues/994
-status: draft
+status: active
 created: 2026-09-30
 updated: 2026-09-30
 ---
@@ -286,20 +286,64 @@ without the document every sibling has is how the catalog came to skip a number 
 
 ### Phase 1: the plan
 
-- [ ] This document is reviewed and approved
-- [ ] Committed before any other change on this branch
+- [x] This document is reviewed and approved -- 2026-09-30
+- [x] Committed before any other change on this branch
 
-### Phase 2: the fixer stops damaging files (#994)
+### Phase 2: the fixer stops damaging files (#994) -- COMPLETE
 
-- [ ] A test pins that `--fix` preserves every byte it did not come to change, on a fixture whose header is
-      the canonical two lines
-- [ ] `--fix` preserves the two-line header; the test above fails before the change and passes after
-- [ ] A test pins that `--fix` emits no `TODO(go-style)` anywhere, on a fixture whose functions it cannot
-      summarize
-- [ ] `--fix` leaves a violation standing rather than writing a placeholder
-- [ ] The `TODO(go-style)` text is removed from the source, not merely made unreachable
-- [ ] `star lint go-style` over the repository still reports **3,859** -- this phase clears no violations and
-      must not appear to
+- [x] A test pins that `--fix` preserves every byte it did not come to change, on a fixture whose header is
+      the canonical two lines -- `TestSaveAsPreservesTheHeaderByteForByte`, plus
+      `TestSaveAsKeepsVerbatimCommentsVerbatim` over all four verbatim styles
+- [x] `--fix` preserves the two-line header; the tests fail before the change and pass after. **Proved on
+      the two files that were measured corrupted**, `pkg/sops/detect.go` and `pkg/sops/locate_test.go`
+- [x] A test pins that `--fix` emits no `TODO(go-style)` anywhere -- `TestFixWritesNoPlaceholder`
+- [x] `--fix` leaves a violation standing rather than writing a placeholder --
+      `TestFixLeavesTheViolationReportable` asserts the outcome rather than the absence, so deleting the
+      placeholder and emitting an empty doc comment instead would still fail
+- [x] The `TODO(go-style)` text is removed from the source: `makeStubParagraph`, `makeHeaderParagraph` and
+      `makeStubList` are deleted, not made unreachable
+- [x] The violation count is **unchanged in what is detected**, which is what this box was protecting.
+      Recorded below, because the criterion as originally written -- "still reports 3,859" -- was not
+      satisfiable and would have been wrong to force.
+
+**What was actually wrong, and it was one contract broken in one place.** Four `CommentStyle` constants
+already say "Verbatim", and `Cleanup` already honors that by declining to style them. `SaveAs` did not: it
+sent every `CommentDecl` through `renderDoc`, which is `go/doc/comment`'s prose printer, and a prose printer
+reflows. Two adjacent comment lines are one paragraph; a paragraph that fits the width budget comes back as
+one line. The rule was respected on the way in and broken on the way out. `renderCommentDecl` now dispatches
+on style, and `renderVerbatim` emits `cd.cg`'s lines as parsed -- `ast.Comment.Text` the field, not
+`ast.CommentGroup.Text()` the method, since stripping markers is what the caller is being protected from.
+
+Copyright was the case that was measured, but it was never the only victim: delineators, region markers and
+section headers were all being reflowed too. They survived in practice only because each sits alone between
+blank lines, so reflow had nothing to merge.
+
+**A third defect surfaced while testing, unmeasured before:** `--fix` turned **1 violation into 2**.
+`CheckCompliance` checks for `Parameters:` and `Returns:` only when a doc comment exists, so writing the stub
+satisfied the first check and unmasked two more. The placeholder did not merely silence the real violation,
+it inflated the count.
+
+**The count: 3,859 to 3,850, and every one of the nine is named.**
+
+| Where | HEAD | Now | Why |
+| --- | ---: | ---: | --- |
+| `production.go` | 30 | 25 | the three deleted stub producers, five violations between them |
+| `production_test.go` | 18 | 15 | two renamed tests gained doc comments; one test was folded into another and deleted |
+| `source_file_test.go` | 12 | 11 | one renamed test gained a doc comment |
+
+Measured by running go-style over a detached worktree at HEAD and diffing the reports per violation, not per
+count. **Nothing was introduced** -- the "reported now but not at HEAD" set is empty -- and the three new
+files contribute zero violations. Decisively: the **old binary and the new binary both report 3,850 on the
+new tree**, so detection is unchanged and the delta is source edits alone. `star lint go-style` never runs
+the styler, so it could not have been otherwise, and measuring it beat assuming it.
+
+**Found while reconciling those nine, and not fixed here:** the section check is
+`strings.Contains(text, "Parameters:")`, so a doc comment that merely MENTIONS the string satisfies it.
+`makeHeaderParagraph`'s own comment reads `(e.g., "Parameters:")` and was therefore never reported as missing
+that section. Twelve comment lines in the repository mention `Parameters:` or `Returns:` outside a section
+header -- an inline `// Returns: the expanded path`, a generic's `// Type Parameters:` -- so the count is a
+small undercount. Same class of defect as #997: a substring where a structure is meant. Filed separately
+rather than folded in, because fixing it raises the count and this phase must not move it.
 
 ### Phase 3: the whole header becomes a configured template (#997)
 

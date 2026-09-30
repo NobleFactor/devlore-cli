@@ -321,7 +321,7 @@ func (sf *SourceFile) SaveAs(path string) error {
 				if prevKind != "" {
 					b.WriteString("\n\n")
 				}
-				b.WriteString(renderDoc(cd.doc, width))
+				b.WriteString(renderCommentDecl(cd, width))
 				if cd.style == StylePackageDoc {
 					hasPackageDoc = true
 				}
@@ -379,7 +379,7 @@ func (sf *SourceFile) emitDeclNode(b *strings.Builder, decl Decl, width int) {
 	case *GenDeclNode:
 		sf.emitDecl(b, d.comment, d.code, width)
 	case *CommentDecl:
-		b.WriteString(renderDoc(d.doc, width))
+		b.WriteString(renderCommentDecl(d, width))
 	}
 }
 

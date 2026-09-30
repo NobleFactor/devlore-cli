@@ -94,7 +94,15 @@ func TestItemProduction_ZeroOrMore_Empty(t *testing.T) {
 	}
 }
 
-func TestItemProduction_RequiredMissing(t *testing.T) {
+// TestItemProduction_RequiredMissingEmitsNothing pins that a required element with nothing to say emits
+// nothing, leaving the violation visible.
+//
+// This test asserted the opposite until 2026-09-30: it required exactly one block reading
+// `Backup TODO(go-style): add summary`. That placeholder made `comment.present` true, so the compliance
+// check stopped reporting the missing doc comment -- 2,057 of them across this repository would have been
+// silenced by filler and the tree reported clean (#994). A summary is prose; it cannot be derived from a
+// name.
+func TestItemProduction_RequiredMissingEmitsNothing(t *testing.T) {
 	blocks := []comment.Block{
 		makeList("not a paragraph"),
 	}
@@ -106,15 +114,11 @@ func TestItemProduction_RequiredMissing(t *testing.T) {
 	}
 
 	output, next := prod.Execute(blocks, 0, elem, styleContext{name: "Backup"})
-	if len(output) != 1 {
-		t.Fatalf("expected 1 stub block, got %d", len(output))
+	if len(output) != 0 {
+		t.Fatalf("expected no blocks, got %d: %v", len(output), output)
 	}
 	if next != 0 {
 		t.Errorf("expected cursor unchanged at 0, got %d", next)
-	}
-	text := paragraphPlainText(output[0].(*comment.Paragraph))
-	if text != "Backup TODO(go-style): add summary" {
-		t.Errorf("unexpected stub: %q", text)
 	}
 }
 
@@ -239,7 +243,19 @@ func TestListProduction_ConditionFalse(t *testing.T) {
 	}
 }
 
-func TestListProduction_RequiredStub(t *testing.T) {
+// TestListProduction_RequiredMissingEmitsNothing pins that a required slots element with nothing found emits
+// nothing rather than a header over placeholder items.
+//
+// Until 2026-09-30 this asserted two blocks: a `Parameters:` header and a list of
+// `<name>: TODO(go-style): add description` items. The compliance check for that section is
+// `strings.Contains(text, "Parameters:")`, so the header alone satisfied it and the violation vanished while
+// nothing was documented (#994).
+//
+// The parameter NAMES were real -- taken from the signature through `ctx.paramNames` -- and that is worth
+// keeping when it can be kept. What a parameter MEANS is not in its type, so a section with true names and
+// no descriptions would still pass a check that looks only for the header. Emitting one therefore waits on
+// the check requiring a description per item rather than a header per section, which is devlore-cli#938.
+func TestListProduction_RequiredMissingEmitsNothing(t *testing.T) {
 	blocks := []comment.Block{
 		makeParagraph("Some other text."),
 	}
@@ -258,22 +274,28 @@ func TestListProduction_RequiredStub(t *testing.T) {
 		t.Fatalf("NewProduction: %v", err)
 	}
 
-	ctx := styleContext{name: "Backup", paramNames: []string{"path", "suffix"}}
-	output, next := prod.Execute(blocks, 0, elem, ctx)
-	if len(output) != 2 {
-		t.Fatalf("expected 2 stub blocks (heading + list), got %d", len(output))
-	}
-	if next != 0 {
-		t.Errorf("expected cursor unchanged (stubs inserted, input not consumed), got %d", next)
-	}
+	// One parameter and two, because the deleted TestListProduction_SingleParamStub covered the one-parameter
+	// case separately and its only distinct assertion was the stub list's item count. There is no list now,
+	// so the two cases differ in nothing -- which is the thing worth asserting.
+	for _, testCase := range []struct {
+		name       string
+		paramNames []string
+	}{
+		{name: "one parameter", paramNames: []string{"v"}},
+		{name: "two parameters", paramNames: []string{"path", "suffix"}},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
 
-	// Verify stub list has items for each param.
-	list, ok := output[1].(*comment.List)
-	if !ok {
-		t.Fatal("expected List as second output block")
-	}
-	if len(list.Items) != 2 {
-		t.Fatalf("expected 2 list items, got %d", len(list.Items))
+			ctx := styleContext{name: "Backup", paramNames: testCase.paramNames}
+			output, next := prod.Execute(blocks, 0, elem, ctx)
+
+			if len(output) != 0 {
+				t.Fatalf("expected no blocks, got %d: %v", len(output), output)
+			}
+			if next != 0 {
+				t.Errorf("expected cursor unchanged (nothing emitted, input not consumed), got %d", next)
+			}
+		})
 	}
 }
 
@@ -338,45 +360,6 @@ func TestItemProduction_SplitSentence_SingleSentence(t *testing.T) {
 	}
 	if next != 1 {
 		t.Errorf("expected cursor at 1 (no remainder), got %d", next)
-	}
-}
-
-func TestListProduction_SingleParamStub(t *testing.T) {
-	// No heading, no list — just a paragraph that doesn't match the header.
-	blocks := []comment.Block{
-		makeParagraph("Unrelated text."),
-	}
-
-	elem := doctaxonomy.SchemaElement{
-		Name:       "parameters",
-		Production: "list",
-		Header:     "Parameters:",
-		Condition:  "params",
-		Required:   "if_condition",
-		Slots:      "params",
-		Consumes:   "List",
-	}
-	prod, err := NewProduction(elem)
-	if err != nil {
-		t.Fatalf("NewProduction: %v", err)
-	}
-
-	ctx := styleContext{name: "NewAccessor", paramNames: []string{"v"}}
-	output, next := prod.Execute(blocks, 0, elem, ctx)
-	if len(output) != 2 {
-		t.Fatalf("expected 2 stub blocks (heading + list), got %d", len(output))
-	}
-	if next != 0 {
-		t.Errorf("expected cursor unchanged (stubs inserted, input not consumed), got %d", next)
-	}
-
-	// Verify stub list has one item.
-	list, ok := output[1].(*comment.List)
-	if !ok {
-		t.Fatal("expected List as second output block")
-	}
-	if len(list.Items) != 1 {
-		t.Fatalf("expected 1 list item, got %d", len(list.Items))
 	}
 }
 

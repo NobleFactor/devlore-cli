@@ -434,24 +434,30 @@ func TestSourceFile_AllStyles_RoundTrip(t *testing.T) {
 		}
 	}
 
-	// --- Undocumented func gets TODO stub ---
+	// --- An undocumented func stays undocumented, so the violation stays reportable ---
+	//
+	// These two assertions were inverted until 2026-09-30: they required a doc comment to EXIST after
+	// Cleanup, which it did only because the styler wrote `<name> TODO(go-style): add summary`. That
+	// satisfied the compliance check and made the missing-doc-comment violation disappear -- 2,057 of them
+	// across this repository (#994). A summary is prose and cannot be derived from a name, so the styler
+	// leaves the declaration bare and the linter keeps asking.
 
 	undocMethod := sf2.GetType("Provider").GetMethod("Undocumented")
 	if undocMethod == nil {
 		t.Fatal("Undocumented method not found in re-parsed tree")
 	}
-	if undocMethod.Comment().Text() == nil {
-		t.Error("Undocumented method should have a doc comment after Cleanup (TODO stub)")
+	if undocMethod.Comment().Text() != nil {
+		t.Errorf("the styler invented a doc comment for an undocumented method: %v",
+			undocMethod.Comment().Text())
 	}
-
-	// --- Undocumented top-level func gets TODO stub ---
 
 	helperFunc := sf2.GetFunc("helper")
 	if helperFunc == nil {
 		t.Fatal("helper func not found in re-parsed tree")
 	}
-	if helperFunc.Comment().Text() == nil {
-		t.Error("helper func should have a doc comment after Cleanup (TODO stub)")
+	if helperFunc.Comment().Text() != nil {
+		t.Errorf("the styler invented a doc comment for an undocumented func: %v",
+			helperFunc.Comment().Text())
 	}
 
 	t.Logf("Promise:\n%s", got)
@@ -473,7 +479,18 @@ func nobleFactorRegistry() *doctaxonomy.SchemaRegistry {
 	return reg
 }
 
-func TestSourceFile_SingleParamFunction_GetsParametersStub(t *testing.T) {
+// TestSourceFile_SingleParamFunction_GetsNoInventedSections pins that a function documented with a summary
+// but no sections keeps the violation rather than gaining invented ones.
+//
+// Until 2026-09-30 this required `Parameters:` and `Returns:` to appear after Cleanup, which they did as a
+// header over items reading `<name>: TODO(go-style): add description`. The compliance check for a section is
+// `strings.Contains(text, "Parameters:")`, so the header alone satisfied it and the violation vanished (#994).
+//
+// The parameter names were real, taken from the signature. What a parameter MEANS is not in its type, so a
+// section with true names and no descriptions still passes a check that looks only for the header. Emitting
+// one therefore waits on the check requiring a description per item -- devlore-cli#938 -- and until then the
+// sections are not invented.
+func TestSourceFile_SingleParamFunction_GetsNoInventedSections(t *testing.T) {
 	src := `package example
 
 // NewAccessor creates a Accessor for the given value.
@@ -506,11 +523,19 @@ type Accessor struct{}
 	}
 	got := string(result)
 
-	if !strings.Contains(got, "Parameters:") {
-		t.Errorf("expected Parameters section with TODO stub\n---OUTPUT---\n%s", got)
+	if strings.Contains(got, "Parameters:") {
+		t.Errorf("the styler invented a Parameters section it had no descriptions for\n---OUTPUT---\n%s", got)
 	}
-	if !strings.Contains(got, "Returns:") {
-		t.Errorf("expected Returns section with TODO stub\n---OUTPUT---\n%s", got)
+	if strings.Contains(got, "Returns:") {
+		t.Errorf("the styler invented a Returns section it had no descriptions for\n---OUTPUT---\n%s", got)
+	}
+	if strings.Contains(got, "TODO(go-style)") {
+		t.Errorf("the styler wrote a placeholder\n---OUTPUT---\n%s", got)
+	}
+
+	// The summary it was given survives, so this is about not INVENTING, never about discarding.
+	if !strings.Contains(got, "NewAccessor creates a Accessor for the given value.") {
+		t.Errorf("the styler lost the summary the source already had\n---OUTPUT---\n%s", got)
 	}
 
 	t.Logf("Promise:\n%s", got)

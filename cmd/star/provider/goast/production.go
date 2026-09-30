@@ -68,11 +68,13 @@ func (p *itemProduction) Execute(
 		count++
 	}
 
-	// If required and nothing matched, emit a stub.
-	if count == 0 && elem.Required == "true" {
-		stub := makeStubParagraph(ctx.name)
-		output = append(output, stub)
-	}
+	// Nothing matched. A required element with nothing to say emits NOTHING, so the violation stays visible
+	// for a person to answer. This used to emit `<name> TODO(go-style): add summary`, which made
+	// `comment.present` true and the violation disappear -- 2,057 of them across this repository, silenced by
+	// filler and reported clean (#994).
+	//
+	// A summary is prose. It cannot be derived from a name, and pretending otherwise is what made the gate
+	// satisfiable by a placeholder.
 
 	return output, pos
 }
@@ -168,10 +170,16 @@ func (p *listProduction) Execute(
 		}
 	}
 
-	// If we found nothing and the element is required, emit stubs.
-	if len(output) == 0 && (elem.Required == "true" || elem.Required == "if_condition") {
-		output = append(output, makeHeaderParagraph(elem.Header), makeStubList(ctx, elem))
-	}
+	// Nothing found. A required slots element emits NOTHING rather than a header over items reading
+	// `<name>: TODO(go-style): add description`. The header alone satisfies the compliance check, which is
+	// `strings.Contains(text, "Parameters:")`, so the filler silenced the violation exactly as the summary
+	// stub did (#994).
+	//
+	// The parameter NAMES are derivable -- they were taken from `ctx.paramNames` and `ctx.returnTypes`, which
+	// come from the signature. What a parameter MEANS is not in its type, so the description cannot be. A
+	// section carrying real names and no descriptions would still pass a check that only looks for the
+	// header, which is why emitting one waits on the compliance check requiring a description per item
+	// rather than a header per section. That is devlore-cli#938's territory, not this phase's.
 
 	return output, pos
 }
@@ -280,47 +288,6 @@ func splitSentence(text string) (first, remainder string) {
 		}
 	}
 	return text, ""
-}
-
-// makeStubParagraph creates a TODO stub paragraph for a missing required element.
-func makeStubParagraph(name string) *comment.Paragraph {
-	text := name + " TODO(go-style): add summary"
-	return &comment.Paragraph{
-		Text: []comment.Text{comment.Plain(text)},
-	}
-}
-
-// makeHeaderParagraph creates a paragraph containing just a section header (e.g., "Parameters:").
-func makeHeaderParagraph(header string) *comment.Paragraph {
-	return &comment.Paragraph{
-		Text: []comment.Text{comment.Plain(header)},
-	}
-}
-
-// makeStubList creates a stub list with TODO items for each slot name.
-func makeStubList(ctx styleContext, elem doctaxonomy.SchemaElement) *comment.List {
-	var names []string
-	switch elem.Slots {
-	case "params":
-		names = ctx.paramNames
-	case "returns":
-		names = ctx.returnTypes
-	}
-
-	list := &comment.List{}
-	for _, name := range names {
-		item := &comment.ListItem{
-			Content: []comment.Block{
-				&comment.Paragraph{
-					Text: []comment.Text{
-						comment.Plain(name + ": TODO(go-style): add description"),
-					},
-				},
-			},
-		}
-		list.Items = append(list.Items, item)
-	}
-	return list
 }
 
 // NewProduction creates a Production from a schema element's production type and consumes string.
