@@ -11,7 +11,7 @@ graph = plan.assemble_definition([
     plan.pkg.install(packages=["curl"], manager="", cask=False),
     plan.pkg.remove(packages=["curl"], manager="", cask=False),
     plan.pkg.upgrade(packages=["curl"], manager="", cask=False),
-    plan.pkg.update(manager=""),
+    plan.pkg.update(),
     plan.pkg.installed(name="curl"),
     plan.pkg.not_installed(name="curl"),
     plan.pkg.version_gte(name="curl", version="1.0"),

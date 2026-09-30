@@ -11,6 +11,21 @@ lint:
       - "**/vendor"
       - "wiki/**"
 
+  # `lint.starlark` excludes ONE path, and it is not a blanket testdata exemption: every other .star file
+  # in this repository is checked, including the 11 extension commands and the 112 devlore-test scripts.
+  #
+  # docker-package is devlore-registry/packages/docker at cc87c4f0, preserved verbatim because it exists
+  # nowhere else. Its whole purpose is to contain the 57 defects the checker must report -- 23
+  # plan.package.* calls against a namespace that does not exist, 30 plan.verify( calls against a method no
+  # provider has, and four Upgrade/install.star files naming a Deploy phase. Requiring the regression
+  # corpus to be free of the defects it exists to hold would delete the test.
+  #
+  # It is not unchecked, only not gated here: TestCheckFixtureMatchesInventory asserts the checker reports
+  # exactly those 57 rows and no others, which is a stricter claim than "reports nothing" (devlore-cli#721).
+  starlark:
+    exclude:
+      - cmd/star/provider/lint/testdata/docker-package
+
 # The repositories `star gh issues report` spans by default, and the issues the classification audit
 # exempts by decision (#65 is deliberately outside the scheme). See noblefactor-ops#140.
 gh:

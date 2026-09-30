@@ -121,6 +121,17 @@ jobs:
       - name: Lint Shell
         run: ./build/star lint shell .
 
+      # A step of quality-gate, not a job of its own: this repository's ruleset requires exactly one check by
+      # that name, so a separate job could not block a merge whatever it reported. Same reasoning as the
+      # PowerShell steps below, from #964.
+      #
+      # This is the step that would have caught devlore-registry's docker package -- 40 .star files calling
+      # seven APIs that do not exist, passing every gate there was because nothing read a .star file's
+      # contents. The checker is embedded, so there is no tool to install, and buildifier, which is
+      # installable, would have caught none of them (#721).
+      - name: Lint Starlark
+        run: ./build/star lint starlark .
+
       - name: Code metrics
         run: |
           go install github.com/boyter/scc/v3@latest
