@@ -1,0 +1,90 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# The installers, run as a user runs them, on every platform they serve (#950, #965). Its own workflow: ci.yaml is
+# the quality gate's, and these jobs have nothing to build. The tests are scripts, and run by hand too:
+# scripts/Test-InstallScript.sh for install.sh and scripts/Test-InstallScript.ps1 for install.ps1. Each installs the
+# newest release into a scratch account, so what a pull request tests is its own installer against what users get.
+name: Installers
+
+on:
+  push:
+    branches:
+      - develop
+      - main
+      - 'release/*'
+    paths:
+      - install.sh
+      - install.ps1
+      - scripts/Test-InstallScript.sh
+      - scripts/Test-InstallScript.ps1
+      - .github/workflows/installers.yaml
+      - .github/workflows/release.yaml
+  pull_request:
+    branches:
+      - develop
+      - main
+      - 'release/*'
+    paths:
+      - install.sh
+      - install.ps1
+      - scripts/Test-InstallScript.sh
+      - scripts/Test-InstallScript.ps1
+      - .github/workflows/installers.yaml
+      - .github/workflows/release.yaml
+
+permissions:
+  contents: read
+
+jobs:
+  install-sh:
+    name: install.sh (${{ matrix.platform }})
+    # The runners of ci.yaml's scenario matrix, one for each archive install.sh fetches. On macOS the test runs the
+    # installer with macOS's own tools, whatever the image adds to PATH.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: darwin-arm64, os: macos-latest }
+          - { platform: darwin-amd64, os: macos-15-intel }
+          - { platform: linux-amd64, os: ubuntu-latest }
+          - { platform: linux-arm64, os: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.os }}
+    # bash, not the runner default, which is `bash -e {0}` without pipefail (see ci.yaml's quality-gate).
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test install.sh
+        env:
+          # The installer sends it to GitHub's API, which then allows the job more than 60 requests an hour.
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/Test-InstallScript.sh
+
+  install-ps1:
+    name: install.ps1 (${{ matrix.platform }})
+    # Both Windows runners, under both editions: Windows PowerShell 5.1 is what a fresh Windows machine has (#948).
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { platform: windows-amd64, os: windows-latest }
+          - { platform: windows-arm64, os: windows-11-arm }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test install.ps1 under Windows PowerShell 5.1
+        shell: powershell
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/Test-InstallScript.ps1
+
+      - name: Test install.ps1 under PowerShell 7
+        # Runs whatever 5.1 found: the two editions fail differently, and each is worth seeing.
+        if: ${{ !cancelled() }}
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/Test-InstallScript.ps1

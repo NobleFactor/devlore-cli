@@ -10,7 +10,7 @@ All CI/CD automation lives in `.github/workflows/`:
 |----------|------|----------|--------------|
 | **CI** | `ci.yaml` | Push to `develop`, PRs to `develop` | Build, vet, lint, test, shell lint |
 | **Docs Publish** | `docs-publish.yaml` | Push to `develop`, `main`, `release/*` | Generates CLI docs, copies guides, creates PR to website |
-| **Release** | `release.yaml` | Push to `develop`, `main`, `release/*`, tags `v*` | Builds binaries, creates GitHub release, syncs `install.sh` to website |
+| **Release** | `release.yaml` | Push to `develop`, `main`, `release/*`, tags `v*` | Builds binaries, creates GitHub release, syncs `install.sh` and `install.ps1` to website |
 | **Sync Knowledge** | `sync-knowledge.yaml` | Push to `develop`, `main`, `release/*` (paths: `internal/starlark/**`, `internal/writ/migrate/**`) | Syncs Starlark bindings and migration knowledge to devlore-registry |
 
 ### Workflow Details
@@ -26,20 +26,22 @@ All CI/CD automation lives in `.github/workflows/`:
 - Creates PR to `devlore.noblefactor.com` with content in `src/content/cli/` and `src/content/guides/`
 - Uses `NOBLEFACTOR_AUTOMATION` org secret
 
-**release.yaml** - Binary releases and install script sync:
+**release.yaml** - Binary releases and installer sync:
 - Builds cross-platform binaries via `make dist`
 - Creates GitHub Release (prerelease for develop/release/*, full release for tags)
-- Syncs `install.sh` to website via PR
-- Uses `SITE_DEPLOY_TOKEN` secret for website access, `GITHUB_TOKEN` for releases
+- Syncs `install.sh` and `install.ps1` to the website's `public/` via PR: its `develop` for develop runs, its `main` for
+  `main` and tag runs, and the same `release/*` branch for release runs
+- Uses a NobleFactor automation GitHub App token (`NOBLEFACTOR_AUTOMATION_APP_ID`,
+  `NOBLEFACTOR_AUTOMATION_APP_PRIVATE_KEY`) for the website, and `GITHUB_TOKEN` for the release
 
 ### What Happens on Push
 
 | Push to... | ci.yaml | docs-publish.yaml | release.yaml |
 |------------|---------|-------------------|--------------|
-| `develop` | Runs | Creates docs PR | Creates prerelease, syncs install.sh |
-| `main` | — | Creates docs PR | Creates RC release, syncs install.sh |
-| `release/*` | — | Creates docs PR | Creates RC release, syncs install.sh |
-| `v*` tag | — | — | Creates full release |
+| `develop` | Runs | Creates docs PR | Creates prerelease, syncs both installers |
+| `main` | — | Creates docs PR | Creates RC release, syncs both installers |
+| `release/*` | — | Creates docs PR | Creates RC release, syncs both installers |
+| `v*` tag | — | — | Creates full release, syncs both installers |
 | PR to `develop` | Runs | — | — |
 
 ## Branch Strategy
@@ -195,13 +197,12 @@ For apt/yum repos, consider services like Gemfury or Packagecloud.
 
 ## Local Testing
 
-To test the install script locally:
+The installers always download from GitHub Releases; nothing overrides where. To try a change to one before it
+merges, run it from the working tree into a scratch prefix, with the XDG directories in scratch so no real
+registration changes:
 
 ```bash
-# Start a local server
-cd /path/to/devlore.noblefactor.com/public
-python3 -m http.server 8888
-
-# Run install script with local override
-DEVLORE_DOWNLOAD_BASE="http://localhost:8888/releases" bash install.sh
+scratch=$(mktemp -d)
+XDG_CONFIG_HOME=$scratch/config XDG_DATA_HOME=$scratch/data XDG_STATE_HOME=$scratch/state XDG_CACHE_HOME=$scratch/cache \
+  bash install.sh --prefix="$scratch/prefix" --personal=<path>
 ```
