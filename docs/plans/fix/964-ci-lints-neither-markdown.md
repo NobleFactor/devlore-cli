@@ -325,6 +325,12 @@ hand.** Only the last is unavoidable prose.
 
 ## Issue 989
 
+**The design governs this, and I did not read it first.** `docs/architecture/9-star-extensions.md` defines four
+scopes and says which tool writes each. The first fix committed here added a fifth search path derived from the
+running binary -- which serves no scope, and looked for a payload `star self install` should never write. It was
+reverted, and the design document is corrected in this branch rather than left stale behind the commit that made
+it so (rule 12, one commit late).
+
 `star` installs its extensions where it does not search. Found 2026-09-30 while tracing why a template edit
 produced no regenerated output, and fixed on this branch because it was found here -- a worktree may resolve
 more than one issue.
@@ -336,16 +342,12 @@ coincidence. Any other -- `/opt/devlore`, a container prefix -- installed somewh
 
 | Defect | Fix |
 | --- | --- |
-| No exe-relative search path, so only `~/.local` and `/usr/local` were ever found | The loader derives `<dir of star>/../share/devlore/star/extensions` from `os.Executable()`. The binary lands at `$PREFIX/bin/star`, so that one probe IS the install target for every prefix. The installer already had the same arithmetic at `root.go:382` |
+| ~~No exe-relative search path~~ **withdrawn** | A probe derived from the binary was implemented, committed, and reverted. It served no scope in the design: `self install` should write no extensions, so there is no prefix payload to find. Accommodating that payload instead of reading the design that forbids it is what produced it. The payload itself is [#990](https://github.com/NobleFactor/devlore-cli/issues/990) |
 | `findExtensionsDir()` resolved its source from the **working directory** | It now uses `config.GitWorkspaceRoot()`, which is what the loader already used one file away, and which handles a linked worktree's `.git` file |
 | `/usr/local/share` was a string literal and `xdg.DataDirs()` was never called | The system probes come from `xdg.DataDirs()`, so `/usr/share` is searched and `XDG_DATA_DIRS` is honored. The specification's user half was already respected here; its system half was not |
 | `Source` labels were assigned by array index, so `${XDG_DATA_HOME}/star/extensions` reported as `system` | `sourceOf` classifies a path by what it is. Adding probes would otherwise have shifted every later label |
 
-Prior art converges on deriving from the binary and letting the environment override: git's `--exec-path`,
-Python's `sys.prefix`, Go's `GOROOT`, clang's resource directory, and the XDG specification itself.
-
-**Tests.** `TestDefaultSearchPaths_FindsAnInstallUnderAnyPrefix` is the regression test the issue asks for --
-a prefix that is neither of the two the old list knew. `TestSourceOf` pins the labels, including that an
+**Tests.** `TestSourceOf` pins the labels, including that an
 install into a prefix under `$HOME` is the user's. `TestDefaultSearchPaths_HasNoDuplicates` covers the
 overlap the longer list creates, since an exe-relative path for a `~/.local` install names the same
 directory `XDG_DATA_HOME` does.

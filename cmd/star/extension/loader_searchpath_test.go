@@ -13,39 +13,14 @@ import (
 	"github.com/NobleFactor/devlore-cli/cmd/star/config"
 )
 
-// exeRelativePath is the search path derived from the running binary, computed the way
-// [defaultSearchPaths] computes it.
-//
-// A test cannot predict it -- under `go test` it is the test binary's temporary directory -- so it is
-// derived rather than hardcoded. What the tests pin is its POSITION and shape; that it is right for a real
-// install is [TestDefaultSearchPaths_FindsAnInstallUnderAnyPrefix]'s job.
-//
-// Parameters:
-//   - `t`: the test.
-//
-// Returns:
-//   - `string`: the exe-relative extensions directory.
-func exeRelativePath(t *testing.T) string {
-
-	t.Helper()
-
-	exe, err := os.Executable()
-	if err != nil {
-		t.Fatalf("os.Executable: %v", err)
-	}
-
-	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
-		exe = resolved
-	}
-
-	return filepath.Clean(filepath.Join(filepath.Dir(filepath.Dir(exe)), "share", "devlore", "star", "extensions"))
-}
-
 // TestDefaultSearchPaths_PrefersTheDevlorePaths pins the probe order star's scopes resolve in.
 //
 // star is one of devlore's products, so its data lives under devlore/ like writ's (#918). The paths without
 // it are what releases before that carried; each is probed after its replacement, so a machine holding both
 // prefers the new one, and nothing breaks before writ redeploys or star is reinstalled. They go in #920.
+//
+// A path derived from the running binary is deliberately absent: it served no scope, and `self install`
+// writes no extensions for it to find (#990).
 //
 // The exe-relative probe sits second, after the repository and ahead of every installed location: a star run
 // from a checkout uses that checkout, and otherwise uses the tree it was installed into (#989).
@@ -62,7 +37,6 @@ func TestDefaultSearchPaths_PrefersTheDevlorePaths(t *testing.T) {
 
 	expected := []string{
 		filepath.Join(root, "star", "extensions"),
-		exeRelativePath(t),
 		filepath.Join(root, "data", "devlore", "star", "extensions"),
 		filepath.Join(root, "data", "star", "extensions"),
 		filepath.Join(root, "sys", "devlore", "star", "extensions"),
@@ -88,7 +62,6 @@ func TestDefaultSearchPaths_OutsideARepositoryHasNoProjectScope(t *testing.T) {
 	paths := defaultSearchPaths()
 
 	expected := []string{
-		exeRelativePath(t),
 		filepath.Join(root, "data", "devlore", "star", "extensions"),
 		filepath.Join(root, "data", "star", "extensions"),
 		filepath.Join(root, "sys", "devlore", "star", "extensions"),
@@ -103,31 +76,6 @@ func TestDefaultSearchPaths_OutsideARepositoryHasNoProjectScope(t *testing.T) {
 		if filepath.Base(path) != "extensions" {
 			t.Errorf("a probe that is not an extensions directory: %s", path)
 		}
-	}
-}
-
-// TestDefaultSearchPaths_FindsAnInstallUnderAnyPrefix is #989's regression test.
-//
-// `self install` writes to `$PREFIX/share/devlore/star/extensions`. Before the exe-relative probe, the
-// search list matched exactly two prefixes -- `~/.local` through XDG_DATA_HOME, and `/usr/local` through a
-// string literal -- so an install to any other prefix went somewhere nothing looked, while `make install`
-// reported success.
-//
-// The binary lands at `$PREFIX/bin/star`, so the exe-relative probe IS the install target whatever the
-// prefix was. This asserts the arithmetic on a prefix that is neither of the two the old list knew.
-func TestDefaultSearchPaths_FindsAnInstallUnderAnyPrefix(t *testing.T) {
-
-	prefix := filepath.Join(t.TempDir(), "opt", "devlore")
-
-	// Where self install would put the binary, and where it would put the extensions.
-	binary := filepath.Join(prefix, "bin", "star")
-	installed := filepath.Join(prefix, "share", "devlore", "star", "extensions")
-
-	// The same arithmetic defaultSearchPaths does: up from the binary, then share/devlore/star/extensions.
-	derived := filepath.Join(filepath.Dir(filepath.Dir(binary)), "share", "devlore", "star", "extensions")
-
-	if derived != installed {
-		t.Errorf("an install to %q would not be found:\n  derived:   %s\n  installed: %s", prefix, derived, installed)
 	}
 }
 

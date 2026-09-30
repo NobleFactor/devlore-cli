@@ -227,17 +227,18 @@ func (l *Loader) discoverEmbedded() ([]*Extension, error) {
 
 // defaultSearchPaths returns the standard directories to search for extensions, in precedence order.
 //
-// # The prefix problem, and why an exe-relative path is here
+// # The scopes, and why there is no path derived from the binary
 //
-// `self install` writes to `$PREFIX/share/devlore/star/extensions`, and this list was written independently
-// of it. It matched exactly two prefixes by coincidence -- `~/.local`, via [devlore.DataPath] and only while
-// `XDG_DATA_HOME` is unset, and `/usr/local`, via a string literal. Every other prefix installed somewhere
-// nothing searched, with `make install` reporting success (#989).
+// The scopes are the design's, in `docs/architecture/9-star-extensions.md`: project for what a repository
+// builds itself with, user for what writ deploys under `${XDG_DATA_HOME}`, system for a privileged
+// machine-wide install, and embedded for packaging. Every row below serves one of them.
 //
-// The exe-relative entry fixes that for every prefix at once: the binary lands at `$PREFIX/bin/star`, so
-// `<dir of star>/../share/devlore/star/extensions` IS the install target, whatever the prefix was. This is
-// what git does for `git-core`, Python for `sys.prefix`, Go for `GOROOT` and clang for its resource
-// directory, and the installer already had the same computation at `findExtensionsDir`.
+// A path derived from the running binary -- `<dir of star>/../share/devlore/star/extensions` -- was added
+// here and removed again. It served no scope. It existed to find what `star self install` wrote to
+// `$PREFIX/share/devlore/star/extensions`, and `self install` writes no extensions at all: builtin
+// extensions are embedded and travel in the binary, and everything else is placed deliberately, by writ at
+// user scope or by the repository at project scope (#990). Searching a prefix accommodated a breach rather
+// than reading the design that forbids it.
 //
 // The system entries come from [xdg.DataDirs], which is the specification's own answer and defaults to
 // `/usr/local/share` and `/usr/share`. The literals it replaces covered the first and never the second, and
@@ -250,17 +251,9 @@ func defaultSearchPaths() []string {
 
 	var paths []string
 
-	// Project-local: the repository this star was invoked inside, which outranks anything installed.
+	// Project-local: the repository this star was invoked inside, which outranks anything deployed.
 	if root := config.GitWorkspaceRoot(); root != "" {
 		paths = append(paths, filepath.Join(root, "star", "extensions"))
-	}
-
-	// Relocatable: wherever this binary was installed to, derived from the binary itself.
-	if exe, err := os.Executable(); err == nil {
-		if resolved, err := filepath.EvalSymlinks(exe); err == nil {
-			exe = resolved
-		}
-		paths = append(paths, filepath.Join(filepath.Dir(filepath.Dir(exe)), "share", "devlore", "star", "extensions"))
 	}
 
 	// star is one of devlore's products, so its data lives under devlore/ like writ's layers and repos (#918). Its

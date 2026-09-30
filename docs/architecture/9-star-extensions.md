@@ -159,6 +159,20 @@ base-layer extension and a personal one sit in the same directory.
 
 **A repository's maintainer chooses the scope their extensions inhabit.** Ruled 2026-09-22.
 
+**Packaging: `star self install` installs no extensions.** Ruled 2026-09-30. star comes with builtin
+extensions; builtin extensions are embedded; they are maintained in the star source tree, `cmd/star/extensions/`,
+where `//go:embed com.*` takes them. Every other extension is placed deliberately -- by writ at user scope, or by
+the repository at project scope. **None of them travels with star.**
+
+The payload is therefore fixed at build time. A compile-time glob satisfies that: it cannot vary by who runs the
+binary or from where. A run-time directory read cannot, and that is the defect of #990 -- `installStarExtensions`
+resolves `<working directory repository>/star/extensions` and copies whatever is there into the install prefix, so
+the same binary installs different things depending on where it ran. The five `com.noblefactor.devlore.*`
+extensions are devlore-cli project scope and are caught by it today, codegen templates included.
+
+**The code does not yet match this section.** #990 removes `installStarExtensions` and `findExtensionsDir`;
+nothing moves, and nothing is embedded that is not already.
+
 - **Project**, for tooling that belongs to the repository and builds it. This repository's own `star/extensions` is
   project scope for exactly that reason: `make generate` calls `star devlore actions generate`, and
   `knowledge-extract.yaml` calls `devlore knowledge extract`, both from a bare checkout with nothing deployed. Moving
@@ -182,12 +196,24 @@ the highest-priority source takes precedence.
 | 1 (highest) | Project-local | `<repository root>/star/extensions/` |
 | 2 | User | `${XDG_DATA_HOME}/devlore/star/extensions/` (default `~/.local/share`) |
 | 3 | User, deprecated | `${XDG_DATA_HOME}/star/extensions/` — the pre-#918 path, removed by #920 |
-| 4 | System | `/usr/local/share/devlore/star/extensions/` |
-| 5 | System, deprecated | `/usr/local/share/star/extensions/` — the pre-#918 path, removed by #920 |
+| 4 | System | each entry of `XDG_DATA_DIRS` + `/devlore/star/extensions/` (default `/usr/local/share`, `/usr/share`) |
+| 5 | System, deprecated | each entry of `XDG_DATA_DIRS` + `/star/extensions/` — the pre-#918 paths, removed by #920 |
 | 6 (lowest) | Embedded | Compiled into the binary via `//go:embed` |
 
-The repository root is found by walking up from the working directory for a `.git` directory
-(`config.GitWorkspaceRoot`), not from an environment variable.
+The list is deduplicated, first occurrence kept: `XDG_DATA_DIRS` may repeat one of its own defaults.
+
+**There is deliberately no row derived from the running binary.** One was added and removed again: it served no
+scope, and it existed to find what `star self install` wrote to `$PREFIX/share/devlore/star/extensions`. `self
+install` writes no extensions -- see **Packaging** below -- so it searched for something that cannot be there
+(#989, #990).
+
+**Rows 5 and 6 come from `xdg.DataDirs()`**, the specification's own answer, rather than a literal. The user half of
+XDG was honored here before and the system half was not, so `/usr/share` was never searched and `XDG_DATA_DIRS` was
+ignored.
+
+The repository root is found by walking up from the working directory (`config.GitWorkspaceRoot`, which uses go-git's
+`DetectDotGit`), not from an environment variable. It resolves a linked worktree, whose `.git` is a **file** naming the
+real directory rather than a directory itself.
 
 **star's data lives under `devlore/`, like writ's** (#918): star is one of devlore's products, and its config and
 cache already said so (`~/.config/devlore/config.d/star.yaml`, `~/.cache/devlore/star`). The two deprecated rows are
