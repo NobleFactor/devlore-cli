@@ -9,7 +9,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"slices"
 	"sort"
 	"strings"
 
@@ -317,7 +316,7 @@ func appendItem(cfg *Config, groups map[string][]Item, filePath, targetRoot, pro
 }
 
 // ProjectDirectory returns the project directory's name within a scope: the project, suffixed by the platform when
-// one is named (#931): `noblefactor-ops`, `noblefactor-ops.Linux.Debian`.
+// one is named (#931): `noblefactor-ops`, `noblefactor-ops.Debian`.
 //
 // Returns:
 //   - `string`: the directory name the layer tree matches.
@@ -329,28 +328,33 @@ func (c *Config) ProjectDirectory() string {
 	return c.Project + "." + c.Platform
 }
 
-// ValidatePlatform checks a `--platform` value against the segment vocabulary the layer tree matches on this
-// platform (#931, ruled 2026-09-23: the segment vocabulary, not the lore token): each dotted part must be a value
-// the detected segments carry -- the OS (`Darwin`, `Linux`, `Windows`), its family (`Unix`), the distro, the
-// architecture -- so a suffix the deploy walk would never read cannot be minted.
+// ValidatePlatform checks a `--platform` value the way deploy will read the directory it names (#931, #944): the
+// project suffixed by the platform must pass the selector grammar -- the OS part one word of this machine's chain,
+// then the architecture, then each declared segment in configured order -- and must name this machine, so adopt
+// never creates a directory the next deploy refuses or skips.
 //
 // Parameters:
+//   - `project`: the project adopted into.
 //   - `platform`: the flag's value; "" is valid and means the platform-neutral directory.
+//   - `segs`: this machine's segments, the declared extras included.
 //
 // Returns:
-//   - `error`: non-nil, naming the vocabulary, when a part is not one the matcher knows here.
-func ValidatePlatform(platform string) error {
+//   - `error`: non-nil when the name breaks the grammar, or names another machine.
+func ValidatePlatform(project, platform string, segs segment.Segments) error {
 
 	if platform == "" {
 		return nil
 	}
 
-	known := segment.DetectSegments().AllValues()
-	for _, part := range strings.Split(platform, ".") {
-		if !slices.Contains(known, part) {
-			return fmt.Errorf("invalid --platform %q: %q is not a suffix the layer tree matches on this platform (%s)",
-				platform, part, strings.Join(known, ", "))
-		}
+	name := project + "." + platform
+	selected, grammarErrors := segs.Selector([]string{project}).Select([]string{name})
+	if len(grammarErrors) > 0 {
+		return fmt.Errorf("invalid --platform %q: %w", platform, grammarErrors[0])
+	}
+	if len(selected) == 0 {
+		host := segs.Host()
+		return fmt.Errorf("invalid --platform %q: %s doesn't name this machine, whose OS part is one of %s and whose "+
+			"architecture is %s", platform, name, strings.Join(host.Chain, ", "), host.Arch)
 	}
 	return nil
 }

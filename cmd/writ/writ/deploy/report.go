@@ -44,18 +44,20 @@ func reportContext(cfg *Config) {
 func reportCollisions(cfg *Config, collisions []tree.Collision) {
 
 	if len(cfg.LayerSources) > 0 {
-		cli.Warn("%d source collision(s) resolved by layer/specificity:", len(collisions))
-		for _, c := range collisions {
-			cli.Warn("  %s: using %s [%s] over %s [%s]",
-				c.Target, c.Winner, c.WinnerLayer, c.Loser, c.LoserLayer)
+		cli.Warn("%d source collision(s), each taken from the directory applied later:", len(collisions))
+		for i := range collisions {
+			c := &collisions[i]
+			cli.Warn("  %s: using %s (%s) [%s] over %s (%s) [%s]: %s",
+				c.Target, c.Winner, c.WinnerDir, c.WinnerLayer, c.Loser, c.LoserDir, c.LoserLayer, c.Reason)
 		}
 		return
 	}
 
-	cli.Warn("%d source collision(s) resolved by specificity:", len(collisions))
-	for _, c := range collisions {
-		cli.Warn("  %s: using %s (specificity %d) over %s (specificity %d)",
-			c.Target, c.Winner, c.WinnerSpecificity, c.Loser, c.LoserSpecificity)
+	cli.Warn("%d source collision(s), each taken from the directory applied later:", len(collisions))
+	for i := range collisions {
+		c := &collisions[i]
+		cli.Warn("  %s: using %s (%s) over %s (%s): %s", c.Target, c.Winner, c.WinnerDir, c.Loser, c.LoserDir,
+			c.Reason)
 	}
 }
 

@@ -1057,17 +1057,6 @@ func (g *Graph) packContent() ([]contentEntry, error) {
 
 // region SUPPORTING TYPES
 
-// Collision records a source conflict resolved during tree building (writ-specific).
-type Collision struct {
-	Loser             string `json:"loser" yaml:"loser"`
-	LoserLayer        string `json:"loser_layer,omitempty" yaml:"loser_layer,omitempty"`
-	LoserSpecificity  int    `json:"loser_specificity,omitempty" yaml:"loser_specificity,omitempty"`
-	Target            string `json:"target" yaml:"target"`
-	Winner            string `json:"winner" yaml:"winner"`
-	WinnerLayer       string `json:"winner_layer,omitempty" yaml:"winner_layer,omitempty"`
-	WinnerSpecificity int    `json:"winner_specificity,omitempty" yaml:"winner_specificity,omitempty"`
-}
-
 // Edge represents a dependency relationship between two nodes.
 //
 // From must complete before To can begin execution. An unguarded edge (`Guard == GuardNone`, the zero value) is a pure

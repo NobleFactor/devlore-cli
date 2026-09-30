@@ -111,8 +111,11 @@ registry:
   branch: main
 writ:
   segments:
-    - ROLE
-    - SITE
+    - name: ROLE
+      values: [desktop, server]
+      value: desktop
+    - name: SITE
+      values: [aws, home]
 `
 	configPath := filepath.Join(configDir, "config.yaml")
 	if err := os.WriteFile(configPath, []byte(configContent), 0o644); err != nil {
@@ -143,7 +146,10 @@ writ:
 		t.Errorf("expected branch 'main', got %q", cfg.Registry.Branch)
 	}
 	if len(cfg.Writ.Segments) != 2 {
-		t.Errorf("expected 2 writ segments, got %d", len(cfg.Writ.Segments))
+		t.Fatalf("expected 2 writ segments, got %d", len(cfg.Writ.Segments))
+	}
+	if role := cfg.Writ.Segments[0]; role.Name != "ROLE" || len(role.Values) != 2 || role.Value != "desktop" {
+		t.Errorf("writ.segments[0] = %+v, want ROLE, [desktop server], desktop", role)
 	}
 }
 
@@ -202,8 +208,8 @@ func TestSave_RoundTrip(t *testing.T) {
 			Branch: "develop",
 		},
 		Writ: WritConfig{
-			Segments: []string{"ROLE"},
-			Vars:     map[string]string{"ROLE": "desktop"},
+			Segments: []SegmentDeclaration{{Name: "ROLE", Values: []string{"desktop", "server"}, Value: "desktop"}},
+			Vars:     map[string]string{"USER_NAME": "Your Name"},
 		},
 	}
 

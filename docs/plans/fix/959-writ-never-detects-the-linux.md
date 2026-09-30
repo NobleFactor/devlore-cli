@@ -1,7 +1,7 @@
 ---
 title: "writ detects the Linux distribution: detectDistro reads /etc/os-release before it closes it"
 issue: https://github.com/NobleFactor/devlore-cli/issues/959
-status: active
+status: complete
 created: 2026-09-30
 updated: 2026-09-30
 ---
@@ -98,10 +98,12 @@ The issue's `## Plan and design documents` row links this plan on `develop`, whe
 ### Phase 4: Merge
 
 - [x] PR script written, shown, and handed over. The PR resolves #959
-- [ ] After the merge, DANOBLE-UD24-1 converges (agent rule 5): the official pre-release from the site's
+- [x] After the merge, DANOBLE-UD24-1 converges (agent rule 5): the official pre-release from the site's
       `install.sh`, then `writ deploy`; the new graph records `DISTRO: Ubuntu`, and no link is added
-- [ ] The other session is told that #959 has merged, and that #944 touches `cmd/writ/writ/segment` and `pkg/platform`
-      next
+      (`v0.1.0-dev.20260930024252`, 2026-09-30: graph `b6e6ee47` records `DISTRO: Ubuntu`; all 233 writ links
+      unchanged)
+- [x] The other session is told that #959 has merged, and that #944 touches `cmd/writ/writ/segment` and `pkg/platform`
+      next (2026-09-30; the owner confirmed it reached the Darwin session)
 
 ## Files
 

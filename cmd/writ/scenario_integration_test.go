@@ -495,6 +495,11 @@ func TestWritDeployScenario_Deploy(t *testing.T) {
 		if runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
 			assertLinked(t, filepath.Join(sandbox.Home, "local", "share", "scenario", "unix.conf"), "common.Unix")
 		}
+		// The selector chain (#944): common.Linux deploys on Linux; common.Debian on Debian and on every host whose
+		// os-release lineage names it (Ubuntu), and nowhere else.
+		assertPresence(t, runtime.GOOS == "linux", filepath.Join(sandbox.Home, "local", "share", "scenario", "linux.conf"))
+		debianLineage := osRelease("ID") == "debian" || contains(strings.Fields(osRelease("ID_LIKE")), "debian")
+		assertPresence(t, debianLineage, filepath.Join(sandbox.Home, "local", "share", "scenario", "debian.conf"))
 		// microsoft stays explicit-only: never deployed unless named.
 		assertAbsent(t, filepath.Join(sandbox.Home, "scenario-note.md"))
 	}
@@ -565,7 +570,7 @@ func TestWritDeployScenario_Deploy(t *testing.T) {
 		t.Fatalf("reconcile -o json is not parseable: %v\n%s", err, reconcileOut)
 	}
 	// With the implicit common project: Windows deploys the base pair + common + common.Windows (4);
-	// the unix platforms add their variants (darwin 8, linux 7).
+	// the unix platforms add their variants (darwin 8, linux 7, and 8 where the lineage names Debian).
 	minimumEntries := 6
 	if runtime.GOOS == "windows" {
 		minimumEntries = 4

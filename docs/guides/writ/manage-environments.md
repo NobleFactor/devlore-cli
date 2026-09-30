@@ -36,9 +36,11 @@ writ deploy noblefactor
 writ deploy noblefactor thenobles
 ```
 
-There is never anything to add for `common`, and a name no registered layer
-carries is refused. The deploy says which projects were implicit, which the
-record already held, and which you named.
+There is never anything to add for `common`. Naming an implicit project, naming a project twice, or naming one no
+registered layer carries is refused. The projects you name apply left to right, after the implicit ones and those the
+record held, so with `writ deploy noblefactor thenobles` a file in `thenobles` beats the same file in `noblefactor`
+within a layer; see [Selectors](/guides/selectors/#which-directories-apply-and-in-what-order). The deploy says which
+projects were implicit, which the record already held, and which you named.
 
 Each `writ deploy` invocation is one deployment. Its receipts are the record
 until the next deploy replaces it.
@@ -75,8 +77,8 @@ writ deploy --allow-dirty noblefactor
 
 ### Custom segments
 
-Override platform detection with custom segment values (for example
-`--segment ROLE=desktop`). See
+Set a custom segment's value for one run with `--segment` (for example `--segment ROLE=desktop`). The segment must be
+declared in configuration first; an undeclared segment or value is refused. See
 [Platform Awareness](/guides/writ/platform-awareness/#custom-segments).
 
 ### Dry run
@@ -176,17 +178,18 @@ writ adopt --project noblefactor ~/.config/nvim
 # Adopt into the team layer
 writ adopt --layer team --project shared ~/.editorconfig
 
-# Adopt a file that only Debian should get: it lands under
-# noblefactor.Linux.Debian and deploys only there
-writ adopt --project noblefactor --platform Linux.Debian ~/.config/apt.conf
+# On Debian or Ubuntu, adopt a file for Debian and every distribution descended
+# from it: it lands under noblefactor.Debian
+writ adopt --project noblefactor --platform Debian ~/.config/apt.conf
 ```
 
-`--platform` takes a suffix in the vocabulary the layer tree uses (`Darwin`,
-`Unix`, `Windows`, `Linux`, `Linux.Debian`, `Darwin.arm64`, and so on); see
-[Platform Awareness](/guides/writ/platform-awareness/). An adoption is
-recorded like a deploy, so the adopted link is writ's own from then on and
-reconcile reports it. Adopt therefore needs a current deployment to record
-into; on a machine that has never deployed, deploy first.
+`--platform` takes a suffix as a directory name reads it after the project: one word of this machine's chain, then its
+architecture, then declared segment values (`Unix`, `Linux`, `Debian`, `Darwin`, `Windows`, `Debian.arm64`, and so
+on); see [Platform Awareness](/guides/writ/platform-awareness/). The suffix must pass the
+[selector grammar](/guides/selectors/#the-grammar) and name this machine, so adopt never creates a directory the next
+deploy refuses or skips: on Ubuntu, `Debian` is accepted, and `Fedora`, `Linux.Debian` and `arm64.Debian` are refused.
+An adoption is recorded like a deploy, so the adopted link is writ's own from then on and reconcile reports it. Adopt
+therefore needs a current deployment to record into; on a machine that has never deployed, deploy first.
 
 ### Adopt from a lore receipt
 

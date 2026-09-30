@@ -5,7 +5,7 @@ parent: "docs/plans/extract-starlark-from-op/phase-8/graph-immutability.md"
 issue: TBD
 status: in-progress
 created: 2026-06-02
-updated: 2026-06-11
+updated: 2026-09-30
 ---
 
 # Migrate `cmd/lore` onto the sealed Graph API
@@ -362,6 +362,10 @@ become `OriginBase` (concrete), `g.origin` (interface) marshals via `OriginBase.
 decode reads `originData` → populates `OriginBase`'s unexported fields. One concrete shape, one DTO, no Tool→factory.
 
 ### Tool-side views (recommended shape — open question O5)
+
+> **2026-09-30 (#944):** the platform annotation is now the host's chain, a list, not one string: `Platform()`
+> returns `[]string` and the build side writes `"platform": host.Chain`. See
+> [Selectors](../../../guides/selectors.md).
 
 Tools read `graph.Origin()` (an `op.Origin` interface; after a load it is an `OriginBase`). To survive the
 round-trip, the typed views **wrap the interface** rather than embed the base:

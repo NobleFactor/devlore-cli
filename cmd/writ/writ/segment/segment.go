@@ -1,36 +1,50 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Noble Factor. All rights reserved.
 
-// Package segment provides segment-based directory matching for writ.
+// Package segment holds writ's segments, the built-in ones detection supplies (OS, DISTRO, ARCH) and the extras
+// declared in configuration, and selects a layer's directories with them through the one selector API
+// (pkg/selector, #944).
 package segment
 
 import (
+	"slices"
 	"strings"
+
+	"github.com/NobleFactor/devlore-cli/pkg/selector"
 )
 
-// Segment represents a single segment value (e.g., OS="Darwin", ROLE="desktop").
+// Segment is one segment: a built-in, or an extra declared in configuration.
 type Segment struct {
-	Name  string // e.g., "OS", "DISTRO", "ROLE"
-	Value string // e.g., "Darwin", "debian", "desktop"
+
+	// Name is the segment's name: OS, DISTRO, ARCH, ROLE.
+	Name string
+
+	// Value is this machine's value: Linux, Ubuntu, arm64, desktop. Empty when unset.
+	Value string
+
+	// Values are an extra's declared values; nil for a built-in.
+	Values []string
+
+	// Lineage is DISTRO's ancestors, most general first: Debian, for Ubuntu. Nil for every other segment.
+	Lineage []string
 }
 
-// Segments is an ordered list of segments for matching.
-// Order matters: OS, DISTRO, ARCH, then custom segments.
+// Segments is this machine's segments: OS, DISTRO and ARCH, then the declared extras in configured order.
 type Segments []Segment
 
-// OSFamily returns the OS family for a given OS.
-// Unix matches both Darwin and Linux.
-func OSFamily(os string) string {
-	switch os {
-	case "Darwin", "Linux":
-		return "Unix"
-	default:
-		return ""
-	}
-}
+// region EXPORTED METHODS
 
-// Get returns the value for a segment by name, or empty if not found.
+// region State management
+
+// Get returns a segment's value.
+//
+// Parameters:
+//   - `name`: the segment's name.
+//
+// Returns:
+//   - `string`: its value; empty when unset or not a segment.
 func (s Segments) Get(name string) string {
+
 	for _, seg := range s {
 		if seg.Name == name {
 			return seg.Value
@@ -39,105 +53,79 @@ func (s Segments) Get(name string) string {
 	return ""
 }
 
-// Values returns all non-empty segment values in order.
-func (s Segments) Values() []string {
-	var values []string
-	for _, seg := range s {
-		if seg.Value != "" {
-			values = append(values, seg.Value)
-		}
-	}
-	return values
-}
-
-// AllValues returns all matchable values including OS family.
-// For OS=Darwin, returns ["Darwin", "Unix"].
-func (s Segments) AllValues() []string {
-	var values []string
-	for _, seg := range s {
-		if seg.Value == "" {
-			continue
-		}
-		values = append(values, seg.Value)
-		// Add OS family if this is the OS segment
-		if seg.Name == "OS" {
-			if family := OSFamily(seg.Value); family != "" {
-				values = append(values, family)
-			}
-		}
-	}
-	return values
-}
-
-// ParseDirName parses a directory name into project and suffixes.
-// Example: "noblefactor.Darwin.arm64" → "noblefactor", ["Darwin", "arm64"]
-func ParseDirName(dirname string) (project string, suffixes []string) {
-	parts := strings.Split(dirname, ".")
-	if len(parts) == 0 {
-		return dirname, nil
-	}
-	return parts[0], parts[1:]
-}
-
-// Match checks if a directory name matches the given segments.
-// Returns true if all suffixes match segment values (including OS family).
-func (s Segments) Match(dirname string) bool {
-	_, suffixes := ParseDirName(dirname)
-	if len(suffixes) == 0 {
-		// No suffixes means it always matches (base project)
-		return true
-	}
-
-	matchable := s.AllValues()
-	for _, suffix := range suffixes {
-		if !contains(matchable, suffix) {
-			return false
-		}
-	}
-	return true
-}
-
-// contains checks if a string slice contains a value.
-func contains(slice []string, val string) bool {
-	for _, s := range slice {
-		if s == val {
-			return true
-		}
-	}
-	return false
-}
-
-// MatchResult represents a matched directory.
-type MatchResult struct {
-	Path     string   // Full path to directory
-	Project  string   // Project name (e.g., "noblefactor")
-	Suffixes []string // Matched suffixes (e.g., ["Darwin", "arm64"])
-}
-
-// Specificity returns the number of matched suffixes.
-// Higher specificity means more specific match.
-func (m MatchResult) Specificity() int {
-	return len(m.Suffixes)
-}
-
-// Set returns a new Segments with the named segment set to value.
-// If the segment doesn't exist, it is appended.
+// Set returns the segments with one segment's value replaced, or with the segment appended when there is none by
+// that name. A replaced DISTRO keeps its lineage: an override names the distribution, not its ancestors.
+//
+// Parameters:
+//   - `name`: the segment's name.
+//   - `value`: its new value.
+//
+// Returns:
+//   - `Segments`: a copy with the value set.
 func (s Segments) Set(name, value string) Segments {
-	result := make(Segments, len(s))
-	copy(result, s)
 
+	result := slices.Clone(s)
 	for i := range result {
 		if result[i].Name == name {
 			result[i].Value = value
 			return result
 		}
 	}
-	// Not found, append
 	return append(result, Segment{Name: name, Value: value})
 }
 
-// String returns a human-readable representation of segments.
+// endregion
+
+// region Behaviors
+
+// Extras returns the declared extras, in configured order, as the selector takes them.
+//
+// Returns:
+//   - `[]selector.Segment`: the extras.
+func (s Segments) Extras() []selector.Segment {
+
+	var extras []selector.Segment
+	for _, seg := range s {
+		if !slices.Contains(selector.Builtins, seg.Name) {
+			extras = append(extras, selector.Segment{Name: seg.Name, Values: seg.Values, Value: seg.Value})
+		}
+	}
+	return extras
+}
+
+// Host returns the machine the built-in segments describe, overrides included.
+//
+// Returns:
+//   - `selector.Host`: the machine: its chain is Unix when the OS is a Unix, the OS, then DISTRO's lineage and DISTRO.
+func (s Segments) Host() selector.Host {
+
+	var lineage []string
+	for _, seg := range s {
+		if seg.Name == "DISTRO" {
+			lineage = seg.Lineage
+		}
+	}
+	return selector.NewHostFromWords(s.Get("OS"), s.Get("DISTRO"), lineage, s.Get("ARCH"))
+}
+
+// Selector returns the selector for these segments and a list of projects.
+//
+// Parameters:
+//   - `projects`: the projects, in the order they're applied.
+//
+// Returns:
+//   - `selector.Selector`: the selector.
+func (s Segments) Selector(projects []string) selector.Selector {
+
+	return selector.Selector{Host: s.Host(), Projects: projects, Segments: s.Extras()}
+}
+
+// String returns the set segments as NAME=value pairs, in order.
+//
+// Returns:
+//   - `string`: the pairs, comma-separated.
 func (s Segments) String() string {
+
 	var parts []string
 	for _, seg := range s {
 		if seg.Value != "" {
@@ -146,3 +134,7 @@ func (s Segments) String() string {
 	}
 	return strings.Join(parts, ", ")
 }
+
+// endregion
+
+// endregion

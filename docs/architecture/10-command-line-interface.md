@@ -894,14 +894,20 @@ including when the flag's value equals its default.
 
 ### Introducing a name and setting its value
 
-Segments and scopes are extensible sets, and they take the same shape: **one key per concept, holding both
-the names and their values.** A key introduces the name; its value sets it.
+Segments and scopes are extensible sets, and each takes **one key, holding both the names and their values.**
+Scopes are a map: a key introduces the name; its value sets it. Segments are an ordered list, because a directory
+name carries the extra segments in the order they are declared: each entry introduces a `name`, declares the
+`values` it may take, and may set this machine's `value`. The grammar a declaration feeds is
+[Selectors](../guides/selectors.md#extra-segments).
 
 ```yaml
 writ:
   segments:
-    ROLE: desktop            # introduced and set
-    SITE:                    # introduced; set by WRIT_SEGMENT_SITE or --segment
+    - name: ROLE             # introduced and set
+      values: [desktop, server]
+      value: desktop
+    - name: SITE             # introduced; set by WRIT_SEGMENT_SITE or --segment
+      values: [aws, home]
   scopes:
     Staging: ~/staging/root  # a custom scope
     Home: ~/staging/home     # a BUILTIN's root, overridden
@@ -909,20 +915,26 @@ writ:
     USER_NAME: "Your Name"   # what templates interpolate, and nothing else
 ```
 
-**A key with no value introduces without setting.** The value then comes from the environment or a flag, and
-until it has one the segment matches no directory suffix -- the behavior `DISTRO` already has on macOS.
+**A segment with no value introduces without setting.** The value then comes from the environment or a flag, and
+until it has one the segment matches no directory name.
 
-**A builtin's key overrides its default.** There is no separate override mechanism, so a staging deployment
+**A segment declares every value it may take,** so a misspelling is refused rather than silently matching nothing.
+`--segment NAME=value` and `WRIT_SEGMENT_<NAME>` refuse a name the list doesn't declare and a value its segment
+doesn't declare. A declaration is refused when it breaks a rule that
+[Selectors](../guides/selectors.md#extra-segments) lists.
+
+**A builtin scope's key overrides its default.** There is no separate override mechanism, so a staging deployment
 is aimed by naming the builtin. For `Home` this is the only way: the home directory is resolved from the
 account database, and `HOME` cannot move a deployment.
 
 **`vars` holds template variables alone.** It carried segment values as well, which meant a reader had to
 know a key's concept from its name; each concept now states its own.
 
-Segments and scopes differ in one place, and it is in the concepts rather than the shape: segment builtins
-(`OS`, `DISTRO`, `ARCH`) resolve on every platform, where scope builtins resolve per platform. So scopes
-carry a rule segments do not -- override the root of a builtin that resolves here, never introduce one that
-does not.
+Their builtins differ as well. The segment builtins (`OS`, `DISTRO`, `ARCH`) are detected, never declared: no
+entry in `writ.segments` may take their names, and `--segment` and `WRIT_SEGMENT_<NAME>` set them without a
+declaration. `OS` and `ARCH` resolve on every platform; `DISTRO` resolves only on a Linux host whose os-release
+names a distribution. Scope builtins resolve per platform, and their keys override their roots, so scopes carry a
+rule segments do not -- override the root of a builtin that resolves here, never introduce one that does not.
 
 ## 12. Help and generated documentation
 

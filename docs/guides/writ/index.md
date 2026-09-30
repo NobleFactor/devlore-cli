@@ -68,6 +68,9 @@ noblefactor.Linux/     # Linux-specific additions
 └── .config/systemd/
 ```
 
+How a suffix names the machines a variant is for, and which variant wins, is the [Selectors](/guides/selectors/)
+guide's subject.
+
 ### Templates
 
 Files ending in `.tmpl` are Go templates. Writ renders each one during
@@ -84,9 +87,12 @@ symlinked:
 
 Every template sees `.OS`, `.ARCH`, `.Hostname`, `.Home`, `.Username`, the
 segment values under `.Segments` (`.Segments.OS`, `.Segments.DISTRO`, …), and
-the XDG homes `.ConfigHome`, `.DataHome`, `.StateHome` and `.CacheHome`. Your
-own variables live under `writ.vars` in the configuration file, and a
-template names them in lower case: `USER_NAME` there is `.user_name` here.
+the XDG homes `.ConfigHome`, `.DataHome`, `.StateHome` and `.CacheHome`.
+`.Segments.DISTRO` is the distribution itself, `Ubuntu` on Ubuntu; the
+distributions it descends from select directories but have no template
+variable. Your own variables live under `writ.vars` in the configuration
+file, and a template names them in lower case: `USER_NAME` there is
+`.user_name` here.
 Like every setting, a variable can also come from the environment or the
 command line, the command line winning
 ([configuration](https://github.com/NobleFactor/devlore-cli/blob/develop/docs/architecture/configuration.md)).

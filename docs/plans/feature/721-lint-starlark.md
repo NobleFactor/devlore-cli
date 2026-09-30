@@ -3,7 +3,7 @@ title: "LintStarlark: nothing checks Starlark, and dead API calls survive for mo
 issue: https://github.com/NobleFactor/devlore-cli/issues/721
 status: active
 created: 2026-08-27
-updated: 2026-09-29
+updated: 2026-09-30
 ---
 
 # Plan: `LintStarlark`
@@ -218,6 +218,9 @@ if len(actions) == 0 {
     continue
 }
 ```
+
+> **2026-09-30 (#944):** `PhaseActions` now takes a `selector.Host` and returns an error:
+> `release.PhaseActions(host, lorepackage.Deploy, phaseName)`. The skip on no actions is unchanged.
 
 A file whose name is outside its lifecycle's order is never opened. Nothing is logged and the step does
 not happen, so the symptom is an absence -- which is the class of defect that cannot be debugged from

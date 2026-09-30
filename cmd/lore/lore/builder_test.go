@@ -6,11 +6,13 @@ package lore
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/selector"
 
 	// Announce every op provider (pkg, plan, flow, …) so the registry resolves them — production wires this via
 	// pkg/op/inventory, which the lore binary does not yet import (see the build note).
@@ -36,10 +38,11 @@ func TestBuildPackage_NativePackageProducesParentedPhaseSubgraph(t *testing.T) {
 		t.Fatalf("sharedProvider: %v", err)
 	}
 
-	planner := &Planner{Platform: "Linux.Debian"}
+	ubuntu := selector.NewHostFromWords("Linux", "Ubuntu", []string{"Debian"}, "arm64")
+	planner := &Planner{Host: ubuntu}
 	release := &lorepackage.Release{Name: "git", Version: "latest", Source: lorepackage.SourceApt, NativeName: "git"}
 
-	phases, err := planner.buildPackage(provider, runtimeEnvironment, release, "Linux.Debian", BuildConfig{})
+	phases, err := planner.buildPackage(provider, runtimeEnvironment, release, ubuntu, BuildConfig{})
 	if err != nil {
 		t.Fatalf("buildPackage: %v", err)
 	}
@@ -89,7 +92,7 @@ func TestLoreOrigin_RoundTripSurvivesJSON(t *testing.T) {
 
 	original := op.NewOriginBase("lore", "git+vim", op.NewAnnotationMap(map[string]any{
 		"packages": []string{"git", "vim"},
-		"platform": "Linux.Debian",
+		"platform": []string{"Unix", "Linux", "Debian", "Ubuntu"},
 		"features": []string{"rootless"},
 		"settings": map[string]string{"editor": "vim"},
 	}))
@@ -109,8 +112,8 @@ func TestLoreOrigin_RoundTripSurvivesJSON(t *testing.T) {
 	if got := view.Packages(); len(got) != 2 || got[0] != "git" || got[1] != "vim" {
 		t.Errorf("Packages() = %v, want [git vim]", got)
 	}
-	if got := view.Platform(); got != "Linux.Debian" {
-		t.Errorf("Platform() = %q, want Linux.Debian", got)
+	if got := view.Platform(); !slices.Equal(got, []string{"Unix", "Linux", "Debian", "Ubuntu"}) {
+		t.Errorf("Platform() = %v, want the chain [Unix Linux Debian Ubuntu]", got)
 	}
 	if got := view.Features(); len(got) != 1 || got[0] != "rootless" {
 		t.Errorf("Features() = %v, want [rootless]", got)

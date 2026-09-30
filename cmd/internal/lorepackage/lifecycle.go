@@ -4,11 +4,13 @@
 package lorepackage
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/NobleFactor/devlore-cli/pkg/document"
+	"github.com/NobleFactor/devlore-cli/pkg/selector"
 )
 
 // Action represents a lifecycle action type.
@@ -162,39 +164,6 @@ func PhaseOrder(action Action) []string {
 	}
 }
 
-// PlatformResolutionOrder returns the order of platform directories for
-// phase script chaining, from most general to most specific.
-//
-// Scripts are executed in this order, allowing specific platforms to
-// build upon general setup. Each script that exists is executed.
-//
-// Examples:
-//   - "Linux.Debian" → ["Common", "Unix", "Linux", "Linux.Debian"]
-//   - "Darwin" → ["Common", "Unix", "Darwin"]
-//   - "Windows" → ["Common", "Windows"]
-func PlatformResolutionOrder(platform string) []string {
-	var order []string
-
-	// Common is always first (base setup for all platforms)
-	order = append(order, "Common")
-
-	// Unix covers Darwin, Linux, and BSD
-	if platform == "Darwin" || strings.HasPrefix(platform, "Linux") {
-		order = append(order, "Unix")
-	}
-
-	// OS-level platform
-	if strings.HasPrefix(platform, "Linux.") {
-		// For distro-qualified Linux, add base Linux before the distro
-		order = append(order, "Linux")
-	}
-
-	// The specific platform last (most specific)
-	order = append(order, platform)
-
-	return order
-}
-
 // LoadLifecycle loads a lifecycle manifest from a package directory.
 //
 // Parameters:
@@ -210,69 +179,85 @@ func LoadLifecycle(packageDir string) (*Lifecycle, error) {
 	return document.ReadFile[Lifecycle](path)
 }
 
-// DiscoverPhaseScripts returns all phase scripts for a phase, ordered from
-// most general to most specific for chained execution.
+// PlatformDirs selects a package's platform directories for a host, in the order to apply them (#944).
 //
-// Example for platform="Linux.Debian", action=Deploy, phase="install":
+// A package's directories are named by selectors alone, with no project: `Common`, the name with no selector words,
+// then an OS word of the host's chain, its architecture, or both (`Debian.arm64`). Every directory is judged, and a name
+// that breaks the grammar refuses the package, every such name listed, before anything is planned (ruled 2026-09-30).
 //
-//	["Common/Deploy/install.star", "Unix/Deploy/install.star",
-//	 "Linux/Deploy/install.star", "Linux.Debian/Deploy/install.star"]
+// Parameters:
+//   - `packageDir`: the package's directory.
+//   - `host`: the host the package is planned for.
+//
+// Returns:
+//   - `[]string`: the directories this host includes, general to specific; a later one's scripts build on an earlier
+//     one's.
+//   - `error`: a [*GrammarRefusal] naming every malformed directory name, or the error reading the package.
+func PlatformDirs(packageDir string, host selector.Host) ([]string, error) {
+
+	entries, err := os.ReadDir(packageDir)
+	if err != nil {
+		return nil, err
+	}
+
+	var names []string
+	for _, entry := range entries {
+		if entry.IsDir() && !strings.HasPrefix(entry.Name(), ".") {
+			names = append(names, entry.Name())
+		}
+	}
+
+	selected, grammarErrors := selector.Selector{Host: host, Base: "Common"}.Select(names)
+	if len(grammarErrors) > 0 {
+		return nil, &GrammarRefusal{PackageDir: packageDir, Errors: grammarErrors}
+	}
+
+	dirs := make([]string, 0, len(selected))
+	for _, s := range selected {
+		dirs = append(dirs, s.Name)
+	}
+	return dirs, nil
+}
+
+// DiscoverPhaseScripts returns all phase scripts for a phase, ordered from most general to most specific for chained
+// execution.
+//
+// Example for an Ubuntu host, action=Deploy, phase="install":
+//
+//	["Common/Deploy/install.star", "Unix/Deploy/install.star", "Linux/Deploy/install.star",
+//	 "Debian/Deploy/install.star", "Ubuntu/Deploy/install.star"]
 //
 // Only scripts that exist are included.
-func (l *Lifecycle) DiscoverPhaseScripts(packageDir, platform string, action Action, phase string) []string {
+//
+// Parameters:
+//   - `packageDir`: the package's directory.
+//   - `host`: the host the package is planned for.
+//   - `action`: the lifecycle action.
+//   - `phase`: the phase.
+//
+// Returns:
+//   - `[]string`: the scripts, general to specific.
+//   - `error`: a [*GrammarRefusal], or the error reading the package.
+func (l *Lifecycle) DiscoverPhaseScripts(packageDir string, host selector.Host, action Action, phase string) ([]string,
+	error) {
+
 	if l.synthetic {
-		return nil // Synthetic lifecycles have no scripts
+		return nil, nil // Synthetic lifecycles have no scripts
+	}
+
+	dirs, err := PlatformDirs(packageDir, host)
+	if err != nil {
+		return nil, err
 	}
 
 	var scripts []string
-	for _, p := range PlatformResolutionOrder(platform) {
-		path := filepath.Join(packageDir, p, string(action), phase+".star")
+	for _, dir := range dirs {
+		path := filepath.Join(packageDir, dir, string(action), phase+".star")
 		if _, err := os.Stat(path); err == nil {
 			scripts = append(scripts, path)
 		}
 	}
-	return scripts
-}
-
-// GetPhaseScript returns the path to a single phase script for the given
-// platform and action. This finds the MOST SPECIFIC script only.
-// For chained execution, use DiscoverPhaseScripts instead.
-//
-// Returns empty string if no script exists for this phase.
-func (l *Lifecycle) GetPhaseScript(packageDir, platform string, action Action, phase string) string {
-	if l.synthetic {
-		return ""
-	}
-
-	// Check platforms from most specific to least specific (reverse order)
-	platforms := PlatformResolutionOrder(platform)
-	for i := len(platforms) - 1; i >= 0; i-- {
-		p := platforms[i]
-		path := filepath.Join(packageDir, p, string(action), phase+".star")
-		if _, err := os.Stat(path); err == nil {
-			return path
-		}
-	}
-	return ""
-}
-
-// HasPhase returns true if at least one phase script exists for this phase
-// on the given platform and action.
-func (l *Lifecycle) HasPhase(packageDir, platform string, action Action, phase string) bool {
-	return len(l.DiscoverPhaseScripts(packageDir, platform, action, phase)) > 0
-}
-
-// DiscoverAllPhases returns a map of phase name to script paths for all
-// phases in an action on the given platform.
-func (l *Lifecycle) DiscoverAllPhases(packageDir, platform string, action Action) map[string][]string {
-	phases := make(map[string][]string)
-	for _, phase := range PhaseOrder(action) {
-		scripts := l.DiscoverPhaseScripts(packageDir, platform, action, phase)
-		if len(scripts) > 0 {
-			phases[phase] = scripts
-		}
-	}
-	return phases
+	return scripts, nil
 }
 
 // EnabledFeatures returns the list of enabled features given explicit enables
@@ -347,4 +332,30 @@ func (l *Lifecycle) SupportsPlatform(platform string) bool {
 // IsSynthetic returns true if this lifecycle was synthesized for a native PM package.
 func (l *Lifecycle) IsSynthetic() bool {
 	return l.synthetic
+}
+
+// GrammarRefusal is every platform directory of a package whose name breaks the selector grammar. lore refuses to plan
+// the package with it, before anything changes (#944, ruled 2026-09-30).
+type GrammarRefusal struct {
+
+	// PackageDir is the package's directory.
+	PackageDir string
+
+	// Errors are the names and the rules they break.
+	Errors []*selector.GrammarError
+}
+
+// Error lists every name and the rule it breaks.
+//
+// Returns:
+//   - `string`: the list, one name to a line.
+func (r *GrammarRefusal) Error() string {
+
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s: %d platform director(ies) break the selector grammar (docs/guides/selectors.md):",
+		r.PackageDir, len(r.Errors))
+	for _, e := range r.Errors {
+		fmt.Fprintf(&b, "\n  %v", e)
+	}
+	return b.String()
 }

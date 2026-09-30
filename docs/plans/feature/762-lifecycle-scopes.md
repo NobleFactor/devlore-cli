@@ -3,7 +3,7 @@ title: "The writ lifecycle surface: reconcile, scopes, and the vocabulary settle
 issue: https://github.com/NobleFactor/devlore-cli/issues/762
 status: in-progress
 created: 2026-08-31
-updated: 2026-09-01
+updated: 2026-09-30
 ---
 
 # Plan: The writ lifecycle surface
@@ -161,6 +161,16 @@ Reserving on every platform — not only where defined — is what keeps one rep
 every machine.
 
 ### Requirement 8: Segments and scopes are name-to-value maps — tracked by #765
+
+> **Superseded in part, 2026-09-30** ([#944](https://github.com/NobleFactor/devlore-cli/issues/944),
+> [plan](944-one-selector-api-writ-and-lore.md)), which took #765's segments half: `writ.segments` is no longer the
+> name-to-value map designed below, and it is read. It is an ordered list, each entry a `name`, the `values` it may
+> take, and optionally this machine's `value`, because the list's order is the order a directory name carries the
+> extras, and declared values catch a misspelling. A value comes from `--segment NAME=value`, else
+> `WRIT_SEGMENT_<NAME>`, else configuration, and an undeclared name or value is refused. `DetectSegmentsWithNames` is
+> gone. The asymmetry below is wrong as written: the segment builtins don't all resolve on every platform, since
+> DISTRO resolves on Linux only. #944 leaves `writ.scopes` as designed here. The rules are
+> [Selectors](../../guides/selectors.md).
 
 **Neither key is read today.** `writ.segments` has been documented since the schema was written and has never
 worked (#746); `writ.scopes` is new here. `--scope` has nothing to select until scopes can be introduced, so

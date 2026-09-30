@@ -39,7 +39,7 @@ Common prepare actions:
 - Download and cache large files
 
 ```starlark
-# Linux.Debian/Deploy/prepare.star — Docker on Debian/Ubuntu
+# Ubuntu/Deploy/prepare.star — Docker on Ubuntu
 def prepare(package, phase):
     # Add Docker's official GPG key and repository
     plan.shell.exec("curl -fsSL https://download.docker.com/linux/ubuntu/gpg | "
@@ -53,8 +53,10 @@ def prepare(package, phase):
     plan.package.update()
 ```
 
-Note: This script lives in `Linux.Debian/Deploy/` — the distro is implicit from
-the directory, not queried at runtime.
+Note: This package's Deploy scripts live in `Ubuntu/Deploy/` — the distro is implicit from the directory, not queried
+at runtime. They use Docker's Ubuntu repository, so they don't belong in `Debian/`: `Debian/` applies on Debian and on
+every distribution whose lineage includes it, such as Ubuntu, and Debian itself mustn't get an Ubuntu suite.
+[Selectors](/guides/selectors/) gives the rules.
 
 ## Phase 2: Install
 
@@ -68,7 +70,7 @@ Installation methods (in order of preference):
 4. **Custom script** — Arbitrary installation logic
 
 ```starlark
-# Linux.Debian/Deploy/install.star — Docker on Debian/Ubuntu
+# Ubuntu/Deploy/install.star — Docker on Ubuntu
 def install(package, phase):
     packages = [
         "docker-ce",
@@ -96,7 +98,7 @@ Common provision actions:
 - Create data directories
 
 ```starlark
-# Linux.Debian/Deploy/provision.star — Docker on Debian/Ubuntu
+# Ubuntu/Deploy/provision.star — Docker on Ubuntu
 def provision(package, phase):
     # Enable and start service
     plan.service.enable("docker")

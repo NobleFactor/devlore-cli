@@ -3,7 +3,7 @@ title: "Lane 14: writ adopt carries the platform and leaves a deployment record"
 issue: https://github.com/NobleFactor/devlore-cli/issues/931
 status: active
 created: 2026-09-23
-updated: 2026-09-23
+updated: 2026-09-30
 ---
 
 # Plan: Lane 14 of the writ lifecycle schedule
@@ -44,14 +44,26 @@ Read 2026-09-23 at `cf6fc635`.
 | `segment` | ✅ | the suffix vocabulary the tree matches: `OS` (`Darwin`, `Linux`, `Windows`), `Unix` for either Unix, `DISTRO` (`Debian`, ...), `ARCH` (`arm64`, ...); a directory is `<project>.<suffix>[.<suffix>...]` |
 | `platform.Token` | — | `Linux.Debian` is lore's vocabulary; writ's directories say `noblefactor-ops.Debian`, so the flag speaks the segment vocabulary, not the token |
 
+> **Changed by #944, 2026-09-30** ([plan](944-one-selector-api-writ-and-lore.md)): `pkg/platform`'s `Token` and
+> `DetectToken` are gone, and lore's separate vocabulary with them. Selection is `pkg/selector`'s: writ and lore
+> detect the host with `selector.Detect`, which follows os-release's `ID_LIKE` lineage, and select their directories
+> along the host's chain. There is one vocabulary, and a directory names one link of the chain: `Debian`, not
+> `Linux.Debian`. The rules are [Selectors](../../guides/selectors.md).
+
 ## Requirements
 
 ### Requirement 1: `--platform <suffix>`
 
-Optional. A dotted sequence of segment values -- `Darwin`, `Unix`, `Windows`, `Linux`, `Linux.Debian`,
+Optional. A dotted sequence of segment values -- `Darwin`, `Unix`, `Windows`, `Linux`, `Debian`,
 `Darwin.arm64` -- validated against the values the matcher knows for the segments this platform declares (`OS`,
 `DISTRO`, `ARCH`) plus `Unix`; any other word is a usage error (64) naming the vocabulary. The destination becomes
 `<layer>/<scope>/<project>.<suffix>/<rel>`; absent, the neutral project directory as today.
+
+> **Changed by #944, 2026-09-30** ([plan](944-one-selector-api-writ-and-lore.md)): this plan's examples said
+> `Linux.Debian`, and now say `Debian`. A name's OS part is one word of the machine's chain, so `Linux.Debian` names
+> two and is a grammar error. `--platform` is validated through the one grammar and against this machine: on Ubuntu,
+> `Unix`, `Linux`, `Debian`, `Ubuntu` and `Debian.arm64` (on arm64) are accepted, and `Fedora`, `Linux.Debian` and
+> `arm64.Debian` are refused. The rules are [Selectors](../../guides/selectors.md).
 
 ### Requirement 2: the record
 
@@ -88,8 +100,8 @@ its symlink, which is also what the record must name, since links target the ori
 ## Design
 
 ```
-  writ adopt --layer team --project noblefactor-ops --platform Linux.Debian ~/.config/foo
-    -> team/Home/noblefactor-ops.Linux.Debian/.config/foo   (moved)
+  writ adopt --layer team --project noblefactor-ops --platform Debian ~/.config/foo
+    -> team/Home/noblefactor-ops.Debian/.config/foo         (moved)
     <- ~/.config/foo                                          (link, as deploy would make it)
     -> trace: origin writ/Home; files{ link unit: target ~/.config/foo, source <project path>,
                                       file.link, team, noblefactor-ops }

@@ -77,7 +77,6 @@ const (
 	issueDirtyAtRoot             = 852
 	issueDryRunPreflight         = 853
 	issueCollisionReport         = 470
-	issueLineageChain            = 860
 )
 
 // layerFixtures maps each role to the repository name and the checked-in tree that seeds it.
@@ -463,10 +462,10 @@ func (j *journey) assertHelp(t *testing.T, path string) {
 // What each platform deploys
 // ---------------------------------------------------------------------------------------------------------
 
-// selectorsHere lists the selector suffixes this platform matches, most general first, by the ruled chain:
-// Darwin and Linux are Unix; a Linux host matches its lineage — os-release's ID_LIKE, most general first —
-// and then its own ID, each capitalized as segment/detect.go capitalizes it (#860). Today writ reads only
-// the ID, so the lineage members are asserted through lineageSelectors, which skips by #860 until it ships.
+// selectorsHere lists the selector suffixes this platform matches, most general first, by the ruled chain (#944,
+// docs/guides/selectors.md): Darwin and Linux are Unix; a Linux host matches its lineage — os-release's ID_LIKE, most
+// general first — and then its own ID. The scenario computes the chain itself, from os-release, as an oracle
+// independent of pkg/selector, the code under test.
 func selectorsHere(t *testing.T) []string {
 
 	t.Helper()
@@ -503,12 +502,15 @@ func lineageSelectors() []string {
 	return lineage
 }
 
-// osRelease reads one key of /etc/os-release, unquoted; empty when absent or not on Linux.
+// osRelease reads one key of os-release, unquoted: /etc/os-release, else /usr/lib/os-release; empty when absent or
+// not on Linux.
 func osRelease(key string) string {
 
 	data, err := os.ReadFile("/etc/os-release")
 	if err != nil {
-		return ""
+		if data, err = os.ReadFile("/usr/lib/os-release"); err != nil {
+			return ""
+		}
 	}
 	for _, line := range strings.Split(string(data), "\n") {
 		if strings.HasPrefix(line, key+"=") {
@@ -518,10 +520,15 @@ func osRelease(key string) string {
 	return ""
 }
 
-// capitalizeDistro mirrors writ's table in segment/detect.go.
+// capitalizeDistro spells an os-release ID as the ruled selector word (docs/guides/selectors.md), written out here
+// rather than taken from pkg/selector so the scenario checks that code instead of repeating it.
 func capitalizeDistro(id string) string {
 
 	switch id {
+	case "linuxmint":
+		return "Mint"
+	case "almalinux":
+		return "AlmaLinux"
 	case "debian":
 		return "Debian"
 	case "ubuntu":
@@ -552,22 +559,13 @@ func (j *journey) consumersAtA(t *testing.T) map[string]string {
 
 	home := j.sandbox.Home
 	consumers := map[string]string{}
-	lineage := lineageSelectors()
 	for _, selector := range selectorsHere(t) {
 		if !contains([]string{"Darwin", "Linux", "Debian", "Unix"}, selector) {
 			continue // the fixture carries no consumer for this selector (Windows, Ubuntu, ...)
 		}
 		for _, verb := range []string{"Get", "Test"} {
 			name := verb + "-" + selector + "Scenario"
-			path := filepath.Join(home, "local", "bin", name)
-			if contains(lineage, selector) {
-				// A lineage member (Debian on Ubuntu) is expected by the ruling and absent until #860 ships;
-				// it counts here only when writ deployed it. Step 2.3b asserts or skips on that.
-				if _, err := os.Lstat(path); err != nil {
-					continue
-				}
-			}
-			consumers[name] = path
+			consumers[name] = filepath.Join(home, "local", "bin", name)
 		}
 	}
 	return consumers
@@ -973,7 +971,7 @@ func TestWritLayerJourneyScenario_Part2_Deploy(t *testing.T) {
 	t.Run("2.3b the lineage deploys: what deploys to Debian deploys to Ubuntu", func(t *testing.T) {
 		lineage := lineageSelectors()
 		if len(lineage) == 0 {
-			t.Skipf("%s/%s declares no lineage in os-release; nothing to assert", runtime.GOOS, runtime.GOOS)
+			t.Skipf("%s declares no lineage in os-release; nothing to assert", runtime.GOOS)
 		}
 		for _, selector := range lineage {
 			if !contains([]string{"Darwin", "Linux", "Debian", "Unix"}, selector) {
@@ -981,7 +979,8 @@ func TestWritLayerJourneyScenario_Part2_Deploy(t *testing.T) {
 			}
 			path := filepath.Join(home, "local", "bin", "Get-"+selector+"Scenario")
 			if _, err := os.Lstat(path); err != nil {
-				j.skip(t, issueLineageChain, fmt.Sprintf("common.%s deploys on a host whose ID_LIKE names %s (here: %s)", selector, strings.ToLower(selector), capitalizeDistro(osRelease("ID"))))
+				t.Errorf("common.%s must deploy on %s, whose os-release ID_LIKE names %s (#944): %v", selector,
+					capitalizeDistro(osRelease("ID")), strings.ToLower(selector), err)
 			}
 		}
 	})

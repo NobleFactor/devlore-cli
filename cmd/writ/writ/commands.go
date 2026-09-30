@@ -55,7 +55,7 @@ Conflict handling (--conflict) — occupied targets (phase-8 step 49):
 	}
 
 	cmd.Flags().StringP("conflict", "c", "stop", "Occupied-target policy: stop, skip, replace")
-	cmd.Flags().StringArrayP("segment", "s", nil, "Set custom segment value (KEY=value, repeatable)")
+	cmd.Flags().StringArrayP("segment", "s", nil, "Set a segment's value, NAME=value (repeatable); an extra must be declared in writ.segments")
 	cmd.Flags().Bool("allow-dirty", false, "Allow planning against layers with uncommitted changes")
 
 	return cmd
@@ -193,6 +193,7 @@ entries cannot be compared without decrypting and follow the same --force rule.`
 	}
 
 	cmd.Flags().Bool("force", false, "Overwrite locally modified files without prompting")
+	cmd.Flags().StringArrayP("segment", "s", nil, "Set a segment's value, NAME=value (repeatable); an extra must be declared in writ.segments")
 
 	return cmd
 }
@@ -257,13 +258,18 @@ Exit status -- the answer, gateable like git diff --exit-code (#756):
 		RunE: runReconcile,
 	}
 
+	cmd.Flags().StringArrayP("segment", "s", nil, "Set a segment's value, NAME=value (repeatable); an extra must be declared in writ.segments")
+
 	return cmd
 }
 
 // runReconcile implements the reconcile command on the reconcile package.
 func runReconcile(cmd *cobra.Command, args []string) error {
 
-	cfg := parseReconcileConfig(args)
+	cfg, err := parseReconcileConfig(cmd, args)
+	if err != nil {
+		return err
+	}
 
 	report, err := reconcile.BuildReport(cmd.Context(), &reconcile.Config{
 		Projects: cfg.Projects,

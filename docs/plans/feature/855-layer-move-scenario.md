@@ -3,7 +3,7 @@ title: "The layer journey as a scenario: self install, repo set, deploy, the mov
 issue: https://github.com/NobleFactor/devlore-cli/issues/855
 status: in-progress
 created: 2026-09-07
-updated: 2026-09-08
+updated: 2026-09-30
 ---
 
 # Plan: The layer journey as a scenario: self install, repo set, deploy, the move, on every platform
@@ -122,7 +122,8 @@ Registered: all three layers, personal at commit A.
 | --- | --- | --- | --- |
 | 2.1 | `writ deploy` (bare) | exit 0; the implicit set converges: `common*` from all three, `noblefactor` from personal; `thenobles` and `microsoft` absent | #843, #850 |
 | 2.2 | collisions | exactly four source collisions narrated — the helper and its three assets, personal over base | #470 |
-| 2.3 | selectors | `.Darwin` consumers on macOS only; `.Linux` and `.Debian` on Ubuntu only; `.Windows` on Windows only; `common` everywhere | — |
+| 2.3 | selectors | a consumer deploys where its selector is a link of the host's chain and nowhere else: `.Unix` on macOS and Linux; `.Darwin` on macOS only; `.Linux` on Linux; `.Debian` on Debian and its derivatives, Ubuntu among them; `.Windows` on Windows only; `common` everywhere. The scenario computes the chain from os-release itself, an oracle independent of `pkg/selector` | #944 |
+| 2.3b | the lineage | each `ID_LIKE` ancestor the fixture carries a consumer for deploys: `common.Debian` on `ubuntu-latest` and `ubuntu-24.04-arm`. Absence fails the step; a host whose os-release declares no lineage (macOS, Windows, Debian) has nothing to assert and skips | #944 |
 | 2.4 | every deployed consumer answers `--help` | exit 0 and the usage text; on Windows under Git for Windows' bash | — |
 | 2.5 | `writ deploy thenobles` | adds `thenobles` and `thenobles.Darwin` (on macOS) on top; nothing else changes | #850 |
 | 2.6 | `writ deploy` (bare) again | `thenobles` is still deployed — the selection is remembered | #850, persistence |
@@ -166,8 +167,9 @@ architectures" reads as overriding that for this job. Both shapes are carried: f
 `{ platform: darwin-amd64, os: macos-15-intel }` added to the `scenario` matrix only.
 
 Windows: symlinks and `shell: bash` are already proved by the first scenario; the `common` scripts run
-under Git for Windows' bash in 2.4 and 3.3. Ubuntu: `.Debian` matches through the Debian family
-(`segment/detect.go`), asserted rather than assumed.
+under Git for Windows' bash in 2.4 and 3.3. Ubuntu: `.Debian` matches because Debian is a link of Ubuntu's chain,
+which `pkg/selector` builds from os-release's `ID_LIKE` since #944 ([Selectors](../../guides/selectors.md)); 2.3b
+asserts it rather than assuming it.
 
 ## Implementation Phases
 
@@ -287,7 +289,9 @@ under Git for Windows' bash in 2.4 and 3.3. Ubuntu: `.Debian` matches through th
   absent on Ubuntu): "Debian is the base for Ubuntu so what deploys to Debian should deploy to Ubuntu.
   Similarly, Fedora is the base for RHEL so what deploys to Fedora should deploy to RHEL." Filed as #860:
   `Unix → Linux → ID_LIKE reversed → ID`. The scenario's selector table is the ruled chain; step 2.3b
-  asserts the lineage members and skips by #860 until writ reads `ID_LIKE`. #860 joins the skip-list.
+  asserts the lineage members, and skipped by #860 until writ read `ID_LIKE`. Since 2026-09-30, #944, which
+  absorbed #860, ships the chain: a missing lineage member fails 2.3b rather than skipping it, and #860 has left
+  the skip-list.
 
 ## Open Questions
 

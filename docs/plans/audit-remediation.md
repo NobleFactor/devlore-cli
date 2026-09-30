@@ -3,7 +3,7 @@ title: "Audit Remediation"
 issue: https://github.com/NobleFactor/devlore-cli/issues/365
 status: draft
 created: 2026-08-11
-updated: 2026-08-11
+updated: 2026-09-30
 ---
 
 # Plan: Audit Remediation
@@ -304,6 +304,15 @@ specificity tie whose winner is undefined — `sort.Slice` at `matcher.go:61` is
 behavior-preserving refactor of a predicate with no defined behavior is not possible. #369 gives
 specificity a total order, which is expected to make that branch unreachable and deletable rather
 than testable.
+
+> **Changed by #944, 2026-09-30** ([plan](feature/944-one-selector-api-writ-and-lore.md)): #369's plan is abandoned,
+> superseded by #944's, which delivered the total order: within a layer, directories apply in the order
+> [Selectors](../guides/selectors.md) rules, ties falling to the directory name, so no result depends on walk order.
+> `buildMultiSource` no longer exists. `Build` (`cmd/writ/writ/tree/builder.go`) calls `selectDirectories`, then
+> `apply` for each selected directory, layer after layer, and `apply` takes a file a later directory also holds from
+> the later one, recording the collision. The tie-break predicate and the `//nolint:gocognit` went with the function,
+> and on 2026-09-30 `gocyclo` and `gocognit` report nothing in `cmd/writ/writ/tree`. So phase 1b-v, parked on #369,
+> is resolved: there is nothing left to decompose or suppress.
 
 Thresholds for reference: `.golangci.yaml` sets `gocyclo` 15 and `gocognit` 20;
 `Makefile:163` gates at `gocyclo -over 20`. None of the nine trips the Makefile gate — every one

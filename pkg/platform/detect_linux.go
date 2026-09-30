@@ -6,12 +6,11 @@
 package platform
 
 import (
-	"bufio"
 	"fmt"
 	"os"
 	"strings"
 
-	"github.com/NobleFactor/devlore-cli/pkg/iox"
+	"github.com/NobleFactor/devlore-cli/pkg/selector"
 )
 
 // linuxDistroAliases maps freedesktop.org `os-release` ID values that don't match our internal distro vocabulary.
@@ -24,40 +23,42 @@ var linuxDistroAliases = map[string]string{
 
 // detectHost returns a fresh host [*Spec] cloned from [linuxSpecByDistro] for the detected distro.
 //
-// It inspects /etc/os-release, the host's runtime.GOARCH, hostname, and the workstation/server variant signal. The
-// workstation/server refinement strips desktop-only managers (flatpak) from the manager set when the host reports a
-// server-flavored variant. The signal hierarchy is: /etc/os-release VARIANT_ID when present, falling back to
+// It inspects os-release (through [selector.ReadOSRelease]: /etc/os-release, then /usr/lib/os-release), the host's
+// runtime.GOARCH, hostname, and the workstation/server variant signal. A distribution this package doesn't list takes
+// its managers from the closest ancestor its os-release ID_LIKE names that the package does list (#944): Pop!_OS takes
+// Ubuntu's. The workstation/server refinement strips desktop-only managers (flatpak) from the manager set when the
+// host reports a server-flavored variant. The signal hierarchy is: os-release VARIANT_ID when present, falling back to
 // `systemctl get-default` (graphical.target keeps workstation defaults; multi-user.target strips desktop-only
 // managers).
 //
 // Returns:
 //   - `*Spec`: the detected host spec.
-//   - `error`: when the distro is not in the known set, or when /etc/os-release is missing or malformed.
+//   - `error`: when os-release is missing or names no ID, or when neither the ID nor any ID_LIKE ancestor is a listed
+//     distro.
 func detectHost() (*Spec, error) {
 
-	id, versionID, variantID, err := readOSRelease()
-	if err != nil {
-		return nil, fmt.Errorf("platform: detect linux: %w", err)
-	}
-
-	if alias, ok := linuxDistroAliases[id]; ok {
-		id = alias
-	}
-
-	factory, ok := linuxSpecByDistro[id]
+	release, ok := selector.ReadOSRelease()
 	if !ok {
-		return nil, fmt.Errorf("platform: detect linux: unknown distro %q (from /etc/os-release ID); expected one of debian, ubuntu, mint, rhel, fedora, centos-stream, almalinux, rocky, arch, manjaro", id)
+		return nil, fmt.Errorf("platform: detect linux: no os-release at /etc/os-release or /usr/lib/os-release")
+	}
+	if release.ID == "" {
+		return nil, fmt.Errorf("platform: detect linux: os-release names no ID")
 	}
 
-	spec := factory().
+	id, ok := resolveLinuxDistro(release)
+	if !ok {
+		return nil, fmt.Errorf("platform: detect linux: unknown distro %q (from os-release ID, and none of ID_LIKE %v); expected one of debian, ubuntu, mint, rhel, fedora, centos-stream, almalinux, rocky, arch, manjaro", release.ID, release.IDLike)
+	}
+
+	spec := linuxSpecByDistro[id]().
 		WithArch("").
-		WithVersion(versionID)
+		WithVersion(release.VersionID)
 
 	if hostname, herr := os.Hostname(); herr == nil {
 		spec.WithHostname(hostname)
 	}
 
-	if isServerVariant(variantID) {
+	if isServerVariant(release.VariantID) {
 		spec.managers = stripDesktopOnly(spec.managers)
 	}
 
@@ -82,40 +83,26 @@ func detectInit() ServiceManager {
 	return &sysVinitManager{}
 }
 
-// readOSRelease reads /etc/os-release and returns its ID, VERSION_ID, and VARIANT_ID fields.
+// resolveLinuxDistro finds the listed distro whose managers a host takes: its os-release ID when this package lists
+// it, otherwise the closest ancestor its ID_LIKE names that this package lists.
+//
+// Parameters:
+//   - `release`: the host's os-release.
 //
 // Returns:
-//   - `id`: the distro ID; empty when absent (an error).
-//   - `versionID`: the VERSION_ID; empty when absent.
-//   - `variantID`: the VARIANT_ID; empty when absent.
-//   - `err`: non-nil when the file cannot be read or lacks an ID field.
-func readOSRelease() (id, versionID, variantID string, err error) {
+//   - `string`: the distro, in this package's vocabulary (aliases applied: linuxmint is mint, centos is centos-stream).
+//   - `bool`: false when neither the ID nor any ID_LIKE ancestor is listed.
+func resolveLinuxDistro(release selector.OSRelease) (string, bool) {
 
-	file, err := os.Open("/etc/os-release")
-	if err != nil {
-		return "", "", "", fmt.Errorf("read /etc/os-release: %w", err)
-	}
-
-	defer iox.Close(&err, file)
-	scanner := bufio.NewScanner(file)
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		switch {
-		case strings.HasPrefix(line, "ID="):
-			id = strings.Trim(strings.TrimPrefix(line, "ID="), "\"")
-		case strings.HasPrefix(line, "VERSION_ID="):
-			versionID = strings.Trim(strings.TrimPrefix(line, "VERSION_ID="), "\"")
-		case strings.HasPrefix(line, "VARIANT_ID="):
-			variantID = strings.Trim(strings.TrimPrefix(line, "VARIANT_ID="), "\"")
+	for _, id := range append([]string{release.ID}, release.IDLike...) {
+		if alias, ok := linuxDistroAliases[id]; ok {
+			id = alias
+		}
+		if _, ok := linuxSpecByDistro[id]; ok {
+			return id, true
 		}
 	}
-
-	if id == "" {
-		return "", "", "", fmt.Errorf("/etc/os-release missing ID field")
-	}
-
-	return id, versionID, variantID, nil
+	return "", false
 }
 
 // isServerVariant reports whether the host should be treated as a server-flavored install (no GUI).

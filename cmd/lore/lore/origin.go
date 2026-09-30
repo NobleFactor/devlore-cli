@@ -4,7 +4,6 @@
 package lore
 
 import (
-	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -50,16 +49,12 @@ func (o Origin) Packages() []string {
 	return annotationStringSlice(o.Annotations(), "packages")
 }
 
-// Platform returns the target platform token the graph was planned for.
+// Platform returns the chain of the host the graph was planned for (#944).
 //
 // Returns:
-//   - `string`: the platform token (e.g. "Linux.Debian"); "" when unset.
-func (o Origin) Platform() string {
-	token := ""
-	if value, ok := o.Annotations().Get("platform"); ok {
-		token = assert.Type[string]("platform annotation", value)
-	}
-	return token
+//   - `[]string`: the chain, most general first (e.g. Unix, Linux, Debian, Ubuntu); nil when unset.
+func (o Origin) Platform() []string {
+	return annotationStringSlice(o.Annotations(), "platform")
 }
 
 // Settings returns the lore configuration settings stamped on the origin.
