@@ -220,7 +220,7 @@ other reason, not in a pass of their own. #721's was corrected here because this
 - [ ] The other session told, because devlore-cli#950 and #965 are unblocked by this phase and by
       nothing else in this plan
 
-### Phase 3: every remaining linter (lane 8)
+### Phase 3: every remaining linter (lane 9)
 
 - [ ] `star lint powershell`, `star lint spelling`, `star lint starlark`, and `lint.all` running them
 - [ ] `make lint`, `make lint-fix`, `make lint-tools`; `make check` calls `make lint`
@@ -230,7 +230,7 @@ other reason, not in a pass of their own. #721's was corrected here because this
 - [ ] copyright (984 files, passing today), markdown (471, unmeasured), spelling, and **`star lint
       starlark` from lane 8, not buildifier** (162 `.star` files) all clean
 
-### Phase 4: the go-style debt (lane 9)
+### Phase 4: the go-style debt (lane 10)
 
 **5,455 violations across 848 files**, measured 2026-09-29 with `star lint go-style`. Ruled the same day:
 *"you need to fix all 5,455 violations across 848 files. that is your debt and you must address it."*
@@ -323,9 +323,47 @@ hand.** Only the last is unavoidable prose.
 - [ ] #964's own table corrected from 33 to 51, with the reason
 - [ ] This document set to `complete` in the last commit of the last pull request
 
+## Issue 989
+
+`star` installs its extensions where it does not search. Found 2026-09-30 while tracing why a template edit
+produced no regenerated output, and fixed on this branch because it was found here -- a worktree may resolve
+more than one issue.
+
+`self install` writes to `$PREFIX/share/devlore/star/extensions`; the search list in
+`extension.defaultSearchPaths` was written independently of it and matched exactly two prefixes by
+coincidence. Any other -- `/opt/devlore`, a container prefix -- installed somewhere nothing looked, while
+`make install` reported success.
+
+| Defect | Fix |
+| --- | --- |
+| No exe-relative search path, so only `~/.local` and `/usr/local` were ever found | The loader derives `<dir of star>/../share/devlore/star/extensions` from `os.Executable()`. The binary lands at `$PREFIX/bin/star`, so that one probe IS the install target for every prefix. The installer already had the same arithmetic at `root.go:382` |
+| `findExtensionsDir()` resolved its source from the **working directory** | It now uses `config.GitWorkspaceRoot()`, which is what the loader already used one file away, and which handles a linked worktree's `.git` file |
+| `/usr/local/share` was a string literal and `xdg.DataDirs()` was never called | The system probes come from `xdg.DataDirs()`, so `/usr/share` is searched and `XDG_DATA_DIRS` is honored. The specification's user half was already respected here; its system half was not |
+| `Source` labels were assigned by array index, so `${XDG_DATA_HOME}/star/extensions` reported as `system` | `sourceOf` classifies a path by what it is. Adding probes would otherwise have shifted every later label |
+
+Prior art converges on deriving from the binary and letting the environment override: git's `--exec-path`,
+Python's `sys.prefix`, Go's `GOROOT`, clang's resource directory, and the XDG specification itself.
+
+**Tests.** `TestDefaultSearchPaths_FindsAnInstallUnderAnyPrefix` is the regression test the issue asks for --
+a prefix that is neither of the two the old list knew. `TestSourceOf` pins the labels, including that an
+install into a prefix under `$HOME` is the user's. `TestDefaultSearchPaths_HasNoDuplicates` covers the
+overlap the longer list creates, since an exe-relative path for a `~/.local` install names the same
+directory `XDG_DATA_HOME` does.
+
+Three existing tests in `cmd/star/star` were coupled to the working-directory behavior and now set the root
+explicitly with `config.SetGitWorkspaceRoot`, which is how the loader's own tests already controlled scope.
+That coupling was not incidental: `GitWorkspaceRoot` caches through a `sync.Once`, so a `Chdir` after
+anything else has resolved it changes nothing.
+
+- [x] The loader searches exe-relative, so an install to any prefix is found.
+- [x] `findExtensionsDir()` resolves its source from `config.GitWorkspaceRoot()`.
+- [x] `xdg.DataDirs()` supplies the system paths; no `/usr/local/share` literal remains in the loader.
+- [x] A `Source` label is derived from the path that produced it, not from its index.
+- [x] A test installs to a prefix that is neither `~/.local` nor `/usr/local` and finds the extensions.
+
 ## Related documents
 
-- [noblefactor-ops#232](https://github.com/NobleFactor/noblefactor-ops/issues/232) -- the lint tooling schedule; this is lanes 7, 8 and 9
+- [noblefactor-ops#232](https://github.com/NobleFactor/noblefactor-ops/issues/232) -- the lint tooling schedule; this is lanes 7, 9 and 10, with lane 11 fixed here
 - [personal#216](https://github.com/David-Noble-at-work/personal/issues/216) -- the same gate in personal, 234 findings to zero; the precedent for Requirement 1
 - [devlore-cli#938](https://github.com/NobleFactor/devlore-cli/issues/938) -- why Phase 4 waits
 - [devlore-cli#949](https://github.com/NobleFactor/devlore-cli/issues/949) -- the schedule whose lanes 11, 13 and 21 Phase 2 unblocks

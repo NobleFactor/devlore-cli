@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
+	"github.com/NobleFactor/devlore-cli/cmd/star/config"
 	"github.com/NobleFactor/devlore-cli/cmd/star/extension"
 )
 
@@ -383,7 +384,12 @@ func TestInstallStarExtensions_RecordsOnlyWhatItCopied(t *testing.T) {
 	source := t.TempDir()
 	writeExtensionFile(t, filepath.Join(source, "star", "extensions", "com.example.One", "extension.yaml"), "name: one")
 	writeExtensionFile(t, filepath.Join(source, "star", "extensions", "com.example.One", "commands", "do.star"), "# do")
-	t.Chdir(source)
+
+	// The source is the repository root, not the working directory (#989). Setting it is how the loader's
+	// own tests control scope, and it is the only way to control it here: config.GitWorkspaceRoot caches
+	// through a sync.Once, so a Chdir after something else resolved it changes nothing.
+	config.SetGitWorkspaceRoot(source)
+	t.Cleanup(config.ResetGitWorkspaceRoot)
 
 	prefix := t.TempDir()
 	foreign := filepath.Join(prefix, "share", "devlore", "star", "extensions", "com.noblefactor.ops.GitHub", "extension.yaml")
@@ -416,7 +422,8 @@ func TestInstallStarExtensions_RecordsOnlyWhatItCopied(t *testing.T) {
 // and no executable beside one, installs nothing and claims nothing.
 func TestInstallStarExtensions_WithoutASourceRecordsNothing(t *testing.T) {
 
-	t.Chdir(t.TempDir())
+	config.SetGitWorkspaceRoot(t.TempDir())
+	t.Cleanup(config.ResetGitWorkspaceRoot)
 
 	if installed := installStarExtensions(t.TempDir()); installed != nil {
 		t.Errorf("with no extensions to install, the hook claimed %v", installed)
@@ -432,7 +439,11 @@ func TestSelfUninstall_LeavesAnotherInstallersExtension(t *testing.T) {
 
 	source := t.TempDir()
 	writeExtensionFile(t, filepath.Join(source, "star", "extensions", "com.example.One", "extension.yaml"), "name: one")
-	t.Chdir(source)
+
+	// The source is the repository root, not the working directory (#989). runStar builds the command tree
+	// in this process, so setting it here reaches the install hook.
+	config.SetGitWorkspaceRoot(source)
+	t.Cleanup(config.ResetGitWorkspaceRoot)
 
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
