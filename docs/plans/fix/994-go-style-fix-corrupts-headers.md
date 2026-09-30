@@ -40,14 +40,18 @@ the corruption slipped through.
 
 1. **`--fix` never damages a file it rewrites.** What it did not come to change survives byte for byte.
 2. **`--fix` never satisfies a check with a placeholder.** A function it cannot summarize keeps its
-   violation, visibly, rather than gaining a `TODO` that silences the linter.
 3. **The whole header is a configured template, not code.** `star lint copyright` is a builtin that ships
-   with star and runs on other people's repositories. Both lines are theirs to declare -- SPDX included,
-   which we recommend and do not require -- and ours are declared in `star/config.yaml`.
+   with star and runs on other people's repositories. It is one copyright, two lines long, and all of it is
+   theirs to declare -- SPDX included, which we recommend and do not require. Ours is declared in
+   `star/config.yaml`.
 4. **`check_file` requires exactly what `fix_file` produces**, because both render the same template. One
    specification, two directions, and `SPDX_PATTERN` and `COPYRIGHT_PATTERN` are deleted rather than
    tightened.
-5. **A cross-test proves it.** `--fix` runs over a fixture and `star lint copyright` reads the result, so
+5. **One walk, in Go.** The cost is discovery: 39 recursive tree walks, 34 of which find nothing. 4.1 ms
+   per file against go-style's 0.57 for strictly more work. Under one second, measured.
+6. **The lint provider gets the design document it never had**, `3.5.17`, which the catalog skips and
+   noblefactor-ops#232 already recorded as missing.
+7. **A cross-test proves it.** `--fix` runs over a fixture and `star lint copyright` reads the result, so
    the exact corruption in #994 cannot return unnoticed.
 
 ## Current State
@@ -189,6 +193,95 @@ header survives. Neither linter's own tests can express this: go-style does not 
 and copyright never sees go-style's output. The defect lived in the gap between them, which is where the test
 goes.
 
+### Requirement 6: one walk, in Go -- the cost is discovery, not the checking
+
+Authorized 2026-09-30: *"you are authorized to completely rewrite the copyright extension for efficiency
+based on the spec we're writing."*
+
+Measured the same day over this repository, each figure the second of two consecutive runs so the filesystem
+cache is warm, minus a 0.25 s star startup floor:
+
+| Linter | Files | Work per file | Per file | Starlark |
+| --- | ---: | --- | ---: | ---: |
+| **copyright** | 998 | look at two lines | **4.1 ms** | **379 lines** |
+| go-style | 855 | **parse the whole file as a Go AST**, walk every declaration | **0.57 ms** | 53 lines |
+
+Seven times the cost for a fraction of the work. **Cold, copyright takes 12.6 s against 4.3 s warm**, so
+roughly 8 s of a first run is filesystem I/O -- which is the clue, because a linter that reads 998 files
+should not pay for 8 s of cold I/O.
+
+**The cause is discovery, and it is one loop:**
+
+```python
+for ext in COMMENT_STYLES.keys():          # 39 extensions
+    pattern = path + "/**/*" + ext
+    files = file.find(pattern)             # a full recursive walk, honoring .gitignore
+```
+
+**39 recursive walks of the repository, of which 34 find nothing.** Only 5 of the 39 extensions exist here;
+the walks for `.lisp`, `.vim`, `.erl`, `.tex`, `.zig`, `.dart`, `.java`, `.rs`, `.cpp`, `.swift`, `.proto`
+and 23 others each traverse the whole tree to return an empty list. `lint-go-style.star` does **one**
+`file.find("**/*.go")`, which is the entire difference in the table above.
+
+An earlier draft of this requirement blamed the regexes and the whole-file reads. Those are real and
+secondary; naming them first was assumption rather than measurement, and the correction is recorded here
+because the acceptance criterion below depends on which cause is being removed.
+
+**The secondary costs, in order:**
+
+1. **Whole files read to examine two lines.** `file.read_text` loads every byte, then `content.split("\n")`
+   allocates a Starlark string per line. The header lives in a bounded prefix.
+2. **Three or more Starlark-to-Go crossings per file** -- `read_text`, two `regex.find_submatch`, plus
+   `source_path.rel()` and `is_excluded` during discovery.
+3. **The header rendered per file** where it varies only per comment style: 8 distinct prefixes, computed
+   once, not 998 times.
+
+**`file.WalkTree` is the primitive, and it is used from Go.** `pkg/op/provider/file/provider.go:934` is
+documented as a discovery operation -- *"the walker observes existing filesystem entries; it does not produce
+them"* -- and folds a `Reducer` over each entry in one depth-first traversal. It is already reachable from
+Starlark and exercised there:
+`plan.file.walk_tree(root=root, fn=collector, include_gitignored=True)` in
+`cmd/devlore-test/devloretest/data/test_function_call_walk_tree.star`.
+
+| Approach | Tree walks | Starlark-to-Go crossings |
+| --- | ---: | ---: |
+| Today | **39**, 34 of them fruitless | ~3 per matched file, about 3,000 |
+| `walk_tree` from Starlark | **1** | **1 per entry walked** -- every directory and ignored file, not only the 998 matched |
+| `WalkTree` inside a Go provider method | **1** | **1 total** |
+
+From Starlark, `walk_tree` trades 39 walks for one walk plus a callback on every entry in the tree: very
+likely still a large win, but it makes the cost scale with tree size rather than with matched files. In Go it
+is one crossing for the whole sweep, which is `goast`'s shape and the architecture this requirement asks for.
+**`walk_tree` from Starlark is recorded as the cheap intermediate** -- one line changed, no new provider --
+if the 4 seconds are wanted before the rewrite lands.
+
+**Two things are unmeasured and must be measured before the number below is committed to:** whether the
+reducer's per-entry crossing is cheap in absolute terms, and whether `walk_tree`'s `activationRecord`
+requirement imposes plan-machinery overhead that `file.find` avoids.
+
+**The target is stated so it can fail.** Under one second over 998 files -- go-style's order of magnitude for
+strictly less work. A rewrite landing at 6 seconds has not met this requirement, and the measurement is
+recorded in this document rather than asserted.
+
+### Requirement 7: the lint provider gets the design document it never had
+
+`docs/architecture/3.5-provider-catalog.md` runs from `3.5.1-archive-provider.md` to
+`3.5.16-ui-provider.md`. **There is no `3.5.17-lint-provider.md`, and no `.status.md` beside it**, though
+every other provider has both. noblefactor-ops#232 recorded the gap and named the file; nothing has written
+it.
+
+This rewrite is the occasion, and it is not optional: a provider is being created here, and creating one
+without the document every sibling has is how the catalog came to skip a number in the first place.
+
+| Document | What changes |
+| --- | --- |
+| `docs/architecture/3.5.17-lint-provider.md` | **New.** The provider's methods, the commands over them, the configured header template, and render-and-compare as the checking model |
+| `docs/architecture/3.5.17-lint-provider.status.md` | **New.** As every sibling has |
+| `docs/architecture/3.5-provider-catalog.md` | Gains the `lint` row it lacks; it has a `goast` row already |
+| `docs/architecture/9-star-extensions.md` | `CopyrightConfig` gains `header`; LintCopyright is this document's worked example, so its example changes with it |
+| `docs/architecture/configuration.md` | `lint.copyright`'s shape |
+| `docs/cli/star/lint/copyright.md` | **Generated.** Regenerated by the build, never edited by hand |
+
 ## Implementation phases
 
 ### Phase 1: the plan
@@ -241,7 +334,31 @@ goes.
       `Wrong license: expected X, found Y`
 - [ ] `star lint copyright` over the repository passes, and the count it reports is recorded here
 
-### Phase 5: the cross-test and the close
+### Phase 5: one walk, in Go (#997)
+
+- [ ] The design document is written FIRST: `docs/architecture/3.5.17-lint-provider.md` and its
+      `.status.md`. The provider is designed on paper before it is built, as every sibling was
+- [ ] `docs/architecture/3.5-provider-catalog.md` gains the `lint` row
+- [ ] **Measured before designing to a number:** the per-entry cost of a Starlark `walk_tree` reducer, and
+      whether `walk_tree`'s `activationRecord` imposes plan-machinery overhead `file.find` avoids. Both are
+      unknown today and both change the design
+- [ ] The 39 walks become **one**, over `file.WalkTree`, with the extension decided in the reducer
+- [ ] The sweep runs in a Go provider; `lint-copyright.star` becomes the command -- read config, call the
+      provider, present the result -- in the shape `lint-go-style.star` already has
+- [ ] Only the header's bounded prefix is read, not every byte of every file
+- [ ] The rendered header is computed once per comment style, not once per file
+- [ ] **Under one second over 998 files, warm, minus the startup floor.** Measured and recorded in this
+      document. 4.3 s warm and 12.6 s cold today; a rewrite landing at 6 s has not met Requirement 6
+- [ ] The cold figure is recorded too, because 8 s of the original 12.6 was cold I/O paid for by the 34
+      fruitless walks, and removing them is most of what this phase is for
+- [ ] `docs/architecture/9-star-extensions.md` updated: `CopyrightConfig` gains `header`, and LintCopyright
+      is that document's worked example, so the example changes with it
+- [ ] `docs/architecture/configuration.md` updated for `lint.copyright`'s shape
+- [ ] `docs/cli/star/lint/copyright.md` REGENERATED by the build, not hand-edited
+- [ ] Behavior is unchanged by this phase: the counts from Phases 3 and 4 hold exactly, so the rewrite is
+      proved to be a rewrite and not a change of subject
+
+### Phase 6: the cross-test and the close
 
 - [ ] `--fix` over a fixture, then `star lint copyright` over the result, asserting the header survives
 - [ ] That test fails against the pre-#994 fixer, so it is proof rather than decoration
