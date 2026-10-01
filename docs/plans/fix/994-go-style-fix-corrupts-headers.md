@@ -209,8 +209,38 @@ for Go here**, and the rule the codebase actually follows is narrower than "work
 is in Go because it resolves calls against `op.ReceiverRegistry()`, which Starlark cannot see. Comparing two
 lines of text is not that.
 
-So the sweep stays in Starlark, walking once and deciding per entry, and the ~0.85 s that remains covers four
-walks and all 1001 files.
+So the sweep stays in Starlark, walking once over `file.walk_tree` with the exclusions honored in the reducer,
+and the ~0.85 s that remains covers four walks and all 1001 files.
+
+**The work happens in the reducer, not over a collected list.** An earlier draft walked the tree to build a
+list of `(path, language)` pairs and then iterated it, defended on two grounds that are both wrong:
+
+- *That `--fix` writing into the tree it is walking is a hazard.* It is not. `--fix` rewrites a file's
+  contents and adds, removes or renames no directory entry, so the walk's view does not change under it. The
+  modify-while-walking hazard is about entries changing, not bytes changing.
+- *That a sort is needed for deterministic output.* It is not. The provider walks over `fs.WalkDir`, which Go
+  documents as walking in lexical order, so the order is already stable and the sort was redundant.
+
+What the single pass costs is the count up front: the report moves to the end, because the number of files is
+not known until the walk finishes. That is the whole price, and it is cosmetic.
+
+**Identifying a file is a lookup, not a scan.** The language table is inverted once, before the walk, into
+`by_extension` and `by_filename` dictionaries plus two short lists for the glob and shebang paths. Without
+that, every file costs a linear pass over every language and every pattern with the globs recompiled on each
+comparison -- a thousand files over nine languages is tens of thousands of string operations, and a broad
+default table makes it hundreds of thousands. The first draft of this requirement did exactly that and read as
+compliant, because "deciding per entry" conceals it.
+
+Two costs are accepted rather than removed:
+
+- **The walk filters rather than prunes.** A Starlark reducer returns an accumulator, not an error, and
+  `file.SkipDir` is not exposed to Starlark -- so the walker descends into an excluded directory and the
+  reducer rejects what it finds. 82 of devlore-cli's 1,542 in-scope files sit under `testdata`, so the waste
+  is small. True pruning needs `SkipDir` reachable from a Starlark reducer, which is a provider change and not
+  this plan's.
+- **The shebang path reads a file.** It is therefore consulted only for a path with no extension, after the
+  filename, glob and extension lookups have all missed -- about twenty files across the three repositories
+  rather than every font and image in the tree.
 
 ### Requirement 7: the cross-test
 
@@ -375,6 +405,18 @@ rather than folded in, because fixing it raises the count and this phase must no
       defaults rather than supersede them, or a consumer adding one language silently loses every built-in
       style and finds out when the linter passes a file it never opened
 - [ ] The 39-entry table is gone; the one that replaces it covers what these repositories actually contain
+- [ ] Discovery is one `file.walk_tree` with the exclusions applied in the reducer, not one `file.find` per
+      extension
+- [ ] **The checking and repairing happen in the reducer**, in that one pass -- no collected list, and no
+      sort, since `fs.WalkDir` already walks in lexical order
+- [ ] The reducer **folds**: it mutates and returns the accumulator it was handed rather than a list captured
+      from an enclosing scope, which Starlark restricts. A test covers the first call, where the accumulator
+      arrives as `None`
+- [ ] The table is **inverted into lookups once, before the walk** -- `by_extension` and `by_filename`
+      dictionaries, with the globs compiled once -- so identifying a file is not a scan over every language.
+      A test asserts the lookups are built once per run rather than per file
+- [ ] The shebang path reads a file, so it is consulted **only** for a path with no extension and only after
+      the three lookups miss. A test asserts that a `.go` file causes no read for identification
 - [ ] `star lint copyright` over the repository is measured warm and cold, and both are recorded. 4.3 s warm
       and 12.6 s cold today
 
