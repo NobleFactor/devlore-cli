@@ -14,9 +14,11 @@ import (
 
 // Version information, stamped once for every command in [application].
 var (
-	version   = application.Version
-	commit    = application.Commit
-	buildDate = application.BuildDate
+	version    = application.Version
+	commit     = application.Commit
+	buildDate  = application.BuildDate
+	channel    = application.Channel
+	prerelease = application.IsPrerelease()
 )
 
 // NewRootCmd creates the root writ command with all subcommands.
@@ -41,6 +43,8 @@ Declare your environment once — writ deploys it everywhere you work.`,
 		Version:       version,
 		Commit:        commit,
 		BuildDate:     buildDate,
+		Channel:       channel,
+		Prerelease:    prerelease,
 	})
 
 	rootCmd.PersistentFlags().String("target", "Home", "Target to operate on")

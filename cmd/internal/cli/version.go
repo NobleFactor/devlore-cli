@@ -12,14 +12,16 @@ import (
 
 // VersionReport is `version`'s result: the build stamps this binary carries and the toolchain and platform it
 // was built with. A result like any other, so `--output json` feeds a script, `--output yaml` reads by eye, and
-// `--output value` gives the six values alone (10-command-line-interface.md §5, §7).
+// `--output value` gives the eight values alone (10-command-line-interface.md §5, §7).
 type VersionReport struct {
-	Version string `json:"version"`
-	Commit  string `json:"commit"`
-	Built   string `json:"built"`
-	Go      string `json:"go"`
-	OS      string `json:"os"`
-	Arch    string `json:"arch"`
+	Version    string `json:"version"`
+	Channel    string `json:"channel"`    // the channel the build follows: develop or release; empty in a local build
+	Prerelease bool   `json:"prerelease"` // whether the build takes its channel's pre-releases
+	Commit     string `json:"commit"`
+	Built      string `json:"built"`
+	Go         string `json:"go"`
+	OS         string `json:"os"`
+	Arch       string `json:"arch"`
 }
 
 // The two version surfaces, split the way docker splits them: `--version` answers in one line and
@@ -28,34 +30,39 @@ type VersionReport struct {
 
 // VersionInfo contains version metadata set at build time.
 type VersionInfo struct {
-	Version   string // Semantic version (e.g., "0.1.0")
-	Commit    string // Git commit hash
-	BuildDate string // Build timestamp
+	Version    string // Semantic version (e.g., "0.1.0")
+	Commit     string // Git commit hash
+	BuildDate  string // Build timestamp
+	Channel    string // Channel the build follows: "develop" or "release"; "" in a local build
+	Prerelease bool   // Whether the build takes its channel's pre-releases
 }
 
 // AddVersionFlag installs `--version` on a root command, answering in one line.
 //
 // Cobra generates the flag as soon as [cobra.Command.Version] is set; the template fixes the wording to
-// docker's — `writ version 0.4.0, build ed6f468` — a single line that contacts nothing and exits. `-v` is
+// docker's — `writ version 0.4.0 (release), build ed6f468` — a single line that contacts nothing and exits. The
+// parentheses name the build's channel, and `prerelease` beside it when the build takes that channel's pre-releases:
+// `(develop)`, `(release)` or `(release, prerelease)`; a local build has no channel and names none. `-v` is
 // deliberately not a shorthand for it: this repository's commands already use `-v` for verbose output, and
 // the collision would be worse than the missing convenience.
 //
 // Parameters:
 //   - `rootCmd`: the root command the flag is installed on.
-//   - `info`: the build-time metadata; `Version` and `Commit` appear in the line.
+//   - `info`: the build-time metadata; `Version`, `Channel`, `Prerelease` and `Commit` appear in the line.
 func AddVersionFlag(rootCmd *cobra.Command, info VersionInfo) {
 
 	rootCmd.Version = info.Version
 
 	// The template is rendered by text/template, so it must carry no action delimiters of its own. Every
 	// value here is a build stamp, and a stamp containing "{{" is not a case worth defending against.
-	rootCmd.SetVersionTemplate(fmt.Sprintf("%s version %s, build %s\n", rootCmd.Name(), info.Version, info.Commit))
+	rootCmd.SetVersionTemplate(fmt.Sprintf("%s version %s%s, build %s\n",
+		rootCmd.Name(), info.Version, channelQualifier(info), info.Commit))
 }
 
 // NewVersionCmd creates the version command, whose result is the build detail.
 //
 // The report goes through [Emit] like every other result, so the renderings and the filter stage apply to it:
-// `--output json` parses, `--output yaml` reads, `--output value` gives the six values, `--output none` prints
+// `--output json` parses, `--output yaml` reads, `--output value` gives the eight values, `--output none` prints
 // nothing. `--short` narrows the result to the version string alone, which is the scriptable form; the
 // `--version` flag keeps cobra's one-line answer, which is not a result (#795).
 //
@@ -77,12 +84,14 @@ func NewVersionCmd(info VersionInfo) *cobra.Command {
 			}
 
 			return Emit(cmd, VersionReport{
-				Version: info.Version,
-				Commit:  info.Commit,
-				Built:   info.BuildDate,
-				Go:      runtime.Version(),
-				OS:      runtime.GOOS,
-				Arch:    runtime.GOARCH,
+				Version:    info.Version,
+				Channel:    info.Channel,
+				Prerelease: info.Prerelease,
+				Commit:     info.Commit,
+				Built:      info.BuildDate,
+				Go:         runtime.Version(),
+				OS:         runtime.GOOS,
+				Arch:       runtime.GOARCH,
 			})
 		},
 	}
@@ -91,3 +100,29 @@ func NewVersionCmd(info VersionInfo) *cobra.Command {
 
 	return cmd
 }
+
+// region HELPER FUNCTIONS
+
+// channelQualifier returns the `--version` line's channel, in parentheses after the version.
+//
+// Every develop build is a pre-release, so `develop` stands alone; any other channel names `prerelease` beside it
+// when the build takes its pre-releases. A local build has no channel, and the line says nothing about one.
+//
+// Parameters:
+//   - `info`: the build-time metadata.
+//
+// Returns:
+//   - `string`: ` (develop)`, ` (release)` or ` (release, prerelease)`; "" when the build has no channel.
+func channelQualifier(info VersionInfo) string {
+
+	switch {
+	case info.Channel == "":
+		return ""
+	case info.Prerelease && info.Channel != channelDevelop:
+		return " (" + info.Channel + ", prerelease)"
+	default:
+		return " (" + info.Channel + ")"
+	}
+}
+
+// endregion

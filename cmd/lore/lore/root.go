@@ -14,9 +14,11 @@ import (
 
 // Version information, stamped once for every command in [application].
 var (
-	version   = application.Version
-	commit    = application.Commit
-	buildDate = application.BuildDate
+	version    = application.Version
+	commit     = application.Commit
+	buildDate  = application.BuildDate
+	channel    = application.Channel
+	prerelease = application.IsPrerelease()
 )
 
 // NewRootCmd creates the root lore command with all subcommands.
@@ -45,6 +47,8 @@ What took someone hours to figure out, you get in minutes.`,
 		Version:       version,
 		Commit:        commit,
 		BuildDate:     buildDate,
+		Channel:       channel,
+		Prerelease:    prerelease,
 	})
 
 	rootCmd.PersistentFlags().String("registry", "", "Registry path")

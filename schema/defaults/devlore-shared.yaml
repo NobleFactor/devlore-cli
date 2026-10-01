@@ -10,3 +10,10 @@
 #   recipients_file: .age-recipients
 #   mode: "0600"
 #   on_error: error
+
+# The channel every program's `self upgrade` follows (#947). Unset by default, so each build follows the channel it
+# was built on; set it to make a choice that outranks every build's own channel. Switching once instead is
+# `writ self upgrade --channel release`; the installed builds keep that channel after.
+# self:
+#   channel: release   # develop (every develop build) or release (GitHub's latest release)
+#   prerelease: true   # with channel release, take its pre-releases too; `--prerelease` for one run

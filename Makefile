@@ -87,11 +87,38 @@ BUILD_DATE := $(BUILD_DATE)
 # tick of `date`.
 export VERSION COMMIT BUILD_DATE
 
+### CHANNEL
+
+# The channel a build follows, stamped beside the version (#947): CHANNEL is `develop` or `release`, and
+# PRERELEASE is `true` or `false`, whether the build takes that channel's pre-releases. Both stay empty
+# unless given, because a local build has no channel: `self upgrade` from one upgrades only when told
+# what to. release.yaml gives both, from the ref it builds:
+#
+#   make dist DEVLORE_VERSION=v0.1.0-dev.<stamp> CHANNEL=develop PRERELEASE=true    # develop
+#   make dist DEVLORE_VERSION=v0.1.0-rc.<stamp>  CHANNEL=release PRERELEASE=true    # main, release/*
+#   make dist DEVLORE_VERSION=vX.Y.Z             CHANNEL=release PRERELEASE=false   # a v* tag
+#
+# Neither runs a $(shell), so neither needs the freezing above, and a sub-make inherits both the way it
+# inherits any variable given to make: from the command line through MAKEFLAGS, from the environment
+# through the environment. A value the binaries would refuse is refused here, before anything is built
+# with it.
+CHANNEL ?=
+PRERELEASE ?=
+
+ifneq ($(filter-out develop release,$(CHANNEL))$(word 2,$(CHANNEL)),)
+$(error CHANNEL is "$(CHANNEL)": a build's channel is develop or release)
+endif
+ifneq ($(filter-out true false,$(PRERELEASE))$(word 2,$(PRERELEASE)),)
+$(error PRERELEASE is "$(PRERELEASE)": a build's pre-release switch is true or false)
+endif
+
 # The package holding the stamped variables. Named once: `verify-ldflags` asserts that every other
 # build definition in the repository names the same one.
 VERSION_PACKAGE := github.com/NobleFactor/devlore-cli/pkg/application
 
-LDFLAGS := -ldflags "-X $(VERSION_PACKAGE).Version=$(VERSION) -X $(VERSION_PACKAGE).Commit=$(COMMIT) -X $(VERSION_PACKAGE).BuildDate=$(BUILD_DATE)"
+LDFLAGS := -ldflags "-X $(VERSION_PACKAGE).Version=$(VERSION) -X $(VERSION_PACKAGE).Commit=$(COMMIT) \
+	-X $(VERSION_PACKAGE).BuildDate=$(BUILD_DATE) -X $(VERSION_PACKAGE).Channel=$(CHANNEL) \
+	-X $(VERSION_PACKAGE).Prerelease=$(PRERELEASE)"
 
 ### PREFIX
 
@@ -324,6 +351,21 @@ build: generate ## Build every product for PLATFORM (default: this machine; `all
 			echo "  The -X paths in LDFLAGS name symbols that do not exist — check $(VERSION_PACKAGE)."
 			exit 1
 		fi
+		# The channel binds the same way and fails the same way, and a release without its channel would refuse
+		# every plain `self upgrade`. A local build stamps none, and an empty stamp cannot be told from a missing
+		# symbol, so the channel is proven whenever CHANNEL is given, which release.yaml always does. The template
+		# reads both values raw, with no parser beyond the shell.
+		if [ -n "$(CHANNEL)" ]; then
+			computed="$(CHANNEL) $(if $(filter true,$(PRERELEASE)),true,false)"
+			reported="$$($(HOST_DIR)/writ$(HOST_GOEXE) version --output 'template={{.channel}} {{.prerelease}}')"
+			if [ "$$reported" != "$$computed" ]; then
+				echo "ERROR: channel stamp did not bind."
+				echo "  build computed: $$computed"
+				echo "  binary reports: $$reported"
+				echo "  The -X paths in LDFLAGS name symbols that do not exist — check $(VERSION_PACKAGE)."
+				exit 1
+			fi
+		fi
 	fi
 
 install: build ## Install lore, star, and writ via self install (PREFIX=~/.local)
@@ -394,6 +436,9 @@ test-scenario: build ## Run every scenario: the real binaries driven end to end 
 	WRIT_SCENARIO_RUN=1 go test -run TestWritLayerJourneyScenario -v -count=1 -timeout 900s ./cmd/writ
 	# Self install / uninstall, once per tool. Belongs to no single command, so it lives in cmd/scenario.
 	DEVLORE_SCENARIO_RUN=1 go test -run TestSelfInstallScenario -v -count=1 -timeout 600s ./cmd/scenario
+	# Self upgrade (docs/plans/fix/947-self-upgrade-fetches-nothing-it.md): the three, installed from build/, upgraded
+	# by the installed writ to a release the test builds and packs itself, then again, which changes nothing.
+	DEVLORE_SCENARIO_RUN=1 go test -run TestSelfUpgradeScenario -v -count=1 -timeout 600s ./cmd/scenario
 
 cover: generate ## Report coverage (per-package inline + total); writes coverage.out. Not a gate — use test/check for that.
 	go test $(if $(_TAGS),-tags '$(_TAGS)') $$(go list ./... | grep -v '/pkg/op/provider$$') -coverprofile=coverage.out -timeout 120s || true
@@ -478,7 +523,7 @@ verify-ldflags: ## Assert every build definition stamps the same package
 	# (release.yaml runs `make dist`). It is kept correct anyway: whoever adopts goreleaser inherits
 	# whatever is in that file, and a wrong symbol path there fails the way this whole defect failed,
 	# silently. Agreement is the check, because the Makefile's own paths are proved to bind by `build`.
-	for symbol in Version Commit BuildDate; do
+	for symbol in Version Commit BuildDate Channel Prerelease; do
 		if ! grep -q -- "-X $(VERSION_PACKAGE).$$symbol=" .goreleaser.yaml; then
 			echo "ERROR: .goreleaser.yaml does not stamp $(VERSION_PACKAGE).$$symbol"
 			echo "  Both build definitions must name the same package, or one of them stamps nothing."

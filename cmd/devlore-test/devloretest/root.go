@@ -14,9 +14,11 @@ import (
 
 // Version information, stamped once for every command in [application].
 var (
-	version   = application.Version
-	commit    = application.Commit
-	buildDate = application.BuildDate
+	version    = application.Version
+	commit     = application.Commit
+	buildDate  = application.BuildDate
+	channel    = application.Channel
+	prerelease = application.IsPrerelease()
 )
 
 // NewRootCmd creates the root devlore-test command with all subcommands.
@@ -48,6 +50,8 @@ and its traces go to the execution store.
 		Version:       version,
 		Commit:        commit,
 		BuildDate:     buildDate,
+		Channel:       channel,
+		Prerelease:    prerelease,
 	})
 
 	rootCmd.AddCommand(newRunCmd())

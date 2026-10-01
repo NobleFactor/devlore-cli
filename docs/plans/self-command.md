@@ -2,10 +2,20 @@
 
 | Field       | Value                                           |
 |-------------|--------------------------------------------------|
-| status      | draft                                            |
+| status      | complete                                         |
 | branch      | feat/self-command                                |
 | issue       | TBD                                              |
 | started     | 2026-08-09                                       |
+
+> **2026-10-01: complete, and its upgrade superseded.** The `self` group this plan describes shipped: `self install`,
+> `self upgrade` and `self uninstall` on every program. Its upgrade did not upgrade. It re-ran the running binary's
+> own `self install` over itself and fetched nothing, and on Linux it could not even rewrite the running binary
+> ([#947](https://github.com/NobleFactor/devlore-cli/issues/947), "self upgrade fetches nothing"). Every passage on
+> the upgrade below is **superseded** by
+> [fix/947-self-upgrade-fetches-nothing-it.md](fix/947-self-upgrade-fetches-nothing-it.md): the target interface's
+> `self upgrade` line, the upgrade's semantics, the `self upgrade` subcommand, and verification step 8. An upgrade now
+> fetches the newest build on its channel, verifies it, and hands every devlore program in the prefix to that build's
+> own `self install`. The rest is kept as written, as the record of what this plan set out to do.
 
 ## Context
 
@@ -26,10 +36,13 @@ All tools need a unified `self` command group with `install`, `upgrade`, and `un
 <tool> self uninstall [prefix]  # removes binary, man pages, completions from prefix
 ```
 
+*Superseded 2026-10-01: `self upgrade` fetches a build; see the note at the top.*
+
 ### Semantics
 
 - **install**: Copies binary to `<prefix>/bin/`, installs man pages, completions, config, cache. Writes a manifest recording every installed file with its SHA-256 checksum. Full first-time setup.
 - **upgrade**: Resolves current install prefix from `os.Executable()` (strips `/bin/<tool>` suffix). Overwrites binary in place. Refreshes man pages, completions, config, cache. Updates the manifest. No prefix argument needed.
+  *Superseded 2026-10-01; see the note at the top.*
 - **uninstall**: Reads the manifest. Removes files whose checksums still match (untouched since install). Skips files the user modified or added — reports what was skipped. Removes empty directories left behind.
 
 ### Manifest
@@ -69,7 +82,7 @@ Replace `NewSelfInstallCmd()` with `NewSelfCmd()` that returns a `self` parent c
 - Calls existing `runSelfInstall()` (refactored to skip config/cache when `ConfigInfo` is nil)
 - After installing all files, writes the manifest via `writeManifest()`
 
-**`self upgrade` subcommand:**
+**`self upgrade` subcommand:** *(superseded 2026-10-01; see the note at the top)*
 - No positional args
 - `--shell` flag (repeatable)
 - Resolves prefix via `resolveInstalledPrefix()`: `filepath.Dir(filepath.Dir(os.Executable()))` (e.g., `/home/user/.local/bin/writ` -> `/home/user/.local`)
@@ -179,6 +192,6 @@ Note: `devlore-test` is excluded from `make install` — it is a developer tool,
 5. `lore self install /tmp/test && ls /tmp/test/bin/lore` — binary exists
 6. `star self install /tmp/test && ls /tmp/test/share/star/extensions/` — extensions copied
 7. `cat /tmp/test/share/lore/manifest.json` — manifest exists with checksums
-8. `writ self upgrade` — overwrites writ in place, updates manifest
+8. `writ self upgrade` — overwrites writ in place, updates manifest *(superseded 2026-10-01; see the note at the top)*
 9. Edit a config file, then `lore self uninstall /tmp/test --force` — modified config skipped, unmodified files removed
 10. Verify `which lore`, `which star`, `which writ` resolve after `make install`

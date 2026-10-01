@@ -1,6 +1,6 @@
 # Command Line Interface — One Convention, Every App
 
-> **Status:** design (draft, 2026-08-28; last ruling 2026-09-11). Specifies the command-line surface every
+> **Status:** design (draft, 2026-08-28; last ruling 2026-09-30). Specifies the command-line surface every
 > binary in the suite
 > presents: the command grammar, the flag set, and above all where output goes. No implementation.
 > Companion: [`10-command-line-interface.status.md`](10-command-line-interface.status.md).
@@ -216,6 +216,96 @@ because the graph behind it is replayable. A manifest is a list of paths and has
 operation: it can answer *is this the file I wrote*, and it cannot answer *what would it take to get back
 here*. `self install` has no lifetimes to prune and no fold to bound, and should not grow them -- a reader who
 finds themselves reaching for `readback.Fold` here has the wrong record in mind.
+
+### `self upgrade` installs a fetched build
+
+**An upgrade is a `self install` of a fetched build** ([#947](https://github.com/NobleFactor/devlore-cli/issues/947)).
+`self upgrade` borrows the verb as `self install` does, and its effect on the record is install's, not `upgrade`'s
+above: it fetches a published build and hands each program to that build's own `self install`, which **replaces** the
+program's manifest. Nothing of the lifetime model applies. The delegation is the installers' ruling, held here too:
+"running each program's own `self install`, which is the one installer the suite has ... The scripts fetch and
+delegate; they do not re-implement" ([#798](https://github.com/NobleFactor/devlore-cli/issues/798), Ruling 1). Until
+#947 the command fetched nothing: it ran the running binary's `self install` over itself.
+
+**One run upgrades the suite** (ruled 2026-09-30, "1. all programs together"). The suite is every program a release
+carries -- `lore`, `star` and `writ` -- that the prefix owns by its manifest, `share/<program>/manifest.json`, and the
+program running the upgrade, whose binary sets the prefix. The manifest is what a program owns, so a binary of the
+same name with no manifest is someone else's (`star` is also a tar archiver) and is left alone; a program the prefix
+does not own is not added, and one an interrupted run left with a manifest and no binary is put back. Each program's
+new binary is placed in `bin/` first and the program's `self install` runs from the unpacked build, so the child never
+meets a running target, whatever build it is. The first failure stops the run and names its program; nothing is
+rolled back, and running the command again finishes the job. When every program's binary is in place and its
+manifest already names the release, nothing is downloaded and nothing changes. `devlore-test` is in no release, and
+its `self upgrade` refuses.
+
+**A running binary is replaced by a rename, never rewritten.** Linux refuses to write over a running executable,
+macOS kills the next run of a signed binary rewritten in place, and Windows refuses to rewrite, delete or rename over
+a running `.exe`. So every install, `self install` and `self upgrade` alike, writes the new binary to `bin/<name>.new`
+(`bin/<name>.exe.new` on Windows) and renames it over the target. On Windows the running `.exe` is first renamed
+aside to `<name>.exe.old`, which the manifest records, so a later install retires it once nothing runs it and
+`self uninstall` reaches it. The fixed names keep a failed run idempotent.
+
+**Two channels, and a build keeps its own** (ruled 2026-09-30: "in my mind we have two and main is not one. The two
+are develop and release. we might talk about pre-release channels at some point."; and "a build keeps its own
+channel. the channel is stamped into the binary explicitly. we must ensure that i can switch channels easily. a
+possibility is providing configuration as an override."). `develop` is every build from `develop`, each a
+pre-release. `release` is GitHub's latest release, `/releases/latest`, which GitHub serves only for a release whose
+`prerelease` flag is false; with pre-releases switched on, it takes the release channel's pre-releases too, the
+builds from `main` and `release/*` (ruled the same day: "we will use githubs prerelease flag to distinguish
+prereleases from \"regular releases\""; and, of the switch, "it maps directly to what github offers. we should use
+their word: --prerelease."). A release's channel is read from the `Ref:` line its body already carries:
+`refs/heads/develop` is `develop`, and any other ref is `release`.
+
+The channel is stamped into every binary beside its version, as `pkg/application.Channel` and `Prerelease`, by the
+release workflow from the ref it builds, decided in the one step that also decides GitHub's `prerelease` flag, so the
+two cannot disagree:
+
+| Built from | Version | GitHub's `prerelease` | Channel | Takes pre-releases |
+| --- | --- | --- | --- | --- |
+| `develop` | `v0.1.0-dev.<stamp>` | true | `develop` | yes |
+| `main`, `release/*` | `v…-rc.<stamp>` | true | `release` | yes |
+| a `v*` tag | `vX.Y.Z` | false | `release` | no |
+
+A local build stamps neither and has no channel. `--version` names the stamp after the version, as in
+`writ version v0.1.0-dev.<stamp> (develop), build <commit>`, `(release)` or `(release, prerelease)`, and `version`'s
+result carries `channel` and `prerelease`. Each release is tagged at the commit it was built from.
+
+**What a run upgrades to is decided by one source, first to last**, in §11's order, with the build's stamp beneath
+configuration as its compiled-in default:
+
+| Source | Decides | Pre-releases, unless `--prerelease` is given |
+| --- | --- | --- |
+| `--from <archive>` | that archive, its checksums file beside it; GitHub is not asked | -- |
+| `--channel <channel>` | the newest release on `develop` or `release` | no |
+| `DEVLORE_VERSION=<tag>` | that release, whatever its channel; `latest`, the installers' default, pins nothing | -- |
+| `self.channel` | the newest release on that channel | `self.prerelease`, false if unset |
+| the build's stamp | the newest release on the stamped channel | the stamped switch |
+
+The pre-release switch comes with the channel that decides, never assembled from two places, and means something only
+on `release`: every `develop` build is a pre-release. A pin beside `--channel` is ignored, because a flag always wins,
+and `--prerelease` beside a pin has no effect, because a pin names one release; a note says so in each case. With no
+archive, no channel and no pin, the command refuses and names `--channel` and `self.channel`.
+
+**Switching is one command, and it stays switched.** `writ self upgrade --channel release` moves the suite to
+`release`, and because the builds it installs are stamped `release`, every later plain `self upgrade` stays there,
+unless a `DEVLORE_VERSION` pin or `self.channel` is set, either of which outranks the stamp. `--prerelease` persists
+that way only while what it installs is itself a pre-release; the standing choice is `self.prerelease: true` beside
+`self.channel: release`. Both settings are shared, read by every program, because the channel belongs to the suite;
+the configuration a new install starts from documents them as comments and sets neither, since a value there would
+outrank every build's own channel.
+
+**GitHub is asked without a token, and with one when given** (ruled 2026-09-30 for the installers: "we read it and
+put it into the request headers, if it's set"). `GH_TOKEN`, when set, goes as the `Authorization` header on requests
+to `api.github.com` and nowhere else; the archive and its checksums file download from their public addresses, so the
+API is asked only to find the release, within the anonymous limit of 60 requests an hour. Nothing prompts. Nothing is
+installed that is not verified: the archive's SHA-256 must match its line in the release's checksums file and, from
+GitHub, the asset's own `digest`. It is unpacked into a scratch directory, contained as the
+[archive provider](3.5.1-archive-provider.md) contains an archive, and the directory goes when the command ends,
+interrupted or not. `--dry-run` finds, downloads and verifies the release, reports what it would upgrade, and changes
+nothing.
+
+Upgrading unasked is [#83](https://github.com/NobleFactor/devlore-cli/issues/83)'s (ruled 2026-09-30: "we will not
+worry about auto-upgrade at this point. we leave that for #83.").
 
 ## 4. Arguments and flags
 
@@ -891,6 +981,9 @@ authoritative where the two meet.
 
 A flag always wins. A command must not read configuration in a way that overrides an explicitly passed flag,
 including when the flag's value equals its default.
+
+`self upgrade` follows the ladder rung for rung -- `--channel`, then `DEVLORE_VERSION`, then `self.channel` -- with the
+channel stamped into the build beneath them all (§3).
 
 ### Introducing a name and setting its value
 

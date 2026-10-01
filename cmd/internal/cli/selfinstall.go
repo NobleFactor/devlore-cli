@@ -14,7 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -36,6 +36,8 @@ import (
 type SelfInstallInfo struct {
 	Name               string                  // Tool name (e.g., "lore", "writ", "star")
 	Version            string                  // Semantic version (e.g., "0.4.0"), set via ldflags
+	Channel            string                  // Channel the build follows ("develop", "release"), set via ldflags
+	Prerelease         bool                    // Whether the build takes its channel's pre-releases, set via ldflags
 	ManHeader          ManHeader               // Man page header metadata
 	ConfigInfo         *ConfigInfo             // Config schema and defaults (nil to skip config init)
 	PostInstallHooks   []func(string) []string // Hooks run after install; return installed file paths (relative to prefix)
@@ -121,34 +123,99 @@ After installation, ensure <prefix>/bin is in your PATH.
 	return cmd
 }
 
-// newUpgradeCmd creates the "self upgrade" subcommand.
-func newUpgradeCmd(rootCmd *cobra.Command, info SelfInstallInfo) *cobra.Command {
+// newUpgradeCmd creates the "self upgrade" subcommand, which moves every devlore program in the prefix to one release
+// (#947).
+//
+// The programs' man pages and completions are rendered by each program's own `self install`, which the upgrade runs
+// from the release it fetched, so the root command is not needed here.
+//
+// Parameters:
+//   - `info`: the program's install metadata, carrying its name, its version and the build's stamped channel.
+//
+// Returns:
+//   - `*cobra.Command`: `self upgrade`, carrying `--shell`, `--channel`, `--prerelease` and `--from`; `--from` names
+//     its own release, so it is refused beside `--channel` or `--prerelease`. A program no release carries gets help
+//     that says the command refuses it.
+func newUpgradeCmd(_ *cobra.Command, info SelfInstallInfo) *cobra.Command {
 	var shells []string
+	var from string
 
 	cmd := &cobra.Command{
 		Use:   "upgrade",
-		Short: "Upgrade " + info.Name + " in place",
-		Long: `Upgrade ` + info.Name + ` by overwriting the currently installed binary and refreshing
-man pages, completions, config, and cache.
+		Short: "Upgrade " + info.Name + ", and every devlore program beside it, to one release",
+		Long: `Upgrade ` + info.Name + `, and every other devlore program installed beside it, to one release.
 
-The installation prefix is resolved from the running binary's location.
-No prefix argument is needed.
+The prefix is the one the running binary is in, <prefix>/bin/` + info.Name + `. The programs are
+the ones a release carries -- lore, star and writ -- that the prefix holds; one it does not hold
+is not added. When every one is already at the release, nothing is downloaded and nothing
+changes.
 
-Example:
+The release is downloaded from GitHub into a temporary directory, verified against its checksums
+file and GitHub's own SHA-256 digest, and unpacked there; the directory is removed when the
+command ends, interrupted or not. Each program's new binary is then placed in <prefix>/bin, and
+the program installs itself with its own "self install", which refreshes its man pages and
+completions and replaces its record. The first program that fails stops the run; nothing is
+rolled back, and running the command again finishes the job.
+
+What it upgrades to is decided by the first of these that is given:
+  --from <archive>     a release archive on disk, its checksums file beside it
+  --channel <channel>  the newest release on that channel
+  DEVLORE_VERSION      that release, whatever its channel; "latest" pins nothing
+  self.channel         the channel in the configuration every program shares
+  the build's channel  the channel this build was made on, which --version names
+
+The channels:
+  develop  every build from develop, each a pre-release
+  release  GitHub's latest release; with --prerelease, or self.prerelease: true beside
+           self.channel: release, the release channel's pre-releases too
+
+The channel stays with the installed builds: after "` + info.Name + ` self upgrade --channel release",
+a plain "` + info.Name + ` self upgrade" stays on release, unless DEVLORE_VERSION or self.channel
+is set, either of which outranks the build's channel. A local build has no channel, and
+upgrades only when told what to.
+
+GitHub is asked without a token, which allows 60 requests an hour. Set GH_TOKEN to a GitHub token
+to raise the limit; it is sent with requests to GitHub's API, never with downloads. Nothing
+prompts.
+
+--dry-run finds, downloads and verifies the release, says what it would upgrade, and changes
+nothing.
+
+Examples:
   ` + info.Name + ` self upgrade
+  ` + info.Name + ` self upgrade --channel release
+  ` + info.Name + ` self upgrade --channel release --prerelease
+  DEVLORE_VERSION=<tag> ` + info.Name + ` self upgrade
+  ` + info.Name + ` self upgrade --from ./devlore-cli_<tag>_<os>_<arch>.tar.gz
+  ` + info.Name + ` self upgrade --dry-run
 `,
 		Args: cobra.NoArgs,
-		RunE: func(_ *cobra.Command, _ []string) error {
-			prefix, err := resolveInstalledPrefix(info.Name)
-			if err != nil {
-				return err
-			}
-			return runSelfInstall(rootCmd, prefix, info, installFlags{Shells: shells})
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return runSelfUpgrade(cmd, info, from, shells)
 		},
 	}
 
 	cmd.Flags().StringArrayVar(&shells, "shell", nil,
 		"Shell to install completions for (repeatable, e.g., --shell bash --shell zsh)")
+	cmd.Flags().String("channel", "",
+		"Channel to upgrade on: develop or release; outranks a DEVLORE_VERSION pin (default: the pin, else "+
+			"self.channel, else the channel this build was made on)")
+	cmd.Flags().Bool("prerelease", false, "Include the release channel's pre-releases")
+	cmd.Flags().StringVar(&from, "from", "",
+		"Release archive on disk to upgrade to, its checksums file beside it; GitHub is not asked")
+
+	// An archive names its own release, so neither a channel nor the pre-release switch means anything beside it.
+	cmd.MarkFlagsMutuallyExclusive("from", "channel")
+	cmd.MarkFlagsMutuallyExclusive("from", "prerelease")
+
+	// A program no release carries is refused every time it runs this (#947, Requirement 7), so its help says that
+	// and promises nothing.
+	if !slices.Contains(shippedPrograms, info.Name) {
+		cmd.Short = info.Name + " is not in a release; self upgrade refuses it"
+		cmd.Long = info.Name + ` is built, not shipped: a release carries ` + joinPrograms(shippedPrograms) + `,
+and self upgrade upgrades only those; ` + info.Name + ` is upgraded by building it.
+`
+	}
 
 	return cmd
 }
@@ -177,7 +244,7 @@ Example:
 			if len(args) > 0 {
 				prefix = expandTilde(args[0])
 			} else {
-				resolved, err := resolveInstalledPrefix(info.Name)
+				resolved, err := resolveInstalledPrefix()
 				if err != nil {
 					return err
 				}
@@ -213,7 +280,23 @@ Example:
 // Install / Upgrade
 // =============================================================================
 
-// runSelfInstall performs the complete installation.
+// runSelfInstall installs the running program into `prefix` and replaces the tool's record of what it owns there.
+//
+// The binary installed is the running executable. With it go the man pages, when a `man` command exists, and the
+// completions for the shells `flags` names, or for those detected when it names none. The configuration and cache
+// are initialized, the post-install hooks run, and writ's layer directories are created. What the previous record
+// owned and this install does not is retired (#933), and the manifest is written last.
+//
+// Parameters:
+//   - `rootCmd`: the command tree the man pages and completions are generated from.
+//   - `prefix`: the installation prefix; a first install creates it.
+//   - `info`: the tool's install metadata: its name, version, man page header, configuration and hooks.
+//   - `flags`: the install flags; `Shells` names the shells to install completions for.
+//
+// Returns:
+//   - `error`: non-nil when the prefix cannot be opened; when the binary, man pages, completions, configuration or
+//     writ's layer directories cannot be placed; or when the manifest cannot be written. `self upgrade` judges each
+//     program by this exit status (#947).
 func runSelfInstall(rootCmd *cobra.Command, prefix string, info SelfInstallInfo, flags installFlags) (err error) {
 
 	// One root for the whole install, threaded through every stage below (#405, phase 2b). The prefix is the
@@ -227,13 +310,23 @@ func runSelfInstall(rootCmd *cobra.Command, prefix string, info SelfInstallInfo,
 	}
 	defer iox.Close(&err, prefixRoot)
 
-	// 1. Install binary.
-	binPath, err := installBinary(prefixRoot, info.Name)
+	// 1. Install binary. A binary an earlier install set aside is removed first, unless it still runs (#947).
+	retireSetAside(prefixRoot, setAsideName(info.Name))
+
+	executable, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("failed to get executable path: %w", err)
+	}
+	binPath, err := installBinary(prefixRoot, executable, info.Name)
 	if err != nil {
 		return fmt.Errorf("failed to install binary: %w", err)
 	}
 	installed := []string{fmt.Sprintf("Binary:      %s", binPath)} // Display lines
 	manifestFiles := []string{relPath(prefix, binPath)}            // Paths relative to prefix (for manifest)
+
+	// A binary set aside is the tool's to record, so that a later install retires it and `self uninstall` reaches
+	// it: the one Windows set aside to make way for this one, or an earlier one that still runs (#947).
+	manifestFiles = append(manifestFiles, setAsideToRecord(prefixRoot, setAsideName(info.Name))...)
 
 	// 2. Install man pages (if man command exists).
 	manLines, manPaths, err := installManPagesUnderPrefix(rootCmd, prefixRoot, info.ManHeader)
@@ -274,9 +367,10 @@ func runSelfInstall(rootCmd *cobra.Command, prefix string, info SelfInstallInfo,
 	// everything is placed, so a failure above leaves the previous install intact.
 	retired, retainedByChange := retireSupersededFiles(prefixRoot, prefix, info.Name, manifestFiles)
 
-	// 8. Write manifest.
+	// 8. Write manifest. An install that cannot record what it placed has stranded it, so the failure is the
+	// install's, and `self upgrade` relies on each program's install to say so in its exit status (#947).
 	if err := writeManifest(prefixRoot, info.Name, info.Version, manifestFiles); err != nil {
-		Warn("Failed to write manifest: %v", err)
+		return fmt.Errorf("failed to write manifest %s: %w", manifestPath(prefix, info.Name), err)
 	}
 
 	printInstallSummary(info.Name, prefix, installed, installedShells)
@@ -706,46 +800,6 @@ func removeDevloreCache(toolName string) {
 // Manifest
 // =============================================================================
 
-// manifestPath returns the path to the manifest file.
-func manifestPath(prefix, toolName string) string {
-	return filepath.Join(prefix, relativeManifestPath(toolName))
-}
-
-// executableName returns the tool's filename as the platform requires it.
-//
-// Windows will not execute a file without a recognized extension, so an install that copies the binary to
-// `bin/writ` produces something the operator cannot run — a successful-looking install of a dead file. Found
-// by the self-install scenario on its first Windows run (2026-08-17); every platform's `go build` output
-// carries this suffix, and so must every installed copy.
-//
-// Parameters:
-//   - `tool`: the tool name, unsuffixed.
-//
-// Returns:
-//   - `string`: the tool name plus `.exe` on Windows, unchanged elsewhere.
-func executableName(tool string) string {
-
-	if runtime.GOOS == "windows" {
-		return tool + ".exe"
-	}
-
-	return tool
-}
-
-// relativeManifestPath returns the manifest's path within the install prefix.
-//
-// Named separately because a root addresses its contents relatively: [manifestPath] answers "where is it on
-// disk", this answers "where is it in the tree", and both derive from one definition.
-//
-// Parameters:
-//   - `toolName`: the installed tool.
-//
-// Returns:
-//   - `string`: the manifest path relative to the install prefix.
-func relativeManifestPath(toolName string) string {
-	return filepath.Join("share", toolName, "manifest.json")
-}
-
 // writeManifest writes the installation manifest.
 func writeManifest(prefixRoot fsroot.Dir, toolName, version string, relativePaths []string) error {
 	var entries []manifestEntry
@@ -779,20 +833,6 @@ func writeManifest(prefixRoot fsroot.Dir, toolName, version string, relativePath
 	return prefixRoot.WriteFile(mPath, append(data, '\n'), 0o600)
 }
 
-// readManifest reads the installation manifest.
-func readManifest(prefix, toolName string) (*manifest, error) {
-	data, err := os.ReadFile(manifestPath(prefix, toolName))
-	if err != nil {
-		return nil, err
-	}
-
-	var m manifest
-	if err := json.Unmarshal(data, &m); err != nil {
-		return nil, err
-	}
-	return &m, nil
-}
-
 // =============================================================================
 // Prefix Resolution
 // =============================================================================
@@ -802,30 +842,22 @@ func defaultPrefix() string {
 	return xdg.UserHomePath(".local")
 }
 
-// resolveInstalledPrefix determines the installation prefix from the running binary's
-// location. For a binary at <prefix>/bin/<tool>, this returns <prefix>.
-func resolveInstalledPrefix(toolName string) (string, error) {
+// resolveInstalledPrefix determines the installation prefix from the running binary's location, as
+// [installedPrefixOf] finds it: for a binary at <prefix>/bin/<tool>, it is <prefix>.
+//
+// Returns:
+//   - `string`: the installation prefix.
+//   - `error`: the running executable cannot be found, or [installedPrefixOf]'s.
+func resolveInstalledPrefix() (string, error) {
+
 	exe, err := os.Executable()
 	if err != nil {
 		return "", fmt.Errorf("cannot determine executable path: %w", err)
 	}
 
-	exe, err = filepath.EvalSymlinks(exe)
-	if err != nil {
-		return "", fmt.Errorf("cannot resolve symlinks: %w", err)
-	}
+	prefix, _, err := installedPrefixOf(exe)
 
-	// Expect <prefix>/bin/<tool>
-	dir := filepath.Dir(exe)   // <prefix>/bin
-	base := filepath.Base(dir) // bin
-	if base != "bin" {
-		return "", fmt.Errorf("cannot determine installation prefix: %s is not in a <prefix>/bin/ directory", exe)
-	}
-
-	prefix := filepath.Dir(dir) // <prefix>
-	_ = toolName                // reserved for future validation
-
-	return prefix, nil
+	return prefix, err
 }
 
 // expandTilde expands ~ to the user's home directory in a path.
@@ -846,41 +878,43 @@ func expandTilde(path string) string {
 // Binary Installation
 // =============================================================================
 
-// installBinary copies the current executable to the target location.
-func installBinary(prefixRoot fsroot.Dir, name string) (string, error) {
-	currentExe, err := os.Executable()
+// installBinary places `source` at `bin/<name>` in `prefixRoot`, unless it is already the file there.
+//
+// The binary is placed by [replaceBinary], so a copy of it running from the prefix does not stop the install. An
+// installed copy installing itself has nothing to write and returns early. That is judged by [os.SameFile], not by
+// comparing paths: a prefix reached through a symbolic link names the same file by another path, and the copy that
+// followed wrote the file over itself, truncating it, or failed with `text file busy` while it ran (#947).
+//
+// Parameters:
+//   - `prefixRoot`: the installation prefix.
+//   - `source`: the binary to install, outside the root; `self install` passes the running executable.
+//   - `name`: the tool name, unsuffixed.
+//
+// Returns:
+//   - `string`: the installed binary's absolute path.
+//   - `error`: non-nil when the source cannot be read or the binary cannot be placed.
+func installBinary(prefixRoot fsroot.Dir, source, name string) (string, error) {
+
+	target := prefixRoot.NewPath("bin", executableName(name))
+
+	// Unsandboxed: the source is wherever the operator launched it from — outside the prefix by definition on a
+	// first install, and not ours to sandbox. The destination side goes through the root.
+	sourceInfo, err := os.Stat(source)
 	if err != nil {
-		return "", fmt.Errorf("failed to get executable path: %w", err)
+		return "", fmt.Errorf("failed to stat %s: %w", source, err)
 	}
 
-	// Unsandboxed: the running executable is wherever the operator launched it from — outside the prefix by
-	// definition on a first install, and not ours to sandbox. The destination side goes through the root.
-	currentExe, err = filepath.EvalSymlinks(currentExe)
+	// The installed copy installing itself: it is already in place, so nothing is written.
+	if targetInfo, err := prefixRoot.Stat(target); err == nil && os.SameFile(sourceInfo, targetInfo) {
+		return target.Abs(), nil
+	}
+
+	installed, err := replaceBinary(prefixRoot, source, name)
 	if err != nil {
-		return "", fmt.Errorf("failed to resolve symlinks: %w", err)
-	}
-
-	binDir := prefixRoot.NewPath("bin")
-	targetPath := prefixRoot.NewPath("bin", executableName(name))
-
-	if err := prefixRoot.MkdirAll(binDir, 0o750); err != nil {
-		return "", fmt.Errorf("failed to create directory %s: %w", binDir.Abs(), err)
-	}
-
-	// For upgrade: even if source == target, copy via temp file to refresh the binary.
-	if currentExe == targetPath.Abs() {
-		return targetPath.Abs(), nil
-	}
-
-	if err := copyFile(prefixRoot, currentExe, targetPath); err != nil {
 		return "", err
 	}
 
-	if err := prefixRoot.Chmod(targetPath, 0o750); err != nil { //nolint:gosec // G302: binary must be executable
-		return "", fmt.Errorf("failed to make executable: %w", err)
-	}
-
-	return targetPath.Abs(), nil
+	return installed.Abs(), nil
 }
 
 // =============================================================================

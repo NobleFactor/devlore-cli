@@ -27,6 +27,8 @@ type RootConfig struct {
 	Version       string // Semantic version, set via ldflags
 	Commit        string // Git commit hash, set via ldflags
 	BuildDate     string // Build timestamp, set via ldflags
+	Channel       string // Channel the build follows ("develop", "release"; "" locally), set via ldflags
+	Prerelease    bool   // Whether the build takes its channel's pre-releases, set via ldflags
 
 	// What a program installs beyond the binary, its man pages, its completions and its config rides here
 	// rather than on a `self` of the program's own: `self` is one command on every program, and a
@@ -132,9 +134,11 @@ func NewRootCmd(cfg RootConfig) *cobra.Command {
 	}
 
 	versionInfo := VersionInfo{
-		Version:   cfg.Version,
-		Commit:    cfg.Commit,
-		BuildDate: cfg.BuildDate,
+		Version:    cfg.Version,
+		Commit:     cfg.Commit,
+		BuildDate:  cfg.BuildDate,
+		Channel:    cfg.Channel,
+		Prerelease: cfg.Prerelease,
 	}
 
 	rootCmd.SetHelpCommand(NewHelpCmd(rootCmd, manHeader))
@@ -146,6 +150,8 @@ func NewRootCmd(cfg RootConfig) *cobra.Command {
 	rootCmd.AddCommand(NewSelfCmd(rootCmd, SelfInstallInfo{
 		Name:               cfg.Name,
 		Version:            cfg.Version,
+		Channel:            cfg.Channel,
+		Prerelease:         cfg.Prerelease,
 		ManHeader:          manHeader,
 		ConfigInfo:         &configInfo,
 		PostInstallHooks:   cfg.PostInstallHooks,
