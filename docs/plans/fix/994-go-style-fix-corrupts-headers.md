@@ -3,284 +3,276 @@ title: "star lint go-style --fix corrupts what it rewrites, and the copyright ch
 issue: https://github.com/NobleFactor/devlore-cli/issues/994
 status: active
 created: 2026-09-30
-updated: 2026-09-30
+updated: 2026-10-01
 ---
 
-# Plan: a fixer that does not damage, and a checker that would have refused it
+# Plan: a fixer that does not damage, and a header that is configuration
 
 ## Summary
 
-`star lint go-style --fix` rewrites the two-line SPDX header into one line on every file it touches, and
-writes `TODO(go-style): add summary` where a doc comment belongs. `star lint copyright` -- the linter whose
-whole subject is that header -- would catch the first only by accident, and enforces none of the pattern its
-own fixer writes. This plan fixes the writer and tightens the reader together, because the regression test
-that proves the first needs the second.
+`star lint go-style --fix` rewrote the two-line SPDX header into one line on every file it touched and wrote
+`TODO(go-style): add summary` where a doc comment belonged. Both are fixed, in Phase 2, which is complete.
+`star lint copyright` -- the linter whose whole subject is that header -- would have caught the first only by
+accident, and enforces none of the pattern its own fixer writes.
 
-It is the first of the pull requests that make `star lint all` trustworthy. Ruled 2026-09-30: *"address all
+This is the first of the pull requests that make `star lint all` trustworthy. Ruled 2026-09-30: *"address all
 `star lint all` issues; do as many PRs as we need to close those issues; address all style issues, all of
-them, every single one."* The 3,859 go-style violations are not touched here. A sweep driven through a fixer
-that corrupts 848 license headers and silences 2,057 violations with placeholders would be worse than the
-debt it clears.
+them, every single one."*
 
-Tracing why nothing caught the corruption led somewhere larger, ruled the same day: `star lint copyright` is
-a **builtin**, one of the 17 extensions embedded in the star binary, and `build_expected_header` compiles our
-copyright into it. A customer running it gets our sentence with their holder substituted in. *"Our copyrights
-don't apply to customers. Our patterns are our patterns and should be defined as such."* So the header --
-one copyright, two lines long, SPDX included, which we recommend and do not require -- becomes one Go
-template read from `lint.copyright`, rendered by the engine star already ships. Ours is declared in
-`star/config.yaml` with the entity and a year range: `Copyright 2025-{{.Year}} Noble Factor LLC`.
-
-That in turn simplifies the checker rather than complicating it. With the whole header configured there is
-nothing to pattern-match against: `check_file` renders the template and compares, so `SPDX_PATTERN` and
-`COPYRIGHT_PATTERN` -- the two regexes whose looseness is #997 -- are deleted rather than tightened, and the
-checker requires exactly what the fixer produces because both call one renderer. That is what closes the gap
-the corruption slipped through.
+**The design settled over 2026-09-30 and 2026-10-01, and it is far smaller than the first draft of this
+document proposed.** The header is a literal string in configuration with no template fields at all; the
+language table moves into configuration; and the whole thing stays in Starlark. The earlier draft argued for a
+Go provider method on performance grounds that measurement destroyed, and for a clock capability to resolve a
+year placeholder the final design does not carry. Both are struck, and the record of why is kept here because
+the reasoning was wrong in an instructive way.
 
 ## Goals
 
 1. **`--fix` never damages a file it rewrites.** What it did not come to change survives byte for byte.
+   **Complete.**
 2. **`--fix` never satisfies a check with a placeholder.** A function it cannot summarize keeps its
-3. **The whole header is a configured template, not code.** `star lint copyright` is a builtin that ships
-   with star and runs on other people's repositories. It is one copyright, two lines long, and all of it is
-   theirs to declare -- SPDX included, which we recommend and do not require. Ours is declared in
-   `star/config.yaml`.
-4. **`check_file` requires exactly what `fix_file` produces**, because both render the same template. One
-   specification, two directions, and `SPDX_PATTERN` and `COPYRIGHT_PATTERN` are deleted rather than
-   tightened.
-5. **One walk, in Go.** The cost is discovery: 39 recursive tree walks, 34 of which find nothing. 4.1 ms
-   per file against go-style's 0.57 for strictly more work. Under one second, measured.
-6. **The lint provider gets the design document it never had**, `3.5.17`, which the catalog skips and
-   noblefactor-ops#232 already recorded as missing.
-7. **A cross-test proves it.** `--fix` runs over a fixture and `star lint copyright` reads the result, so
-   the exact corruption in #994 cannot return unnoticed.
+   violation, visibly. **Complete.**
+3. **The header is configuration, not code.** `star lint copyright` is a builtin that ships with star and runs
+   on other people's repositories, so our copyright does not belong compiled into it. It is a literal string
+   a reader can read, with no template fields.
+4. **`check` requires exactly what `fix` produces**, because both use one string. `SPDX_PATTERN` and
+   `COPYRIGHT_PATTERN` are deleted rather than tightened.
+5. **The language table is configuration too**, with defaults shipped in the manifest, so a consumer can add a
+   file type without patching a builtin -- and so `.yaml` being absent stops being unfixable from outside.
+6. **One walk, and it stays in Starlark.** The cost was 39 recursive traversals of which 34 found nothing, not
+   the checking. 4.3s warm became 1.1s by deleting dict entries; there is no performance case for Go here.
+7. **The linter claims copyright only on files we own.** Stamping a header is a legal assertion and `--fix`
+   makes it automatic; a language in the table that should not be there writes our copyright onto code we do
+   not own. The exclusions, not the table, are what prevent that.
+8. **A cross-test proves it.** `--fix` runs over a fixture and `star lint copyright` reads the result, so the
+   exact corruption in #994 cannot return unnoticed.
 
 ## Current State
 
 | Component | Status | Notes |
 | --- | --- | --- |
-| `go-style --fix` header handling | Broken | Merges the two-line SPDX block into one; reproduced 2026-09-30 on `pkg/sops/detect.go` and `pkg/sops/locate_test.go` |
-| `go-style --fix` doc comments | Harmful | Writes `// <Name> TODO(go-style): add summary`, satisfying `comment.present` while documenting nothing |
-| `go-style --fix` Parameters/Returns | Absent | Emits neither; that is devlore-cli#938 and is NOT in scope here |
-| `copyright` blank-line rule | Absent | Nothing checks the blank line before `package`, and without it the license IS the Go package doc comment |
-| `copyright` holder rule | Too loose | `holder not in found_holder` is a substring test; three variants are live and all pass |
-| `copyright` spacing rule | Absent | `\s*` in both patterns accepts `//SPDX-License-Identifier:Apache-2.0` |
-| `copyright` shebang rule | Inconsistent | `check_file` accepts a shebang with or without a following blank line; `fix_file` always inserts one |
-| Builtin hardcodes our pattern | Wrong layer | `build_expected_header` compiles both header lines into an extension that ships with star and runs on customer code; SPDX is imposed rather than recommended |
-| Tree damage | **None** | 0 tracked `.go` files lack the blank line. A hole in the gate, not damage to repair |
+| `go-style --fix` header handling | **Fixed** | Phase 2. `renderCommentDecl` dispatches on style; verbatim comments are emitted as parsed |
+| `go-style --fix` placeholders | **Fixed** | Phase 2. The three stub producers are deleted |
+| `go-style --fix` Parameters/Returns | Absent | devlore-cli#938, and NOT in scope here |
+| `copyright` header source | Hardcoded | `build_expected_header` compiles our copyright into a builtin |
+| `copyright` checker | Too loose | Two regexes, a substring holder test, no spacing rule |
+| `copyright` language table | Hardcoded, and wrong | 39 extensions, **5 exist here**, `.yaml` absent -- which is why 22 of our own MIT files are invisible (#999) |
+| `copyright` `patterns` config field | Dead | Declared, defaulted, never read (#1000) |
+| `copyright` discovery | 39 walks | 34 find nothing. **4.3 s warm; 1.1 s with four** |
+| Tree damage | **None** | 0 tracked `.go` files lack the blank line before `package` |
 
 ## Requirements
 
 ### Requirement 1: the fixer preserves what it did not come to change
 
-The header corruption is not a formatting preference. `// SPDX-License-Identifier: Apache-2.0 Copyright Noble
-Factor. All rights reserved.` declares the license to be the string `Apache-2.0 Copyright Noble Factor. All
-rights reserved.`, which no SPDX consumer resolves. 848 files are in scope for the go-style sweep, so one run
-rewrites 848 headers into invalid ones.
-
-The fix is not a special case for SPDX. A styler asked to add a doc comment to a declaration leaves every
-other byte of the file alone, and the test says so in those terms rather than naming this one header.
+**Complete, Phase 2.** A styler asked to add a doc comment to a declaration leaves every other byte alone.
+The test says so in those terms rather than naming the SPDX header, so the three other verbatim comment
+styles are covered by the same assertion.
 
 ### Requirement 2: no placeholder satisfies a check
 
-`TODO(go-style): add summary` turns a visible violation into an invisible one. Over the current debt it would
-convert 2,057 reported violations into 2,057 TODO comments and report the tree clean -- and the linter that
-would otherwise have asked for them can no longer see them, because `comment.present` is satisfied.
+**Complete, Phase 2.** `TODO(go-style): add summary` turned a visible violation into an invisible one. Where
+`--fix` cannot write a true summary it leaves the violation standing. A summary is prose; it cannot be derived
+from a name.
 
-A gate a placeholder can satisfy is not a gate. Where `--fix` cannot write a true summary it leaves the
-violation standing. That is not a limitation to apologize for: the 2,057 doc comments are prose, and the
-honest report is that a person writes them.
+### Requirement 3: the header is a literal string in configuration
 
-### Requirement 3: the whole header is ours to declare, and star's to default
+Ruled across five exchanges on 2026-09-30 and 2026-10-01. `star lint copyright` is one of the 17 extensions
+embedded in the star binary, so `build_expected_header` compiled Noble Factor's copyright into a product that
+runs on other people's code.
 
-Ruled 2026-09-30, across four exchanges:
-
-> check_file should be setup to ensure check_file requires exactly what fix_file produces.
+> Our copyrights don't apply to customers. Our patterns are our patterns and should be defined as such.
 >
-> the entity matters. since this is a builtin, we must do something here. our copyrights don't apply to
-> customers. our patterns are our patterns and should be defined as such.
->
-> we would use a year range, so 2025-{year}, not {year}
->
-> the entire copyright is configurable. i don't want to insist, though i would recommend SPDX
+> The headers are configuration, not code. I should be reading config.
 
-**`star lint copyright` is a builtin.** `com.noblefactor.star.LintCopyright` is one of the 17
-`com.noblefactor.star.*` extensions embedded in the star binary, so it ships with star and runs on other
-people's code. `build_expected_header` compiles
-
-```
-<comment> SPDX-License-Identifier: <license>
-<comment> Copyright <holder>. All rights reserved.
-```
-
-into the product. A customer running it gets our sentence with their holder substituted in. Their copyright
-is not ours, "All rights reserved." is not a universal convention, and **SPDX itself is a recommendation
-rather than a requirement** -- a consumer may not use it at all.
-
-So the header becomes one configured template. It is **one copyright, two lines long** -- `SPDX_PATTERN` and
-`COPYRIGHT_PATTERN` are how the Starlark happens to match it line by line, not two separable policies, and
-treating them as separable was an error in an earlier draft of this plan. A consumer declares the whole
-thing, in as many lines as they use.
-
-**Go template syntax**, because star already ships the engine and Starlark already reaches it --
-`pkg/op/provider/template` wraps `text/template` and exposes `RenderText(content, data)`. Inventing a
-`{year}` mini-syntax would put a second templating language beside one the codebase already has.
+So `lint.copyright.header` carries the whole header -- one copyright, two lines long -- as a literal:
 
 ```yaml
 lint:
   copyright:
+    enabled: true
     header: |
-      SPDX-License-Identifier: {{.License}}
-      Copyright 2025-{{.Year}} Noble Factor LLC
+      SPDX-License-Identifier: Apache-2.0
+      Copyright (c) 2025 Noble Factor. All rights reserved.
 ```
 
-Four constraints, because "Go templates" without them is a small programming language in a config file:
+**No template fields.** Ruled 2026-10-01 after weighing what each would buy:
 
-1. **A fixed data set: `.Year`, `.Holder`, `.License`, and nothing else.** A pattern that can reach
-   arbitrary data is a pattern nobody can reason about.
-2. **Validated when the config loads**, naming the file and the parse error -- not failing halfway through
-   984 files with a stack trace.
-3. **The template is the text; the comment prefix is the linter's.** `COMMENT_STYLES` keeps deriving `//`,
-   `#`, `--` from the extension and applying it per line, so a consumer writes one template rather than one
-   per language.
-4. **The shipped default is the SPDX two-line form, documented as a recommendation.** It is what a
-   repository with no opinion gets, and the documentation says plainly that it is a default and that the
-   consumer is expected to set their own.
+| Field | Why not |
+| --- | --- |
+| `{{.Year}}` | It needs a clock. No provider exposes one, `renderFuncs` holds only `Env`, and a clock forfeits `ClaimDeterministic` because `time` is on the capability list. The year is fixed at 2025, the year of initial publication, and never changes |
+| `{{.Holder}}` | It substitutes one config string into another config string, saving nobody any typing while adding a field, a doc entry and a `<no value>` hazard |
+| `{{.License}}` | The only one deriving from outside the config, via `license: auto` reading `LICENSE`. Dropped with the rest: the identifier is typed into the header where a reader can see it |
 
-**The year is a range with a fixed start: `2025-{{.Year}}`.** Both sides resolve `.Year` to the current
-year at run time, so `check_file` and `fix_file` agree on every file every day -- which is what makes a
-placeholder compatible with the ruling above at all. A bare `{{.Year}}` would not be: `fix_file` would write
-2026 while every correct header written in 2025 still said 2025, and the checker would have to reject them.
+Consequently `template.render_text`, `LICENSE_PATTERNS`, `detect_license`, `resolve_license` and the `license`
+and `holder` config keys are all deleted. The template layer is gone, not deferred.
 
-Two consequences, both accepted rather than overlooked:
+**The year is 2025 and stays 2025.** Measured 2026-10-01 against practice: Google freezes the year of creation
+(`golang/go` still says 2009), JetBrains carries a range and bumps it (`kotlin` says `2010-2026` while
+`intellij-community` says `2000-2025`, the same week, in one organization), and Microsoft omits the year
+entirely. REUSE calls years optional and offers four forms; the Linux Foundation discourages ranges because
+"copyright notices are rarely kept up to date as a file evolves, resulting in inaccurate statements." A single
+frozen year is Google's model and REUSE's first option, and it costs nothing to maintain.
 
-- **The gate turns red by the calendar, not by a commit.** On 1 January a pull request that was green the
-  night before fails with nothing changed. That is the mechanism working, but the message must say so --
-  *"the copyright year range is stale; run `make lint-fix`"* -- or it reads as a broken gate. One
-  `make lint-fix` rewrites the tree, the engineer reads a diff of one-line changes, and commits it.
-- **A file created in 2027 carries `2025-2027`.** That is what a fixed start year means, and it is normal
-  for a collective work dated from the repository's beginning.
+**The copyright line stays conventional rather than `SPDX-FileCopyrightText`.** The kernel's own rules mention
+that tag once -- "if desired" -- and no kernel file uses it; `lib/string.c`, `kernel/sched/core.c` and
+`scripts/checkpatch.pl` all carry a conventional notice. Google, JetBrains and Microsoft do the same. The SPDX
+*identifier* is the part with ISO standing (ISO/IEC 5962:2021) and the part the kernel mandates, and it stays.
 
-**The checker stops pattern-matching and starts comparing.** With the whole header configured, there is
-nothing to pattern-match against: `check_file` renders the template, applies the comment prefix per line,
-and compares it to the file's leading block. **`SPDX_PATTERN` and `COPYRIGHT_PATTERN` are deleted** -- the
-two regexes whose looseness is #997 stop existing rather than being tightened, and `check_file` requires
-exactly what `fix_file` produces because both call the same renderer.
+### Requirement 4: check and fix are one string
 
-That changes the diagnostics, and the change is worth stating: today the checker says `Wrong license:
-expected Apache-2.0, found MIT`. Render-and-compare says the header does not match the configured pattern
-and shows the difference. The diff is more actionable than the label, and it cannot go stale as the pattern
-changes.
+`check` compares the file's leading lines to the configured header with the comment prefix applied. It
+pattern-matches nothing, so **`SPDX_PATTERN` and `COPYRIGHT_PATTERN` are deleted** -- the two regexes whose
+looseness is #997.
 
-### Requirement 4: the fixer reaches what the checker finds
+> check_file should be setup to ensure check_file requires exactly what fix_file produces.
 
-`fix_file` runs only on files `check_file` flags:
+With a literal header this is structural rather than aspirational: both sides use the same string. The
+acceptance is still stated as a property -- any file `check` accepts is byte-identical to what `fix` would
+write -- because `fix` runs only on what `check` flags, so a checker looser than its fixer makes its own
+misses permanently unfixable.
+
+The diagnostic changes with it: `Wrong license: expected Apache-2.0, found MIT` becomes a difference against
+the configured header. Less specific, more actionable, and it cannot go stale as the header changes.
+
+### Requirement 5: the language table is configuration, with defaults in the manifest
+
+The table decides which files are checked and how they are commented, and it was hardcoded in a builtin. 39
+extensions, of which **five exist in this repository**; absent were `.yaml`, `.yml`, `.ps1`, `Makefile` and
+`Dockerfile`. That absence is why 22 of our own `extension.yaml` files declare MIT inside an Apache-2.0
+repository and nothing could ever have told us (#999).
+
+Modeled on how others split the problem, measured 2026-10-01:
+
+| Tool | Identification | Comment syntax |
+| --- | --- | --- |
+| VS Code | `extensions`, `filenames`, `filenamePatterns`, `firstLine` | a separate `language-configuration.json` with `lineComment` and `blockComment` |
+| license-maven-plugin | extension-to-style map | a `HeaderType` enum carrying `firstLine`, `beforeEachLine`, `endLine`, `skipLinePattern`, two detection patterns |
+| addlicense | a switch on extension | the same switch |
+
+VS Code's shape is the one adopted -- language-keyed, so everything about a file type sits together -- plus two
+fields from license-maven-plugin that VS Code has no need for, because VS Code only ever *inserts* a comment
+and never finds and replaces an existing header:
+
+- **`skip`** -- the line the header must follow rather than precede. `^#!` for scripts; `^#\s*syntax=` for a
+  Dockerfile, whose parser directive stops being a directive if anything precedes it. The kernel's rules state
+  the same requirement in prose: the identifier goes on "the first line that can contain a comment," line two
+  in a script with a shebang, and `scripts/checkpatch.pl` is a live example.
+- **`detect`** -- matches a line of a header already present, so `fix` knows what to replace rather than
+  assuming every leading comment line is part of it.
+
+```yaml
+# extension.yaml defaults -- shipped, so a consumer gets these free
+languages:
+  go:
+    extensions: [".go"]
+    comments: {line_comment: "//"}
+  shell:
+    extensions: [".sh", ".bash", ".zsh"]
+    first_line: "^#!.*\\b(sh|bash|zsh|dash|ksh)\\b"
+    skip: "^#!"
+    comments: {line_comment: "#"}
+  dockerfile:
+    filenames: ["Dockerfile", "Containerfile"]
+    filename_patterns: ["Dockerfile.*", "*.dockerfile"]
+    skip: "^#\\s*syntax="
+    comments: {line_comment: "#"}
+```
+
+**`first_line` is consulted only for a path with no extension**, and only after `filenames`,
+`filename_patterns` and `extensions` have all failed. It reads the file, so that precedence rule is what keeps
+it to a handful of reads rather than the whole tree. It is also not optional: **14 of Personal's shell scripts
+have no extension** -- `Build-DarwinInitializationPackage`, `Sync-CommonBuildTools`,
+`Install-UnixUserConfiguration` -- and `Install-*` is used for both zsh and PowerShell there, so no name
+pattern separates them. Line 1 does.
+
+`languages` replaces the dead `patterns` field, which **closes #1000 by replacement rather than deletion**: the
+want was real, and its shape -- one template per language, `{license}` placeholders, a `match` regex beside the
+`replace` -- was wrong on all three counts.
+
+### Requirement 6: one walk
+
+Discovery, not checking, was the cost. Measured 2026-09-30, warm, minus a 0.25 s startup floor: copyright took
+**4.1 ms per file** against go-style's **0.57 ms**, while go-style parses an entire Go AST and copyright looks
+at two lines. The cause was one loop:
 
 ```python
-check_result = check_file(f, license, holder)
-if check_result["skipped"] or check_result["ok"]:
-    continue
+for ext in COMMENT_STYLES.keys():          # 39 extensions
+    files = file.find(path + "/**/*" + ext)
 ```
 
-The checker is therefore the gate on the fixer, and every defect it cannot see is permanently unfixable.
-Requirement 3 closes that by construction -- a checker that requires exactly what the fixer produces cannot
-pass a file the fixer would change -- but the coupling is worth a test of its own, because it is the reason
-the four disagreements above were invisible rather than merely wrong.
+**39 recursive walks, 34 finding nothing.** Deleting 35 dict entries took the warm run from **4.3 s to 1.1 s**
+over the same 1001 files -- which is where an earlier draft of this requirement went wrong. It attributed the
+cost to regexes and whole-file reads, then argued for moving the sweep into a Go provider method. The
+experiment that settled it took ninety seconds and showed the fix is a dict. **There is no performance case
+for Go here**, and the rule the codebase actually follows is narrower than "work goes in Go": `lint.starlark`
+is in Go because it resolves calls against `op.ReceiverRegistry()`, which Starlark cannot see. Comparing two
+lines of text is not that.
 
-### Requirement 5: the cross-test
+So the sweep stays in Starlark, walking once and deciding per entry, and the ~0.85 s that remains covers four
+walks and all 1001 files.
+
+### Requirement 7: the cross-test
 
 A test runs `go-style --fix` over a fixture and then `star lint copyright` over the result, asserting the
 header survives. Neither linter's own tests can express this: go-style does not know what a valid header is,
 and copyright never sees go-style's output. The defect lived in the gap between them, which is where the test
 goes.
 
-### Requirement 6: one walk, in Go -- the cost is discovery, not the checking
+### Requirement 8: the linter claims copyright only on files we own
 
-Authorized 2026-09-30: *"you are authorized to completely rewrite the copyright extension for efficiency
-based on the spec we're writing."*
+Stamping a header is a legal assertion, and `--fix` makes it automatic. That reverses the risk calculation this
+plan carried until 2026-10-01, when it argued for a generous default language table on the grounds that a
+wrong comment marker "fails loudly and locally":
 
-Measured the same day over this repository, each figure the second of two consecutive runs so the filesystem
-cache is warm, minus a 0.25 s star startup floor:
+| | Failure |
+| --- | --- |
+| **A language absent from the table** | the file goes unchecked -- #999. A real gap, visible the moment anyone looks, and recoverable |
+| **A language present that should not be** | `Copyright (c) 2025 Noble Factor. All rights reserved.` written onto **code we do not own** |
 
-| Linter | Files | Work per file | Per file | Starlark |
-| --- | ---: | --- | ---: | ---: |
-| **copyright** | 998 | look at two lines | **4.1 ms** | **379 lines** |
-| go-style | 855 | **parse the whole file as a Go AST**, walk every declaration | **0.57 ms** | 53 lines |
+A wrong marker is cosmetic and local. A wrong inclusion is a false ownership claim, and nothing in the
+pipeline would question it.
 
-Seven times the cost for a fraction of the work. **Cold, copyright takes 12.6 s against 4.3 s warm**, so
-roughly 8 s of a first run is filesystem I/O -- which is the clue, because a linter that reads 998 files
-should not pay for 8 s of cold I/O.
+**There is a live example in the repository.** The only `.vim` file in any of the three repositories is
+`gruvbox.vim`, a third-party colorscheme, in a writ migrate fixture. The only `.lua` files are `init.lua`
+fixtures beside it. **With the exclusions applied there is no `.lua` or `.vim` file in scope at all** -- so the
+earlier justification for putting them in the default table ("we have two Lua files") was counting excluded
+fixtures, measured with `git ls-files` and no exclusion filter. Same error as the 39-extension table, one layer
+up.
 
-**The cause is discovery, and it is one loop:**
+**So the protection is not the language table. It is the exclusions**, and they carry more weight than their
+three lines suggest:
 
-```python
-for ext in COMMENT_STYLES.keys():          # 39 extensions
-    pattern = path + "/**/*" + ext
-    files = file.find(pattern)             # a full recursive walk, honoring .gitignore
+```yaml
+exclude:
+  - "**/testdata"
+  - "**/vendor"
+  - "wiki/**"
 ```
 
-**39 recursive walks of the repository, of which 34 find nothing.** Only 5 of the 39 extensions exist here;
-the walks for `.lisp`, `.vim`, `.erl`, `.tex`, `.zig`, `.dart`, `.java`, `.rs`, `.cpp`, `.swift`, `.proto`
-and 23 others each traverse the whole tree to return an empty list. `lint-go-style.star` does **one**
-`file.find("**/*.go")`, which is the entire difference in the table above.
+Verified 2026-10-01: of 1,083 tracked files whose type the table covers, **1,001 sit outside `testdata` and the
+linter checks exactly 1,001.** The 82 it skips include the 40 MIT `.star` files of the `docker-package`
+regression corpus and `gruvbox.vim`. The exclusion is doing the right job, and the reason is not "it is
+testdata" but **"it is not ours"** -- which is also why #721's corpus must stay excluded whatever is decided
+about MIT elsewhere.
 
-An earlier draft of this requirement blamed the regexes and the whole-file reads. Those are real and
-secondary; naming them first was assumption rather than measurement, and the correction is recorded here
-because the acceptance criterion below depends on which cause is being removed.
+**One thing is verified-working and not understood.** `matches_pattern`'s `**/` branch tests
+`path.endswith("/" + suffix)`, which matches the directory `.../testdata` rather than a file inside it, and the
+whole-segment branch searches for the literal `/**/testdata/`, which cannot occur. By inspection neither branch
+should match `cmd/.../testdata/x.star` -- yet the count proves the exclusion works. **The reading is wrong
+somewhere and Phase 5 must not touch that function until it is understood**, because the exclusions are what
+stand between `--fix` and a false ownership claim.
 
-**The secondary costs, in order:**
+**Two in-scope types raise the same question and are not decided here:**
 
-1. **Whole files read to examine two lines.** `file.read_text` loads every byte, then `content.split("\n")`
-   allocates a Starlark string per line. The header lives in a bounded prefix.
-2. **Three or more Starlark-to-Go crossings per file** -- `read_text`, two `regex.find_submatch`, plus
-   `source_path.rel()` and `is_excluded` during discovery.
-3. **The header rendered per file** where it varies only per comment style: 8 distinct prefixes, computed
-   once, not 998 times.
+- **`.otf`, 42 files.** Fonts, almost certainly licensed from a third party. Binary, so they cannot carry a
+  header -- but they must not claim one either, and REUSE's `.license` sidecar is the only model that reaches
+  them.
+- **`.1` and `.man`, 69 files.** If they are generated, the generator owns their headers and editing them is
+  editing generated output.
 
-**`file.WalkTree` is the primitive, and it is used from Go.** `pkg/op/provider/file/provider.go:934` is
-documented as a discovery operation -- *"the walker observes existing filesystem entries; it does not produce
-them"* -- and folds a `Reducer` over each entry in one depth-first traversal. It is already reachable from
-Starlark and exercised there:
-`plan.file.walk_tree(root=root, fn=collector, include_gitignored=True)` in
-`cmd/devlore-test/devloretest/data/test_function_call_walk_tree.star`.
-
-| Approach | Tree walks | Starlark-to-Go crossings |
-| --- | ---: | ---: |
-| Today | **39**, 34 of them fruitless | ~3 per matched file, about 3,000 |
-| `walk_tree` from Starlark | **1** | **1 per entry walked** -- every directory and ignored file, not only the 998 matched |
-| `WalkTree` inside a Go provider method | **1** | **1 total** |
-
-From Starlark, `walk_tree` trades 39 walks for one walk plus a callback on every entry in the tree: very
-likely still a large win, but it makes the cost scale with tree size rather than with matched files. In Go it
-is one crossing for the whole sweep, which is `goast`'s shape and the architecture this requirement asks for.
-**`walk_tree` from Starlark is recorded as the cheap intermediate** -- one line changed, no new provider --
-if the 4 seconds are wanted before the rewrite lands.
-
-**Two things are unmeasured and must be measured before the number below is committed to:** whether the
-reducer's per-entry crossing is cheap in absolute terms, and whether `walk_tree`'s `activationRecord`
-requirement imposes plan-machinery overhead that `file.find` avoids.
-
-**The target is stated so it can fail.** Under one second over 998 files -- go-style's order of magnitude for
-strictly less work. A rewrite landing at 6 seconds has not met this requirement, and the measurement is
-recorded in this document rather than asserted.
-
-### Requirement 7: the lint provider gets the design document it never had
-
-`docs/architecture/3.5-provider-catalog.md` runs from `3.5.1-archive-provider.md` to
-`3.5.16-ui-provider.md`. **There is no `3.5.17-lint-provider.md`, and no `.status.md` beside it**, though
-every other provider has both. noblefactor-ops#232 recorded the gap and named the file; nothing has written
-it.
-
-This rewrite is the occasion, and it is not optional: a provider is being created here, and creating one
-without the document every sibling has is how the catalog came to skip a number in the first place.
-
-| Document | What changes |
-| --- | --- |
-| `docs/architecture/3.5.17-lint-provider.md` | **New.** The provider's methods, the commands over them, the configured header template, and render-and-compare as the checking model |
-| `docs/architecture/3.5.17-lint-provider.status.md` | **New.** As every sibling has |
-| `docs/architecture/3.5-provider-catalog.md` | Gains the `lint` row it lacks; it has a `goast` row already |
-| `docs/architecture/9-star-extensions.md` | `CopyrightConfig` gains `header`; LintCopyright is this document's worked example, so its example changes with it |
-| `docs/architecture/configuration.md` | `lint.copyright`'s shape |
-| `docs/cli/star/lint/copyright.md` | **Generated.** Regenerated by the build, never edited by hand |
+And the ruling owed on #999 is narrower than it first looked: **the 22 MIT files are all outside `testdata`**,
+so they are files we own and the header is wrong, rather than fixtures where MIT is correct.
 
 ## Implementation phases
 
@@ -345,62 +337,46 @@ header -- an inline `// Returns: the expanded path`, a generic's `// Type Parame
 small undercount. Same class of defect as #997: a substring where a structure is meant. Filed separately
 rather than folded in, because fixing it raises the count and this phase must not move it.
 
-### Phase 3: the whole header becomes a configured template (#997)
+### Phase 3: the header becomes configuration (#997, #1000)
 
-- [ ] `lint.copyright.header` carries the template, rendered by `pkg/op/provider/template`'s `RenderText`
-- [ ] The data set is exactly `.Year`, `.Holder`, `.License`; a template referencing anything else fails
-- [ ] The template is validated when the config loads, naming the file and the parse error
-- [ ] `COMMENT_STYLES` still supplies the prefix per line; the template carries text, not comment markers
-- [ ] The shipped default is the SPDX two-line form, **documented as a recommendation and a default**, with
-      the documentation saying the consumer is expected to set their own
-- [ ] `star/config.yaml` declares ours: `SPDX-License-Identifier: {{.License}}` and
-      `Copyright 2025-{{.Year}} Noble Factor LLC`
-- [ ] A test pins that `.Year` is the current year on both sides, so a January rollover makes the tree stale
-      rather than making the checker and the fixer disagree
-- [ ] The staleness message names `make lint-fix` and says the year range is why, so a gate that reddens
-      overnight with no commit does not read as broken
+- [ ] `lint.copyright.header` carries the whole header as a literal; the compiled-in `build_expected_header`
+      is deleted
+- [ ] `star/config.yaml` declares ours:
+      `SPDX-License-Identifier: Apache-2.0` / `Copyright (c) 2025 Noble Factor. All rights reserved.`
+- [ ] **No template fields.** `template.render_text`, `LICENSE_PATTERNS`, `detect_license`, `resolve_license`
+      and the `license` and `holder` config keys are deleted, not deferred
+- [ ] `patterns` is removed from `CopyrightConfig`; `languages` replaces it, which closes #1000
+- [ ] `docs/` records that the header is the consumer's to set and that the shipped default is a default
 
-### Phase 4: check and fix become one renderer (#997)
+### Phase 4: check and fix become one string (#997)
 
-- [ ] `check_file` renders the template, applies the comment prefix, and compares; it pattern-matches
-      nothing
 - [ ] **`SPDX_PATTERN` and `COPYRIGHT_PATTERN` are deleted**, not tightened
-- [ ] A property test: for any configured pattern, `check_file(fix_file(x))` passes, and any file
-      `check_file` accepts is byte-identical to what `fix_file` would write
-- [ ] `check_file` requires the blank line before the code; a fixture with the header directly above
-      `package` fails
-- [ ] `check_file` requires the blank line after a shebang, as `fix_file` writes. **Every shebanged file in
-      the repository gains one**, and the count of files changed is recorded here
-- [ ] The `+ 5` scan window has a reason or a bound that cannot mis-handle a long leading comment block
-- [ ] A test pins the coupling directly: `fix_file` runs only on what `check_file` flags, so a checker
-      looser than the fixer makes its own misses unfixable
-- [ ] The diagnostic shows the difference between the rendered pattern and the file, replacing
-      `Wrong license: expected X, found Y`
-- [ ] `star lint copyright` over the repository passes, and the count it reports is recorded here
+- [ ] `check` compares the file's leading lines to the configured header with the comment prefix applied
+- [ ] A property test: any file `check` accepts is byte-identical to what `fix` would write
+- [ ] `check` requires the blank line before the code; a fixture with the header directly above `package`
+      fails. In Go that comment block IS the package doc comment, so this rule changes meaning, not appearance
+- [ ] `check` requires the `skip` line to precede the header where a language declares one, pinned by a `.ps1`
+      fixture and a `Dockerfile` fixture
+- [ ] A test pins the coupling: `fix` runs only on what `check` flags, so a looser checker makes its own
+      misses unfixable
+- [ ] `star lint copyright` over the repository reports a count, and that count is recorded here
 
-### Phase 5: one walk, in Go (#997)
+### Phase 5: the language table becomes configuration (#999)
 
-- [ ] The design document is written FIRST: `docs/architecture/3.5.17-lint-provider.md` and its
-      `.status.md`. The provider is designed on paper before it is built, as every sibling was
-- [ ] `docs/architecture/3.5-provider-catalog.md` gains the `lint` row
-- [ ] **Measured before designing to a number:** the per-entry cost of a Starlark `walk_tree` reducer, and
-      whether `walk_tree`'s `activationRecord` imposes plan-machinery overhead `file.find` avoids. Both are
-      unknown today and both change the design
-- [ ] The 39 walks become **one**, over `file.WalkTree`, with the extension decided in the reducer
-- [ ] The sweep runs in a Go provider; `lint-copyright.star` becomes the command -- read config, call the
-      provider, present the result -- in the shape `lint-go-style.star` already has
-- [ ] Only the header's bounded prefix is read, not every byte of every file
-- [ ] The rendered header is computed once per comment style, not once per file
-- [ ] **Under one second over 998 files, warm, minus the startup floor.** Measured and recorded in this
-      document. 4.3 s warm and 12.6 s cold today; a rewrite landing at 6 s has not met Requirement 6
-- [ ] The cold figure is recorded too, because 8 s of the original 12.6 was cold I/O paid for by the 34
-      fruitless walks, and removing them is most of what this phase is for
-- [ ] `docs/architecture/9-star-extensions.md` updated: `CopyrightConfig` gains `header`, and LintCopyright
-      is that document's worked example, so the example changes with it
-- [ ] `docs/architecture/configuration.md` updated for `lint.copyright`'s shape
-- [ ] `docs/cli/star/lint/copyright.md` REGENERATED by the build, not hand-edited
-- [ ] Behavior is unchanged by this phase: the counts from Phases 3 and 4 hold exactly, so the rewrite is
-      proved to be a rewrite and not a change of subject
+- [ ] `lint.copyright.languages` carries the table; defaults ship in `extension.yaml`
+- [ ] Each language declares identification by `filenames`, `filename_patterns`, `extensions` and
+      `first_line`, resolved in that order
+- [ ] `first_line` is consulted **only** for a path with no extension and only after the other three fail; a
+      test pins that an extensionless `#!/usr/bin/env bash` script is claimed and that a `.go` file never
+      causes a read for identification
+- [ ] `skip` and `detect` are per language, with `^#\s*syntax=` for Dockerfile pinned by a fixture -- a header
+      above a parser directive silently changes how the file builds
+- [ ] **Merge or replace is decided and tested.** A project setting `languages` must extend the shipped
+      defaults rather than supersede them, or a consumer adding one language silently loses every built-in
+      style and finds out when the linter passes a file it never opened
+- [ ] The 39-entry table is gone; the one that replaces it covers what these repositories actually contain
+- [ ] `star lint copyright` over the repository is measured warm and cold, and both are recorded. 4.3 s warm
+      and 12.6 s cold today
 
 ### Phase 6: the cross-test and the close
 
@@ -411,32 +387,47 @@ rather than folded in, because fixing it raises the count and this phase must no
 
 ## Open questions
 
-Both questions this plan opened were ruled on 2026-09-30, before any code was written.
+- [x] **Does the shebang gain a blank line, or lose one?** Superseded. `skip` is per language and the header
+      follows the skipped line, which is the kernel's own rule.
+- [x] **Does the header carry a year?** **One year, 2025, frozen** -- ruled 2026-10-01. Google's model and
+      REUSE's first option. No clock, no provider, no annual sweep.
+- [x] **`SPDX-FileCopyrightText` or a conventional notice?** **Conventional** -- ruled 2026-10-01. The kernel
+      mentions the tag once as "if desired" and does not use it; neither do Google, JetBrains or Microsoft.
+- [x] **`Noble Factor` or `Noble Factor LLC`?** **`Noble Factor`** -- ruled 2026-10-01. 17 U.S.C. §401 permits
+      "an abbreviation by which the name can be recognized."
+- [x] **What template variables are offered?** **None** -- ruled 2026-10-01.
 
-- [x] **Does the shebang gain a blank line, or lose one?** **It gains one.** Ruled: *"check_file should be
-      setup to ensure check_file requires exactly what fix_file produces."* `fix_file` writes a blank line
-      after a shebang, so the checker requires one, and every shebanged file in the repository gains one.
-      The smaller change would have been to make the fixer match the tree; the ruling is the better one,
-      because it makes the pair a single specification rather than two conventions that happen to overlap.
-- [x] **Does `star/config.yaml`'s own header become canonical?** **The pattern changes, not the file.**
-      Ruled: *"the entity matters ... since this is a builtin, we must do something here. our copyrights
-      don't apply to customers. our patterns are our patterns and should be defined as such."* The header
-      template becomes configuration, the builtin keeps a generic default, and `Copyright 2025-2026 Noble
-      Factor LLC` is declared in `star/config.yaml` as the pattern rather than corrected away from it.
-
-- [ ] **Do the other two repositories adopt the same pattern in this change, or later?** noblefactor-ops and
-      personal carry `Copyright (c) <year> Noble Factor. All rights reserved.` in their scripts, a fourth
-      variant. Nothing here forces them to converge, and each declares its own `lint.copyright`. Converging
-      them is a sweep of its own and is **not** in this plan's scope -- but leaving it unstated would let
-      three patterns look like one oversight rather than one decision.
+- [ ] **Which license do the 22 MIT files carry?** **This blocks Phase 5's completion**, and it is a licensing
+      ruling rather than a lint judgment ([#999](https://github.com/NobleFactor/devlore-cli/issues/999)). With
+      no `license: auto`, the header says `Apache-2.0` literally, so every one of those files fails the moment
+      `.yaml` enters the table. Either they are wrong and are corrected, or the licensing is deliberately mixed
+      and the configuration says so with a reason. **No header was rewritten pending the answer.** Two
+      oddities found alongside them: eight files already use `SPDX-FileCopyrightText`, and one attributes
+      copyright to **David Noble** rather than the company.
+- [ ] **Allow list or deny list?** VS Code's `copyrightFilter` starts at `'**'` and subtracts, so a file type
+      nobody considered is **checked by default and fails** until someone excludes it with a reason. The
+      `languages` table is an allow list, whose failure mode is silence -- which is exactly how 22 MIT files
+      went unseen. Default-include is the right polarity for "no one gets a pass," and adopting it means the
+      table stops being scope and becomes only *how* to comment a file already in scope. Not in this plan's
+      scope; raised because the choice is load-bearing.
+- [ ] **Do `.md`, `.1`, `.man` and `.conf` carry headers?** 595 Markdown files, 84 roff, 26 conf across the
+      three repositories. VS Code excludes `**/*.md` explicitly. REUSE would cover all of them, and binary
+      files too, through a `.license` sidecar -- the only model that reaches the 43 `.otf` fonts.
+- [ ] **Do the other two repositories adopt this header?** noblefactor-ops and personal carry four more
+      variants between them, and Personal is already on the chosen form for 100 files. Converging them is a
+      sweep of its own and is not in this plan's scope.
 
 ## Related documents
 
 | Document | What it is |
 | --- | --- |
-| [devlore-cli#994](https://github.com/NobleFactor/devlore-cli/issues/994) | The fixer's corruption and its placeholders; lane 15 |
-| [devlore-cli#997](https://github.com/NobleFactor/devlore-cli/issues/997) | The checker looser than its own fixer's pattern; lane 14 |
-| [devlore-cli#964](https://github.com/NobleFactor/devlore-cli/issues/964) | The sweep this unblocks; 3,859 violations remain |
-| [devlore-cli#938](https://github.com/NobleFactor/devlore-cli/issues/938) | The unfinished styler port; `Parameters:`/`Returns:` emission, deliberately out of scope here |
+| [devlore-cli#994](https://github.com/NobleFactor/devlore-cli/issues/994) | The fixer's corruption and its placeholders; Phase 2 closed it |
+| [devlore-cli#997](https://github.com/NobleFactor/devlore-cli/issues/997) | The checker looser than its own fixer's pattern |
+| [devlore-cli#998](https://github.com/NobleFactor/devlore-cli/issues/998) | The section checks that are substring tests; found reconciling Phase 2's nine |
+| [devlore-cli#999](https://github.com/NobleFactor/devlore-cli/issues/999) | The 22 MIT files the linter cannot see; blocks Phase 5 |
+| [devlore-cli#1000](https://github.com/NobleFactor/devlore-cli/issues/1000) | The dead `patterns` field that `languages` replaces |
+| [devlore-cli#964](https://github.com/NobleFactor/devlore-cli/issues/964) | The go-style sweep this unblocks; 3,850 violations remain |
+| [devlore-cli#938](https://github.com/NobleFactor/devlore-cli/issues/938) | The unfinished styler port; `Parameters:`/`Returns:` emission, out of scope here |
 | [noblefactor-ops#232](https://github.com/NobleFactor/noblefactor-ops/issues/232) | The lint tooling schedule and its stated end state |
-| [go-style-guidelines.md](https://github.com/NobleFactor/noblefactor-ops/blob/develop/docs/guides/go-style-guidelines.md) | The rules `--fix` enforces |
+| [9-star-extensions.md](../../architecture/9-star-extensions.md) | The extension model, with `CopyrightConfig` as its worked example |
+| [go-style-guidelines.md](https://github.com/NobleFactor/noblefactor-ops/blob/develop/docs/guides/go-style-guidelines.md) | Mandates a header no `.go` file in this repository carries |

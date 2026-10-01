@@ -309,15 +309,21 @@ config:
   path: lint.copyright
   defaults:
     enabled: false                 # !!bool  → bool
-    license: auto                  # !!str   → string
-    holder: !!str                  # declared at the zero value "" (no useful default yet)
+    header: !!str                  # declared at the zero value "" — the consumer's to set
     version: !!str 1.0             # explicit tag: keep "1.0" a string, not a float
     exclude:                       # !!seq   → []any            (untyped container)
-      - "**/testdata/**"
-      - "**/vendor/**"
-    patterns:                      # !!map   → map[string]any   (untyped container)
-      go: { match: "…", replace: "…" }
+      - "**/testdata"
+      - "**/vendor"
+    languages:                     # !!map   → map[string]any   (untyped container)
+      go: { extensions: [".go"], comments: { line_comment: "//" } }
 ```
+
+`header` is a good illustration of the bare-tag form: it has no useful default, because a header belongs to
+the repository rather than to the linter that checks it, so the floor is the zero value and a project that
+does not set it gets an error rather than ours (devlore-cli#994).
+
+`languages` replaces a `patterns` field this example previously showed, which was declared, defaulted and
+never read by the implementation (devlore-cli#1000).
 
 The loader decodes `defaults:` into a `yaml.Node`, reads each value node's resolved `Tag`, maps it to a Go type, and
 instantiates the floor — the same decode the Go path runs, with the type supplied by the tag rather than a struct
@@ -330,7 +336,7 @@ explicit-tag form is the escape hatch, written only where inference would pick w
 | Go | YAML | meaning |
 |---|---|---|
 | `enabled := false` | `enabled: false` | declare + infer type from the value |
-| `var holder string` | `holder: !!str` | declare at the zero value, type named |
+| `var header string` | `header: !!str` | declare at the zero value, type named |
 | `string("1.0")` | `version: !!str 1.0` | explicit tag overrides inference (coercion) |
 
 **The tag → Go type vocabulary** — the YAML 1.2 core schema plus yaml.v3's two widely-supported extensions. `!!` is

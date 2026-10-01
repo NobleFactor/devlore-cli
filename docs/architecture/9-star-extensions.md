@@ -283,16 +283,41 @@ commands:
         help: Path to check
 
 config:
+  path: lint.copyright
   type: CopyrightConfig
   fields:
     enabled: bool
-    license: string
-    holder: string
+    header: string
+    languages: "map[string]interface{}"
     exclude: "[]string"
   defaults:
     enabled: false
-    license: "auto"
+    languages:
+      go:
+        extensions: [".go"]
+        comments: {line_comment: "//", detect: '^\s*//'}
+      shell:
+        extensions: [".sh", ".bash", ".zsh"]
+        first_line: '^#!.*\b(sh|bash|zsh)\b'
+        skip: '^#!'
+        comments: {line_comment: "#", detect: '^\s*#'}
 ```
+
+`header` carries the whole header as a **literal**, comment markers excluded, and the linter supplies the
+marker from the file's language. There are no template fields: a year placeholder would need a clock no
+provider exposes, and `{{.Holder}}` would substitute one configured string into another. The header a reader
+sees in configuration is the header that lands in the file (devlore-cli#994, ruled 2026-10-01).
+
+`languages` carries identification and comment syntax per language, in the shape VS Code uses --
+`extensions`, `filenames`, `filename_patterns`, `first_line` -- plus `skip` and `detect`, which VS Code has
+no need for because it only ever inserts a comment and never finds and replaces an existing header. `skip`
+names the line the header must follow: `^#!` for a script, `^#\s*syntax=` for a Dockerfile, whose parser
+directive stops being a directive if anything precedes it.
+
+It replaces a `patterns` field that was declared, defaulted and never read (devlore-cli#1000). That field
+carried one template per language, `{license}`-style placeholders, and a `match` regex beside its `replace` --
+two descriptions of one header with nothing making them agree, which is the divergence devlore-cli#997
+exists to remove.
 
 ### Naming Convention
 
@@ -371,11 +396,10 @@ config:
   type: CopyrightConfig
   fields:
     enabled: bool
-    license: string
-    holder: string
+    header: string
+    languages: "map[string]interface{}"
   defaults:
     enabled: false
-    license: "auto"
 ```
 
 ## Extension Components
