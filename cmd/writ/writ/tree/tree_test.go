@@ -63,6 +63,11 @@ func winningDir(t *testing.T, result *BuildResult) string {
 	return filepath.Base(filepath.Dir(result.Files[0].Source))
 }
 
+// TestProcessingPipeline proves ProcessingPipeline maps each filename to its target name and action pipeline: plain,
+// `.template` and `.age` files link; `.tmpl` renders and copies; `.sops` decrypts first; a manifest resolves.
+//
+// Parameters:
+//   - `t`: the test harness.
 func TestProcessingPipeline(t *testing.T) {
 	tests := []struct {
 		filename   string
@@ -101,6 +106,11 @@ func TestProcessingPipeline(t *testing.T) {
 	}
 }
 
+// TestBuild proves a single-source Darwin build matches the five applicable directories of two projects, finds all six
+// files, and counts one template and five links.
+//
+// Parameters:
+//   - `t`: the test harness.
 func TestBuild(t *testing.T) {
 	// Create temp directory with test structure
 	tmpDir := t.TempDir()
@@ -196,6 +206,11 @@ func TestBuild(t *testing.T) {
 	t.Logf("Tree output:\n%s", output)
 }
 
+// TestBuildWithCollisions proves a `.bashrc` in both `all` and `all.Darwin` resolves to the one from `all.Darwin`,
+// records one collision naming both directories, and reports it in the tree summary.
+//
+// Parameters:
+//   - `t`: the test harness.
 func TestBuildWithCollisions(t *testing.T) {
 	// Create temp directory with overlapping files
 	tmpDir := t.TempDir()
@@ -280,8 +295,12 @@ func TestBuildWithCollisions(t *testing.T) {
 	t.Logf("Tree output:\n%s", output)
 }
 
-// TestPackagesManifestFiles tests that only valid manifest filenames are recognized.
-// This test ensures that legacy filenames like "packages.manifest" are rejected.
+// TestPackagesManifestFiles proves only valid manifest filenames are recognized.
+//
+// Filenames outside the two ruled names, "packages.manifest" among them, are rejected.
+//
+// Parameters:
+//   - `t`: the test harness.
 func TestPackagesManifestFiles(t *testing.T) {
 	// Verify the list contains only the expected valid filenames
 	expected := map[string]bool{
@@ -318,6 +337,9 @@ func TestPackagesManifestFiles(t *testing.T) {
 
 // TestProcessingPipeline_ManifestFilenames tests that only valid manifest filenames
 // trigger the manifest.resolve action, and legacy filenames are treated as regular files.
+//
+// Parameters:
+//   - `t`: the test harness.
 func TestProcessingPipeline_ManifestFilenames(t *testing.T) {
 	tests := []struct {
 		filename    string
@@ -345,6 +367,10 @@ func TestProcessingPipeline_ManifestFilenames(t *testing.T) {
 	}
 }
 
+// TestActionHelpers proves hasAction finds `file.copy` and `manifest.resolve` in exactly the pipelines that carry them.
+//
+// Parameters:
+//   - `t`: the test harness.
 func TestActionHelpers(t *testing.T) {
 	tests := []struct {
 		actions     []string
@@ -368,6 +394,11 @@ func TestActionHelpers(t *testing.T) {
 	}
 }
 
+// TestBuildMultiSource proves distinct files from the base and personal layers both land, each tagged with its layer,
+// and without a collision.
+//
+// Parameters:
+//   - `t`: the test harness.
 func TestBuildMultiSource(t *testing.T) {
 	// Create base and personal layer directories
 	baseDir := t.TempDir()
@@ -430,6 +461,11 @@ func TestBuildMultiSource(t *testing.T) {
 	}
 }
 
+// TestBuildMultiSourceLayerPrecedence proves that when both layers carry `.bashrc`, the personal layer's copy wins and
+// the collision names personal as winner and base as loser.
+//
+// Parameters:
+//   - `t`: the test harness.
 func TestBuildMultiSourceLayerPrecedence(t *testing.T) {
 	// Create base and personal layer directories
 	baseDir := t.TempDir()
@@ -503,6 +539,11 @@ func TestBuildMultiSourceLayerPrecedence(t *testing.T) {
 	}
 }
 
+// TestBuildMultiSourceSpecificityWithinLayer proves that within one layer of a multi-source build, `all.Darwin`'s
+// `.bashrc` wins over `all`'s and the collision names both directories.
+//
+// Parameters:
+//   - `t`: the test harness.
 func TestBuildMultiSourceSpecificityWithinLayer(t *testing.T) {
 	// Create single layer with different specificities
 	layerDir := t.TempDir()
@@ -566,6 +607,11 @@ func TestBuildMultiSourceSpecificityWithinLayer(t *testing.T) {
 	}
 }
 
+// TestBuildMultiSourceLayerBeatsSpecificity proves the personal layer's `all` wins over the base layer's more specific
+// `all.Darwin`: layer precedence outranks specificity.
+//
+// Parameters:
+//   - `t`: the test harness.
 func TestBuildMultiSourceLayerBeatsSpecificity(t *testing.T) {
 	// Layer precedence should beat specificity
 	baseDir := t.TempDir()
@@ -642,6 +688,9 @@ func TestBuildMultiSourceLayerBeatsSpecificity(t *testing.T) {
 
 // TestBuild_TheMostSpecificLinkWins pins "the most specific link in the chain wins" and the ruled order of application
 // (Q3), in a single-source build and within one layer of a multi-source build.
+//
+// Parameters:
+//   - `t`: the test harness.
 func TestBuild_TheMostSpecificLinkWins(t *testing.T) {
 
 	dirs := []string{"common", "common.Unix", "common.Linux", "common.Debian", "common.Debian.arm64", "common.Ubuntu",
@@ -683,7 +732,10 @@ func TestBuild_TheMostSpecificLinkWins(t *testing.T) {
 	}
 }
 
-// TestBuild_DarwinBeatsUnix: the chain ranks Darwin above Unix; the suffix count tied them, and Unix won.
+// TestBuild_DarwinBeatsUnix proves the chain ranks Darwin above Unix; the suffix count tied them, and Unix won.
+//
+// Parameters:
+//   - `t`: the test harness.
 func TestBuild_DarwinBeatsUnix(t *testing.T) {
 
 	root := t.TempDir()
@@ -701,6 +753,9 @@ func TestBuild_DarwinBeatsUnix(t *testing.T) {
 }
 
 // TestBuild_ProjectsApplyInOrder pins Q27: projects in the order given, then the platform ranking within each.
+//
+// Parameters:
+//   - `t`: the test harness.
 func TestBuild_ProjectsApplyInOrder(t *testing.T) {
 
 	root := t.TempDir()
@@ -725,8 +780,12 @@ func TestBuild_ProjectsApplyInOrder(t *testing.T) {
 	}
 }
 
-// TestBuild_TheCollisionSaysWhatDecided: a collision carries both directories' ranks and names the part that put the
-// winner after the loser (Requirement 2).
+// TestBuild_TheCollisionSaysWhatDecided proves a collision carries both directories' ranks.
+//
+// It names the part that put the winner after the loser (Requirement 2).
+//
+// Parameters:
+//   - `t`: the test harness.
 func TestBuild_TheCollisionSaysWhatDecided(t *testing.T) {
 
 	desktop := append(ubuntuArm64(), segment.Segment{Name: "ROLE", Value: "desktop", Values: []string{"desktop"}})
@@ -784,8 +843,12 @@ func TestBuild_TheCollisionSaysWhatDecided(t *testing.T) {
 	}
 }
 
-// TestBuild_GrammarErrorsRefuseTheBuild: a malformed directory name in any layer refuses the build before a file is
-// read, and every one is listed (Q19).
+// TestBuild_GrammarErrorsRefuseTheBuild proves a malformed directory name in any layer refuses the build.
+//
+// The build is refused before a file is read, and every malformed name is listed (Q19).
+//
+// Parameters:
+//   - `t`: the test harness.
 func TestBuild_GrammarErrorsRefuseTheBuild(t *testing.T) {
 
 	base, personal := t.TempDir(), t.TempDir()

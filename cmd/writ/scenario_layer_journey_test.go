@@ -88,6 +88,13 @@ var layerFixtures = []journeyLayer{
 
 // newJourney builds the sandbox with every layer materialized and none registered. Registration is a step of
 // the journey, not of the harness.
+//
+// Parameters:
+//   - `t`: the test harness; the test skips unless WRIT_SCENARIO_RUN is set, and fails on any sandbox error.
+//
+// Returns:
+//   - `*journey`: the sandbox with the three layers materialized, none registered, and a cleanup that logs
+//     the skip-list.
 func newJourney(t *testing.T) *journey {
 
 	t.Helper()
@@ -122,7 +129,7 @@ func newJourney(t *testing.T) *journey {
 			"TMPDIR=" + os.TempDir(),
 		},
 	}
-	writeTargetConfig(t, filepath.Join(root, "config"), home)
+	writeScopeConfig(t, filepath.Join(root, "config"), home)
 
 	j := &journey{sandbox: sandbox, layers: map[string]*journeyLayer{}}
 	for _, fixture := range layerFixtures {
@@ -149,6 +156,10 @@ func newJourney(t *testing.T) *journey {
 
 // materializeLayer copies a fixture tree into the sandbox, restores what a checked-in tree cannot carry
 // (executable bits, the bridge symlink), commits it, and makes the bare clone that stands in for its URL.
+//
+// Parameters:
+//   - `t`: the test harness; any copy, symlink or git failure fails the test.
+//   - `layer`: the layer whose Fixture is copied into its Path and whose bare clone is made at its Bare.
 func materializeLayer(t *testing.T, layer *journeyLayer) {
 
 	t.Helper()
@@ -177,6 +188,10 @@ func materializeLayer(t *testing.T, layer *journeyLayer) {
 }
 
 // markScriptsExecutable restores the executable bit copyFixture drops on every file under a bin/ directory.
+//
+// Parameters:
+//   - `t`: the test harness; a walk or chmod failure fails the test.
+//   - `root`: the materialized tree whose bin/ files are made mode 0755.
 func markScriptsExecutable(t *testing.T, root string) {
 
 	t.Helper()
@@ -196,6 +211,11 @@ func markScriptsExecutable(t *testing.T, root string) {
 }
 
 // gitIn runs git in `dir` under the isolated configuration, failing the test on a non-zero exit.
+//
+// Parameters:
+//   - `t`: the test harness; a non-zero exit fails it with git's combined output.
+//   - `dir`: the directory git runs in, passed as -C.
+//   - `args`: the git subcommand and its arguments.
 func gitIn(t *testing.T, dir string, args ...string) {
 
 	t.Helper()
@@ -213,11 +233,17 @@ func gitIn(t *testing.T, dir string, args ...string) {
 
 // layersDir is where a registration lives: XDG_DATA_HOME/devlore/writ/layers/<role> -> working tree. The
 // symlink is the registration (the config-vs-layers separation); the verbs create and remove it.
+//
+// Returns:
+//   - `string`: the layers directory under the sandbox's XDG data home.
 func (j *journey) layersDir() string {
 	return filepath.Join(j.sandbox.Root, "data", "devlore", "writ", "layers")
 }
 
 // reposDir is writ's own home for the clones it makes from a URL registration.
+//
+// Returns:
+//   - `string`: the repos directory under the sandbox's XDG data home.
 func (j *journey) reposDir() string {
 	return filepath.Join(j.sandbox.Root, "data", "devlore", "writ", "repos")
 }
@@ -225,6 +251,12 @@ func (j *journey) reposDir() string {
 // registerByMechanism registers a layer the way the settled mechanism does — the symlink — so the parts of
 // the journey that are not about the verbs run whether or not #791 has shipped. By URL, the harness makes the
 // clone writ would have made, named as `git clone` names it (#793), and points the symlink at it.
+//
+// Parameters:
+//   - `t`: the test harness; a clone, directory or symlink failure fails the test.
+//   - `role`: the layer's role (base, team or personal), which is also the registration's name.
+//   - `byURL`: true to register a clone of the bare remote under reposDir; false to register the working
+//     tree itself.
 func (j *journey) registerByMechanism(t *testing.T, role string, byURL bool) {
 
 	t.Helper()
@@ -255,6 +287,9 @@ func (j *journey) registerByMechanism(t *testing.T, role string, byURL bool) {
 // ---------------------------------------------------------------------------------------------------------
 
 // probe asks the binary what it can do. A probe is a help text or a harmless invocation, never a version.
+//
+// Parameters:
+//   - `t`: the test harness the probe invocations run under and the capabilities are logged to.
 func (j *journey) probe(t *testing.T) {
 
 	t.Helper()
@@ -283,6 +318,11 @@ func (j *journey) probe(t *testing.T) {
 }
 
 // skip records the outstanding ruling and skips the current step.
+//
+// Parameters:
+//   - `t`: the test harness whose current step is skipped.
+//   - `issue`: the devlore-cli issue number that ships the missing ruling.
+//   - `what`: the missing capability, as the skip-list names it.
 func (j *journey) skip(t *testing.T, issue int, what string) {
 
 	t.Helper()
@@ -298,6 +338,16 @@ func (j *journey) skip(t *testing.T, issue int, what string) {
 
 // deploy runs the ruled form: a bare `writ deploy` plus whatever is named (#843, #850). The implicit set --
 // `common`, and each registered repository's own-named project -- is the binary's to resolve.
+//
+// Parameters:
+//   - `t`: the test harness the binary runs under.
+//   - `flags`: the flags placed after `deploy`, before the named projects.
+//   - `named`: the projects named on the command line, possibly none.
+//
+// Returns:
+//   - `stdout`: what writ printed on standard output.
+//   - `stderr`: what writ printed on standard error.
+//   - `err`: the run's error; non-nil when writ exits non-zero.
 func (j *journey) deploy(t *testing.T, flags []string, named ...string) (stdout, stderr string, err error) {
 
 	t.Helper()
@@ -308,6 +358,13 @@ func (j *journey) deploy(t *testing.T, flags []string, named ...string) (stdout,
 }
 
 // registeredPath resolves a registration to the working tree it points at.
+//
+// Parameters:
+//   - `role`: the registration's name under layersDir.
+//
+// Returns:
+//   - `string`: the working tree the registration resolves to; empty when the registration is absent or
+//     does not resolve.
 func (j *journey) registeredPath(role string) string {
 
 	resolved, err := filepath.EvalSymlinks(filepath.Join(j.layersDir(), role))
@@ -317,6 +374,14 @@ func (j *journey) registeredPath(role string) string {
 	return resolved
 }
 
+// contains reports whether `item` is a member of `list`.
+//
+// Parameters:
+//   - `list`: the strings searched.
+//   - `item`: the string sought.
+//
+// Returns:
+//   - `bool`: true when some element of `list` equals `item`.
 func contains(list []string, item string) bool {
 	for _, candidate := range list {
 		if candidate == item {
@@ -329,6 +394,12 @@ func contains(list []string, item string) bool {
 var collisionPattern = regexp.MustCompile(`(\d+) source collision\(s\)`)
 
 // collisionsIn reads the collision count writ narrates on stderr; zero when it narrates none.
+//
+// Parameters:
+//   - `stderr`: writ's standard error from a deploy.
+//
+// Returns:
+//   - `int`: the count from the first "N source collision(s)" narration; zero when there is none.
 func collisionsIn(stderr string) int {
 
 	match := collisionPattern.FindStringSubmatch(stderr)
@@ -346,6 +417,13 @@ type reconcileEntry struct {
 }
 
 // reconcile returns reconcile's entries grouped by state.
+//
+// Parameters:
+//   - `t`: the test harness; it fails when reconcile exits other than 0 or 1, prints JSON of another shape,
+//     or exits 1 without drift or 0 with it.
+//
+// Returns:
+//   - `map[string][]string`: each entry's target, keyed by its reconcile state.
 func (j *journey) reconcile(t *testing.T) map[string][]string {
 
 	t.Helper()
@@ -379,6 +457,12 @@ func (j *journey) reconcile(t *testing.T) map[string][]string {
 
 // deployedLinks walks the sandbox home and returns every symlink with the source it points at (resolved
 // lexically against the link's directory), and whether that source exists.
+//
+// Parameters:
+//   - `t`: the test harness; a walk or readlink failure fails the test.
+//
+// Returns:
+//   - `map[string]linkState`: every symlink under the sandbox home, keyed by its path.
 func (j *journey) deployedLinks(t *testing.T) map[string]linkState {
 
 	t.Helper()
@@ -408,12 +492,20 @@ func (j *journey) deployedLinks(t *testing.T) map[string]linkState {
 	return links
 }
 
+// linkState is one deployed symlink as deployedLinks reads it: the source it points at, resolved lexically
+// against the link's directory, and whether that source exists.
 type linkState struct {
 	Source   string
 	Resolves bool
 }
 
 // dangling returns the links that do not resolve, sorted.
+//
+// Parameters:
+//   - `links`: the links deployedLinks found.
+//
+// Returns:
+//   - `[]string`: the paths of the links whose source does not exist, sorted; nil when every link resolves.
 func dangling(links map[string]linkState) []string {
 
 	var out []string
@@ -432,6 +524,15 @@ func dangling(links map[string]linkState) []string {
 
 // runScript runs a deployed bash script with --help under bash — the platform's own on Unix, Git for
 // Windows' on Windows, which is the whole reason a git-supporting script is `common`.
+//
+// Parameters:
+//   - `t`: the test harness.
+//   - `path`: the deployed script, run from the sandbox home under the sandbox environment.
+//   - `args`: the arguments passed to the script.
+//
+// Returns:
+//   - `string`: the script's combined standard output and standard error.
+//   - `error`: non-nil when bash cannot run or the script exits non-zero.
 func (j *journey) runScript(t *testing.T, path string, args ...string) (string, error) {
 
 	t.Helper()
@@ -444,6 +545,10 @@ func (j *journey) runScript(t *testing.T, path string, args ...string) (string, 
 }
 
 // assertHelp asserts a deployed consumer answers --help through the shared parsing: exit 0 and its synopsis.
+//
+// Parameters:
+//   - `t`: the test harness; it fails when --help exits non-zero or its output lacks the script's name.
+//   - `path`: the deployed consumer script.
 func (j *journey) assertHelp(t *testing.T, path string) {
 
 	t.Helper()
@@ -466,6 +571,12 @@ func (j *journey) assertHelp(t *testing.T, path string) {
 // docs/guides/selectors.md): Darwin and Linux are Unix; a Linux host matches its lineage — os-release's ID_LIKE, most
 // general first — and then its own ID. The scenario computes the chain itself, from os-release, as an oracle
 // independent of pkg/selector, the code under test.
+//
+// Parameters:
+//   - `t`: the test harness; it fails on a platform with no selector table.
+//
+// Returns:
+//   - `[]string`: the selector chain for this platform, most general first.
 func selectorsHere(t *testing.T) []string {
 
 	t.Helper()
@@ -490,6 +601,9 @@ func selectorsHere(t *testing.T) []string {
 
 // lineageSelectors returns the lineage members of the chain — ID_LIKE reversed, so the most general ancestor
 // comes first — empty on a host that declares none.
+//
+// Returns:
+//   - `[]string`: the capitalized ID_LIKE members, most general first; nil when ID_LIKE is absent or empty.
 func lineageSelectors() []string {
 
 	fields := strings.Fields(osRelease("ID_LIKE"))
@@ -504,6 +618,13 @@ func lineageSelectors() []string {
 
 // osRelease reads one key of os-release, unquoted: /etc/os-release, else /usr/lib/os-release; empty when absent or
 // not on Linux.
+//
+// Parameters:
+//   - `key`: the os-release key, such as ID or ID_LIKE.
+//
+// Returns:
+//   - `string`: the key's value with surrounding double quotes trimmed; empty when neither file is readable
+//     or the key is absent.
 func osRelease(key string) string {
 
 	data, err := os.ReadFile("/etc/os-release")
@@ -522,6 +643,13 @@ func osRelease(key string) string {
 
 // capitalizeDistro spells an os-release ID as the ruled selector word (docs/guides/selectors.md), written out here
 // rather than taken from pkg/selector so the scenario checks that code instead of repeating it.
+//
+// Parameters:
+//   - `id`: an os-release ID or ID_LIKE member.
+//
+// Returns:
+//   - `string`: the selector word; the ID with its first letter upper-cased when it has no ruled spelling;
+//     empty when `id` is empty.
 func capitalizeDistro(id string) string {
 
 	switch id {
@@ -553,6 +681,13 @@ func capitalizeDistro(id string) string {
 }
 
 // consumersAtA lists the personal-a consumers this platform deploys, with their deployed path at commit A.
+//
+// Parameters:
+//   - `t`: the test harness selectorsHere runs under.
+//
+// Returns:
+//   - `map[string]string`: each consumer's name (Get-<selector>Scenario, Test-<selector>Scenario), keyed to
+//     its path under the sandbox home's local/bin.
 func (j *journey) consumersAtA(t *testing.T) map[string]string {
 
 	t.Helper()
@@ -579,6 +714,12 @@ func (j *journey) consumersAtA(t *testing.T) map[string]string {
 // every consumer out of common.<selector>/local into noblefactor-ops.<selector>/.local, the helper and its
 // bridge deleted, the two context scripts made self-contained. It commits and pushes to the bare remote, and
 // returns the repository-relative paths that moved or disappeared.
+//
+// Parameters:
+//   - `t`: the test harness; any rename, removal, rewrite or git failure fails the test.
+//
+// Returns:
+//   - `[]string`: the repository-relative paths that moved or were removed, sorted.
 func (j *journey) applyMove(t *testing.T) []string {
 
 	t.Helper()
@@ -647,6 +788,14 @@ func (j *journey) applyMove(t *testing.T) []string {
 }
 
 // filesUnder lists the regular files and symlinks under dir, relative to it.
+//
+// Parameters:
+//   - `t`: the test harness; a walk failure other than a missing `dir` fails the test.
+//   - `dir`: the directory to walk.
+//
+// Returns:
+//   - `[]string`: every non-directory entry under `dir`, relative to it, in walk order; nil when `dir` does
+//     not exist.
 func filesUnder(t *testing.T, dir string) []string {
 
 	t.Helper()
@@ -674,6 +823,11 @@ func filesUnder(t *testing.T, dir string) []string {
 
 // makeSelfContained rewrites a fixture consumer so it sources nothing: the two helper lines become a local
 // preamble with what the script uses. Same shape as personal#174 gave the six real ones.
+//
+// Parameters:
+//   - `t`: the test harness; it fails when the script lacks the standard source lines or cannot be
+//     read or written.
+//   - `path`: the fixture consumer script, rewritten in place with mode 0755.
 func makeSelfContained(t *testing.T, path string) {
 
 	t.Helper()
@@ -735,6 +889,9 @@ readonly script_arguments
 
 // TestWritLayerJourneyScenario_Harness is Phase 1's deliverable: three layers materialized and named, each
 // with a working tree and a bare remote, and the binary answering inside the sandbox.
+//
+// Parameters:
+//   - `t`: the test harness.
 func TestWritLayerJourneyScenario_Harness(t *testing.T) {
 
 	j := newJourney(t)
@@ -764,8 +921,12 @@ func TestWritLayerJourneyScenario_Harness(t *testing.T) {
 	}
 }
 
-// TestWritLayerJourneyScenario_Part0_SelfInstall: the binary installs itself into the sandbox home, and a
-// fresh install registers nothing.
+// TestWritLayerJourneyScenario_Part0_SelfInstall proves the binary installs itself into the sandbox home.
+//
+// A fresh install registers nothing.
+//
+// Parameters:
+//   - `t`: the test harness.
 func TestWritLayerJourneyScenario_Part0_SelfInstall(t *testing.T) {
 
 	j := newJourney(t)
@@ -805,7 +966,10 @@ func TestWritLayerJourneyScenario_Part0_SelfInstall(t *testing.T) {
 	})
 }
 
-// TestWritLayerJourneyScenario_Part1_RepoSet: the ruled verbs, for every layer, by path and by URL, in turn.
+// TestWritLayerJourneyScenario_Part1_RepoSet exercises the ruled verbs, for every layer, by path and by URL, in turn.
+//
+// Parameters:
+//   - `t`: the test harness.
 func TestWritLayerJourneyScenario_Part1_RepoSet(t *testing.T) {
 
 	j := newJourney(t)
@@ -867,8 +1031,13 @@ func TestWritLayerJourneyScenario_Part1_RepoSet(t *testing.T) {
 	}
 }
 
-// TestWritLayerJourneyScenario_Part1_Subsets: every non-empty subset of the three layers, registered by
-// path or by URL in turn, and a bare deploy that converges exactly what the registered layers contribute.
+// TestWritLayerJourneyScenario_Part1_Subsets deploys every non-empty subset of the three layers.
+//
+// Each subset is registered by path or by URL in turn, and a bare deploy converges exactly what the registered
+// layers contribute.
+//
+// Parameters:
+//   - `t`: the test harness.
 func TestWritLayerJourneyScenario_Part1_Subsets(t *testing.T) {
 
 	subsets := [][]string{{"base"}, {"team"}, {"personal"}, {"base", "team"}, {"base", "personal"}, {"team", "personal"}, {"base", "team", "personal"}}
@@ -906,6 +1075,11 @@ func TestWritLayerJourneyScenario_Part1_Subsets(t *testing.T) {
 }
 
 // assertPresence asserts a path exists when want is true and is absent when it is false.
+//
+// Parameters:
+//   - `t`: the test harness; it fails when the presence of `path` differs from `want`.
+//   - `want`: true when `path` must exist, false when it must be absent.
+//   - `path`: the path checked with Lstat, so a dangling symlink counts as present.
 func assertPresence(t *testing.T, want bool, path string) {
 
 	t.Helper()
@@ -919,8 +1093,13 @@ func assertPresence(t *testing.T, want bool, path string) {
 	}
 }
 
-// TestWritLayerJourneyScenario_Part2_Deploy: all three layers, personal at commit A; the deploy, the named
-// project, persistence, decommission. One sandbox, the steps in order, each reporting on its own.
+// TestWritLayerJourneyScenario_Part2_Deploy deploys all three layers, personal at commit A.
+//
+// The deploy, the named project, persistence, decommission: one sandbox, the steps in order, each reporting on
+// its own.
+//
+// Parameters:
+//   - `t`: the test harness.
 func TestWritLayerJourneyScenario_Part2_Deploy(t *testing.T) {
 
 	j := newJourney(t)
@@ -1036,8 +1215,10 @@ func TestWritLayerJourneyScenario_Part2_Deploy(t *testing.T) {
 	})
 }
 
-// TestWritLayerJourneyScenario_Part3_Move: personal advances from A to B under the deployed links, by path
-// and by URL.
+// TestWritLayerJourneyScenario_Part3_Move advances personal from A to B under the deployed links, by path and URL.
+//
+// Parameters:
+//   - `t`: the test harness.
 func TestWritLayerJourneyScenario_Part3_Move(t *testing.T) {
 
 	for _, byURL := range []bool{false, true} {
@@ -1187,6 +1368,12 @@ func TestWritLayerJourneyScenario_Part3_Move(t *testing.T) {
 }
 
 // summarize renders reconcile states as counts.
+//
+// Parameters:
+//   - `states`: reconcile's targets keyed by state.
+//
+// Returns:
+//   - `string`: one state=count pair per state, sorted and space-separated.
 func summarize(states map[string][]string) string {
 
 	var parts []string

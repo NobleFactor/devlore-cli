@@ -5,7 +5,10 @@
 package writ
 
 import (
+	"errors"
+
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
 	"github.com/NobleFactor/devlore-cli/pkg/application"
@@ -49,6 +52,17 @@ Declare your environment once — writ deploys it everywhere you work.`,
 
 	rootCmd.PersistentFlags().String("target", "Home", "Target to operate on")
 
+	// The configuration is loaded by the shared root's pre-run; writ then refuses a key it has retired, before any
+	// command runs, rather than ignoring it (#925).
+	loadConfiguration := rootCmd.PersistentPreRunE
+	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
+
+		if err := loadConfiguration(cmd, args); err != nil {
+			return err
+		}
+		return refuseRetiredConfiguration()
+	}
+
 	rootCmd.AddCommand(newDeployCmd())
 	rootCmd.AddCommand(newDecommissionCmd())
 	rootCmd.AddCommand(newReconcileCmd())
@@ -60,3 +74,23 @@ Declare your environment once — writ deploys it everywhere you work.`,
 
 	return rootCmd
 }
+
+// region HELPER FUNCTIONS
+
+// refuseRetiredConfiguration refuses a configuration that still sets `writ.targets`.
+//
+// Scope roots are named under `writ.scopes` (#925): the word is scope, not target. A configuration that names them
+// the old way would otherwise be ignored without a word, and the deployment would land in the default root.
+//
+// Returns:
+//   - `error`: an [cli.ExitConfig]-coded refusal naming `writ.scopes` when `writ.targets` is set; nil otherwise.
+func refuseRetiredConfiguration() error {
+
+	if viper.IsSet("writ.targets") {
+		return cli.ExitWith(cli.ExitConfig,
+			errors.New("writ.targets is retired: name scope roots under writ.scopes, for example writ.scopes.Home"))
+	}
+	return nil
+}
+
+// endregion

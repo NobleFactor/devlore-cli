@@ -64,7 +64,7 @@ func matrixConfig(t *testing.T, layers []layerFixture, registryPackages ...strin
 		}
 		sources = append(sources, tree.LayerSource{
 			Layer: layer.name, Path: layerDir, Order: order, SourceRoot: layerDir, OriginRoot: layerDir,
-			TargetRoot: targetRoot, TargetName: "Home",
+			TargetRoot: targetRoot, ScopeName: "Home",
 		})
 	}
 
@@ -190,6 +190,9 @@ func identifierOf(t *testing.T, value any) string {
 // TestBuildGraphs_MatrixA_TheUnionOnThisPlatform is row 6 of #814's test plan and Matrix A of #872: one sparsely
 // populated three-layer tree yields a different union on Darwin, Linux and Windows, because the suffix chain differs
 // per OS. Each cell exercises one merge rule; the expectation is the host platform's row, so CI proves all three.
+//
+// Parameters:
+//   - `t`: the test harness.
 func TestBuildGraphs_MatrixA_TheUnionOnThisPlatform(t *testing.T) {
 
 	defaultType := hostDefaultPurlType(t)
@@ -257,6 +260,9 @@ func TestBuildGraphs_MatrixA_TheUnionOnThisPlatform(t *testing.T) {
 // TestBuildGraphs_TwoDifferentPinsRefuseTheDeploy is the second Matrix A tree: two manifests pinning different
 // versions of one package refuse the deploy naming the package, both versions and both manifests. The interim
 // answer, until the broker can put the question to the manager (#872).
+//
+// Parameters:
+//   - `t`: the test harness.
 func TestBuildGraphs_TwoDifferentPinsRefuseTheDeploy(t *testing.T) {
 
 	osDir := "common." + segment.DetectSegments()[0].Value
@@ -278,6 +284,9 @@ func TestBuildGraphs_TwoDifferentPinsRefuseTheDeploy(t *testing.T) {
 // TestBuildGraphs_AManifestOnlyDirectoryPlansAScope is the third Matrix A tree, delta 9 of the #814 review: a layer
 // holding a manifest and no files still yields a scope graph, whose only unit is the packages subgraph; and a claim
 // that names a registry package is deferred with a note rather than planned.
+//
+// Parameters:
+//   - `t`: the test harness.
 func TestBuildGraphs_AManifestOnlyDirectoryPlansAScope(t *testing.T) {
 
 	layers := []layerFixture{

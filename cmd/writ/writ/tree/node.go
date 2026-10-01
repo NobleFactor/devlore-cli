@@ -32,6 +32,14 @@ var PackagesManifestFiles = []string{
 //	"foo.sops"                → "foo",                     ["encryption.decrypt", "file.copy"]
 //	"foo.tmpl.sops"           → "foo",                     ["encryption.decrypt", "template.render_bytes", "file.copy"]
 //	"packages-manifest.yaml"  → "packages-manifest.yaml",  ["manifest.resolve"]
+//
+// Parameters:
+//   - `filename`: the source file's name, possibly a path; its base name decides whether it is a package manifest.
+//
+// Returns:
+//   - `string`: the target name, `filename` with its `.sops` and `.tmpl` extensions stripped; a manifest unchanged.
+//   - `[]string`: the operations to apply in order: `manifest.resolve` alone for a manifest, `file.link` when no
+//     extension applies, and otherwise `encryption.decrypt` and `template.render_bytes` as named, then `file.copy`.
 func ProcessingPipeline(filename string) (targetName string, actions []string) {
 	name := filename
 	baseName := filepath.Base(name)

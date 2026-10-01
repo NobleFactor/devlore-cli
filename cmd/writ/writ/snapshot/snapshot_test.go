@@ -17,12 +17,12 @@ import (
 // Files is a map of relative path → content.
 //
 // Parameters:
-//   - t: test context
-//   - dir: directory to initialize as a git repo
-//   - files: map of relative path to file content
+//   - `t`: the test harness; a failed git command or file write fails the test.
+//   - `dir`: directory to initialize as a git repo
+//   - `files`: map of relative path to file content
 //
 // Returns:
-//   - string: the HEAD commit hash
+//   - `string`: the HEAD commit hash
 func initGitRepo(t *testing.T, dir string, files map[string]string) string {
 	t.Helper()
 
@@ -69,6 +69,9 @@ func initGitRepo(t *testing.T, dir string, files map[string]string) string {
 }
 
 // TestPinAndClose tests the basic pin → verify → close lifecycle.
+//
+// Parameters:
+//   - `t`: the test harness.
 func TestPinAndClose(t *testing.T) {
 	// Override snapshots dir to temp
 	origDir := snapshotsDir
@@ -125,6 +128,9 @@ func TestPinAndClose(t *testing.T) {
 
 // TestPinWorktreeExcludesUncommitted verifies that the worktree does not
 // contain uncommitted changes from the working directory.
+//
+// Parameters:
+//   - `t`: the test harness.
 func TestPinWorktreeExcludesUncommitted(t *testing.T) {
 	origDir := snapshotsDir
 	snapshotsDir = func() string { return filepath.Join(t.TempDir(), "snapshots") }
@@ -163,6 +169,9 @@ func TestPinWorktreeExcludesUncommitted(t *testing.T) {
 }
 
 // TestPinReusesExistingWorktree verifies that Pin reuses an existing worktree.
+//
+// Parameters:
+//   - `t`: the test harness.
 func TestPinReusesExistingWorktree(t *testing.T) {
 	snapDir := filepath.Join(t.TempDir(), "snapshots")
 	origDir := snapshotsDir
@@ -192,6 +201,9 @@ func TestPinReusesExistingWorktree(t *testing.T) {
 
 // TestPinAllDeduplicatesSharedRepo verifies that PinAll creates only one
 // worktree when multiple sources share the same repository.
+//
+// Parameters:
+//   - `t`: the test harness.
 func TestPinAllDeduplicatesSharedRepo(t *testing.T) {
 	origDir := snapshotsDir
 	snapshotsDir = func() string { return filepath.Join(t.TempDir(), "snapshots") }
@@ -204,8 +216,8 @@ func TestPinAllDeduplicatesSharedRepo(t *testing.T) {
 	})
 
 	sources := []tree.LayerSource{
-		{Layer: "base", Path: repoDir, SourceRoot: filepath.Join(repoDir, "System"), TargetName: "System"},
-		{Layer: "base", Path: repoDir, SourceRoot: filepath.Join(repoDir, "Home"), TargetName: "Home"},
+		{Layer: "base", Path: repoDir, SourceRoot: filepath.Join(repoDir, "System"), ScopeName: "System"},
+		{Layer: "base", Path: repoDir, SourceRoot: filepath.Join(repoDir, "Home"), ScopeName: "Home"},
 	}
 
 	snapshots, cleanup, err := PinAll(sources)
@@ -224,6 +236,9 @@ func TestPinAllDeduplicatesSharedRepo(t *testing.T) {
 }
 
 // TestPinAllMultipleRepos verifies PinAll with distinct repositories.
+//
+// Parameters:
+//   - `t`: the test harness.
 func TestPinAllMultipleRepos(t *testing.T) {
 	origDir := snapshotsDir
 	snapshotsDir = func() string { return filepath.Join(t.TempDir(), "snapshots") }
@@ -236,8 +251,8 @@ func TestPinAllMultipleRepos(t *testing.T) {
 	initGitRepo(t, personalDir, map[string]string{"Home/.bashrc": "personal"})
 
 	sources := []tree.LayerSource{
-		{Layer: "base", Path: baseDir, SourceRoot: filepath.Join(baseDir, "Home"), TargetName: "Home"},
-		{Layer: "personal", Path: personalDir, SourceRoot: filepath.Join(personalDir, "Home"), TargetName: "Home"},
+		{Layer: "base", Path: baseDir, SourceRoot: filepath.Join(baseDir, "Home"), ScopeName: "Home"},
+		{Layer: "personal", Path: personalDir, SourceRoot: filepath.Join(personalDir, "Home"), ScopeName: "Home"},
 	}
 
 	snapshots, cleanup, err := PinAll(sources)
@@ -252,6 +267,9 @@ func TestPinAllMultipleRepos(t *testing.T) {
 }
 
 // TestRewriteSources verifies that SourceRoot is correctly rewritten.
+//
+// Parameters:
+//   - `t`: the test harness.
 func TestRewriteSources(t *testing.T) {
 	origDir := snapshotsDir
 	snapshotsDir = func() string { return filepath.Join(t.TempDir(), "snapshots") }
@@ -264,8 +282,8 @@ func TestRewriteSources(t *testing.T) {
 	})
 
 	sources := []tree.LayerSource{
-		{Layer: "base", Path: repoDir, SourceRoot: filepath.Join(repoDir, "System"), TargetRoot: "/", TargetName: "System"},
-		{Layer: "base", Path: repoDir, SourceRoot: filepath.Join(repoDir, "Home"), TargetRoot: "/home/user", TargetName: "Home"},
+		{Layer: "base", Path: repoDir, SourceRoot: filepath.Join(repoDir, "System"), TargetRoot: "/", ScopeName: "System"},
+		{Layer: "base", Path: repoDir, SourceRoot: filepath.Join(repoDir, "Home"), TargetRoot: "/home/user", ScopeName: "Home"},
 	}
 
 	snapshots, cleanup, err := PinAll(sources)
@@ -298,12 +316,15 @@ func TestRewriteSources(t *testing.T) {
 	if rewritten[0].TargetRoot != "/" {
 		t.Errorf("expected TargetRoot '/', got %q", rewritten[0].TargetRoot)
 	}
-	if rewritten[1].TargetName != "Home" {
-		t.Errorf("expected TargetName 'Home', got %q", rewritten[1].TargetName)
+	if rewritten[1].ScopeName != "Home" {
+		t.Errorf("expected ScopeName 'Home', got %q", rewritten[1].ScopeName)
 	}
 }
 
 // TestHashes verifies the layer→hash map construction.
+//
+// Parameters:
+//   - `t`: the test harness.
 func TestHashes(t *testing.T) {
 	snapshots := []*Snapshot{
 		{Layer: "base", CommitHash: "abc123"},
@@ -324,6 +345,9 @@ func TestHashes(t *testing.T) {
 }
 
 // TestIsDirtyCleanRepo verifies that a clean repo reports not dirty.
+//
+// Parameters:
+//   - `t`: the test harness.
 func TestIsDirtyCleanRepo(t *testing.T) {
 	repoDir := t.TempDir()
 	initGitRepo(t, repoDir, map[string]string{"a.txt": "a"})
@@ -338,6 +362,9 @@ func TestIsDirtyCleanRepo(t *testing.T) {
 }
 
 // TestIsDirtyUnstagedChanges verifies detection of unstaged changes.
+//
+// Parameters:
+//   - `t`: the test harness.
 func TestIsDirtyUnstagedChanges(t *testing.T) {
 	repoDir := t.TempDir()
 	initGitRepo(t, repoDir, map[string]string{"a.txt": "a"})
@@ -357,6 +384,9 @@ func TestIsDirtyUnstagedChanges(t *testing.T) {
 }
 
 // TestIsDirtyStagedChanges verifies detection of staged but uncommitted changes.
+//
+// Parameters:
+//   - `t`: the test harness.
 func TestIsDirtyStagedChanges(t *testing.T) {
 	repoDir := t.TempDir()
 	initGitRepo(t, repoDir, map[string]string{"a.txt": "a"})
@@ -380,6 +410,9 @@ func TestIsDirtyStagedChanges(t *testing.T) {
 }
 
 // TestIsDirtyUntrackedFiles verifies detection of untracked files.
+//
+// Parameters:
+//   - `t`: the test harness.
 func TestIsDirtyUntrackedFiles(t *testing.T) {
 	repoDir := t.TempDir()
 	initGitRepo(t, repoDir, map[string]string{"a.txt": "a"})
@@ -399,6 +432,9 @@ func TestIsDirtyUntrackedFiles(t *testing.T) {
 }
 
 // TestCheckCleanAllClean verifies CheckClean with all clean repos.
+//
+// Parameters:
+//   - `t`: the test harness.
 func TestCheckCleanAllClean(t *testing.T) {
 	baseDir := t.TempDir()
 	initGitRepo(t, baseDir, map[string]string{"a.txt": "a"})
@@ -421,6 +457,9 @@ func TestCheckCleanAllClean(t *testing.T) {
 }
 
 // TestCheckCleanSomeDirty verifies CheckClean detects dirty repos.
+//
+// Parameters:
+//   - `t`: the test harness.
 func TestCheckCleanSomeDirty(t *testing.T) {
 	baseDir := t.TempDir()
 	initGitRepo(t, baseDir, map[string]string{"a.txt": "a"})
@@ -452,13 +491,16 @@ func TestCheckCleanSomeDirty(t *testing.T) {
 
 // TestCheckCleanDeduplicatesSharedRepo verifies that CheckClean checks each
 // repo only once when multiple sources share the same repo.
+//
+// Parameters:
+//   - `t`: the test harness.
 func TestCheckCleanDeduplicatesSharedRepo(t *testing.T) {
 	repoDir := t.TempDir()
 	initGitRepo(t, repoDir, map[string]string{"a.txt": "a"})
 
 	sources := []tree.LayerSource{
-		{Layer: "base", Path: repoDir, TargetName: "System"},
-		{Layer: "base", Path: repoDir, TargetName: "Home"},
+		{Layer: "base", Path: repoDir, ScopeName: "System"},
+		{Layer: "base", Path: repoDir, ScopeName: "Home"},
 	}
 
 	dirty, err := CheckClean(sources)

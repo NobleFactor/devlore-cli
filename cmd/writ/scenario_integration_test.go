@@ -33,6 +33,13 @@ type scenarioSandbox struct {
 // newScenarioSandbox builds the sandbox: fresh HOME and XDG homes, the personal repo materialized (fixture by
 // default, the real branch via WRIT_SCENARIO_REPO), and the personal layer registered through the settled
 // packaging mechanism — the layers-dir symlink (config plays no part; the config-vs-layers separation).
+//
+// Parameters:
+//   - `t`: the test harness; the test is skipped unless `WRIT_SCENARIO_RUN` is set, and failed on any setup error.
+//
+// Returns:
+//   - `*scenarioSandbox`: the sandbox, its homes created, its Home scope configured, and the personal layer
+//     registered by `writ repo set`.
 func newScenarioSandbox(t *testing.T) *scenarioSandbox {
 
 	t.Helper()
@@ -75,7 +82,7 @@ func newScenarioSandbox(t *testing.T) *scenarioSandbox {
 		},
 	}
 
-	writeTargetConfig(t, filepath.Join(root, "config"), home)
+	writeScopeConfig(t, filepath.Join(root, "config"), home)
 
 	// Register the personal layer through the real command — the fresh-user path, dogfooded on every
 	// platform the scenario runs on.
@@ -86,7 +93,7 @@ func newScenarioSandbox(t *testing.T) *scenarioSandbox {
 	return sandbox
 }
 
-// writeTargetConfig points the sandbox's Home deployment target at the sandbox home.
+// writeScopeConfig points the sandbox's Home scope at the sandbox home.
 //
 // The `HOME` in the subprocess environment cannot do this. A deployment target is a home directory, and home
 // is resolved from the account database ahead of the environment — a child process's environment cannot
@@ -100,7 +107,7 @@ func newScenarioSandbox(t *testing.T) *scenarioSandbox {
 //   - `t`: the test harness.
 //   - `configHome`: the sandbox's `XDG_CONFIG_HOME`.
 //   - `home`: the sandbox home the Home scope must deploy into.
-func writeTargetConfig(t *testing.T, configHome, home string) {
+func writeScopeConfig(t *testing.T, configHome, home string) {
 
 	t.Helper()
 
@@ -109,13 +116,19 @@ func writeTargetConfig(t *testing.T, configHome, home string) {
 		t.Fatal(err)
 	}
 
-	document := "writ:\n  targets:\n    home: " + filepath.ToSlash(home) + "\n"
+	document := "writ:\n  scopes:\n    Home: " + filepath.ToSlash(home) + "\n"
 	if err := os.WriteFile(filepath.Join(directory, "config.yaml"), []byte(document), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
 
 // writBinary returns the built writ binary's path, failing with the build instruction when it is absent.
+//
+// Parameters:
+//   - `t`: the test harness, failed when the path cannot be made absolute or the binary is absent.
+//
+// Returns:
+//   - `string`: the absolute path of `build/<goos>-<goarch>/writ` (`writ.exe` on Windows) for the running host.
 func writBinary(t *testing.T) string {
 
 	t.Helper()
@@ -141,6 +154,13 @@ func writBinary(t *testing.T) string {
 // materializePersonalRepo produces the personal-layer repo inside the sandbox: the checked-in fixture by
 // default; with WRIT_SCENARIO_REPO set, the named repo's scenario branch (WRIT_SCENARIO_BRANCH, default
 // devlore-cli/writ-layer) extracted via git archive so the owner's checkout is never disturbed.
+//
+// Parameters:
+//   - `t`: the test harness, failed when the destination cannot be created or populated.
+//   - `root`: the sandbox root; the repository lands at `Workspace/Personal` beneath it.
+//
+// Returns:
+//   - `string`: the path of the materialized personal-layer repository, committed as a clean baseline.
 func materializePersonalRepo(t *testing.T, root string) string {
 
 	t.Helper()
@@ -167,6 +187,10 @@ func materializePersonalRepo(t *testing.T, root string) string {
 
 // initializeRepo turns the materialized tree into a committed git repository — deploy pins layer sources to
 // git-worktree snapshots and refuses layers that are not clean repos.
+//
+// Parameters:
+//   - `t`: the test harness, failed with git's output when any of init, add, or commit fails.
+//   - `dest`: the materialized tree to turn into a repository with one baseline commit on `main`.
 func initializeRepo(t *testing.T, dest string) {
 
 	t.Helper()
@@ -200,6 +224,14 @@ func initializeRepo(t *testing.T, dest string) {
 // of the architecture — which is why it stayed hidden until windows/arm64 joined the matrix. An
 // empty file is what git actually needs here: a config it can open and find nothing in. It carries
 // none of the device-file semantics that vary by platform and by git build.
+//
+// Parameters:
+//   - `t`: the test harness; its temporary directory holds the empty config file, and it is failed when the
+//     file cannot be written.
+//
+// Returns:
+//   - `[]string`: the current environment plus `GIT_CONFIG_GLOBAL` and `GIT_CONFIG_SYSTEM`, both naming the
+//     empty config file.
 func isolatedGitEnv(t *testing.T) []string {
 
 	t.Helper()
@@ -213,6 +245,11 @@ func isolatedGitEnv(t *testing.T) []string {
 }
 
 // copyFixture copies the checked-in fixture tree into the sandbox destination.
+//
+// Parameters:
+//   - `t`: the test harness, failed on any walk, read, or write error.
+//   - `source`: the fixture tree to copy.
+//   - `dest`: the sandbox directory the tree is reproduced under, directories and regular files alike.
 func copyFixture(t *testing.T, source, dest string) {
 
 	t.Helper()
@@ -242,6 +279,12 @@ func copyFixture(t *testing.T, source, dest string) {
 
 // extractGitArchive materializes `branch` of the repo at `source` into `dest` by streaming git archive
 // through an in-process tar reader — read-only against the repo, no checkout disturbance.
+//
+// Parameters:
+//   - `t`: the test harness, failed on any git, tar, or filesystem error, or an entry escaping `dest`.
+//   - `source`: the repository `git archive` reads.
+//   - `branch`: the branch whose tree is extracted.
+//   - `dest`: the sandbox directory the directories, regular files, and symlinks are written into.
 func extractGitArchive(t *testing.T, source, branch, dest string) {
 
 	t.Helper()
@@ -300,6 +343,14 @@ func extractGitArchive(t *testing.T, source, branch, dest string) {
 }
 
 // containedPath joins an archive entry name onto dest, refusing names that would escape it.
+//
+// Parameters:
+//   - `dest`: the extraction root the entry must stay within.
+//   - `name`: the slash-separated archive entry name.
+//
+// Returns:
+//   - `string`: the entry's path beneath `dest`; empty on refusal.
+//   - `error`: a refusal naming the entry when the joined path escapes `dest`; nil otherwise.
 func containedPath(dest, name string) (string, error) {
 
 	target := filepath.Join(dest, filepath.FromSlash(name))
@@ -309,8 +360,14 @@ func containedPath(dest, name string) (string, error) {
 	return target, nil
 }
 
-// runWrit runs the built writ binary inside the sandbox and returns its combined outcome.
 // exitCodeOf reads the process status a runWrit error carries; any other error fails the test.
+//
+// Parameters:
+//   - `t`: the test harness, failed when `err` is not an `*exec.ExitError`.
+//   - `err`: the error a `runWrit` call returned.
+//
+// Returns:
+//   - `int`: the exit status writ ended with.
 func exitCodeOf(t *testing.T, err error) int {
 
 	t.Helper()
@@ -322,6 +379,19 @@ func exitCodeOf(t *testing.T, err error) int {
 	return exitErr.ExitCode()
 }
 
+// runWrit runs the built writ binary inside the sandbox and returns its combined outcome.
+//
+// Parameters:
+//   - `t`: the test harness, failed when the writ binary is absent.
+//   - `sandbox`: the sandbox whose home is the working directory and whose environment the subprocess runs
+//     under.
+//   - `args`: the writ command line, without the program name.
+//
+// Returns:
+//   - `string`: everything writ wrote to standard output.
+//   - `string`: everything writ wrote to standard error.
+//   - `error`: the process outcome from `exec.Cmd.Run`; an `*exec.ExitError` when writ exits nonzero, nil on
+//     exit 0.
 func runWrit(t *testing.T, sandbox *scenarioSandbox, args ...string) (stdout, stderr string, err error) {
 
 	t.Helper()
@@ -339,6 +409,9 @@ func runWrit(t *testing.T, sandbox *scenarioSandbox, args ...string) (stdout, st
 
 // TestWritDeployScenario_Harness is the phase-1 deliverable: the sandbox stands up — pristine homes, the
 // personal repo materialized, the layer registered — and the real writ binary runs green inside it.
+//
+// Parameters:
+//   - `t`: the test harness.
 func TestWritDeployScenario_Harness(t *testing.T) {
 
 	sandbox := newScenarioSandbox(t)
@@ -365,6 +438,11 @@ func TestWritDeployScenario_Harness(t *testing.T) {
 }
 
 // assertLinked asserts `path` is a symlink that resolves to readable content containing `want`.
+//
+// Parameters:
+//   - `t`: the test harness, failed when `path` is missing, not a symlink, dangling, or lacks `want`.
+//   - `path`: the deployed path to inspect.
+//   - `want`: the text the link's resolved content must contain.
 func assertLinked(t *testing.T, path, want string) {
 
 	t.Helper()
@@ -387,6 +465,11 @@ func assertLinked(t *testing.T, path, want string) {
 }
 
 // assertRendered asserts `path` is a regular file (a rendered copy, not a link) containing every want.
+//
+// Parameters:
+//   - `t`: the test harness, failed when `path` is missing, a symlink, unreadable, or lacks any of `wants`.
+//   - `path`: the deployed path to inspect.
+//   - `wants`: the texts the file's content must each contain.
 func assertRendered(t *testing.T, path string, wants ...string) {
 
 	t.Helper()
@@ -410,6 +493,10 @@ func assertRendered(t *testing.T, path string, wants ...string) {
 }
 
 // assertAbsent asserts nothing exists at `path`.
+//
+// Parameters:
+//   - `t`: the test harness, failed when `os.Lstat` finds anything at `path`.
+//   - `path`: the path that must not exist.
 func assertAbsent(t *testing.T, path string) {
 
 	t.Helper()
@@ -420,6 +507,9 @@ func assertAbsent(t *testing.T, path string) {
 }
 
 // segmentOS returns the capitalized OS segment value for the running platform.
+//
+// Returns:
+//   - `string`: "Darwin" on darwin, "Linux" on linux, and `runtime.GOOS` unchanged on any other platform.
 func segmentOS() string {
 
 	switch runtime.GOOS {
@@ -434,6 +524,9 @@ func segmentOS() string {
 
 // TestWritDeployScenario_Deploy is the phase-2 leg: deploy noblefactor and thenobles into the sandbox, then
 // assert the deployed filesystem, the reconcile report, the execution store, and a clean second deploy.
+//
+// Parameters:
+//   - `t`: the test harness.
 func TestWritDeployScenario_Deploy(t *testing.T) {
 
 	sandbox := newScenarioSandbox(t)

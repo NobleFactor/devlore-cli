@@ -23,8 +23,8 @@ type LayerSource struct {
 	Order      int    // 0=base, 1=team, 2=personal (for precedence sorting)
 	SourceRoot string // Full path to the directory planning reads (a pinned snapshot under layered deploys)
 	OriginRoot string // Full path to the origin-repo directory links target and records name; SourceRoot when unpinned
-	TargetRoot string // Target root (e.g., $HOME or /)
-	TargetName string // "System" or "Home"
+	TargetRoot string // a path: the scope's root, where its files deploy beneath (e.g., $HOME or /)
+	ScopeName  string // the scope this source belongs to: "System" or "Home"
 }
 
 // FileEntry represents a file discovered during tree walking.
@@ -46,7 +46,7 @@ type FileEntry struct {
 	// 2026-08-08). Equals Source when planning reads the origin directly.
 	Origin string
 
-	// Target is the absolute path to the target file.
+	// Target is a path: the absolute path where this file lands.
 	Target string
 
 	// Project this file belongs to.
@@ -55,9 +55,9 @@ type FileEntry struct {
 	// Layer is the repository layer (base, team, personal).
 	Layer string
 
-	// TargetName is the target scope ("System" or "Home").
-	// Set during multi-source builds from LayerSource.TargetName.
-	TargetName string
+	// ScopeName is the scope this file deploys in ("System" or "Home").
+	// Set during multi-source builds from LayerSource.ScopeName.
+	ScopeName string
 
 	// Mode is the file permissions to set (0 means default 0644).
 	Mode os.FileMode
@@ -243,7 +243,7 @@ func (r *BuildResult) apply(entriesByTarget map[string]fileEntryWithMeta, entrie
 	taken := fileEntryWithMeta{dir: filepath.Base(match.Path), layer: source.Layer, rank: match.Rank}
 	for _, entry := range entries {
 		entry.Layer = source.Layer
-		entry.TargetName = source.TargetName
+		entry.ScopeName = source.ScopeName
 
 		// Manifests combine; only files collide (#814).
 		if isManifest(entry) {
@@ -354,6 +354,16 @@ func layerError(source LayerSource, err error) error {
 
 // walkDirectory walks a matched directory and returns file entries for all files, each carrying both the
 // read path (Source, the pinned snapshot under layered deploys) and the durable origin path (Origin).
+//
+// Parameters:
+//   - `match`: the selected directory to walk; its path is the root of every entry's target-relative ID.
+//   - `source`: the layer the directory is in; its OriginRoot, or SourceRoot when OriginRoot is empty, roots each
+//     entry's Origin.
+//
+// Returns:
+//   - `[]*FileEntry`: one entry per non-directory entry under the directory, in walk order; directories yield none.
+//   - `error`: the error reading the directory tree, or the error [fileEntryAt] returns for a file, which stops the
+//     walk.
 func walkDirectory(match segment.MatchResult, source LayerSource) ([]*FileEntry, error) {
 
 	originRoot := source.OriginRoot
@@ -384,6 +394,18 @@ func walkDirectory(match segment.MatchResult, source LayerSource) ([]*FileEntry,
 
 // fileEntryAt builds one walked file's [FileEntry] — target and pipeline from the name, restricted mode for
 // secrets, the Origin mapped onto `originRoot` — validating packages-manifest files as they surface.
+//
+// Parameters:
+//   - `match`: the selected directory the file was found in; supplies the root of the target path and the project.
+//   - `source`: the layer the file is in; supplies the SourceRoot the Origin is made relative to, and the TargetRoot.
+//   - `originRoot`: the durable origin-repo root the Origin path is joined onto.
+//   - `path`: the absolute path of the walked file.
+//   - `name`: the file's base name, from which [ProcessingPipeline] derives the target name and the pipeline.
+//
+// Returns:
+//   - `*FileEntry`: the entry, with mode 0600 when its pipeline decrypts and 0 (the default) otherwise.
+//   - `error`: the error making `path` relative to the directory or to the source root, or `invalid <relative path>`,
+//     the file's path relative to the selected directory, when a packages-manifest file fails [manifest.Validate].
 func fileEntryAt(match segment.MatchResult, source LayerSource, originRoot, path, name string) (*FileEntry, error) {
 
 	relPath, err := filepath.Rel(match.Path, path)
@@ -428,6 +450,13 @@ func fileEntryAt(match segment.MatchResult, source LayerSource, originRoot, path
 }
 
 // hasAction returns true if the actions slice contains the given name.
+//
+// Parameters:
+//   - `actions`: the pipeline's operation names.
+//   - `name`: the operation name to look for, such as `encryption.decrypt`.
+//
+// Returns:
+//   - `bool`: true when `name` appears in `actions`.
 func hasAction(actions []string, name string) bool {
 	for _, a := range actions {
 		if a == name {
@@ -438,16 +467,25 @@ func hasAction(actions []string, name string) bool {
 }
 
 // HasCollisions returns true if there were file collisions during build.
+//
+// Returns:
+//   - `bool`: true when [BuildResult.Collisions] records at least one file a later directory overrode.
 func (r *BuildResult) HasCollisions() bool {
 	return len(r.Collisions) > 0
 }
 
 // FileCount returns the number of files discovered.
+//
+// Returns:
+//   - `int`: the length of [BuildResult.Files], one per target path; manifests are not counted.
 func (r *BuildResult) FileCount() int {
 	return len(r.Files)
 }
 
 // SecretCount returns the number of encrypted files.
+//
+// Returns:
+//   - `int`: the number of entries in [BuildResult.Files] whose pipeline includes `encryption.decrypt`.
 func (r *BuildResult) SecretCount() int {
 	count := 0
 	for _, f := range r.Files {
@@ -462,6 +500,9 @@ func (r *BuildResult) SecretCount() int {
 }
 
 // TemplateCount returns the number of template files.
+//
+// Returns:
+//   - `int`: the number of entries in [BuildResult.Files] whose pipeline includes `template.render_bytes`.
 func (r *BuildResult) TemplateCount() int {
 	count := 0
 	for _, f := range r.Files {
@@ -476,6 +517,9 @@ func (r *BuildResult) TemplateCount() int {
 }
 
 // LinkCount returns the number of simple symlink files.
+//
+// Returns:
+//   - `int`: the number of entries in [BuildResult.Files] whose whole pipeline is `file.link`.
 func (r *BuildResult) LinkCount() int {
 	count := 0
 	for _, f := range r.Files {
@@ -487,6 +531,10 @@ func (r *BuildResult) LinkCount() int {
 }
 
 // PackagesCount returns the number of packages-manifest entries.
+//
+// Returns:
+//   - `int`: the number of entries in [BuildResult.Files] whose pipeline includes `manifest.resolve`; manifests
+//     [Build] routes to [BuildResult.Manifests] are not counted.
 func (r *BuildResult) PackagesCount() int {
 	count := 0
 	for _, f := range r.Files {

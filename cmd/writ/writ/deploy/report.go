@@ -25,7 +25,7 @@ func reportContext(cfg *Config) {
 	if len(cfg.LayerSources) > 0 {
 		cli.Note("Layers: %d sources", len(cfg.LayerSources))
 		for _, src := range cfg.LayerSources {
-			cli.Note("  %s/%s: %s → %s", src.Layer, src.TargetName, src.SourceRoot, src.TargetRoot)
+			cli.Note("  %s/%s: %s → %s", src.Layer, src.ScopeName, src.SourceRoot, src.TargetRoot)
 		}
 	} else {
 		cli.Note("Source: %s", cfg.SourceRoot)

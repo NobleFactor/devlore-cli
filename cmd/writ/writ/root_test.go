@@ -4,8 +4,12 @@
 package writ
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/spf13/viper"
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
 )
@@ -13,6 +17,9 @@ import (
 // TestRoot_KeepsTheOutputConvention pins the root registration through the shared checkers: every command
 // inherits the common set from the root, none shadows an inherited flag or binds a reserved name, and the
 // set on the root is the shared root's (10-command-line-interface.md §4, §14).
+//
+// Parameters:
+//   - `t`: the test harness.
 func TestRoot_KeepsTheOutputConvention(t *testing.T) {
 
 	root := NewRootCmd()
@@ -27,5 +34,37 @@ func TestRoot_KeepsTheOutputConvention(t *testing.T) {
 	}
 	if v := cli.CheckGroupsTakeNoAction(root); len(v) > 0 {
 		t.Errorf("a group acts when invoked bare:\n%s", strings.Join(v, "\n"))
+	}
+}
+
+// TestRoot_RefusesWritTargets proves the retired key is refused before any command runs (#925): a configuration
+// that sets `writ.targets` fails with [cli.ExitConfig] and names `writ.scopes`, rather than being ignored.
+//
+// Parameters:
+//   - `t`: the test harness.
+func TestRoot_RefusesWritTargets(t *testing.T) {
+
+	root := t.TempDir()
+	for _, home := range []string{"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"} {
+		t.Setenv(home, filepath.Join(root, home))
+	}
+	t.Cleanup(viper.Reset)
+
+	config := filepath.Join(root, "config.yaml")
+	if err := os.WriteFile(config, []byte("writ:\n  targets:\n    home: /tmp/elsewhere\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	command := NewRootCmd()
+	command.SetArgs([]string{"--config", config, "--silent", "reconcile", "-o", "none"})
+	err := command.Execute()
+	if err == nil {
+		t.Fatal("a configuration setting writ.targets was accepted")
+	}
+	if code := cli.ExitCode(err); code != cli.ExitConfig {
+		t.Errorf("ExitCode = %d, want %d (EX_CONFIG)", code, cli.ExitConfig)
+	}
+	if !strings.Contains(err.Error(), "writ.scopes") {
+		t.Errorf("the refusal does not name writ.scopes: %v", err)
 	}
 }

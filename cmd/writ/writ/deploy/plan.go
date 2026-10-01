@@ -99,19 +99,19 @@ func BuildGraphs(ctx context.Context, cfg *Config, pin *PinInfo) (*BuildResult, 
 
 	filesByScope := make(map[string][]*tree.FileEntry)
 	for _, f := range result.Files {
-		filesByScope[f.TargetName] = append(filesByScope[f.TargetName], f)
+		filesByScope[f.ScopeName] = append(filesByScope[f.ScopeName], f)
 	}
 
 	// Manifests group by scope the same way, keeping the contribution order [tree.BuildResult.Manifests] put them
 	// in (#814).
 	manifestsByScope := make(map[string][]*tree.FileEntry)
 	for _, m := range result.Manifests {
-		manifestsByScope[m.TargetName] = append(manifestsByScope[m.TargetName], m)
+		manifestsByScope[m.ScopeName] = append(manifestsByScope[m.ScopeName], m)
 	}
 
 	scopeTargetRoots := make(map[string]string)
 	for _, src := range cfg.LayerSources {
-		scopeTargetRoots[src.TargetName] = src.TargetRoot
+		scopeTargetRoots[src.ScopeName] = src.TargetRoot
 	}
 
 	scopes := make([]string, 0, len(filesByScope))
@@ -582,7 +582,7 @@ func scopeLayers(sources []tree.LayerSource, scope string) []string {
 	seen := make(map[string]bool)
 	var layers []string
 	for _, src := range sources {
-		if src.TargetName == scope && !seen[src.Layer] {
+		if src.ScopeName == scope && !seen[src.Layer] {
 			seen[src.Layer] = true
 			layers = append(layers, src.Layer)
 		}

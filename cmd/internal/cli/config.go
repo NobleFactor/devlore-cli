@@ -46,6 +46,13 @@ type ConfigInfo struct {
 //	tool config validate                        # Validate against schema
 //	tool config schema                          # Output JSON schema
 //	tool config path                            # Show config file location
+//
+// Parameters:
+//   - `info`: the tool's name, embedded schema and default config, passed to every subcommand.
+//
+// Returns:
+//   - `*cobra.Command`: the `config` command with its get, set, unset, list, edit, validate, schema and path
+//     subcommands attached.
 func NewConfigCmd(info ConfigInfo) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "config <command>",
@@ -76,6 +83,13 @@ Dot-paths match the file structure exactly:
 
 // configKeyCompletion returns a ValidArgsFunction for config key completion.
 // Completions include full dot-paths matching the file structure.
+//
+// Parameters:
+//   - `info`: the tool's config metadata; its embedded schema supplies the keys offered.
+//
+// Returns:
+//   - `func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective)`: a completion function that
+//     returns the schema keys beginning with the word being completed, and suppresses file completion.
 func configKeyCompletion(info ConfigInfo) func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
 	return func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
 		keys := getSchemaKeys(info.Schema, toComplete)
@@ -83,6 +97,13 @@ func configKeyCompletion(info ConfigInfo) func(*cobra.Command, []string, string)
 	}
 }
 
+// newConfigGetCmd creates `config get`, which emits the values of one or more dot-path keys.
+//
+// Parameters:
+//   - `info`: the tool's config metadata; its name fills the help examples and its schema drives key completion.
+//
+// Returns:
+//   - `*cobra.Command`: the `get` subcommand; it refuses with ExitDataErr when a named key is not in the config file.
 func newConfigGetCmd(info ConfigInfo) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "get <key>...",
@@ -119,6 +140,15 @@ Examples:
 	return cmd
 }
 
+// newConfigSetCmd creates `config set`, which sets one or more key=value pairs and saves the config file.
+//
+// Parameters:
+//   - `info`: the tool's config metadata; its name fills the help examples and its schema types each value and
+//     drives key completion.
+//
+// Returns:
+//   - `*cobra.Command`: the `set` subcommand; it refuses with ExitUsage when an argument has no `=`, and with
+//     ExitDataErr when a key is not in the schema or a value does not parse to the key's type.
 func newConfigSetCmd(info ConfigInfo) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "set <key>=<value>...",
@@ -155,7 +185,7 @@ Examples:
 			if err != nil {
 				return err
 			}
-			//nolint:errcheck // diagnose-ignored-error: the write's own error is what the command reports; a close failure after it has nothing left to protect
+			//nolint:errcheck // diagnose-ignored-error: the write's own error is reported; a later close has nothing to protect
 			defer configRoot.Close()
 
 			return saveConfig(configRoot, configRoot.NewPath(cfgPath), config)
@@ -167,6 +197,14 @@ Examples:
 	return cmd
 }
 
+// newConfigUnsetCmd creates `config unset`, which removes one or more dot-path keys and saves the config file.
+//
+// Parameters:
+//   - `info`: the tool's config metadata; its name fills the help examples and its schema drives key completion.
+//
+// Returns:
+//   - `*cobra.Command`: the `unset` subcommand; it refuses with ExitDataErr when a named key is not in the config
+//     file.
 func newConfigUnsetCmd(info ConfigInfo) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "unset <key>...",
@@ -194,7 +232,7 @@ Examples:
 			if err != nil {
 				return err
 			}
-			//nolint:errcheck // diagnose-ignored-error: the write's own error is what the command reports; a close failure after it has nothing left to protect
+			//nolint:errcheck // diagnose-ignored-error: the write's own error is reported; a later close has nothing to protect
 			defer configRoot.Close()
 
 			return saveConfig(configRoot, configRoot.NewPath(cfgPath), config)
@@ -206,6 +244,13 @@ Examples:
 	return cmd
 }
 
+// newConfigListCmd creates `config list`, which emits every setting in the config file by its dotted key.
+//
+// Parameters:
+//   - `_`: the tool's config metadata, unused: the listing covers the whole shared file.
+//
+// Returns:
+//   - `*cobra.Command`: the `list` subcommand; it notes when no configuration is set and emits an empty map.
 func newConfigListCmd(_ ConfigInfo) *cobra.Command {
 	return &cobra.Command{
 		Use:   "list",
@@ -230,6 +275,14 @@ func newConfigListCmd(_ ConfigInfo) *cobra.Command {
 	}
 }
 
+// newConfigEditCmd creates `config edit`, which opens the shared config file in the user's editor.
+//
+// Parameters:
+//   - `info`: the tool's config metadata; its default config seeds the file when it does not exist.
+//
+// Returns:
+//   - `*cobra.Command`: the `edit` subcommand; it opens the config tree, creating it if absent, and closes it after
+//     the editor exits.
 func newConfigEditCmd(info ConfigInfo) *cobra.Command {
 	return &cobra.Command{
 		Use:   "edit",
@@ -249,6 +302,14 @@ func newConfigEditCmd(info ConfigInfo) *cobra.Command {
 	}
 }
 
+// newConfigValidateCmd creates `config validate`, which checks the shared config file's top-level keys against
+// the schema.
+//
+// Parameters:
+//   - `info`: the tool's config metadata; its embedded schema is what the file is checked against.
+//
+// Returns:
+//   - `*cobra.Command`: the `validate` subcommand, which emits a configReport.
 func newConfigValidateCmd(info ConfigInfo) *cobra.Command {
 	return &cobra.Command{
 		Use:   "validate",
@@ -261,6 +322,13 @@ func newConfigValidateCmd(info ConfigInfo) *cobra.Command {
 	}
 }
 
+// newConfigSchemaCmd creates `config schema`, which emits the tool's embedded JSON schema.
+//
+// Parameters:
+//   - `info`: the tool's config metadata; its embedded schema is what the command emits.
+//
+// Returns:
+//   - `*cobra.Command`: the `schema` subcommand.
 func newConfigSchemaCmd(info ConfigInfo) *cobra.Command {
 	return &cobra.Command{
 		Use:   "schema",
@@ -272,6 +340,13 @@ func newConfigSchemaCmd(info ConfigInfo) *cobra.Command {
 	}
 }
 
+// newConfigPathCmd creates `config path`, which emits the shared config file's location.
+//
+// Parameters:
+//   - `_`: the tool's config metadata, unused: every tool shares one config file.
+//
+// Returns:
+//   - `*cobra.Command`: the `path` subcommand.
 func newConfigPathCmd(_ ConfigInfo) *cobra.Command {
 	return &cobra.Command{
 		Use:   "path",
@@ -367,6 +442,16 @@ type configReport struct {
 }
 
 // configValidate validates the config against the schema. The report is the result; the verdict narrates.
+//
+// Only top-level keys are checked: a key absent from the schema's properties is a warning, not a failure.
+//
+// Parameters:
+//   - `cmd`: the running command, through which the report is emitted.
+//   - `path`: filesystem path to the config file; an absent file reports as not present and valid.
+//   - `schemaBytes`: the embedded JSON schema whose top-level properties name the known keys.
+//
+// Returns:
+//   - `error`: the config file's read or parse error, a schema parse error, or the emit's error.
 func configValidate(cmd *cobra.Command, path string, schemaBytes []byte) error {
 	config, err := loadConfig(path)
 	if err != nil {
@@ -413,6 +498,13 @@ func configValidate(cmd *cobra.Command, path string, schemaBytes []byte) error {
 }
 
 // configSchema emits the embedded JSON schema as the result; `-o yaml` reads it as YAML.
+//
+// Parameters:
+//   - `cmd`: the running command, through which the schema is emitted.
+//   - `schemaBytes`: the embedded JSON schema.
+//
+// Returns:
+//   - `error`: a parse error when the schema is not valid JSON; the emit's error otherwise.
 func configSchema(cmd *cobra.Command, schemaBytes []byte) error {
 	var schema interface{}
 	if err := json.Unmarshal(schemaBytes, &schema); err != nil {
@@ -423,6 +515,13 @@ func configSchema(cmd *cobra.Command, schemaBytes []byte) error {
 }
 
 // configPath emits the config file location as the result; whether the file exists is narration.
+//
+// Parameters:
+//   - `cmd`: the running command, through which the path is emitted.
+//   - `path`: filesystem path to the shared config file.
+//
+// Returns:
+//   - `error`: the emit's error.
 func configPath(cmd *cobra.Command, path string) error {
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		Note("%s does not exist yet", path)
@@ -431,6 +530,14 @@ func configPath(cmd *cobra.Command, path string) error {
 }
 
 // getNestedValue retrieves a value from a nested map using dot notation.
+//
+// Parameters:
+//   - `m`: the config map to read.
+//   - `key`: the dot-path key; each segment names a map entry one level deeper.
+//
+// Returns:
+//   - `interface{}`: the value at the key, which may itself be a nested map; nil when not found.
+//   - `bool`: false when a segment is missing or an intermediate value is not a map.
 func getNestedValue(m map[string]interface{}, key string) (interface{}, bool) {
 	parts := strings.Split(key, ".")
 	current := interface{}(m)
@@ -450,6 +557,13 @@ func getNestedValue(m map[string]interface{}, key string) (interface{}, bool) {
 }
 
 // setNestedValue sets a value in a nested map using dot notation.
+//
+// Intermediate maps are created as needed; an intermediate value that is not a map is replaced by one.
+//
+// Parameters:
+//   - `m`: the config map to modify in place.
+//   - `key`: the dot-path key; each segment names a map entry one level deeper.
+//   - `value`: the value stored at the key's last segment.
 func setNestedValue(m map[string]interface{}, key string, value interface{}) {
 	parts := strings.Split(key, ".")
 
@@ -474,6 +588,14 @@ func setNestedValue(m map[string]interface{}, key string, value interface{}) {
 }
 
 // deleteNestedValue removes a value from a nested map using dot notation.
+//
+// Parameters:
+//   - `m`: the config map to modify in place.
+//   - `key`: the dot-path key; each segment names a map entry one level deeper.
+//
+// Returns:
+//   - `bool`: true when the key existed and was removed; false when a segment is missing or an intermediate value
+//     is not a map.
 func deleteNestedValue(m map[string]interface{}, key string) bool {
 	parts := strings.Split(key, ".")
 
@@ -504,6 +626,11 @@ func deleteNestedValue(m map[string]interface{}, key string) bool {
 }
 
 // flatten folds a nested config into dotted keys and their values, for `config list`'s result.
+//
+// Parameters:
+//   - `prefix`: the dotted key of `m` within the whole config; empty at the top level.
+//   - `m`: the map to fold; nested maps are descended, every other value is a leaf.
+//   - `into`: the map that receives each leaf under its full dotted key.
 func flatten(prefix string, m map[string]interface{}, into map[string]any) {
 	for k, v := range m {
 		key := k
@@ -520,6 +647,12 @@ func flatten(prefix string, m map[string]interface{}, into map[string]any) {
 }
 
 // formatValue formats a value for display.
+//
+// Parameters:
+//   - `v`: the config value to format.
+//
+// Returns:
+//   - `string`: a string value unchanged, the empty string for nil, and the `%v` rendering of anything else.
 func formatValue(v interface{}) string {
 	switch val := v.(type) {
 	case string:
@@ -533,6 +666,14 @@ func formatValue(v interface{}) string {
 
 // getSchemaKeys extracts all valid config keys from a JSON schema.
 // Returns keys in dot notation (e.g., "vars.USER_NAME").
+//
+// Parameters:
+//   - `schemaBytes`: the embedded JSON schema whose properties, at every depth, are the keys.
+//   - `prefix`: the text every returned key must begin with; empty returns all keys.
+//
+// Returns:
+//   - `[]string`: the matching dot-path keys, in no particular order; nil when the schema does not parse or has
+//     no top-level properties.
 func getSchemaKeys(schemaBytes []byte, prefix string) []string {
 	var schema map[string]interface{}
 	if err := json.Unmarshal(schemaBytes, &schema); err != nil {
@@ -562,6 +703,11 @@ func getSchemaKeys(schemaBytes []byte, prefix string) []string {
 }
 
 // extractKeys recursively extracts keys from a JSON schema properties object.
+//
+// Parameters:
+//   - `prefix`: the dotted key of the object that owns `properties`; empty at the top level.
+//   - `properties`: the schema's properties object; a property with its own properties is descended.
+//   - `keys`: the slice that receives every key, intermediate objects included.
 func extractKeys(prefix string, properties map[string]interface{}, keys *[]string) {
 	for name, prop := range properties {
 		key := name
@@ -584,6 +730,16 @@ func extractKeys(prefix string, properties map[string]interface{}, keys *[]strin
 // the JSON schema type for the given key. Returns an error if the key is
 // unknown (not declared in schema and parent has no additionalProperties)
 // or if the value can't be parsed to the declared type.
+//
+// Parameters:
+//   - `schemaBytes`: the embedded JSON schema that declares each key's type.
+//   - `key`: the dot-path key being set.
+//   - `value`: the text from the command line.
+//
+// Returns:
+//   - `interface{}`: a bool for boolean keys (true/1/yes/on, false/0/no/off), an int64 for integer keys, a float64
+//     for number keys, and the text unchanged for every other type.
+//   - `error`: an ExitDataErr when the key is not in the schema or the value does not parse to its type.
 func coerceValue(schemaBytes []byte, key, value string) (interface{}, error) {
 	schemaType, found := schemaTypeForKey(schemaBytes, key)
 	if !found {
@@ -620,7 +776,16 @@ func coerceValue(schemaBytes []byte, key, value string) (interface{}, error) {
 // schemaTypeForKey walks the JSON schema to find the type declaration for
 // a dot-path key. Returns the type string and true if found, or "" and false
 // if the key is not declared in the schema. Respects additionalProperties
-// for keys under objects like writ.vars or writ.targets.
+// for keys under objects like writ.vars or writ.scopes.
+//
+// Parameters:
+//   - `schemaBytes`: the embedded JSON schema to walk.
+//   - `key`: the dot-path key; each segment descends into a declared property or, failing that, into
+//     additionalProperties.
+//
+// Returns:
+//   - `string`: the declared type, or "string" when the key's schema node declares none.
+//   - `bool`: false when the schema does not parse or the key is not declared.
 func schemaTypeForKey(schemaBytes []byte, key string) (string, bool) {
 	var schema map[string]interface{}
 	if err := json.Unmarshal(schemaBytes, &schema); err != nil {

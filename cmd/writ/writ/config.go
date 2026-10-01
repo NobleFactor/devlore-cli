@@ -24,17 +24,18 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/selector"
 )
 
-// parseDeployConfig resolves all settings for a deploy operation.
-// Settings are resolved from (in priority order):
-// 1. Command-line flags
-// 2. Environment variables (WRIT_*)
-// 3. Config file (~/.config/devlore/config.yaml)
-// 4. Defaults
 // withCommonProject returns the selection with the reserved `common` project included — common holds
 // configuration that applies everywhere and is always matched (the platform-awareness guide's spec;
 // Ansible's `all` group is the pattern, renamed to kill the every-project misreading). An empty
 // selection is the implicit set, `common` alone (#843; #850 widens it to one project per configured
 // layer repository). Decommission never receives the injection — destruction stays explicit.
+//
+// Parameters:
+//   - `projects`: the projects selected, possibly none.
+//
+// Returns:
+//   - `[]string`: `common` alone when `projects` is empty; `projects` unchanged when it already names `common`;
+//     otherwise `common` followed by `projects`.
 func withCommonProject(projects []string) []string {
 
 	if len(projects) == 0 {
@@ -46,6 +47,25 @@ func withCommonProject(projects []string) []string {
 	return append([]string{"common"}, projects...)
 }
 
+// parseDeployConfig resolves all settings for a deploy operation.
+//
+// Settings are resolved from (in priority order):
+// 1. Command-line flags
+// 2. Environment variables (WRIT_*)
+// 3. Config file (~/.config/devlore/config.yaml)
+// 4. Defaults
+//
+// Parameters:
+//   - `cmd`: the deploy command, whose context drives the selection and whose `--allow-dirty`, `--conflict` and
+//     `--segment` flags are read.
+//   - `args`: the projects the command line named, possibly none.
+//
+// Returns:
+//   - `*DeployConfig`: the selection, behavior flags, conflict policy, layer sources (or the single-repo source
+//     root when no layer is configured), the Home target root, segments, template variables, and the identities
+//     and signing key when identities load.
+//   - `error`: the selection's or the segments' refusal, an invalid `--conflict` value, a failure to collect layer
+//     sources, or a refusal when no layer is configured and `writ.repo` is unset.
 func parseDeployConfig(cmd *cobra.Command, args []string) (*DeployConfig, error) {
 	cfg := &DeployConfig{}
 	cfg.Tool = "writ"
@@ -88,7 +108,7 @@ func parseDeployConfig(cmd *cobra.Command, args []string) (*DeployConfig, error)
 	}
 
 	// Target root
-	cfg.TargetRoot = TargetHome()
+	cfg.TargetRoot = ScopeHome()
 
 	// Segments
 	if cfg.Segments, err = resolveSegments(cmd); err != nil {
@@ -116,6 +136,16 @@ func parseDeployConfig(cmd *cobra.Command, args []string) (*DeployConfig, error)
 // parseUpgradeConfig resolves all settings for an upgrade operation.
 //
 // Upgrade selects the way deploy does (#850): the implicit set, what the record holds, and what was named.
+//
+// Parameters:
+//   - `cmd`: the upgrade command, whose context drives the selection and whose `--force` and `--segment` flags
+//     are read.
+//   - `args`: the projects the command line named, possibly none.
+//
+// Returns:
+//   - `*UpgradeConfig`: the selected projects, behavior flags, the `writ.repo` source root when set, the Home
+//     target root, segments, template variables, and the identities and signing key when identities load.
+//   - `error`: the selection's or the segments' refusal.
 func parseUpgradeConfig(cmd *cobra.Command, args []string) (*UpgradeConfig, error) {
 	cfg := &UpgradeConfig{}
 	cfg.Tool = "writ"
@@ -138,7 +168,7 @@ func parseUpgradeConfig(cmd *cobra.Command, args []string) (*UpgradeConfig, erro
 	}
 
 	// Target root
-	cfg.TargetRoot = TargetHome()
+	cfg.TargetRoot = ScopeHome()
 
 	// Segments
 	if cfg.Segments, err = resolveSegments(cmd); err != nil {
@@ -168,6 +198,14 @@ func parseUpgradeConfig(cmd *cobra.Command, args []string) (*UpgradeConfig, erro
 // Reconcile reads the deployed inventory from the store, not the layer trees, so it selects no directory; it resolves
 // the segments the way every other command does, so `--segment` and `WRIT_SEGMENT_<NAME>` mean one thing everywhere
 // and a bad value is refused here as there (#944).
+//
+// Parameters:
+//   - `cmd`: the reconcile command, whose `--segment` flags are read.
+//   - `args`: the projects the command line named, taken as given.
+//
+// Returns:
+//   - `*ReconcileConfig`: the projects, the verbose flag, segments, and template variables.
+//   - `error`: the segments' refusal.
 func parseReconcileConfig(cmd *cobra.Command, args []string) (*ReconcileConfig, error) {
 	cfg := &ReconcileConfig{}
 	cfg.Tool = "writ"
@@ -191,6 +229,14 @@ func parseReconcileConfig(cmd *cobra.Command, args []string) (*ReconcileConfig, 
 }
 
 // parseDecommissionConfig resolves all settings for a decommission operation.
+//
+// Parameters:
+//   - `cmd`: the decommission command, whose `--prune` flag is read; reading it panics when it is not registered.
+//   - `args`: the projects the command line named, taken as given and never widened with `common`.
+//
+// Returns:
+//   - `*DecommissionConfig`: the projects, behavior flags, the prune flag, the Home target root, and empty
+//     template data.
 func parseDecommissionConfig(cmd *cobra.Command, args []string) *DecommissionConfig {
 	cfg := &DecommissionConfig{}
 	cfg.Tool = "writ"
@@ -202,7 +248,7 @@ func parseDecommissionConfig(cmd *cobra.Command, args []string) *DecommissionCon
 	cfg.Prune = assert.Must(cmd.Flags().GetBool("prune"))
 
 	// Target root
-	cfg.TargetRoot = TargetHome()
+	cfg.TargetRoot = ScopeHome()
 
 	// Initialize template data (prune settings added in runDecommission if --prune)
 	cfg.TemplateData = make(map[string]any)
@@ -211,6 +257,18 @@ func parseDecommissionConfig(cmd *cobra.Command, args []string) *DecommissionCon
 }
 
 // parseAdoptConfig resolves all settings for an adopt operation.
+//
+// Parameters:
+//   - `cmd`: the adopt command, whose `--layer`, `--project`, `--platform`, `--from-receipt` and `--segment` flags
+//     are read.
+//   - `args`: the files to adopt.
+//
+// Returns:
+//   - `*AdoptConfig`: the files, behavior and adopt flags, and — unless `--from-receipt` is set, which skips
+//     validation — the layer path resolved through its symlink and the Home target root.
+//   - `error`: a refusal of a missing `--project`, no files, a layer other than personal, team or base, the
+//     segments' refusal, an [cli.ExitUsage]-coded invalid platform, or a layer that does not exist or does not
+//     resolve.
 func parseAdoptConfig(cmd *cobra.Command, args []string) (*AdoptConfig, error) {
 	cfg := &AdoptConfig{}
 	cfg.Tool = "writ"
@@ -266,7 +324,7 @@ func parseAdoptConfig(cmd *cobra.Command, args []string) (*AdoptConfig, error) {
 	cfg.LayerPath = resolved
 
 	// Target root (HOME)
-	cfg.TargetRoot = TargetHome()
+	cfg.TargetRoot = ScopeHome()
 
 	return cfg, nil
 }
@@ -306,6 +364,13 @@ func resolveSegments(cmd *cobra.Command) (segment.Segments, error) {
 }
 
 // parseConflictPolicy parses the --conflict flag value ({stop, skip, replace} — phase-8 step 49).
+//
+// Parameters:
+//   - `flag`: the `--conflict` value as given.
+//
+// Returns:
+//   - `op.ConflictPolicy`: the policy named; [op.ConflictStop] when the value is invalid.
+//   - `error`: a refusal naming the invalid value and the three accepted ones.
 func parseConflictPolicy(flag string) (op.ConflictPolicy, error) {
 	policy, err := op.ParseConflictPolicy(flag)
 	if err != nil {
@@ -315,6 +380,12 @@ func parseConflictPolicy(flag string) (op.ConflictPolicy, error) {
 }
 
 // findSigningKey extracts the first X25519 identity for signing.
+//
+// Parameters:
+//   - `identities`: the loaded age identities, searched in order.
+//
+// Returns:
+//   - `*age.X25519Identity`: the first X25519 identity; nil when there is none.
 func findSigningKey(identities []age.Identity) *age.X25519Identity {
 	for _, id := range identities {
 		if x, ok := id.(*age.X25519Identity); ok {
