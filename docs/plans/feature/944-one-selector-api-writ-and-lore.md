@@ -1,7 +1,7 @@
 ---
 title: "One selector API: writ and lore detect the host and match platform selectors through the same code, along os-release's lineage"
 issue: https://github.com/NobleFactor/devlore-cli/issues/944
-status: active
+status: complete
 created: 2026-09-30
 updated: 2026-09-30
 ---
@@ -271,13 +271,16 @@ Its home is `pkg/selector` (**Q1**).
 ### Phase 7: Merge
 
 - [x] PR script written, shown, and handed over. The PR resolves #944, #369 and #970
-- [ ] After the merge, DANOBLE-UD24-1 converges on the official pre-release: `Home/common.Debian`'s four files deploy on
-      this Ubuntu host, and no other link changes
-- [ ] The follow-up issues filed: the registry's text (**Q16**), a non-Ubuntu CI leg (**Q18**) and #369's `all` →
-      `common` sweep (**Q25**); comments left on #849 and #765
-- [ ] The bare form's follow-up issues filed (**Q27**), one in noblefactor-ops and one in personal: their open boxes
+- [x] After the merge, DANOBLE-UD24-1 converges on the official pre-release: `Home/common.Debian`'s four files deploy on
+      this Ubuntu host, and no other link changes (`v0.1.0-dev.20260930183621`, built from #992's `e440151a`,
+      2026-09-30: `writ deploy` added the four `Upgrade-Debian` links and changed none of the other 233)
+- [x] The follow-up issues filed: the registry's text (**Q16**), a non-Ubuntu CI leg (**Q18**) and #369's `all` →
+      `common` sweep (**Q25**); comments left on #849 and #765 (2026-09-30: NobleFactor/devlore-registry#93, #995,
+      #996, and the comments on #849 and #765)
+- [x] The bare form's follow-up issues filed (**Q27**), one in noblefactor-ops and one in personal: their open boxes
       that say `writ deploy common` say `writ deploy`, and noblefactor-ops's README drops "the binary still spells these
-      two lines `writ repo add` and `writ deploy common`"
+      two lines `writ repo add` and `writ deploy common`" (2026-09-30: NobleFactor/noblefactor-ops#252 and
+      David-Noble-at-work/personal#252)
 
 ## Out of Scope
 

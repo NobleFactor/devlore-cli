@@ -74,13 +74,16 @@ func (r *Runner) Capture(cmd *exec.Cmd) ([]byte, error) {
 	}
 
 	var stdout bytes.Buffer
+	stderrLines := newLineWriter(r.status.Warn)
 
 	cmd.Stdout = &stdout
-	cmd.Stderr = newLineWriter(r.status.Warn)
+	cmd.Stderr = stderrLines
 
 	r.bindCancel(cmd)
 
-	if err := cmd.Run(); err != nil {
+	err := cmd.Run()
+	stderrLines.Flush()
+	if err != nil {
 		return nil, wrapExitError(cmd, err)
 	}
 
@@ -124,23 +127,23 @@ func (r *Runner) Emit(cmd *exec.Cmd, parse func([]byte) (any, error)) error {
 //   - error: a wrapped exit-error carrying the command path and exit code on non-zero exit; full stderr remains
 //     available to the caller via the streamed status messages.
 func (r *Runner) Run(cmd *exec.Cmd) error {
+	return r.relay(cmd, r.status.Warn)
+}
 
-	r.narrate(cmd)
-	if r.dryRun {
-		return nil
-	}
-
-	stdoutLines := newLineWriter(r.status.Note)
-	cmd.Stdout = stdoutLines
-	cmd.Stderr = newLineWriter(r.status.Warn)
-	r.bindCancel(cmd)
-
-	err := cmd.Run()
-	stdoutLines.Flush()
-	if err != nil {
-		return wrapExitError(cmd, err)
-	}
-	return nil
+// RunNarrating executes cmd, streaming both its stdout and its stderr through ctx.Status.Note line-by-line.
+//
+// For a child that narrates on stderr, as every program on the shared root does (10-command-line-interface.md §5):
+// relayed by [Runner.Run], its story reads as a run of warnings, and relayed here it reads as what it is. Whether the
+// child failed is its exit status's to say, not its stderr's. In dry-run, narrates the command and returns nil
+// without launching it.
+//
+// Parameters:
+//   - cmd: the prepared exec.Cmd; its Stdout, Stderr, and Cancel fields are overwritten by the runner.
+//
+// Returns:
+//   - error: a wrapped exit-error carrying the command path and exit code on non-zero exit.
+func (r *Runner) RunNarrating(cmd *exec.Cmd) error {
+	return r.relay(cmd, r.status.Note)
 }
 
 // endregion
@@ -150,6 +153,43 @@ func (r *Runner) Run(cmd *exec.Cmd) error {
 // region UNEXPORTED METHODS
 
 // region Behaviors
+
+// Fallible actions
+
+// relay executes cmd, streaming stdout through ctx.Status.Note and stderr through `stderr`, line by line.
+//
+// [os/exec] copies the two streams in two goroutines, so the lines are handed to the narrator one at a time, whichever
+// stream each came from: a narrator is not required to be safe for concurrent use, and one over a buffer is not. Both
+// streams are flushed when the child exits, so a last line without its newline still reaches the narrator.
+//
+// Parameters:
+//   - cmd: the prepared exec.Cmd; its Stdout, Stderr, and Cancel fields are overwritten by the runner.
+//   - stderr: the narration each line of the child's stderr is relayed through.
+//
+// Returns:
+//   - error: a wrapped exit-error carrying the command path and exit code on non-zero exit.
+func (r *Runner) relay(cmd *exec.Cmd, stderr func(string)) error {
+
+	r.narrate(cmd)
+	if r.dryRun {
+		return nil
+	}
+
+	var narrating sync.Mutex
+	stdoutLines := newLineWriter(oneAtATime(&narrating, r.status.Note))
+	stderrLines := newLineWriter(oneAtATime(&narrating, stderr))
+	cmd.Stdout = stdoutLines
+	cmd.Stderr = stderrLines
+	r.bindCancel(cmd)
+
+	err := cmd.Run()
+	stdoutLines.Flush()
+	stderrLines.Flush()
+	if err != nil {
+		return wrapExitError(cmd, err)
+	}
+	return nil
+}
 
 // Actions
 

@@ -46,30 +46,50 @@ jobs:
           # - Prereleases: not served by /releases/latest. The installers' "latest" reads /releases?per_page=1, which
           #   includes them, so a prerelease installs without an explicit DEVLORE_VERSION
           # - Drafts: require push (write) access, not suitable for distribution
+          #
+          # The binaries carry their channel (#947), decided here with GitHub's prerelease flag so the two cannot
+          # disagree: a develop build follows develop, every one a pre-release; a build from main or release/* follows
+          # release and takes its pre-releases; a v* tag is a release and takes none. PRERELEASE is both the flag and
+          # the stamp, so a binary takes pre-releases exactly when it is one.
           if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
             VERSION="${{ github.ref_name }}"
             PRERELEASE="false"
+            CHANNEL="release"
           elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
             VERSION="v0.1.0-rc.$(date +%Y%m%d%H%M%S)"
             PRERELEASE="true"
+            CHANNEL="release"
           elif [[ "${{ github.ref }}" == refs/heads/release/* ]]; then
             BRANCH_NAME="${{ github.ref_name }}"
             VERSION="v${BRANCH_NAME#release/}-rc.$(date +%Y%m%d%H%M%S)"
             PRERELEASE="true"
+            CHANNEL="release"
           else
-            # develop and other branches
+            # develop, the one other ref this workflow runs on
             VERSION="v0.1.0-dev.$(date +%Y%m%d%H%M%S)"
             PRERELEASE="true"
+            CHANNEL="develop"
           fi
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "prerelease=$PRERELEASE" >> $GITHUB_OUTPUT
-          echo "Building version: $VERSION (prerelease: $PRERELEASE)"
+          {
+            echo "version=$VERSION"
+            echo "prerelease=$PRERELEASE"
+            echo "channel=$CHANNEL"
+          } >> "$GITHUB_OUTPUT"
+          echo "Building version: $VERSION (channel: $CHANNEL, prerelease: $PRERELEASE)"
 
       - name: Build distribution
-        run: make dist DEVLORE_VERSION=${{ steps.version.outputs.version }}
+        # The build proves the channel bound, as it proves the version: it runs the host's writ and compares.
+        run: >-
+          make dist DEVLORE_VERSION=${{ steps.version.outputs.version }}
+          CHANNEL=${{ steps.version.outputs.channel }}
+          PRERELEASE=${{ steps.version.outputs.prerelease }}
 
       - name: Create GitHub Release
         # Per https://cli.github.com/manual/gh_release_create
+        #
+        # --target tags the commit this build came from. Without it GitHub creates the tag at the head of the default
+        # branch, develop, so a build from main or release/* would be tagged on develop's head (#947). A v* tag
+        # already exists, and gh leaves it where it is.
         run: |
           RELEASE_ARGS=""
           if [[ "${{ steps.version.outputs.prerelease }}" == "true" ]]; then
@@ -77,6 +97,7 @@ jobs:
           fi
 
           gh release create "${{ steps.version.outputs.version }}" \
+            --target "${{ github.sha }}" \
             --title "${{ steps.version.outputs.version }}" \
             --notes "Release ${{ steps.version.outputs.version }}
 

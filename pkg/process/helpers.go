@@ -7,7 +7,25 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"sync"
 )
+
+// oneAtATime returns `emit` guarded by `mu`, so that callers sharing `mu` hand it their lines one at a time.
+//
+// Parameters:
+//   - mu: the mutex every caller of the same narration shares.
+//   - emit: the narration to guard.
+//
+// Returns:
+//   - func(string): `emit`, taking `mu` for each line.
+func oneAtATime(mu *sync.Mutex, emit func(string)) func(string) {
+
+	return func(line string) {
+		mu.Lock()
+		defer mu.Unlock()
+		emit(line)
+	}
+}
 
 // wrapExitError formats a non-zero subprocess exit into a clean graph-control signal carrying only the command path
 // and exit code.

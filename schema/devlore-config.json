@@ -109,6 +109,25 @@
         }
       }
     },
+    "self": {
+      "type": "object",
+      "description": "Shared settings of every program's self commands (lore, star and writ). Unset, self upgrade falls back to the channel stamped into the running build",
+      "properties": {
+        "channel": {
+          "type": "string",
+          "enum": [
+            "develop",
+            "release"
+          ],
+          "description": "The channel self upgrade follows when neither --from, --channel nor a DEVLORE_VERSION pin decides: develop, every develop build; release, GitHub's latest release. Outranks the build's stamped channel"
+        },
+        "prerelease": {
+          "type": "boolean",
+          "description": "Whether self upgrade on self.channel takes the release channel's pre-releases too; read only with self.channel, and --prerelease outranks it",
+          "default": false
+        }
+      }
+    },
     "lore": {
       "type": "object",
       "description": "Lore-specific configuration (verbosity and dry_run are shared at root level)",

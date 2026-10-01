@@ -151,7 +151,7 @@ func TestResolveInstalledPrefix(t *testing.T) {
 
 	// resolveInstalledPrefix uses os.Executable() which we can't mock easily,
 	// so just test the edge case detection.
-	_, err := resolveInstalledPrefix("test-tool")
+	_, err := resolveInstalledPrefix()
 	// This will either succeed (if test binary is in a bin/ dir) or fail with
 	// "not in a <prefix>/bin/ directory". Either way, it shouldn't panic.
 	_ = err

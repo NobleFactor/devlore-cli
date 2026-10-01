@@ -114,6 +114,26 @@ and from git, are frozen once per
 run, and are exported so that sub-makes stamp identically. Override them only to reproduce a specific
 build.
 .TP
+.B CHANNEL\fR, \fBPRERELEASE
+The channel stamped into every binary, the one its
+.B self upgrade
+follows:
+.B develop
+or
+.BR release ,
+and whether the build takes that channel's pre-releases:
+.B true
+or
+.BR false .
+Both are empty unless given, because a local build has no channel; the release workflow gives both from
+the ref it builds, for example
+.BR "make dist CHANNEL=develop PRERELEASE=true" .
+Any other value is refused before anything is built. When
+.B CHANNEL
+is given,
+.B build
+proves the channel bound, as it proves the version.
+.TP
 .B STAR_LKG
 Path to the last-known-good
 .B star
@@ -155,8 +175,10 @@ Display this manual.
 .B build
 Build every product for
 .BR PLATFORM ,
-plus the host tools. Runs code generation first. Verifies that the version stamp bound to real symbols
-by executing the host's own
+plus the host tools. Runs code generation first. Verifies that the version stamp bound to real symbols,
+and the channel's when
+.B CHANNEL
+is given, by executing the host's own
 .B writ
 \(em a check that announces itself as skipped when
 .B PLATFORM

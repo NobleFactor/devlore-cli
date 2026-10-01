@@ -1,7 +1,7 @@
 ---
 title: "self upgrade fetches the newest build on its channel, verifies it, and upgrades every devlore program in the prefix"
 issue: https://github.com/NobleFactor/devlore-cli/issues/947
-status: approved
+status: active
 created: 2026-09-30
 updated: 2026-09-30
 ---
@@ -134,9 +134,11 @@ What a run upgrades to is decided, first to last:
 4. **`self.channel`**, in the configuration shared by every program (**D3**).
 5. **The stamped channel.**
 
-The pre-release switch comes with the channel, never assembled from two places: `--prerelease` given means true;
-otherwise it is false with `--channel`, `self.prerelease` (false if unset) with `self.channel`, and the stamped
-`Prerelease` with the stamped channel. It means something only on `release`: every `develop` build is a pre-release.
+The pre-release switch comes with the channel, never assembled from two places: `--prerelease` given means its value
+(`--prerelease=false` is false, because a flag always wins); otherwise it is false with `--channel`, `self.prerelease`
+(false if unset) with `self.channel`, and the stamped `Prerelease` with the stamped channel. It means something only
+on `release`: every `develop` build is a pre-release. A pin names one release, so `--prerelease` beside it has no
+effect, and a note says so.
 
 The channel persists through the installed builds' stamp: one `writ self upgrade --channel release` moves the suite to
 `release`, and every later plain `self upgrade` stays there. `--prerelease` persists that way only while what it
@@ -182,9 +184,11 @@ pin, the command refuses and names `--channel` and `self.channel`.
 
 ### Requirement 7: Every devlore program in the prefix is upgraded, together
 
-- **The suite** is every program the archive carries (`lore`, `star`, `writ`, `Makefile:232`) that the prefix holds:
-  its binary in `bin/`, or its manifest at `share/<program>/manifest.json`. A program the prefix doesn't hold is not
-  added; one an interrupted run left without its binary is put back.
+- **The suite** is every program the archive carries (`lore`, `star`, `writ`, `Makefile:232`) that the prefix owns,
+  by its manifest at `share/<program>/manifest.json`, and the program running the upgrade. The manifest is the record
+  of what a program owns (#933), so a binary of the same name with no manifest is someone else's (`star` is also a
+  tar archiver) and is left alone. A program the prefix doesn't own is not added; one an interrupted run left with a
+  manifest and no binary is put back. (Corrected 2026-09-30 in review: this first counted any binary in `bin/`.)
 - **For each program, the upgrade places the binary itself, then delegates.** It puts `pkg/bin/<program>` into
   `<prefix>/bin/` by Requirement 9's replacement, then runs `pkg/bin/<program> self install <prefix>`, with
   `--shell` passed through, from `pkg/`. The child then finds a target that isn't running, whatever build it is, so a
@@ -282,35 +286,35 @@ channel with no release names the channel; a failed child names its program.
 
 ### Phase 2: The channel (Requirements 1, 2)
 
-- [ ] `Channel` and `Prerelease` stamped by the Makefile and `release.yaml`, carried by `verify-ldflags` and
+- [x] `Channel` and `Prerelease` stamped by the Makefile and `release.yaml`, carried by `verify-ldflags` and
       `.goreleaser.yaml`, proven by the stamp check, reported by `version` and `--version`; `--target` on
       `gh release create`
-- [ ] `self.channel` and `self.prerelease` in the schema; `--channel` and `--prerelease`; the precedence, with its
+- [x] `self.channel` and `self.prerelease` in the schema; `--channel` and `--prerelease`; the precedence, with its
       tests first
 
 ### Phase 3: Replacing a binary (Requirement 9)
 
-- [ ] The running-binary test first, failing; then `.new` and rename, Windows' `.old` and its record, `os.SameFile`,
+- [x] The running-binary test first, failing; then `.new` and rename, Windows' `.old` and its record, `os.SameFile`,
       the manifest error
 
 ### Phase 4: The upgrade (Requirements 3 to 8, 10 to 12)
 
-- [ ] Its tests first, against `httptest`
-- [ ] Resolve, download, verify, unpack, the suite, placing and delegating, the no-op, `--from`, `--dry-run`, the
+- [x] Its tests first, against `httptest`
+- [x] Resolve, download, verify, unpack, the suite, placing and delegating, the no-op, `--from`, `--dry-run`, the
       interrupt, the errors and the result; `Runner`'s stderr as notes
 
 ### Phase 5: The scenario and the documents (Requirements 13, 14)
 
-- [ ] `TestSelfUpgradeScenario`, and `make test-scenario` running it
-- [ ] The help, the architecture document, the guide, the old plan, the schema
+- [x] `TestSelfUpgradeScenario`, and `make test-scenario` running it
+- [x] The help, the architecture document, the guide, the old plan, the schema
 
 ### Phase 6: Verify
 
-- [ ] `gofmt`; `make test`; CI's quality gate; `make test-scenario`; the live check from a scratch prefix
+- [x] `gofmt`; `make test`; CI's quality gate; `make test-scenario`; the live check from a scratch prefix
 
 ### Phase 7: Merge
 
-- [ ] PR script written, shown, and handed over. The PR resolves #947
+- [x] PR script written, shown, and handed over. The PR resolves #947
 - [ ] After the merge, DANOBLE-UD24-1 takes the develop pre-release built from the merge through the site's
       `install.sh` (a build before this one fetches nothing): `writ --version` names `(develop)`, and the release's tag
       is at the merge commit. On the pre-release after that, `writ self upgrade` on this machine moves `lore`, `star`

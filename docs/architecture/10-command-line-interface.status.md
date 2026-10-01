@@ -85,6 +85,11 @@ names them. **Revised 2026-09-26 (#843, #850):** the `deploy` row says bare `wri
 keeps its snapshots and reconcile runs against the ref, with restore as reconcile's one command flag -- designed, not
 built. **Revised 2026-09-28 (#847):** §3.1 states that upgrade moves links and that the maintainer owns
 every merge, pointing at 5.1. **Revised 2026-09-28 (#847), again:** §3.1 records that live is retired.
+**Revised 2026-10-01 (#947):** §3 gains "`self upgrade` installs a fetched build": an upgrade is `self install` of a
+fetched build, replacing each program's record; the suite; a running binary replaced by a rename; the two channels,
+`develop` and `release`, and their stamp; what decides a run (`--from`, `--channel`, `DEVLORE_VERSION`,
+`self.channel`, the stamp), with `--prerelease` and `self.prerelease`; `GH_TOKEN`. §11 points at it as the ladder
+followed rung for rung.
 
 ## Document discrepancies
 

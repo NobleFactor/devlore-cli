@@ -34,9 +34,11 @@ import (
 
 // Version information, stamped once for every command in [application].
 var (
-	version   = application.Version
-	commit    = application.Commit
-	buildDate = application.BuildDate
+	version    = application.Version
+	commit     = application.Commit
+	buildDate  = application.BuildDate
+	channel    = application.Channel
+	prerelease = application.IsPrerelease()
 )
 
 const starlarkDocs = `WRITING STARLARK OPERATIONS
@@ -183,6 +185,8 @@ Generate shell completions with:
 		Version:       version,
 		Commit:        commit,
 		BuildDate:     buildDate,
+		Channel:       channel,
+		Prerelease:    prerelease,
 		// No post-uninstall hook: the extensions are in the manifest, so the generic uninstall removes exactly the
 		// files this install placed, skips any that changed, and prunes the directories that empty. The hook that
 		// used to be here removed the whole shared extensions directory (#917).

@@ -109,7 +109,13 @@ func toolBinary(t *testing.T, tool string) string {
 // sandboxEnvironment returns a controlled environment whose every devlore location sits inside `sandbox`.
 //
 // `self install` initializes config and cache alongside the prefix, so an unredirected run would write into
-// the developer's own trees. PATH is carried through because the install shells out to detect `man`.
+// the developer's own trees. Every XDG variable the programs read (pkg/xdg) is set, absolutely, so the home
+// directory is never consulted, and HOME and USERPROFILE name one inside the sandbox all the same. TMP and TEMP
+// sit beside TMPDIR because Windows reads them, not TMPDIR, for the scratch directory `self upgrade` unpacks
+// into. PATH is carried through because the install shells out to detect `man`.
+//
+// Nothing else is carried. DEVLORE_VERSION in particular pins what `self upgrade` installs, and a run under make
+// may carry it, because the Makefile reads the same name as a build's version.
 //
 // Parameters:
 //   - `sandbox`: the temporary directory every location is rooted at.
@@ -119,11 +125,18 @@ func toolBinary(t *testing.T, tool string) string {
 func sandboxEnvironment(sandbox string) []string {
 	return []string{
 		"PATH=" + os.Getenv("PATH"),
-		"XDG_CONFIG_HOME=" + filepath.Join(sandbox, "config"),
+		"HOME=" + filepath.Join(sandbox, "home"),
+		"USERPROFILE=" + filepath.Join(sandbox, "home"),
+		"XDG_BIN_HOME=" + filepath.Join(sandbox, "bin"),
 		"XDG_CACHE_HOME=" + filepath.Join(sandbox, "cache"),
+		"XDG_CONFIG_DIRS=" + filepath.Join(sandbox, "config-dirs"),
+		"XDG_CONFIG_HOME=" + filepath.Join(sandbox, "config"),
+		"XDG_DATA_DIRS=" + filepath.Join(sandbox, "data-dirs"),
 		"XDG_DATA_HOME=" + filepath.Join(sandbox, "data"),
 		"XDG_STATE_HOME=" + filepath.Join(sandbox, "state"),
 		"TMPDIR=" + os.TempDir(),
+		"TMP=" + os.TempDir(),
+		"TEMP=" + os.TempDir(),
 	}
 }
 

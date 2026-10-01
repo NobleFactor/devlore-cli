@@ -16,6 +16,8 @@ after:
   hooks:
     - ./packaging/macports/generate-portfile.sh {{ .Version }}
 
+# Every build stamps the five symbols the Makefile stamps. CHANNEL and PRERELEASE come from the environment and
+# stay empty unless given, as the Makefile's do: release.yaml sets both from the ref it builds (#947).
 builds:
   - id: writ
     binary: writ
@@ -34,6 +36,8 @@ builds:
       - -X github.com/NobleFactor/devlore-cli/pkg/application.Version={{.Version}}
       - -X github.com/NobleFactor/devlore-cli/pkg/application.Commit={{.ShortCommit}}
       - -X github.com/NobleFactor/devlore-cli/pkg/application.BuildDate={{.Date}}
+      - -X github.com/NobleFactor/devlore-cli/pkg/application.Channel={{ envOrDefault "CHANNEL" "" }}
+      - -X github.com/NobleFactor/devlore-cli/pkg/application.Prerelease={{ envOrDefault "PRERELEASE" "" }}
 
   - id: lore
     binary: lore
@@ -52,6 +56,8 @@ builds:
       - -X github.com/NobleFactor/devlore-cli/pkg/application.Version={{.Version}}
       - -X github.com/NobleFactor/devlore-cli/pkg/application.Commit={{.ShortCommit}}
       - -X github.com/NobleFactor/devlore-cli/pkg/application.BuildDate={{.Date}}
+      - -X github.com/NobleFactor/devlore-cli/pkg/application.Channel={{ envOrDefault "CHANNEL" "" }}
+      - -X github.com/NobleFactor/devlore-cli/pkg/application.Prerelease={{ envOrDefault "PRERELEASE" "" }}
 
   - id: star
     binary: star
@@ -70,6 +76,8 @@ builds:
       - -X github.com/NobleFactor/devlore-cli/pkg/application.Version={{.Version}}
       - -X github.com/NobleFactor/devlore-cli/pkg/application.Commit={{.ShortCommit}}
       - -X github.com/NobleFactor/devlore-cli/pkg/application.BuildDate={{.Date}}
+      - -X github.com/NobleFactor/devlore-cli/pkg/application.Channel={{ envOrDefault "CHANNEL" "" }}
+      - -X github.com/NobleFactor/devlore-cli/pkg/application.Prerelease={{ envOrDefault "PRERELEASE" "" }}
 
 archives:
   - id: default
