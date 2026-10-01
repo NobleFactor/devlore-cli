@@ -367,29 +367,64 @@ header -- an inline `// Returns: the expanded path`, a generic's `// Type Parame
 small undercount. Same class of defect as #997: a substring where a structure is meant. Filed separately
 rather than folded in, because fixing it raises the count and this phase must not move it.
 
-### Phase 3: the header becomes configuration (#997, #1000)
+### Phase 3: the header becomes configuration (#997, #1000) -- PARTIAL
 
-- [ ] `lint.copyright.header` carries the whole header as a literal; the compiled-in `build_expected_header`
-      is deleted
-- [ ] `star/config.yaml` declares ours:
-      `SPDX-License-Identifier: Apache-2.0` / `Copyright (c) 2025 Noble Factor. All rights reserved.`
-- [ ] **No template fields.** `template.render_text`, `LICENSE_PATTERNS`, `detect_license`, `resolve_license`
-      and the `license` and `holder` config keys are deleted, not deferred
-- [ ] `patterns` is removed from `CopyrightConfig`; `languages` replaces it, which closes #1000
-- [ ] `docs/` records that the header is the consumer's to set and that the shipped default is a default
+- [x] `lint.copyright.header` carries the whole header as a literal; `build_expected_header` is deleted
+- [x] **No template fields.** `LICENSE_PATTERNS`, `detect_license`, `resolve_license` and the `license` and
+      `holder` config keys are deleted, not deferred. `template.render_text` is never called -- there is
+      nothing to substitute
+- [x] `docs/` records that the header is the consumer's to set. The manifest declares `header: !!str`, the
+      zero value with **no default**, and says why: this extension is embedded in the star binary and runs on
+      other people's code, so a shipped default would stamp our copyright onto a consumer's files
+- [x] `patterns` is removed from `CopyrightConfig`
+- [ ] `languages` replaces it, which closes #1000 -- **Phase 5.** The field is removed here and its successor
+      arrives there, so #1000 stays open until then
+- [ ] `star/config.yaml` declares `Copyright (c) 2025 Noble Factor. All rights reserved.` -- **deliberately
+      not yet.** It declares the form the 1,001 checked files already carry, so this change moves no file and
+      the baseline is the test. Adopting `(c) 2025` is a content change with a 1,001-line diff and belongs on
+      its own, where the diff is the whole review
 
-### Phase 4: check and fix become one string (#997)
+**The mechanism is proved equivalent, which is the point of the sequencing.** Baseline before: 1,001 files,
+pass, exit 0. After: 1,001 files, pass, exit 0. The only output difference is the loss of
+`Detected license: Apache-2.0`, because nothing infers the license any more.
 
-- [ ] **`SPDX_PATTERN` and `COPYRIGHT_PATTERN` are deleted**, not tightened
-- [ ] `check` compares the file's leading lines to the configured header with the comment prefix applied
-- [ ] A property test: any file `check` accepts is byte-identical to what `fix` would write
+**`--fix` verified on scratch fixtures**, never on the tree: a file with no header gains one with its body
+intact; a file carrying `MIT` / `Someone Else` is corrected; a `.sh` with a shebang gets the header on line 3,
+below the shebang and its blank line. `check(fix(x))` passes, and a second `--fix` is byte-identical, so it is
+idempotent.
+
+### Phase 4: check and fix become one string (#997) -- PARTIAL
+
+- [x] **`SPDX_PATTERN` and `COPYRIGHT_PATTERN` are deleted**, not tightened
+- [x] `check` compares the file's leading lines to the configured header with the comment prefix applied
+- [x] `star lint copyright` over the repository reports **1,001 files**, recorded here and unchanged from the
+      baseline
+- [x] The `min(start_line + 5, ...)` scan bound in `fix_file` is gone with them. It had no stated reason and
+      mis-handled any file whose leading comment block ran past five lines; the replacement takes the leading
+      run of comment lines and the blank lines after it
+- [ ] A property test: any file `check` accepts is byte-identical to what `fix` would write. **Verified by
+      hand, not by a test** -- `check(fix(x))` passes and `--fix` is idempotent on three fixtures. The
+      property deserves a test rather than three cases
 - [ ] `check` requires the blank line before the code; a fixture with the header directly above `package`
-      fails. In Go that comment block IS the package doc comment, so this rule changes meaning, not appearance
+      fails
 - [ ] `check` requires the `skip` line to precede the header where a language declares one, pinned by a `.ps1`
-      fixture and a `Dockerfile` fixture
-- [ ] A test pins the coupling: `fix` runs only on what `check` flags, so a looser checker makes its own
-      misses unfixable
-- [ ] `star lint copyright` over the repository reports a count, and that count is recorded here
+      fixture and a `Dockerfile` fixture -- **waits on Phase 5**, which is where `skip` becomes configuration
+- [ ] A test pins the coupling: `fix` runs only on what `check` flags
+
+**Seven tests failed on the first gate run, and that is the finding.** Every one built a config with
+`license` and `holder` and no `header`, so the linter refused. Then three more failed after the builder was
+fixed, because its empty-license case defaulted to `Apache-2.0` while every fixture is MIT. Then one more:
+`TestLintCopyright_LicenseAutoDetection`, whose entire subject -- inferring the identifier from the `LICENSE`
+file -- had just been deleted.
+
+None of that was visible by reading. The four earlier drafts of this change lived in a scratch file that was
+never executed, and review caught none of it; the first run caught all of it. **Iterating on Starlark outside
+the tree is what produced the five defects this plan records, and the fix is to write it where it runs.**
+
+`TestLintCopyright_LicenseAutoDetection` is replaced by two tests rather than deleted:
+`TestLintCopyright_HeaderIsTakenFromConfig` keeps its coverage intent -- two licenses, each checked -- and
+adds the case that could not be written before, a `LICENSE` that disagrees with the configured header and is
+ignored; `TestLintCopyright_UnsetHeaderIsAnError` pins that an absent header fails rather than defaulting.
 
 ### Phase 5: the language table becomes configuration (#999)
 

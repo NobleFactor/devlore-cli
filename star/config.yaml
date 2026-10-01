@@ -4,8 +4,18 @@
 lint:
   copyright:
     enabled: true
-    license: auto
-    holder: Noble Factor
+
+    # The whole header, as a literal, without comment markers -- the linter supplies those from the file's
+    # language. No template fields: the identifier is typed here where a reader can see it, rather than
+    # inferred from LICENSE by substring match.
+    #
+    # This is deliberately the form the 1,001 checked files already carry, so landing the mechanism change
+    # moves no file. Adopting `Copyright (c) 2025 Noble Factor. All rights reserved.` -- the form the Go style
+    # guide mandates and no file carries -- is a separate change with a 1,001-line diff of its own.
+    header: |
+      SPDX-License-Identifier: Apache-2.0
+      Copyright Noble Factor. All rights reserved.
+
     exclude:
       - "**/testdata"
       - "**/vendor"

@@ -51,19 +51,27 @@ Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
 `
 
+// starYAMLEnabled builds a lint.copyright section carrying the header as a literal.
+//
+// The signature keeps `holder` and `license` because that is what each caller actually varies, but they are
+// now composed into one `header` string rather than passed as separate settings. The linter no longer has a
+// holder, a license, or any way to infer one: the header is configuration and the only source of it
+// (devlore-cli#994).
 func starYAMLEnabled(holder, license string) string {
 	if license == "" {
-		license = "auto"
+		license = "MIT"
 	}
 	return `lint:
   copyright:
     enabled: true
-    holder: "` + holder + `"
-    license: "` + license + `"
+    header: |
+      SPDX-License-Identifier: ` + license + `
+      Copyright ` + holder + `. All rights reserved.
     exclude: []
 `
 }
 
+// starYAMLWithExcludes builds the same section with exclusion patterns.
 func starYAMLWithExcludes(holder string, excludes []string) string {
 	excludeYAML := "["
 	for i, e := range excludes {
@@ -77,8 +85,9 @@ func starYAMLWithExcludes(holder string, excludes []string) string {
 	return `lint:
   copyright:
     enabled: true
-    holder: "` + holder + `"
-    license: "auto"
+    header: |
+      SPDX-License-Identifier: MIT
+      Copyright ` + holder + `. All rights reserved.
     exclude: ` + excludeYAML + `
 `
 }
@@ -429,38 +438,49 @@ func TestLintCopyright_FixMode_ShebangHandling(t *testing.T) {
 	}
 }
 
-func TestLintCopyright_LicenseAutoDetection(t *testing.T) {
-	tests := []struct {
-		name            string
-		licenseContent  string
-		expectedLicense string
+// TestLintCopyright_HeaderIsTakenFromConfig pins that the configured header is the only source of the header,
+// whatever it says, and that the LICENSE file has no bearing on it.
+//
+// This replaces TestLintCopyright_LicenseAutoDetection, whose subject no longer exists. That test configured
+// `license: auto` and asserted the linter inferred MIT or Apache-2.0 by matching the LICENSE file's text
+// against a pattern table. The inference is deleted: "Apache License" appears in the Apache-2.0 text and in
+// anything merely mentioning it, dict order decided the winner when two patterns matched, and it was the same
+// substring-where-a-structure-is-meant defect as devlore-cli#997 in a third place.
+//
+// The coverage intent is kept -- two different licenses, each checked -- and redirected at the new contract.
+// The third case is the one that could not be written before: a LICENSE that disagrees with the configured
+// header changes nothing, because nothing reads it.
+func TestLintCopyright_HeaderIsTakenFromConfig(t *testing.T) {
+	for _, testCase := range []struct {
+		name           string
+		configured     string
+		licenseContent string
+		goFile         string
 	}{
 		{
-			name:            "MIT license",
-			licenseContent:  mitLicenseText,
-			expectedLicense: "MIT",
+			name:           "an MIT header, configured and carried",
+			configured:     "MIT",
+			licenseContent: mitLicenseText,
+			goFile:         goFileCorrectMIT,
 		},
 		{
-			name:            "Apache license",
-			licenseContent:  apacheLicenseText,
-			expectedLicense: "Apache-2.0",
+			name:           "an Apache-2.0 header, configured and carried",
+			configured:     "Apache-2.0",
+			licenseContent: apacheLicenseText,
+			goFile:         goFileCorrectApache,
 		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// File with correct header for expected license
-			var goFile string
-			if tt.expectedLicense == "MIT" {
-				goFile = goFileCorrectMIT
-			} else {
-				goFile = goFileCorrectApache
-			}
-
+		{
+			name:           "the LICENSE file disagrees and is ignored",
+			configured:     "MIT",
+			licenseContent: apacheLicenseText,
+			goFile:         goFileCorrectMIT,
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
 			dir := setupTestDir(t, []testFile{
-				{"star/config.yaml", starYAMLEnabled("Test Corp", "auto")},
-				{"LICENSE", tt.licenseContent},
-				{"main.go", goFile},
+				{"star/config.yaml", starYAMLEnabled("Test Corp", testCase.configured)},
+				{"LICENSE", testCase.licenseContent},
+				{"main.go", testCase.goFile},
 			})
 
 			r, err := setupExtension(t, dir)
@@ -470,9 +490,35 @@ func TestLintCopyright_LicenseAutoDetection(t *testing.T) {
 
 			passed, _, err := runLintCopyright(t, r, false, ".")
 			if !passed {
-				t.Errorf("expected check to pass with auto-detected %s license: %v", tt.expectedLicense, err)
+				t.Errorf("expected check to pass with %s configured: %v", testCase.configured, err)
 			}
 		})
+	}
+}
+
+// TestLintCopyright_UnsetHeaderIsAnError pins that an absent header fails rather than defaulting to ours.
+//
+// The extension is embedded in the star binary and runs on other people's repositories, so a shipped default
+// would stamp Noble Factor's copyright onto a consumer's files. The manifest declares `header: !!str` -- the
+// zero value, no default -- and this asserts the consequence (devlore-cli#994).
+func TestLintCopyright_UnsetHeaderIsAnError(t *testing.T) {
+	dir := setupTestDir(t, []testFile{
+		{"star/config.yaml", "lint:\n  copyright:\n    enabled: true\n    exclude: []\n"},
+		{"LICENSE", mitLicenseText},
+		{"main.go", goFileCorrectMIT},
+	})
+
+	r, err := setupExtension(t, dir)
+	if err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	passed, _, err := runLintCopyright(t, r, false, ".")
+	if passed {
+		t.Error("expected check to fail with no header configured, but it passed")
+	}
+	if err == nil {
+		t.Error("expected an error naming lint.copyright.header")
 	}
 }
 

@@ -24,23 +24,26 @@ config:
   type: CopyrightConfig
   fields:
     enabled: bool
-    license: string
-    holder: string
-    patterns: "map[string]interface{}"
+    header: string
     exclude: "[]string"
   defaults:
     enabled: false
-    license: "auto"
-    patterns:
-      go:
-        match: '// SPDX-License-Identifier: \S+\s*\n// Copyright.*All rights reserved\.'
-        replace: "// SPDX-License-Identifier: {license}\n// Copyright {holder}. All rights reserved."
-      star:
-        match: '# SPDX-License-Identifier: \S+\s*\n# Copyright.*All rights reserved\.'
-        replace: "# SPDX-License-Identifier: {license}\n# Copyright {holder}. All rights reserved."
-      shell:
-        match: '# SPDX-License-Identifier: \S+\s*\n# Copyright.*All rights reserved\.'
-        replace: "# SPDX-License-Identifier: {license}\n# Copyright {holder}. All rights reserved."
+
+    # Declared at the zero value, with no default. A header belongs to the repository being checked, not to
+    # the linter checking it: this extension is embedded in the star binary and runs on other people's code,
+    # so shipping ours as a default would stamp Noble Factor's copyright onto a consumer's files. An unset
+    # header is an error (devlore-cli#994).
+    header: !!str
+
     exclude:
       - "**/testdata/**"
       - "**/vendor/**"
+
+# `patterns` is gone. It was declared, defaulted and never read by the implementation (devlore-cli#1000), and
+# its shape was wrong three ways: one template per language, where the header is one text and the comment
+# marker is the linter's; `{license}` placeholders, a fourth templating syntax in a codebase that already
+# ships text/template; and a `match` regex beside its `replace`, which is two descriptions of one header with
+# nothing making them agree -- devlore-cli#997 written into a schema.
+#
+# A `languages` field replaces it, carrying identification and comment syntax per language. That lands with
+# Phase 5 of #994's plan, together with the .yaml and .ps1 entries whose absence is devlore-cli#999.

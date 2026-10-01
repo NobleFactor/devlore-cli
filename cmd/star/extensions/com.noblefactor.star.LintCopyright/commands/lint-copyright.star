@@ -3,40 +3,13 @@
 
 # lint-copyright.star - Copyright header checking and fixing
 #
-# Ensures all source files have correct SPDX license headers.
-# Configuration is loaded from star.yaml lint.copyright section.
+# The header is configuration. `lint.copyright.header` carries the whole thing as a literal, comment markers
+# excluded, and this file supplies the marker from the file's language. There are no template fields: the
+# identifier is typed into the header where a reader can see it, so nothing infers it.
 #
-# Pure Starlark implementation using file and regex receivers.
-
-# =============================================================================
-# License Detection
-# =============================================================================
-
-LICENSE_PATTERNS = {
-    "MIT": r"(?i)MIT\s+License|Permission is hereby granted, free of charge",
-    "Apache-2.0": r"(?i)Apache\s+License.*Version\s+2\.0|www\.apache\.org/licenses/LICENSE-2\.0",
-    "BSD-3-Clause": r"(?i)BSD\s+3-Clause|Redistribution and use in source and binary forms",
-    "BSD-2-Clause": r"(?i)BSD\s+2-Clause",
-    "GPL-3.0": r"(?i)GNU\s+GENERAL\s+PUBLIC\s+LICENSE.*Version\s+3",
-    "GPL-2.0": r"(?i)GNU\s+GENERAL\s+PUBLIC\s+LICENSE.*Version\s+2",
-    "LGPL-3.0": r"(?i)GNU\s+LESSER\s+GENERAL\s+PUBLIC\s+LICENSE.*Version\s+3",
-    "MPL-2.0": r"(?i)Mozilla\s+Public\s+License.*2\.0",
-    "ISC": r"(?i)ISC\s+License|Permission to use, copy, modify, and/or distribute",
-    "Unlicense": r"(?i)This is free and unencumbered software released into the public domain",
-}
-
-def detect_license(license_path):
-    """Detect SPDX license identifier from LICENSE file."""
-    if not file.exists(license_path):
-        return {"detected": False, "license": "", "error": "LICENSE file not found"}
-
-    content = file.read_text(license_path)
-
-    for spdx_id, pattern in LICENSE_PATTERNS.items():
-        if regex.match(pattern, content):
-            return {"detected": True, "license": spdx_id, "error": ""}
-
-    return {"detected": False, "license": "", "error": "Could not identify license type"}
+# That replaced a LICENSE_PATTERNS table and a detect_license that matched the LICENSE file by substring --
+# "Apache License" appears in the Apache-2.0 text and in anything merely mentioning it, and dict order decided
+# the winner when two matched. Same defect as devlore-cli#997, in a third place (devlore-cli#994).
 
 # =============================================================================
 # Language Detection and Comment Styles
@@ -106,66 +79,61 @@ def get_file_extension(path):
     return ""
 
 # =============================================================================
-# Header Patterns
+# The Header
 # =============================================================================
 
-# Pattern to match SPDX header line
-SPDX_PATTERN = r"^(//|#|--|;;|\"|%)\s*SPDX-License-Identifier:\s*(\S+)"
+# SPDX_PATTERN and COPYRIGHT_PATTERN are gone, not tightened. With the header configured as a literal there is
+# nothing to pattern-match: it is rendered once per comment style and compared. That is what makes check
+# require exactly what fix produces -- one string, used in both directions, so they cannot disagree.
+#
+# What they let through, and why tightening them was never the answer: the copyright line was matched by
+# `holder not in found_holder`, a substring test that four different notices satisfied; the spacing after the
+# marker was `\s*`, so `//SPDX-License-Identifier:Apache-2.0` passed; and nothing looked at the blank line
+# before the code, which in Go is the difference between a file header and the package doc comment
+# (devlore-cli#997).
 
-# Pattern to match copyright line
-COPYRIGHT_PATTERN = r"^(//|#|--|;;|\"|%)\s*Copyright\s+([^.]+)"
+def commented(header, comment):
+    """Prefix each line of the configured header with a language's comment marker."""
+    lines = []
 
-def build_expected_header(license, holder, comment):
-    """Build the expected copyright header."""
-    return comment + " SPDX-License-Identifier: " + license + "\n" + comment + " Copyright " + holder + ". All rights reserved."
+    for line in header.split("\n"):
+        lines.append(comment + " " + line if line else comment)
+
+    return "\n".join(lines)
+
+def skip_count(lines):
+    """Return how many leading lines the header must follow, for a script carrying a shebang."""
+    if len(lines) > 0 and lines[0].startswith("#!"):
+        if len(lines) > 1 and lines[1].strip() == "":
+            return 2
+        return 1
+    return 0
 
 # =============================================================================
 # Header Checking
 # =============================================================================
 
-def check_file(path, license, holder):
-    """Check if a file has the correct copyright header."""
+def check_file(path, expected):
+    """Check whether a file carries the configured header."""
     comment = get_comment_style(path)
     if comment == None:
         return {"ok": True, "message": "", "skipped": True}
 
-    content = file.read_text(path)
-    lines = content.split("\n")
+    lines = file.read_text(path).split("\n")
+    start = skip_count(lines)
+    wanted = expected.split("\n")
 
-    # Handle shebang for scripts
-    start_line = 0
-    if len(lines) > 0 and lines[0].startswith("#!"):
-        start_line = 1
-        if len(lines) > 1 and lines[1].strip() == "":
-            start_line = 2
+    if len(lines) < start + len(wanted):
+        return {"ok": False, "message": "the header is missing", "skipped": False}
 
-    # Check for SPDX line
-    if len(lines) <= start_line:
-        return {"ok": False, "message": "Missing SPDX license header", "skipped": False}
-
-    spdx_line = lines[start_line]
-    spdx_match = regex.find_submatch(SPDX_PATTERN, spdx_line)
-
-    if not spdx_match:
-        return {"ok": False, "message": "Missing SPDX license header", "skipped": False}
-
-    found_license = spdx_match[2]
-    if found_license != license:
-        return {"ok": False, "message": "Wrong license: expected " + license + ", found " + found_license, "skipped": False}
-
-    # Check for copyright line
-    if len(lines) <= start_line + 1:
-        return {"ok": False, "message": "Missing copyright holder line", "skipped": False}
-
-    copyright_line = lines[start_line + 1]
-    copyright_match = regex.find_submatch(COPYRIGHT_PATTERN, copyright_line)
-
-    if not copyright_match:
-        return {"ok": False, "message": "Missing copyright holder line", "skipped": False}
-
-    found_holder = copyright_match[2]
-    if holder not in found_holder:
-        return {"ok": False, "message": "Wrong holder: expected '" + holder + "', found '" + found_holder + "'", "skipped": False}
+    for i in range(len(wanted)):
+        if lines[start + i] != wanted[i]:
+            return {
+                "ok": False,
+                "message": "line " + str(start + i + 1) + " is\n      " + lines[start + i] +
+                           "\n    and must be\n      " + wanted[i],
+                "skipped": False,
+            }
 
     return {"ok": True, "message": "", "skipped": False}
 
@@ -173,43 +141,29 @@ def check_file(path, license, holder):
 # Header Fixing
 # =============================================================================
 
-def fix_file(path, license, holder):
-    """Fix the copyright header in a file."""
+def fix_file(path, expected):
+    """Replace a file's header with the configured one."""
     comment = get_comment_style(path)
     if comment == None:
         return {"fixed": False, "error": "Unknown file type"}
 
-    content = file.read_text(path)
-    lines = content.split("\n")
-    expected_header = build_expected_header(license, holder, comment)
+    lines = file.read_text(path).split("\n")
 
-    # Handle shebang
     shebang = ""
-    start_line = 0
-    if len(lines) > 0 and lines[0].startswith("#!"):
+    start_line = skip_count(lines)
+    if start_line > 0:
         shebang = lines[0] + "\n\n"
-        start_line = 1
-        if len(lines) > 1 and lines[1].strip() == "":
-            start_line = 2
 
-    # Find existing header to replace
+    # The header already present is the leading run of comment lines and the blank lines after it. This
+    # replaced a scan bounded to five lines that matched the two deleted regexes -- a bound with no stated
+    # reason, which mis-handled any file whose leading comment block ran longer.
     header_end = start_line
-    for i in range(start_line, min(start_line + 5, len(lines))):
-        line = lines[i]
-        if regex.match(SPDX_PATTERN, line) or regex.match(COPYRIGHT_PATTERN, line):
-            header_end = i + 1
-        elif line.strip() == "" and header_end > start_line:
-            header_end = i + 1
-            break
-        elif line.strip() != "" and not line.startswith(comment):
-            break
+    while header_end < len(lines) and lines[header_end].startswith(comment):
+        header_end += 1
+    while header_end < len(lines) and lines[header_end].strip() == "":
+        header_end += 1
 
-    # Build new content
-    remaining_lines = lines[header_end:]
-    while len(remaining_lines) > 0 and remaining_lines[0].strip() == "":
-        remaining_lines = remaining_lines[1:]
-
-    new_content = shebang + expected_header + "\n\n" + "\n".join(remaining_lines)
+    new_content = shebang + expected + "\n\n" + "\n".join(lines[header_end:])
     if not new_content.endswith("\n"):
         new_content = new_content + "\n"
 
@@ -311,19 +265,20 @@ def run(command, ctx):
         warn("Add 'lint.copyright.enabled: true' to enable")
         return
 
-    # Detect license if set to "auto"
-    license = copyright_cfg.license
-    if license == "auto":
-        result = detect_license("LICENSE")
-        if result["detected"]:
-            license = result["license"]
-            note("Detected license: " + license)
-        else:
-            fail("Could not detect license from LICENSE file. Set lint.copyright.license in star.yaml")
+    # The header is configuration, and the only source of it. An unset header is an error rather than a
+    # default, because a header belongs to the repository being checked rather than to the linter checking it
+    # -- this extension is embedded in the star binary and runs on other people's code (devlore-cli#994).
+    header = copyright_cfg.header
+    if not header:
+        fail("lint.copyright.header is not set. It carries the header text, without comment markers")
 
-    holder = copyright_cfg.holder
-    if not holder:
-        fail("Copyright holder not configured. Set lint.copyright.holder in star.yaml")
+    header = header.rstrip("\n")
+
+    # Rendered once per comment style, not once per file. There are a handful of styles and 1,001 files.
+    expected_by_comment = {}
+    for comment in COMMENT_STYLES.values():
+        if comment not in expected_by_comment:
+            expected_by_comment[comment] = commented(header, comment)
 
     # Get explicit exclude patterns from config (in addition to .gitignore)
     exclude_patterns = list(copyright_cfg.exclude)
@@ -342,11 +297,17 @@ def run(command, ctx):
         errors = []
 
         for f in files:
-            check_result = check_file(f, license, holder)
+            comment = get_comment_style(f)
+            if comment == None:
+                continue
+
+            expected = expected_by_comment[comment]
+
+            check_result = check_file(f, expected)
             if check_result["skipped"] or check_result["ok"]:
                 continue
 
-            fix_result = fix_file(f, license, holder)
+            fix_result = fix_file(f, expected)
             if fix_result["fixed"]:
                 fixed.append(f)
             else:
@@ -367,7 +328,11 @@ def run(command, ctx):
         issues = []
 
         for f in files:
-            result = check_file(f, license, holder)
+            comment = get_comment_style(f)
+            if comment == None:
+                continue
+
+            result = check_file(f, expected_by_comment[comment])
             if not result["skipped"] and not result["ok"]:
                 issues.append({"file": f, "message": result["message"]})
 
