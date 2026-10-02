@@ -23,6 +23,10 @@ import (
 	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
 )
 
+// newDeployCmd creates `writ deploy`, which deploys the selected projects from every layer, one graph per scope.
+//
+// Returns:
+//   - `*cobra.Command`: the `deploy` command, with its `--conflict`, `--segment`, `--allow-dirty` and `--scope` flags.
 func newDeployCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "deploy [flags] [<project>...]",
@@ -57,6 +61,7 @@ Conflict handling (--conflict) — occupied targets (phase-8 step 49):
 	cmd.Flags().StringP("conflict", "c", "stop", "Occupied-target policy: stop, skip, replace")
 	cmd.Flags().StringArrayP("segment", "s", nil, "Set a segment's value, NAME=value (repeatable); an extra must be declared in writ.segments")
 	cmd.Flags().Bool("allow-dirty", false, "Allow planning against layers with uncommitted changes")
+	cmd.Flags().StringSlice("scope", nil, scopeFlagUsage)
 
 	return cmd
 }
@@ -65,6 +70,14 @@ Conflict handling (--conflict) — occupied targets (phase-8 step 49):
 //
 // Parsing stays here (cobra/viper are command-layer); planning and execution live in
 // [deploy.Execute] — tree walk, layer pinning, per-scope graphs, store persistence, and reporting.
+//
+// Parameters:
+//   - `cmd`: the `deploy` command, for its flags and context.
+//   - `args`: the project names given on the command line.
+//
+// Returns:
+//   - `error`: a refusal from parsing, the registry client's error, [deploy.Execute]'s, or the plan's rendering
+//     error under `--dry-run`; nil when done.
 func runDeployV2(cmd *cobra.Command, args []string) error {
 
 	cfg, err := parseDeployConfig(cmd, args)
@@ -107,7 +120,13 @@ func runDeployV2(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// expandPath expands ~ to $HOME in paths.
+// expandPath expands a leading `~` to the user's home directory.
+//
+// Parameters:
+//   - `path`: the path, which may begin with `~` or `~/`.
+//
+// Returns:
+//   - `string`: the path with its leading `~` replaced by the home directory [xdg] resolves; any other path as given.
 func expandPath(path string) string {
 
 	if strings.HasPrefix(path, "~/") {
@@ -120,6 +139,10 @@ func expandPath(path string) string {
 	return path
 }
 
+// newDecommissionCmd creates `writ decommission`, which removes what writ's runs deployed for the named projects.
+//
+// Returns:
+//   - `*cobra.Command`: the `decommission` command, with its `--prune` and `--scope` flags.
 func newDecommissionCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "decommission [flags] <project>...",
@@ -142,11 +165,19 @@ Signature-gated safety (refusing unsigned state) arrives with graph signing (ste
 	}
 
 	cmd.Flags().Bool("prune", false, "Remove empty parent directories after file removal")
+	cmd.Flags().StringSlice("scope", nil, scopeFlagUsage)
 
 	return cmd
 }
 
 // runDecommission implements the decommission command on the decommission package (phase-8 step 47 slice 2).
+//
+// Parameters:
+//   - `cmd`: the `decommission` command, for its flags and context.
+//   - `args`: the project names given on the command line.
+//
+// Returns:
+//   - `error`: [decommission.Execute]'s error, or the plan's rendering error under `--dry-run`; nil when done.
 func runDecommission(cmd *cobra.Command, args []string) error {
 
 	cfg := parseDecommissionConfig(cmd, args)
@@ -168,6 +199,10 @@ func runDecommission(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// newUpgradeCmd creates `writ upgrade`, which regenerates the selected projects' copied files from their sources.
+//
+// Returns:
+//   - `*cobra.Command`: the `upgrade` command, with its `--force`, `--segment` and `--scope` flags.
 func newUpgradeCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
@@ -194,11 +229,20 @@ entries cannot be compared without decrypting and follow the same --force rule.`
 
 	cmd.Flags().Bool("force", false, "Overwrite locally modified files without prompting")
 	cmd.Flags().StringArrayP("segment", "s", nil, "Set a segment's value, NAME=value (repeatable); an extra must be declared in writ.segments")
+	cmd.Flags().StringSlice("scope", nil, scopeFlagUsage)
 
 	return cmd
 }
 
 // runUpgrade implements the upgrade command on the upgrade package (phase-8 step 47 slice 2).
+//
+// Parameters:
+//   - `cmd`: the `upgrade` command, for its flags and context.
+//   - `args`: the project names given on the command line.
+//
+// Returns:
+//   - `error`: a refusal from parsing, [upgrade.Execute]'s error, or the plan's rendering error under `--dry-run`;
+//     nil when done.
 func runUpgrade(cmd *cobra.Command, args []string) error {
 
 	cfg, err := parseUpgradeConfig(cmd, args)
@@ -225,6 +269,10 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// newReconcileCmd creates `writ reconcile`, which reports the system against the record and exits with the answer.
+//
+// Returns:
+//   - `*cobra.Command`: the `reconcile` command, with its `--segment` and `--scope` flags.
 func newReconcileCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "reconcile [<project>...]",
@@ -259,11 +307,20 @@ Exit status -- the answer, gateable like git diff --exit-code (#756):
 	}
 
 	cmd.Flags().StringArrayP("segment", "s", nil, "Set a segment's value, NAME=value (repeatable); an extra must be declared in writ.segments")
+	cmd.Flags().StringSlice("scope", nil, scopeFlagUsage)
 
 	return cmd
 }
 
 // runReconcile implements the reconcile command on the reconcile package.
+//
+// Parameters:
+//   - `cmd`: the `reconcile` command, for its flags and context.
+//   - `args`: the project names given on the command line.
+//
+// Returns:
+//   - `error`: a refusal from parsing, [reconcile.BuildReport]'s error, the rendering error, or an
+//     [cli.ExitError]-coded error when an entry drifted; nil when the system matches the record.
 func runReconcile(cmd *cobra.Command, args []string) error {
 
 	cfg, err := parseReconcileConfig(cmd, args)
@@ -298,8 +355,15 @@ func runReconcile(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// getConfiguredRepo returns the path for a layer, or empty string if it doesn't exist.
-// Layers are directories (or symlinks) at ~/.local/share/devlore/writ/layers/{layer}/
+// getConfiguredRepo returns the directory a layer is registered at.
+//
+// Layers are directories, or links to them, at `~/.local/share/devlore/writ/layers/<layer>/`.
+//
+// Parameters:
+//   - `layer`: the layer's name: base, team or personal.
+//
+// Returns:
+//   - `string`: the layer's directory, its link resolved; "" when the layer is not registered or its link dangles.
 func getConfiguredRepo(layer string) string {
 	layerPath := filepath.Join(devlore.WritLayersDir(), layer)
 

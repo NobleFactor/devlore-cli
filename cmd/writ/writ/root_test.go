@@ -6,12 +6,14 @@ package writ
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/spf13/viper"
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
+	"github.com/NobleFactor/devlore-cli/pkg/xdg"
 )
 
 // TestRoot_KeepsTheOutputConvention pins the root registration through the shared checkers: every command
@@ -44,11 +46,7 @@ func TestRoot_KeepsTheOutputConvention(t *testing.T) {
 //   - `t`: the test harness.
 func TestRoot_RefusesWritTargets(t *testing.T) {
 
-	root := t.TempDir()
-	for _, home := range []string{"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"} {
-		t.Setenv(home, filepath.Join(root, home))
-	}
-	t.Cleanup(viper.Reset)
+	root := isolateDevloreHomes(t)
 
 	config := filepath.Join(root, "config.yaml")
 	if err := os.WriteFile(config, []byte("writ:\n  targets:\n    home: /tmp/elsewhere\n"), 0o644); err != nil {
@@ -56,7 +54,7 @@ func TestRoot_RefusesWritTargets(t *testing.T) {
 	}
 
 	command := NewRootCmd()
-	command.SetArgs([]string{"--config", config, "--silent", "reconcile", "-o", "none"})
+	command.SetArgs([]string{"--config", config, "--silent", "reconcile", "--output", "none"})
 	err := command.Execute()
 	if err == nil {
 		t.Fatal("a configuration setting writ.targets was accepted")
@@ -76,13 +74,9 @@ func TestRoot_RefusesWritTargets(t *testing.T) {
 //   - `t`: the test harness.
 func TestRoot_ConfigRunsWithWritTargets(t *testing.T) {
 
-	root := t.TempDir()
-	for _, home := range []string{"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"} {
-		t.Setenv(home, filepath.Join(root, home))
-	}
-	t.Cleanup(viper.Reset)
+	isolateDevloreHomes(t)
 
-	config := filepath.Join(root, "XDG_CONFIG_HOME", "devlore", "config.yaml")
+	config := xdg.ConfigPath("devlore", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(config), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -103,4 +97,132 @@ func TestRoot_ConfigRunsWithWritTargets(t *testing.T) {
 	if strings.Contains(string(content), "targets") {
 		t.Errorf("writ.targets is still in the configuration:\n%s", content)
 	}
+}
+
+// TestRoot_ScopeOnLifecycleCommandsOnly proves `--scope` belongs to `deploy`, `upgrade`, `reconcile` and
+// `decommission` and to no other command, the root least of all, where it would shadow the shared root's
+// `workflow verify --scope` (#926, open question 3).
+//
+// Parameters:
+//   - `t`: the test harness.
+func TestRoot_ScopeOnLifecycleCommandsOnly(t *testing.T) {
+
+	root := NewRootCmd()
+	if root.PersistentFlags().Lookup("scope") != nil {
+		t.Error("--scope is on the root; it belongs to the four lifecycle commands")
+	}
+
+	want := map[string]bool{"decommission": true, "deploy": true, "reconcile": true, "upgrade": true}
+	for _, command := range root.Commands() {
+		if registered := command.Flags().Lookup("scope") != nil; registered != want[command.Name()] {
+			t.Errorf("writ %s: --scope registered = %t, want %t", command.Name(), registered, want[command.Name()])
+		}
+	}
+}
+
+// TestRoot_TargetIsGone proves `--target` is removed with no alias (#926): naming it is an unknown flag, which is a
+// usage error.
+//
+// Parameters:
+//   - `t`: the test harness.
+func TestRoot_TargetIsGone(t *testing.T) {
+
+	isolateDevloreHomes(t)
+
+	command := NewRootCmd()
+	command.SetArgs([]string{"--silent", "reconcile", "--output", "none", "--target", "Home"})
+	err := command.Execute()
+	if err == nil {
+		t.Fatal("--target was accepted")
+	}
+	if code := cli.ExitCode(err); code != cli.ExitUsage {
+		t.Errorf("ExitCode = %d, want %d (EX_USAGE): %v", code, cli.ExitUsage, err)
+	}
+}
+
+// TestRoot_ScopeMatchesWithoutCase proves `--scope` names a defined scope without case, repeatably (#926): the run
+// passes the check and reaches reconcile, which finds nothing deployed in the isolated homes.
+//
+// Parameters:
+//   - `t`: the test harness.
+func TestRoot_ScopeMatchesWithoutCase(t *testing.T) {
+
+	isolateDevloreHomes(t)
+
+	command := NewRootCmd()
+	command.SetArgs([]string{"--silent", "reconcile", "--output", "none", "--scope", "home", "--scope", "SYSTEM"})
+	err := command.Execute()
+	if code := cli.ExitCode(err); code != cli.ExitNoInput {
+		t.Errorf("ExitCode = %d, want %d (EX_NOINPUT, never deployed): %v", code, cli.ExitNoInput, err)
+	}
+}
+
+// TestRoot_RefusesUndefinedScope proves `--scope` naming no scope defined here is a usage error that names it and the
+// scopes that are (#926).
+//
+// Parameters:
+//   - `t`: the test harness.
+func TestRoot_RefusesUndefinedScope(t *testing.T) {
+
+	isolateDevloreHomes(t)
+
+	command := NewRootCmd()
+	command.SetArgs([]string{"--silent", "reconcile", "--output", "none", "--scope", "Bogus"})
+	err := command.Execute()
+	if code := cli.ExitCode(err); code != cli.ExitUsage {
+		t.Fatalf("ExitCode = %d, want %d (EX_USAGE): %v", code, cli.ExitUsage, err)
+	}
+	if !strings.Contains(err.Error(), "Bogus") || !strings.Contains(err.Error(), "Home") {
+		t.Errorf("the refusal names neither the scope nor the scopes defined: %v", err)
+	}
+}
+
+// TestRoot_RefusesUndefinedBuiltinScopeKey proves a `writ.scopes` key naming a builtin this platform does not define
+// stops a lifecycle command with [cli.ExitConfig] (#926).
+//
+// Parameters:
+//   - `t`: the test harness.
+func TestRoot_RefusesUndefinedBuiltinScopeKey(t *testing.T) {
+
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows defines ProgramFiles")
+	}
+	root := isolateDevloreHomes(t)
+
+	config := filepath.Join(root, "config.yaml")
+	if err := os.WriteFile(config, []byte("writ:\n  scopes:\n    ProgramFiles: /opt/programs\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	command := NewRootCmd()
+	command.SetArgs([]string{"--config", config, "--silent", "reconcile", "--output", "none"})
+	err := command.Execute()
+	if code := cli.ExitCode(err); code != cli.ExitConfig {
+		t.Fatalf("ExitCode = %d, want %d (EX_CONFIG): %v", code, cli.ExitConfig, err)
+	}
+	if !strings.Contains(err.Error(), "ProgramFiles") {
+		t.Errorf("the refusal does not name ProgramFiles: %v", err)
+	}
+}
+
+// --- helpers ---
+
+// isolateDevloreHomes points every XDG base directory at a fresh temporary directory for one test, and resets viper
+// when the test ends.
+//
+// Parameters:
+//   - `t`: the test harness.
+//
+// Returns:
+//   - `string`: the temporary directory holding the four homes.
+func isolateDevloreHomes(t *testing.T) string {
+
+	t.Helper()
+
+	root := t.TempDir()
+	for _, home := range []string{"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"} {
+		t.Setenv(home, filepath.Join(root, home))
+	}
+	t.Cleanup(viper.Reset)
+	return root
 }

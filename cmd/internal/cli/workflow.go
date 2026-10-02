@@ -340,6 +340,8 @@ type traceRef struct {
 // selectDefinitions picks the workflows a selection names: every definition event matching the tool and scope,
 // each once, in index order.
 //
+// A scope matches without case: writ records `home`, and its lifecycle commands name the scope `Home` (#926).
+//
 // Parameters:
 //   - `entries`: the run index.
 //   - `selection`: the tool and scope to match; "" matches all.
@@ -360,7 +362,7 @@ func selectDefinitions(
 		if selection.tool != "" && entry.Tool != selection.tool {
 			continue
 		}
-		if selection.scope != "" && entry.Scope != selection.scope {
+		if selection.scope != "" && !strings.EqualFold(entry.Scope, selection.scope) {
 			continue
 		}
 		selected[entry.GraphChecksum] = true

@@ -24,8 +24,9 @@ var (
 	prerelease = application.IsPrerelease()
 )
 
-// lifecycleCommands are the commands a retired configuration key stops: the ones that deploy from the layers or read
-// the record (#926). Every other command runs -- `config` above all, since it is how the key is removed.
+// lifecycleCommands are the commands that deploy from the layers or read the record: the ones a configuration writ
+// cannot honor stops, and the ones whose `--scope` writ checks before they run (#926). Every other command runs --
+// `config` above all, since it is how a key is removed.
 var lifecycleCommands = map[string]bool{
 	"adopt":        true,
 	"decommission": true,
@@ -60,11 +61,10 @@ Declare your environment once — writ deploys it everywhere you work.`,
 		Prerelease:    prerelease,
 	})
 
-	rootCmd.PersistentFlags().String("target", "Home", "Target to operate on")
-
-	// The configuration is loaded by the shared root's pre-run. writ then refuses a key it has retired rather than
-	// ignoring it (#925), for the lifecycle commands only (#926): `writ config unset` must still run, or the key could
-	// not be removed with writ, as `git config --unset` removes any key.
+	// The configuration is loaded by the shared root's pre-run. writ then refuses what it cannot honor rather than
+	// ignoring it -- a key it has retired (#925), a scope this platform does not define (#926) -- for the lifecycle
+	// commands only: `writ config unset` must still run, or the key could not be removed with writ, as
+	// `git config --unset` removes any key. A lifecycle command that takes `--scope` has its names checked too.
 	loadConfiguration := rootCmd.PersistentPreRunE
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
 
@@ -74,7 +74,21 @@ Declare your environment once — writ deploys it everywhere you work.`,
 		if cmd.Parent() != cmd.Root() || !lifecycleCommands[cmd.Name()] {
 			return nil
 		}
-		return refuseRetiredConfiguration()
+		if err := refuseRetiredConfiguration(); err != nil {
+			return err
+		}
+		if err := refuseScopeConfiguration(currentScopePlatform(), configuredScopeRoots()); err != nil {
+			return err
+		}
+		if cmd.Flags().Lookup("scope") == nil {
+			return nil
+		}
+		names, err := cmd.Flags().GetStringSlice("scope")
+		if err != nil {
+			return err
+		}
+		_, err = SelectScopes(names)
+		return err
 	}
 
 	rootCmd.AddCommand(newDeployCmd())

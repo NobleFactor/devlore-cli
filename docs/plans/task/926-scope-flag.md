@@ -1,7 +1,7 @@
 ---
 title: "Lane 7: --scope, multi-valued, replaces the inert --target"
 issue: https://github.com/NobleFactor/devlore-cli/issues/926
-status: in-progress
+status: chartered
 created: 2026-10-01
 updated: 2026-10-02
 ---
@@ -46,6 +46,7 @@ Read 2026-10-01 at `04c7228b`.
 | deploy | ⚠️ | walks `ScopeOrder()` in every layer; one graph per scope; the record carries the scope name lower-cased (`home`) |
 | upgrade, decommission | ⚠️ | group the record's entries by scope, one graph each; no selection |
 | reconcile | ⚠️ | classifies every entry; no selection |
+| `workflow verify --scope` | ⚠️ | the shared root's own flag, one recorded scope matched exactly: `--scope home` finds home's documents, `--scope Home` finds none |
 | elevation | -- | not implemented anywhere in writ; out of this lane, as the acceptance list does not ask for it |
 | the Windows VM | -- | gone (2026-10-01); CI's Windows jobs are the Windows proof |
 
@@ -69,10 +70,16 @@ scopes alphabetically. See open question 1 for a `writ.scopes` key that names a 
 
 ### Requirement 2: the flag
 
-`--scope` registered on writ's root, a repeatable string slice. Absent: every defined scope. A name that is not a
-scope, or a builtin undefined on this platform, is refused with `ExitUsage` (64) naming it and the scopes defined
-here. Names match without case. `--target` is removed; `writ deploy --target=Home` is then an unknown-flag usage
-error (64) from the shared root.
+`--scope` registered on `deploy`, `upgrade`, `reconcile` and `decommission` (ruled 2026-10-02, open question 3), a
+repeatable string slice read from the command's own flag: a choice for one run, not a setting, so there is no
+`writ.scope` key and no environment variable. Absent: every defined scope. A name that is not a scope, or a builtin
+undefined on this platform, is refused with `ExitUsage` (64) naming it and the scopes defined here. Names match
+without case. `--target` is removed; `writ deploy --target=Home` is then an unknown-flag usage error (64) from the
+shared root.
+
+`workflow verify --scope` keeps its own flag and matches the recorded scope without case, so `--scope Home` selects
+what `--scope home` does. It filters records and refuses nothing: the store keeps the runs of scopes no longer
+defined.
 
 ### Requirement 3: the operations honor the selection
 
@@ -98,7 +105,8 @@ Every Go file this lane touches passes `star lint go-style` in the lane's commit
 
 ### Phase 2: The model and the flag
 
-- [ ] Requirements 1 and 2, with unit tests for the table, the resolver, the order and every refusal.
+- [x] Requirements 1 and 2, with unit tests for the table, the resolver, the order and every refusal; `--scope` on the
+  four lifecycle commands and `workflow verify --scope` matching without case, as open question 3 ruled.
 
 ### Phase 3: The operations
 
@@ -125,7 +133,8 @@ refused; `--target=Home` refused at 64. The Windows proof is CI's; the Windows V
 | --- | --- | --- | --- |
 | 1 | the builtin table and per-platform definition | unit | a scope is defined where it is not |
 | 2 | custom scopes and order | unit | a custom scope is missed or misordered |
-| 3 | `--scope` refusals: unknown, undefined builtin; `--target` gone | unit | a refusal is missing |
+| 3 | `--scope` refusals: unknown, undefined builtin; `--target` gone; `--scope` on the four lifecycle commands only | unit | a refusal is missing, or the flag is on another command |
+| 3a | `workflow verify --scope` matches the recorded scope without case | unit | `Home` selects nothing `home` selects |
 | 4 | deploy, upgrade, reconcile, decommission honor the selection | integration, scenario | an operation reaches an unselected scope |
 | 5 | the behavior on a real install | VM | the machine behaves otherwise |
 
@@ -135,6 +144,8 @@ refused; `--target=Home` refused at 64. The Windows proof is CI's; the Windows V
 | --- | --- |
 | `docs/plans/task/926-scope-flag.md` | Create: this plan |
 | `cmd/writ/writ/layer.go`, `layer_test.go`, `root.go`, `root_test.go`, `config.go` | Modify: the model, the flag, the selection |
+| `cmd/writ/writ/commands.go` | Modify: `deploy`, `upgrade`, `reconcile` and `decommission` register `--scope` |
+| `cmd/internal/cli/workflow.go`, `workflow_test.go` | Modify: `workflow verify --scope` matches without case |
 | `cmd/writ/writ/deploy`, `upgrade`, `reconcile`, `decommission` | Modify: honor the selection |
 | scenario tests | Modify: the `--scope` step |
 | `docs/architecture/10-command-line-interface.md`, `docs/guides/writ/manage-environments.md` | Modify: the flag |
@@ -148,8 +159,7 @@ refused; `--target=Home` refused at 64. The Windows proof is CI's; the Windows V
    that.
 
 2. **Found 2026-10-01, before any lane 7 code, ruled 2026-10-02: lane 6's `writ.targets` refusal blocks the commands
-   that would fix
-   it.** The refusal runs in writ's root pre-run, so it fires for every command. With `writ.targets` set,
+   that would fix it.** The refusal runs in writ's root pre-run, so it fires for every command. With `writ.targets` set,
    `writ config list` and `writ config unset writ.targets` both exit 78 -- the user cannot use writ to remove the key
    writ refuses. Lane 7's new refusal (a `writ.scopes` key naming a builtin undefined here) would inherit the same
    flaw. Proposed: both checks run for the lifecycle commands only -- `deploy`, `upgrade`, `reconcile`,
@@ -158,6 +168,14 @@ refused; `--target=Home` refused at 64. The Windows proof is CI's; the Windows V
    refusals run for the lifecycle commands only; `config unset writ.targets` then works like the removal of any
    other unknown key, as `git config --unset` does. Fixed 2026-10-02 in its own commit on this branch:
    `lifecycleCommands` in `root.go`, and `TestRoot_ConfigRunsWithWritTargets`; lane 6's plan carries the amendment.
+
+3. **Found 2026-10-02 in phase 2, ruled the same day: (a).** A `--scope` on writ's root collides with the shared
+   root's `workflow verify --scope`, one recorded scope's definitions and traces: the root's checker refuses a
+   command that redefines a flag it inherits, since cobra would let the local one win silently
+   (`TestRoot_KeepsTheOutputConvention`). The two name one thing, the scope a lifecycle operation ran in, which its
+   definition and traces record. Offered: (a) `--scope` on the four lifecycle commands, and `workflow verify --scope`
+   matching without case; (b) the root's flag, with the shared `workflow verify` reading it on writ alone; (c) a
+   rename of one. **Ruled (a).** The word `workflow` itself changes in lane 30 (#1017), when the schedule reaches it.
 
 ## Related Documents
 

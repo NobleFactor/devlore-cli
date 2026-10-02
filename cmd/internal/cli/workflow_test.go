@@ -15,6 +15,9 @@ import (
 
 // indexFixture is a run index with two programs, two scopes, and a definition run three times, so the fold and
 // the selection have something to disagree about.
+//
+// Returns:
+//   - `[]IndexEntry`: the index, in time order.
 func indexFixture() []IndexEntry {
 
 	at := func(hour int) time.Time { return time.Date(2026, 9, 11, hour, 0, 0, 0, time.UTC) }
@@ -61,7 +64,8 @@ func TestListWorkflows_ToolSelects(t *testing.T) {
 }
 
 // TestSelectDocuments_ResolvesByName pins `workflow verify`'s selection: a scope's definition and every trace, the
-// kinds narrowed by --kind, the newest trace alone under --latest, and paths under the store's directories.
+// scope matched without case, the kinds narrowed by --kind, the newest trace alone under --latest, and paths under
+// the store's directories.
 func TestSelectDocuments_ResolvesByName(t *testing.T) {
 
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
@@ -74,6 +78,8 @@ func TestSelectDocuments_ResolvesByName(t *testing.T) {
 		want      []string
 	}{
 		{"a scope: definition then every trace", workflowSelection{tool: "writ", scope: "home"},
+			[]string{definition, trace("t1.yaml"), trace("t2.yaml"), trace("t3.yaml")}},
+		{"a scope named as a lifecycle command names it, without case", workflowSelection{tool: "writ", scope: "Home"},
 			[]string{definition, trace("t1.yaml"), trace("t2.yaml"), trace("t3.yaml")}},
 		{"kind definition", workflowSelection{tool: "writ", scope: "home", kind: "definition"},
 			[]string{definition}},
