@@ -1,5 +1,5 @@
 ---
-title: "Lane 22: configuration is one file; self install stops writing config.d"
+title: "Lane 22: configuration is one file, and no program writes it"
 issue: https://github.com/NobleFactor/devlore-cli/issues/1009
 status: draft
 created: 2026-10-02
@@ -15,21 +15,26 @@ worked on lane 6's branch beside lanes 7 and 8. Found planning lane 7: `self ins
 `~/.config/devlore/config.d/<program>.yaml` for each of the four programs, and no program reads it, so an edit there
 changes nothing. The owner's direction the same day: **configuration is centralized; if a real need to separate it
 appears, the separation follows git's include model.** `docs/architecture/configuration.md` § One user configuration
-file states it. This lane makes the code agree: one file, read by every program, and nothing written that nothing
-reads.
+file states it.
+
+**Ruled 2026-10-02, open question 1: (d). We behave like git and leave configuration alone.** No program writes or
+removes the user's configuration: `self install` writes neither `config.d/` nor `config.yaml`, and `self uninstall`
+removes neither. Every program holds its own defaults in code, verified the same day (Current State), and the
+documentation the seed files carried moves to the guides.
 
 **This plan covers this one lane.** Anything found while working it stops the work and goes to the owner.
 
 ## Issue 1009
 
-Bug, epic UnifiedConfiguration (#441), feature #456. Waits on nothing. Proposed order in PR C: this lane's code next,
-then lane 7's phases 2 to 6, then lane 8.
+Bug, epic UnifiedConfiguration (#441), feature #456. The order in PR C, ruled 2026-10-02: lane 7's code first, then
+lane 8, then this lane and lanes 23 to 28 (#1010 to #1015), which change the same configuration code.
 
 ## Goals
 
-1. `self install` writes no file that no program reads: no `config.d/`, no `config.d/<program>.yaml`.
+1. No program writes or removes the user's configuration: `self install` writes no `config.d/` and no `config.yaml`,
+   and `self uninstall` removes neither.
 2. One reader: every program reads `~/.config/devlore/config.yaml` and nothing else.
-3. Each program's documented defaults have one home, as open question 1 rules.
+3. Every program holds its own defaults in code; the settings are documented in the guides, never in a seeded file.
 4. Every document names the one file; none names `config.d`.
 5. Every touched Go file passes `star lint go-style`.
 
@@ -44,19 +49,20 @@ Read 2026-10-02 at `01634491`, the branch's merge base.
 | `cli.InitViper` | ⚠️ | reads `~/.config/devlore/config.yaml`; its `UseSharedConfig: false` branch reads `~/.config/<program>/config.yaml`, and no caller passes false |
 | `config edit` | ⚠️ | with no `config.yaml`, seeds it with the program's `DefaultConfig`, whose header names `config.d/<program>.yaml` |
 | the defaults | ⚠️ | five embeds in `schema/schema.go`: the shared one, and one per program keyed under the program's name |
-| lore's defaults | ⚠️ | `lore.ai_provider` and `lore.sources` uncommented; no code declares `lore.ai_provider`, and lore reads `lore.model.provider` and `lore.model.model` (`cmd/lore/lore/commands.go:774-783`); open question 2 |
+| defaults held in code | ✅ | 2026-10-02: 33 reads over 17 keys, enumerated in full; every key has a default in code except `lore onboard`'s AI provider, which refuses by design. All four programs run with an empty configuration home, and none writes one |
+| settings documented and unread | ❌ | `lore.ai_provider`, lore's preferences and sources, `lore.quiet`, `devlore-test.receipt_format`, `secrets`: ruled a bug 2026-10-02, removed by #1013 (lane 26) |
 | the documents | ⚠️ | the four defaults headers, `schema/schema.go:22`, `:28` and `:39`, and `docs/architecture/9-star-extensions.md:219` name `config.d`; `configuration.md` corrected 2026-10-02 |
 | the install record | -- | configuration is outside it (#933), so a re-install retires nothing in the configuration home |
-| #780 | -- | open, on schedule #894: its requirement 1 says each program "generates its own default config", and it edits `selfinstall.go` too |
+| #780 | -- | open, on schedule #894: its requirement 1 says each program "generates its own default config", and its acceptance list asks `self install` to produce one; the ruling contradicts both |
 | this Mac | -- | `config.yaml` is the owner's (19 B, `writ.vars`); `config.d/` holds `lore.yaml` and `star.yaml` (the current defaults, unedited), `writ.yaml` (3278 B, unlike the current default) and `test.yaml` (0 B, 2026-03-02; no program is named `test` today) |
 
 ## Requirements
 
-### Requirement 1: self install writes the one file
+### Requirement 1: no program writes the configuration
 
-`initDevloreConfig` creates the configuration home and seeds `config.yaml` as open question 1 rules, and writes
-nothing else: `config.d/` is never created. `removeDevloreConfig` and its call go. `self uninstall` leaves the
-configuration home alone, since `config.yaml` is the user's.
+`initDevloreConfig` goes. `self install` neither creates the configuration home nor writes `config.yaml` or
+`config.d/`; the cache step stays, since the cache is the program's. `removeDevloreConfig` and its call go:
+`self uninstall` leaves the configuration home as it found it.
 
 ### Requirement 2: one reader
 
@@ -64,20 +70,33 @@ configuration home alone, since `config.yaml` is the user's.
 form are deleted: `InitViper` reads `~/.config/devlore/config.yaml`, and `BindFlags` binds `<program>.<flag>`. Under
 the ruling a per-program file is what git's include model would govern if a need appeared, never a second search path.
 
-### Requirement 3: the documented defaults
+### Requirement 3: the defaults files go
 
-As open question 1 rules. What moves keeps its comments, and documents only keys a program reads (open question 2).
+The five embedded defaults (`schema.SharedDefaultConfig` and the four per-program `*DefaultConfig`),
+`schema/defaults/*.yaml`, and `ConfigInfo.DefaultConfig` with the root's field that feeds it are deleted. What they
+document that a program reads moves to the guides, each setting into the guide of the feature it configures
+(proposed): `writ.scopes` and `writ.vars` to `docs/guides/writ/manage-environments.md`, `writ.segments` to
+`docs/guides/selectors.md` § Extra segments, and `self.channel` and `self.prerelease` to
+`docs/guides/getting-started.md` § Upgrade. What no program reads is not carried (#1013).
 
-### Requirement 4: the documents
+### Requirement 4: `config edit` creates the file on demand
 
-- `schema/schema.go`'s doc comments and the defaults headers name the file the content lands in.
+git writes a user's configuration only on the user's command; asked to edit one that does not exist
+(`git config --global --edit`), it creates it with a commented template. `config edit` does the same: on a missing
+`config.yaml` it creates the file, holding only a comment that names the guides, and opens it. `config set` and
+`config unset` write the file on the user's command, as they do today. Derived from the ruling; confirmed at review.
+
+### Requirement 5: the documents
+
 - `docs/architecture/9-star-extensions.md:219` stops naming `config.d/star.yaml` as star's configuration.
-- `docs/architecture/configuration.md` § The command surface states the ruled answer in its default-config bullet.
-  § One user configuration file loses its "Today" paragraph, and `configuration.status.md` its discrepancy, in the
-  commit that lands the fix.
-- `self install`'s help, step 4, is checked against what the step now does.
+- `docs/architecture/configuration.md` § The command surface says no program writes the configuration and each holds
+  its own defaults. § One user configuration file loses its "Today" paragraph, and `configuration.status.md` its
+  discrepancy, in the commit that lands the fix.
+- `self install`'s help, step 4, says it creates the cache only.
+- #780's requirement 1 and its default-config acceptance item are amended to the ruling. #780 is a lane of schedule
+  #894, so the amendment is the owner's.
 
-### Requirement 5: the style gate
+### Requirement 6: the style gate
 
 Every touched Go file passes `star lint go-style`; `gofmt`, `make check` and `make test-scenario` are green.
 
@@ -87,20 +106,21 @@ Every touched Go file passes `star lint go-style`; `gofmt`, `make check` and `ma
 
 - [x] `configuration.md` § One user configuration file, its correction of star's sources, and the status document's
   discrepancy, written 2026-10-02 on the owner's direction.
-- [ ] This document reviewed and chartered; open questions 1 and 2 ruled.
+- [x] Open question 1 ruled (d), and open question 2 resolved by #1013, 2026-10-02.
+- [ ] This document reviewed and chartered.
 
 ### Phase 2: The code
 
-- [ ] Requirements 1 to 3, with the unit tests below.
+- [ ] Requirements 1 to 4, with the unit tests below.
 
 ### Phase 3: The documents and the gate
 
-- [ ] Requirements 4 and 5.
+- [ ] Requirements 5 and 6, with Requirement 3's guide sections.
 
 ### Phase 4: The VM
 
-From the built binaries, bundled and copied: after `self install` of all four programs the configuration home holds
-`config.yaml` alone; writ reads a setting placed there; `self uninstall` leaves the home as it was.
+From the built binaries, bundled and copied: after `self install` of all four programs the configuration home is as it
+was before, present or absent; writ reads a setting placed there by hand; `self uninstall` leaves it as it was.
 
 - [ ] `danoble-ud24-1.local` (linux/arm64)
 
@@ -110,9 +130,10 @@ From the built binaries, bundled and copied: after `self install` of all four pr
 
 ## Test Plan
 
-- **Unit, `cmd/internal/cli`:** the config step, into a temporary configuration home, writes `config.yaml` as ruled
-  and creates no `config.d`; run again over an edited `config.yaml`, it leaves the edit in place; `self uninstall`
-  leaves the home unchanged.
+- **Unit, `cmd/internal/cli`:** `self install`, into a temporary prefix and configuration home, writes nothing into the
+  configuration home, whether it exists or not; `self uninstall` leaves a `config.yaml` exactly as it was.
+- **Unit, `config edit`:** on a missing file it creates one holding only the comment; on a present file it changes
+  nothing before the editor opens.
 - **Unit, `InitViper`:** a setting in `config.yaml` is read; the same setting in `config.d/<program>.yaml` or in
   `~/.config/<program>/config.yaml` is not.
 - **Scenario:** `make test-scenario` green.
@@ -122,26 +143,30 @@ From the built binaries, bundled and copied: after `self install` of all four pr
 
 No code retires the files already on machines: under the governing principle there is no legacy handling. The owner
 deletes `~/.config/devlore/config.d/` by hand on each machine, after moving anything edited there into `config.yaml`.
-On this Mac, `writ.yaml` is the one file that differs from the current default, and the one worth reading first.
+On this Mac, `writ.yaml` is the one file that differs from the current default, and the one worth reading first. An
+existing `config.yaml` stays the user's; nothing removes it.
 
 ## Files to Create/Modify
 
 | File | Action | Purpose |
 | --- | --- | --- |
 | `cmd/internal/cli/selfinstall.go` | Modify | Requirement 1 |
-| `cmd/internal/cli/viper.go`, `cmd/internal/cli/root.go` | Modify | Requirement 2 |
-| `cmd/internal/cli/config.go` | Modify | `config edit` seeds what open question 1 rules |
-| `schema/schema.go`, `schema/defaults/*.yaml` | Modify | Requirement 3 |
-| `cmd/devlore-test/devloretest/root.go`, `cmd/lore/lore/root.go`, `cmd/star/star/root.go`, `cmd/writ/writ/root.go` | Modify | the `DefaultConfig` each passes, as open question 1 rules |
+| `cmd/internal/cli/viper.go` | Modify | Requirement 2 |
+| `cmd/internal/cli/root.go` | Modify | Requirement 2; its `DefaultConfig` field goes (Requirement 3) |
+| `cmd/internal/cli/config.go` | Modify | `ConfigInfo.DefaultConfig` goes; Requirement 4 |
+| `schema/schema.go` | Modify | the five embeds go (Requirement 3) |
+| `schema/defaults/*.yaml` | Delete | Requirement 3 |
+| `cmd/devlore-test/devloretest/root.go`, `cmd/lore/lore/root.go`, `cmd/star/star/root.go`, `cmd/writ/writ/root.go` | Modify | stop passing `DefaultConfig` (Requirement 3) |
 | `cmd/internal/cli/*_test.go` | Create/Modify | the test plan |
+| `docs/guides/writ/manage-environments.md`, `docs/guides/selectors.md`, `docs/guides/getting-started.md` | Modify | Requirement 3's documentation |
 | `docs/architecture/configuration.md`, `docs/architecture/configuration.status.md` | Modify | written 2026-10-02; the interim removed with the fix |
-| `docs/architecture/9-star-extensions.md` | Modify | Requirement 4 |
+| `docs/architecture/9-star-extensions.md` | Modify | Requirement 5 |
 
 ## Open questions
 
-1. **Where each program's documented defaults go, now that `config.d` is not written.** Today each program embeds two
-   defaults files: the shared one, seeded into `config.yaml`, and its own, written to `config.d/<program>.yaml` and
-   used by `config edit` to seed `config.yaml` when it is absent.
+1. **Where each program's documented defaults go, now that `config.d` is not written.** **Ruled 2026-10-02: (d).**
+   Today each program embeds two defaults files: the shared one, seeded into `config.yaml`, and its own, written to
+   `config.d/<program>.yaml` and used by `config edit` to seed `config.yaml` when it is absent.
    - **(a) One seeded file.** The five defaults files become one, holding the shared sections and every program's
      section, each commented. Every program's `self install` seeds it when `config.yaml` is absent, and `config edit`
      seeds the same file; `ConfigInfo.DefaultConfig` and the four per-program embeds go. For: the first install of
@@ -150,29 +175,31 @@ On this Mac, `writ.yaml` is the one file that differs from the current default, 
      reaches a machine whose `config.yaml` exists, as today and as with any seeded file; #780's "generates its own
      default config" becomes "seeds the one default config".
    - **(b) Seed the shared file only.** `config.yaml` is seeded from the shared defaults, as today; each program's
-     keys are documented in its guide and by `config schema`; the per-program files go. For: closest to git, which
-     seeds no user file at all; the documentation is versioned with the program and never stale on a machine.
-     Against: the commented examples a user reads today, writ's scopes and segments above all, leave the machine for
-     the guides.
+     keys are documented in its guide and by `config schema`; the per-program files go. For: closer to git; the
+     documentation is versioned with the program and never stale on a machine. Against: the commented examples a
+     user reads today, writ's scopes and segments above all, leave the machine for the guides.
    - **(c) Each program appends its section at install when `config.yaml` lacks one.** For: keeps "its own default
      config" literally, and a program installed later documents itself in an existing file. Against: an installer
      edits a file the user owns, on every install; uninstall cannot take a section back once it is edited; appended
      text must not collide with a key the user wrote another way.
+   - **(d) Write no user configuration at all, as git does.** No seeded file, no record of one, nothing to remove.
+     For: nothing is written that the user did not ask for, and nothing has to decide who owns a shared file or
+     whether it changed. Against: the documentation of the settings lives only in the guides.
 
-   **Recommendation: (a).** It is the one file the ruling names, documented at first install, and no installer edits
-   the user's file afterwards.
+   I recommended (a). The owner ruled (d): "we behave like git. we leave config alone."
 
-2. **lore's documented keys** (asked after question 1). lore's defaults set `lore.ai_provider.model`,
-   `lore.ai_provider.preferences` and `lore.sources` uncommented. No code declares `lore.ai_provider`; lore reads
-   `lore.model.provider` and `lore.model.model` (`cmd/lore/lore/commands.go:774-783`), and `cmd/internal/config`
-   declares `lore.preferences` and `lore.sources` beside a root `model:`. Moving that content, this lane can correct
-   it to the keys lore reads, or carry it unchanged and commented, and file the mismatch as its own bug under #456.
+2. **lore's documented keys.** **Resolved 2026-10-02:** the owner ruled every documented setting that no code reads a
+   bug, and #1013 (lane 26) removes them. Under (d) lore's defaults file is deleted, so this lane carries none of them
+   into the guides.
 
 ## Related Documents
 
 - [#1009](https://github.com/NobleFactor/devlore-cli/issues/1009) -- the issue
 - [configuration.md § One user configuration file](../../architecture/configuration.md#one-user-configuration-file)
   -- the owner's direction, 2026-10-02
+- [#1010](https://github.com/NobleFactor/devlore-cli/issues/1010) to
+  [#1015](https://github.com/NobleFactor/devlore-cli/issues/1015) -- lanes 23 to 28, found checking the defaults for
+  this lane's ruling
 - [#780](https://github.com/NobleFactor/devlore-cli/issues/780) -- the four programs' `self` uniformity, on #894
 - [#933](https://github.com/NobleFactor/devlore-cli/issues/933) -- `self install` replaces its record; configuration
   is outside the record
