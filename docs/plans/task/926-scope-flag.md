@@ -1,7 +1,7 @@
 ---
 title: "Lane 7: --scope, multi-valued, replaces the inert --target"
 issue: https://github.com/NobleFactor/devlore-cli/issues/926
-status: chartered
+status: complete
 created: 2026-10-01
 updated: 2026-10-02
 ---
@@ -178,14 +178,24 @@ Every Go file this lane touches passes `star lint go-style` in the lane's commit
 ### Phase 6: The VM
 
 Snapshot first. On `danoble-ud24-1.local`: `writ deploy --scope=Home`, then a bare deploy; `--scope=ProgramFiles`
-refused; `--target=Home` refused at 64; `writ adopt` of a file under `/etc` lands in `System/`, and
-`writ reconcile --scope System` reports it. The Windows proof is CI's; the Windows VM is gone.
+refused; `--target=Home` refused at 64; `writ adopt` of a file under Home lands in `Home/`, recorded as `home`, and
+`writ reconcile --scope Home` reports it. The Windows proof is CI's; the Windows VM is gone.
 
-- [ ] `danoble-ud24-1.local` (linux/arm64)
+The plan first named an adoption under `/etc`, into `System/`. That needs root, and nothing in writ acquires it: the
+elevator provider is a stub (#526), and writ run under `sudo` resolves root's home, configuration and store. The
+owner ruled "For now: skip tests against system" and placed the elevation design on #916 as lane 34 (#521).
+
+- [x] `danoble-ud24-1.local` (linux/arm64), 2026-10-02, with a snapshot taken first and restored after. The baseline
+  was 164 entries linked, reconcile exiting 0. `writ deploy --scope Home` and a bare deploy each exit 0 with 164
+  links; `--scope ProgramFiles` exits 64, naming System and Home as the scopes defined there; `--target=Home` exits
+  64, an unknown flag; `writ reconcile` reports 164 linked, Home 164 and System 0. `writ adopt --project lane7` of
+  `~/.lane7-adopt.conf` exits 0, the link resolves into the personal layer's `Home/lane7/`, the record names the
+  scope `home`, and reconcile reports 165 linked, Home 165. The restore put the VM back to its 164-link baseline.
 
 ### Phase 7: Closure
 
-- [ ] The lane's commit on this branch. PR C opens after lane 8, with `Closes #926` and `Closes #761`.
+- [x] The lane's commits on this branch, 2026-10-02: fa0596cf, 8b453dc9, 0f57fdee, 6871349d, bd6c1c6f, 0440bca2,
+  f6e16702, and the one that records this. PR C opens after lane 8, with `Closes #926` and `Closes #761`.
 
 ## Test Plan
 
