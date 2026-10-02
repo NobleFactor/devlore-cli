@@ -418,6 +418,26 @@ override happens at overlay time, there is no per-setting "is-set" bookkeeping a
 sections are "app-specific" vs "shared": a section registers **once**, layer-agnostic, and the user places a value under
 `base`, a profile, or `applications.<app>` as they wish. *Layer is value placement, not schema.*
 
+### One user configuration file
+
+> **Ruled 2026-10-02.** Configuration is centralized: every program reads one user configuration file. If a real need
+> to separate it appears, the separation follows git's include model.
+
+**The user config file is `~/.config/devlore/config.yaml`** (`cli.SharedConfigPath`): the file `cli.InitViper` reads
+for every program on the shared root, and the file the `config` subcommands read and write. A program's settings are
+its section of that file — `writ:` or `lore:` today, `applications.<app>` after the fold — beside the shared sections
+such as `secrets:` and `self:`. There is no per-program file and no directory of fragments.
+
+**If a real need to separate configuration appears, devlore follows git's include model, and builds nothing before
+the need is found and ruled.** git reads the files of its fixed scopes (system, global, local, worktree) and reads
+another only where one of them names it: `include.path` names a file, and `includeIf.<condition>.path` names one under
+a condition such as `gitdir:` or `onbranch:`. Any key is accepted and an unknown one ignored, `git config --unset`
+removes any key, and `git config --show-origin` names the file a value came from. The include is explicit, and the
+user writes it in the file: never a directory scanned by convention, and never a file a program writes for itself.
+
+**Today `self install` also writes `~/.config/devlore/config.d/<program>.yaml`, which no program reads**, so an edit
+there changes nothing (#1009). Its fix retires the directory against this section.
+
 ### Profiles — deployment-stage overlays
 
 `profiles` is the renamed environment axis, now a structural layer in [the tree](#the-configuration-tree) and named for
@@ -859,10 +879,11 @@ star main()             discovery              devconfig registry       star Con
 - **`star` attaches two beneath it.** `config show` renders the merged view of its extension config; `config sync`
   pushes that config into tool files such as `.golangci.yaml`. Both are Starlark extension commands (`ConfigShow`,
   `ConfigSync`), and extension loading attaches to an existing command of the same name rather than adding one.
-- **Today the two halves read different sources.** `star config get` reads the XDG tree —
-  `~/.config/devlore/config.yaml` and `config.d/star.yaml` — while `star config show` reads the `star.yaml`
-  hierarchy. That split is what ["Star unification"](#star-unification-and-the-two-announcement-paths) folds: after
-  it, every subcommand reads the one resolved `Config`.
+- **Today the two halves read different sources.** `star config get` reads the one user file,
+  `~/.config/devlore/config.yaml`, while `star config show` reads star's own files, lowest first: each extension's
+  defaults, `~/.config/star/config.yaml`, then `star/config.yaml` at the repository root. That split is what
+  ["Star unification"](#star-unification-and-the-two-announcement-paths) folds: after it, every subcommand reads the
+  one resolved `Config`.
 - **Default config is produced by `self install`**, per program, alongside its man pages and completions; #780 makes
   the four programs uniform on that dimension. The seeded file is what the runtime floor demotes to overrides — the
   "Builtin as runtime floor" question below.

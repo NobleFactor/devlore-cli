@@ -55,5 +55,8 @@ per-scope `dev`/`test`/`stage`/`prod` variants, scope-dominant); per-key overlay
   into the registry.
 - `cmd/star/config` is today's registration system — data-driven and star-only; this design generalizes it to cover
   Go participants and unifies the two.
-- `star config get` reads the XDG tree while `star config show` reads the `star.yaml` hierarchy — one command over
-  two sources until the fold above lands (recorded 2026-09-02).
+- `star config get` reads `~/.config/devlore/config.yaml` while `star config show` reads star's own files — one
+  command over two sources until the fold above lands (recorded 2026-09-02).
+- `self install` writes `~/.config/devlore/config.d/<program>.yaml`, which no program reads. Configuration is one file
+  ([configuration.md § One user configuration file](configuration.md#one-user-configuration-file), ruled 2026-10-02);
+  #1009 retires the directory (recorded 2026-10-02).
