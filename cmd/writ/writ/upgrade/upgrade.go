@@ -28,6 +28,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -50,6 +51,14 @@ type Config struct {
 
 	// Projects filters the copied inventory; empty upgrades every project.
 	Projects []string
+
+	// Scopes filters the copied inventory to the scopes `--scope` named, in lower case; empty upgrades every entry the
+	// record holds (#926).
+	Scopes []string
+
+	// ScopeOrder is every scope this platform defines, in scope order and in lower case: the order the per-scope
+	// regenerations run in (#926).
+	ScopeOrder []string
 
 	// Force regenerates locally-modified and indeterminate targets (without it they skip with a warning;
 	// stale targets — source moved, target untouched per the recorded identity — regenerate freely).
@@ -91,7 +100,7 @@ func Execute(ctx context.Context, cfg *Config) (graphs []*op.Graph, err error) {
 		return nil, err
 	}
 
-	copied := selectCopied(inventory, cfg.Projects)
+	copied := selectCopied(inventory, cfg.Projects, cfg.Scopes)
 	if len(copied) == 0 {
 		cli.Note("No copied files to upgrade.")
 		return nil, nil
@@ -150,17 +159,16 @@ func reportSkipped(skipped []string) {
 		" encrypted without a cataloged source.)")
 }
 
-// buildScopeGraphs groups the entries by scope and assembles one regeneration graph per scope, in
-// sorted scope order.
+// buildScopeGraphs groups the entries by scope and assembles one regeneration graph per scope, in scope order.
 //
 // Parameters:
 //   - `ctx`: the planning context.
-//   - `cfg`: the upgrade configuration.
+//   - `cfg`: the upgrade configuration, whose [Config.ScopeOrder] orders the graphs.
 //   - `regenerate`: the entries to regenerate.
 //   - `data`: the render data for the chains.
 //
 // Returns:
-//   - `[]*op.Graph`: one assembled graph per scope, in sorted scope order.
+//   - `[]*op.Graph`: one assembled graph per scope, in scope order; see [readback.CompareScopes].
 //   - `error`: non-nil when any scope's planning or assembly fails.
 func buildScopeGraphs(
 	ctx context.Context, cfg *Config, regenerate []readback.Entry, data map[string]any,
@@ -176,7 +184,7 @@ func buildScopeGraphs(
 	for scope := range byScope {
 		scopes = append(scopes, scope)
 	}
-	sort.Strings(scopes)
+	slices.SortFunc(scopes, readback.CompareScopes(cfg.ScopeOrder))
 
 	var graphs []*op.Graph
 	for _, scope := range scopes {
@@ -540,7 +548,9 @@ func runGraph(ctx context.Context, cfg *Config, graph *op.Graph, lifetime *cli.L
 
 	regenerated := 0
 	if trace := executor.Trace(); trace != nil {
-		if receiptPath, writeErr := cli.WriteLifetimeTrace(lifetime, cli.RunOperationUpgrade, trace); writeErr != nil {
+		scope := graph.Origin().Scope()
+		receiptPath, writeErr := cli.WriteLifetimeTrace(lifetime, cli.RunOperationUpgrade, scope, trace)
+		if writeErr != nil {
 			cli.Warn("failed to write receipt: %v", writeErr)
 		} else if cfg.Verbose {
 			cli.Note("Receipt: %s", receiptPath)
@@ -578,15 +588,16 @@ func upgradeSpec(root string, dryRun bool) *op.RuntimeEnvironmentSpec {
 		})
 }
 
-// selectCopied filters the folded inventory to copied (non-link) entries, optionally by project.
+// selectCopied filters the folded inventory to copied (non-link) entries, optionally by project and by scope.
 //
 // Parameters:
 //   - `inventory`: the readback fold.
 //   - `projects`: the projects to include; empty includes all.
+//   - `scopes`: the scopes to include, in lower case; empty includes every entry (#926).
 //
 // Returns:
 //   - `[]readback.Entry`: the copied entries, unordered.
-func selectCopied(inventory *readback.Inventory, projects []string) []readback.Entry {
+func selectCopied(inventory *readback.Inventory, projects, scopes []string) []readback.Entry {
 
 	wanted := make(map[string]bool, len(projects))
 	for _, p := range projects {
@@ -600,6 +611,9 @@ func selectCopied(inventory *readback.Inventory, projects []string) []readback.E
 			continue
 		}
 		if len(wanted) > 0 && !wanted[entry.Project] {
+			continue
+		}
+		if !entry.InScopes(scopes) {
 			continue
 		}
 		copied = append(copied, entry)

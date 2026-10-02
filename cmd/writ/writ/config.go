@@ -56,16 +56,16 @@ func withCommonProject(projects []string) []string {
 // 4. Defaults
 //
 // Parameters:
-//   - `cmd`: the deploy command, whose context drives the selection and whose `--allow-dirty`, `--conflict` and
-//     `--segment` flags are read.
+//   - `cmd`: the deploy command, whose context drives the selection and whose `--allow-dirty`, `--conflict`,
+//     `--scope` and `--segment` flags are read.
 //   - `args`: the projects the command line named, possibly none.
 //
 // Returns:
-//   - `*DeployConfig`: the selection, behavior flags, conflict policy, layer sources (or the single-repo source
-//     root when no layer is configured), the Home target root, segments, template variables, and the identities
-//     and signing key when identities load.
-//   - `error`: the selection's or the segments' refusal, an invalid `--conflict` value, a failure to collect layer
-//     sources, or a refusal when no layer is configured and `writ.repo` is unset.
+//   - `*DeployConfig`: the selection, the scopes named and the scope order, behavior flags, conflict policy, the
+//     selected scopes' layer sources (or the single-repo source root when no layer is configured), the Home target
+//     root, segments, template variables, and the identities and signing key when identities load.
+//   - `error`: the selection's, the scopes' or the segments' refusal, an invalid `--conflict` value, a failure to
+//     collect layer sources, or a refusal when no layer is configured and `writ.repo` is unset.
 func parseDeployConfig(cmd *cobra.Command, args []string) (*DeployConfig, error) {
 	cfg := &DeployConfig{}
 	cfg.Tool = "writ"
@@ -77,6 +77,15 @@ func parseDeployConfig(cmd *cobra.Command, args []string) (*DeployConfig, error)
 	}
 	cfg.Selection = selection
 	cfg.Projects = selection.Projects()
+
+	// The scopes: deploy plans the selected scopes' directories, every defined scope when none is named, and the
+	// lifetime it writes carries forward every scope it was not asked to run (#926).
+	scopes, named, err := scopeSelection(cmd)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Scopes = named
+	cfg.ScopeOrder = scopeNames(ScopeOrder())
 
 	// Behavior flags
 	cfg.DryRun = viper.GetBool("writ.dry-run")
@@ -92,7 +101,7 @@ func parseDeployConfig(cmd *cobra.Command, args []string) (*DeployConfig, error)
 	cfg.ConflictPolicy = policy
 
 	// Collect sources
-	layerSources, err := CollectLayerSources()
+	layerSources, err := CollectLayerSources(scopes)
 	if err != nil {
 		return nil, fmt.Errorf("collect layer sources: %w", err)
 	}
@@ -102,7 +111,8 @@ func parseDeployConfig(cmd *cobra.Command, args []string) (*DeployConfig, error)
 	if len(layerSources) == 0 {
 		sourceRoot := viper.GetString("writ.repo")
 		if sourceRoot == "" {
-			return nil, fmt.Errorf("no layer configured; use 'writ migrate <source>' to migrate your environment to a writ layer")
+			return nil, fmt.Errorf("no layer configured; use 'writ migrate <source>' to migrate your environment " +
+				"to a writ layer")
 		}
 		cfg.SourceRoot = expandPath(sourceRoot)
 	}
@@ -138,14 +148,15 @@ func parseDeployConfig(cmd *cobra.Command, args []string) (*DeployConfig, error)
 // Upgrade selects the way deploy does (#850): the implicit set, what the record holds, and what was named.
 //
 // Parameters:
-//   - `cmd`: the upgrade command, whose context drives the selection and whose `--force` and `--segment` flags
-//     are read.
+//   - `cmd`: the upgrade command, whose context drives the selection and whose `--force`, `--scope` and
+//     `--segment` flags are read.
 //   - `args`: the projects the command line named, possibly none.
 //
 // Returns:
-//   - `*UpgradeConfig`: the selected projects, behavior flags, the `writ.repo` source root when set, the Home
-//     target root, segments, template variables, and the identities and signing key when identities load.
-//   - `error`: the selection's or the segments' refusal.
+//   - `*UpgradeConfig`: the selected projects, the scopes named and the scope order, behavior flags, the `writ.repo`
+//     source root when set, the Home target root, segments, template variables, and the identities and signing key
+//     when identities load.
+//   - `error`: the selection's, the scopes' or the segments' refusal.
 func parseUpgradeConfig(cmd *cobra.Command, args []string) (*UpgradeConfig, error) {
 	cfg := &UpgradeConfig{}
 	cfg.Tool = "writ"
@@ -155,6 +166,12 @@ func parseUpgradeConfig(cmd *cobra.Command, args []string) (*UpgradeConfig, erro
 		return nil, err
 	}
 	cfg.Projects = selection.Projects()
+
+	// The scopes: the record narrowed to those named, the whole record when none is (#926).
+	if _, cfg.Scopes, err = scopeSelection(cmd); err != nil {
+		return nil, err
+	}
+	cfg.ScopeOrder = scopeNames(ScopeOrder())
 
 	// Behavior flags
 	cfg.DryRun = viper.GetBool("writ.dry-run")
@@ -200,12 +217,12 @@ func parseUpgradeConfig(cmd *cobra.Command, args []string) (*UpgradeConfig, erro
 // and a bad value is refused here as there (#944).
 //
 // Parameters:
-//   - `cmd`: the reconcile command, whose `--segment` flags are read.
+//   - `cmd`: the reconcile command, whose `--scope` and `--segment` flags are read.
 //   - `args`: the projects the command line named, taken as given.
 //
 // Returns:
-//   - `*ReconcileConfig`: the projects, the verbose flag, segments, and template variables.
-//   - `error`: the segments' refusal.
+//   - `*ReconcileConfig`: the projects, the scopes named, the verbose flag, segments, and template variables.
+//   - `error`: the scopes' or the segments' refusal.
 func parseReconcileConfig(cmd *cobra.Command, args []string) (*ReconcileConfig, error) {
 	cfg := &ReconcileConfig{}
 	cfg.Tool = "writ"
@@ -214,7 +231,12 @@ func parseReconcileConfig(cmd *cobra.Command, args []string) (*ReconcileConfig, 
 	// Behavior flags
 	cfg.Verbose = viper.GetBool("writ.verbose")
 
+	// The scopes: the report narrowed to those named, the whole record when none is (#926).
 	var err error
+	if _, cfg.Scopes, err = scopeSelection(cmd); err != nil {
+		return nil, err
+	}
+
 	if cfg.Segments, err = resolveSegments(cmd); err != nil {
 		return nil, err
 	}
@@ -231,16 +253,25 @@ func parseReconcileConfig(cmd *cobra.Command, args []string) (*ReconcileConfig, 
 // parseDecommissionConfig resolves all settings for a decommission operation.
 //
 // Parameters:
-//   - `cmd`: the decommission command, whose `--prune` flag is read; reading it panics when it is not registered.
+//   - `cmd`: the decommission command, whose `--prune` and `--scope` flags are read; reading `--prune` panics when
+//     it is not registered.
 //   - `args`: the projects the command line named, taken as given and never widened with `common`.
 //
 // Returns:
-//   - `*DecommissionConfig`: the projects, behavior flags, the prune flag, the Home target root, and empty
-//     template data.
-func parseDecommissionConfig(cmd *cobra.Command, args []string) *DecommissionConfig {
+//   - `*DecommissionConfig`: the projects, the scopes named and the scope order, behavior flags, the prune flag,
+//     the Home target root, and empty template data.
+//   - `error`: the scopes' refusal.
+func parseDecommissionConfig(cmd *cobra.Command, args []string) (*DecommissionConfig, error) {
 	cfg := &DecommissionConfig{}
 	cfg.Tool = "writ"
 	cfg.Projects = args
+
+	// The scopes: the removal narrowed to those named, every scope the record holds when none is (#926).
+	var err error
+	if _, cfg.Scopes, err = scopeSelection(cmd); err != nil {
+		return nil, err
+	}
+	cfg.ScopeOrder = scopeNames(ScopeOrder())
 
 	// Behavior flags
 	cfg.DryRun = viper.GetBool("writ.dry-run")
@@ -253,7 +284,33 @@ func parseDecommissionConfig(cmd *cobra.Command, args []string) *DecommissionCon
 	// Initialize template data (prune settings added in runDecommission if --prune)
 	cfg.TemplateData = make(map[string]any)
 
-	return cfg
+	return cfg, nil
+}
+
+// scopeSelection resolves `--scope` for a lifecycle command (#926).
+//
+// Parameters:
+//   - `cmd`: the lifecycle command, whose `--scope` flag is read.
+//
+// Returns:
+//   - `[]ScopeSpec`: the scopes selected from the layers, in scope order: every defined scope when none is named.
+//   - `[]string`: the scopes named, in lower case as the record names them; nil when none is named, which reads the
+//     whole record.
+//   - `error`: the flag's read error, or [SelectScopes]'s refusal.
+func scopeSelection(cmd *cobra.Command) ([]ScopeSpec, []string, error) {
+
+	names, err := cmd.Flags().GetStringSlice("scope")
+	if err != nil {
+		return nil, nil, err
+	}
+	selected, err := SelectScopes(names)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(names) == 0 {
+		return selected, nil, nil
+	}
+	return selected, scopeNames(selected), nil
 }
 
 // parseAdoptConfig resolves all settings for an adopt operation.
@@ -312,7 +369,8 @@ func parseAdoptConfig(cmd *cobra.Command, args []string) (*AdoptConfig, error) {
 	// Resolve layer path
 	cfg.LayerPath = filepath.Join(devlore.WritLayersDir(), cfg.Layer)
 	if _, err := os.Stat(cfg.LayerPath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("layer %q does not exist at %s\nRun 'writ self install' to create layers", cfg.Layer, cfg.LayerPath)
+		return nil, fmt.Errorf("layer %q does not exist at %s\nRun 'writ self install' to create layers",
+			cfg.Layer, cfg.LayerPath)
 	}
 	// A registered layer is a symlink into its repository, and the confined run root refuses to write through an
 	// absolute symlink ("path escapes from parent"), so adopt plans against the repository itself -- which is also

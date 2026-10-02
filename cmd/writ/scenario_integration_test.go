@@ -13,10 +13,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -82,7 +84,7 @@ func newScenarioSandbox(t *testing.T) *scenarioSandbox {
 		},
 	}
 
-	writeScopeConfig(t, filepath.Join(root, "config"), home)
+	writeScopeConfig(t, filepath.Join(root, "config"), map[string]string{"Home": home})
 
 	// Register the personal layer through the real command — the fresh-user path, dogfooded on every
 	// platform the scenario runs on.
@@ -93,7 +95,8 @@ func newScenarioSandbox(t *testing.T) *scenarioSandbox {
 	return sandbox
 }
 
-// writeScopeConfig points the sandbox's Home scope at the sandbox home.
+// writeScopeConfig points the sandbox's scopes at roots inside the sandbox: Home at the sandbox home always, and
+// any custom scope a leg defines.
 //
 // The `HOME` in the subprocess environment cannot do this. A deployment target is a home directory, and home
 // is resolved from the account database ahead of the environment — a child process's environment cannot
@@ -106,8 +109,8 @@ func newScenarioSandbox(t *testing.T) *scenarioSandbox {
 // Parameters:
 //   - `t`: the test harness.
 //   - `configHome`: the sandbox's `XDG_CONFIG_HOME`.
-//   - `home`: the sandbox home the Home scope must deploy into.
-func writeScopeConfig(t *testing.T, configHome, home string) {
+//   - `roots`: scope names to the sandbox roots they deploy beneath; Home's must be the sandbox home.
+func writeScopeConfig(t *testing.T, configHome string, roots map[string]string) {
 
 	t.Helper()
 
@@ -116,7 +119,10 @@ func writeScopeConfig(t *testing.T, configHome, home string) {
 		t.Fatal(err)
 	}
 
-	document := "writ:\n  scopes:\n    Home: " + filepath.ToSlash(home) + "\n"
+	document := "writ:\n  scopes:\n"
+	for _, name := range slices.Sorted(maps.Keys(roots)) {
+		document += "    " + name + ": " + filepath.ToSlash(roots[name]) + "\n"
+	}
 	if err := os.WriteFile(filepath.Join(directory, "config.yaml"), []byte(document), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +208,10 @@ func initializeRepo(t *testing.T, dest string) {
 	for _, args := range [][]string{
 		{"init", "--quiet", "--initial-branch=main"},
 		{"add", "-A"},
-		{"-c", "user.name=scenario", "-c", "user.email=scenario@invalid", "commit", "--quiet", "-m", "scenario baseline"},
+		{
+			"-c", "user.name=scenario", "-c", "user.email=scenario@invalid",
+			"commit", "--quiet", "-m", "scenario baseline",
+		},
 	} {
 		cmd := exec.CommandContext(context.Background(), "git", append([]string{"-C", dest}, args...)...)
 		cmd.Env = env
@@ -407,36 +416,6 @@ func runWrit(t *testing.T, sandbox *scenarioSandbox, args ...string) (stdout, st
 	return outBuffer.String(), errBuffer.String(), err
 }
 
-// TestWritDeployScenario_Harness is the phase-1 deliverable: the sandbox stands up — pristine homes, the
-// personal repo materialized, the layer registered — and the real writ binary runs green inside it.
-//
-// Parameters:
-//   - `t`: the test harness.
-func TestWritDeployScenario_Harness(t *testing.T) {
-
-	sandbox := newScenarioSandbox(t)
-
-	stdout, stderr, err := runWrit(t, sandbox, "--help")
-	if err != nil {
-		t.Fatalf("writ --help failed: %v\nstderr: %s", err, stderr)
-	}
-	if !strings.Contains(stdout, "writ") {
-		t.Fatalf("writ --help output does not mention writ:\n%s", stdout)
-	}
-
-	resolved, err := filepath.EvalSymlinks(filepath.Join(sandbox.Root, "data", "devlore", "writ", "layers", "personal"))
-	if err != nil {
-		t.Fatalf("personal layer symlink does not resolve: %v", err)
-	}
-	expected, err := filepath.EvalSymlinks(sandbox.Repo)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if resolved != expected {
-		t.Fatalf("layer symlink resolves to %s, want %s", resolved, expected)
-	}
-}
-
 // assertLinked asserts `path` is a symlink that resolves to readable content containing `want`.
 //
 // Parameters:
@@ -522,6 +501,70 @@ func segmentOS() string {
 	}
 }
 
+// reconcileTargets runs writ reconcile, which must exit 0, and returns the targets its JSON report names.
+//
+// Parameters:
+//   - `t`: the test harness, failed when reconcile fails or its report does not decode.
+//   - `sandbox`: the sandbox writ runs in.
+//   - `args`: the reconcile command line, `--output json` among it.
+//
+// Returns:
+//   - `[]string`: the targets of the report's entries.
+func reconcileTargets(t *testing.T, sandbox *scenarioSandbox, args ...string) []string {
+
+	t.Helper()
+
+	stdout, stderr, err := runWrit(t, sandbox, args...)
+	if err != nil {
+		t.Fatalf("writ %s failed: %v\nstdout: %s\nstderr: %s", strings.Join(args, " "), err, stdout, stderr)
+	}
+
+	var report struct {
+		Entries []struct {
+			Target string `json:"target"`
+		} `json:"entries"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &report); err != nil {
+		t.Fatalf("writ %s: the report is not JSON: %v\n%s", strings.Join(args, " "), err, stdout)
+	}
+
+	targets := make([]string, len(report.Entries))
+	for i, entry := range report.Entries {
+		targets[i] = entry.Target
+	}
+	return targets
+}
+
+// TestWritDeployScenario_Harness is the phase-1 deliverable: the sandbox stands up — pristine homes, the
+// personal repo materialized, the layer registered — and the real writ binary runs green inside it.
+//
+// Parameters:
+//   - `t`: the test harness.
+func TestWritDeployScenario_Harness(t *testing.T) {
+
+	sandbox := newScenarioSandbox(t)
+
+	stdout, stderr, err := runWrit(t, sandbox, "--help")
+	if err != nil {
+		t.Fatalf("writ --help failed: %v\nstderr: %s", err, stderr)
+	}
+	if !strings.Contains(stdout, "writ") {
+		t.Fatalf("writ --help output does not mention writ:\n%s", stdout)
+	}
+
+	resolved, err := filepath.EvalSymlinks(filepath.Join(sandbox.Root, "data", "devlore", "writ", "layers", "personal"))
+	if err != nil {
+		t.Fatalf("personal layer symlink does not resolve: %v", err)
+	}
+	expected, err := filepath.EvalSymlinks(sandbox.Repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved != expected {
+		t.Fatalf("layer symlink resolves to %s, want %s", resolved, expected)
+	}
+}
+
 // TestWritDeployScenario_Deploy is the phase-2 leg: deploy noblefactor and thenobles into the sandbox, then
 // assert the deployed filesystem, the reconcile report, the execution store, and a clean second deploy.
 //
@@ -574,7 +617,8 @@ func TestWritDeployScenario_Deploy(t *testing.T) {
 		assertLinked(t, filepath.Join(scenario, "shared.conf"), "thenobles (base dot-content)")
 
 		if runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
-			assertLinked(t, filepath.Join(sandbox.Home, "local", "share", "scenario", "nf-unix.conf"), "noblefactor.Unix")
+			nfUnix := filepath.Join(sandbox.Home, "local", "share", "scenario", "nf-unix.conf")
+			assertLinked(t, nfUnix, "noblefactor.Unix")
 			assertRendered(t, filepath.Join(scenario, "writ.conf"), "os = "+segmentOS(), "arch = "+runtime.GOARCH)
 		}
 		tnDarwin := filepath.Join(sandbox.Home, "local", "share", "scenario", "tn-darwin.conf")
@@ -590,7 +634,8 @@ func TestWritDeployScenario_Deploy(t *testing.T) {
 		}
 		// The selector chain (#944): common.Linux deploys on Linux; common.Debian on Debian and on every host whose
 		// os-release lineage names it (Ubuntu), and nowhere else.
-		assertPresence(t, runtime.GOOS == "linux", filepath.Join(sandbox.Home, "local", "share", "scenario", "linux.conf"))
+		linuxConf := filepath.Join(sandbox.Home, "local", "share", "scenario", "linux.conf")
+		assertPresence(t, runtime.GOOS == "linux", linuxConf)
 		debianLineage := osRelease("ID") == "debian" || contains(strings.Fields(osRelease("ID_LIKE")), "debian")
 		assertPresence(t, debianLineage, filepath.Join(sandbox.Home, "local", "share", "scenario", "debian.conf"))
 		// microsoft stays explicit-only: never deployed unless named.
@@ -669,7 +714,8 @@ func TestWritDeployScenario_Deploy(t *testing.T) {
 		minimumEntries = 4
 	}
 	if len(report.Entries) < minimumEntries {
-		t.Fatalf("reconcile reports %d entries, expected at least %d:\n%s", len(report.Entries), minimumEntries, reconcileOut)
+		t.Fatalf("reconcile reports %d entries, expected at least %d:\n%s",
+			len(report.Entries), minimumEntries, reconcileOut)
 	}
 	for _, entry := range report.Entries {
 		if entry.State != "linked" && entry.State != "copied" {
@@ -696,7 +742,8 @@ func TestWritDeployScenario_Deploy(t *testing.T) {
 		} `json:"entries"`
 	}
 	if err := json.Unmarshal([]byte(driftOut), &drifted); err != nil {
-		t.Fatalf("reconcile -o json under drift is not parseable; the report must render before the exit: %v\n%s", err, driftOut)
+		t.Fatalf("reconcile -o json under drift is not parseable; the report must render before the exit: %v\n%s",
+			err, driftOut)
 	}
 	foundAbsent := false
 	for _, entry := range drifted.Entries {
@@ -741,5 +788,62 @@ func TestWritDeployScenario_Deploy(t *testing.T) {
 	}
 	if len(tracesAfter) <= len(traces) {
 		t.Fatalf("second deploy added no trace: %d before, %d after", len(traces), len(tracesAfter))
+	}
+}
+
+// TestWritDeployScenario_Scopes is lane 7's leg (#926): a custom scope, Staging, beside Home. `--scope Home` deploys
+// Home alone; a bare deploy adds Staging; a later `--scope Home` keeps Staging in the record, because a scoped deploy
+// carries forward the scopes it does not run (open question 5, ruled 2026-10-02). The other legs leave Staging
+// undefined, so its directory in the fixture is skipped in silence there.
+//
+// Parameters:
+//   - `t`: the test harness.
+func TestWritDeployScenario_Scopes(t *testing.T) {
+
+	sandbox := newScenarioSandbox(t)
+	if os.Getenv("WRIT_SCENARIO_REPO") != "" {
+		t.Skip("Staging is the fixture's scope; a real repository carries no Staging directory")
+	}
+
+	staging := filepath.Join(sandbox.Root, "staging")
+	if err := os.MkdirAll(staging, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	roots := map[string]string{"Home": sandbox.Home, "Staging": staging}
+	writeScopeConfig(t, filepath.Join(sandbox.Root, "config"), roots)
+
+	common := filepath.Join(sandbox.Home, "local", "share", "scenario", "common.conf")
+	stagingConf := filepath.Join(staging, "scenario", "staging.conf")
+
+	if _, stderr, err := runWrit(t, sandbox, "deploy", "--scope", "Home"); err != nil {
+		t.Fatalf("writ deploy --scope Home failed: %v\n%s", err, stderr)
+	}
+	assertLinked(t, common, "project = common")
+	assertAbsent(t, stagingConf)
+
+	if _, stderr, err := runWrit(t, sandbox, "deploy"); err != nil {
+		t.Fatalf("bare writ deploy failed: %v\n%s", err, stderr)
+	}
+	assertLinked(t, stagingConf, "scope = staging")
+
+	if _, stderr, err := runWrit(t, sandbox, "deploy", "--scope", "Home"); err != nil {
+		t.Fatalf("the second writ deploy --scope Home failed: %v\n%s", err, stderr)
+	}
+	assertLinked(t, stagingConf, "scope = staging")
+
+	// Exit 0 says every entry is linked or copied; Staging's entry being there says the record kept the scope.
+	targets := reconcileTargets(t, sandbox, "reconcile", "--output", "json")
+	if !slices.Contains(targets, stagingConf) {
+		t.Errorf("deploy --scope Home dropped Staging from the record: reconcile reports %q", targets)
+	}
+	if !slices.Contains(targets, common) {
+		t.Errorf("deploy --scope Home left Home's link out of the record: reconcile reports %q", targets)
+	}
+
+	// --scope narrows reconcile to the scope named.
+	for _, target := range reconcileTargets(t, sandbox, "reconcile", "--scope", "Staging", "--output", "json") {
+		if !strings.HasPrefix(target, staging) {
+			t.Errorf("reconcile --scope Staging reported %s, outside Staging", target)
+		}
 	}
 }

@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
@@ -33,6 +34,14 @@ type Config struct {
 	// Projects selects the projects whose deployed files are removed; empty removes nothing (the command
 	// requires at least one project).
 	Projects []string
+
+	// Scopes narrows the removal to the scopes `--scope` named, in lower case; empty removes the selected projects'
+	// entries in every scope the record holds (#926).
+	Scopes []string
+
+	// ScopeOrder is every scope this platform defines, in scope order and in lower case: the order the per-scope
+	// removals run in (#926).
+	ScopeOrder []string
 
 	// Prune removes now-empty parent directories after file removal, bounded at each scope's target root.
 	Prune bool
@@ -73,7 +82,11 @@ func Execute(ctx context.Context, cfg *Config) (graphs []*op.Graph, err error) {
 		return nil, err
 	}
 
-	selected := selectEntries(inventory, cfg.Projects)
+	selected := selectEntries(inventory, cfg.Projects, cfg.Scopes)
+	if len(selected) == 0 && len(cfg.Scopes) > 0 {
+		return nil, fmt.Errorf("no deployed files found for projects %v in scopes %v; cannot decommission without "+
+			"deployment history", cfg.Projects, cfg.Scopes)
+	}
 	if len(selected) == 0 {
 		return nil, fmt.Errorf(
 			"no deployed files found for projects %v; cannot decommission without deployment history", cfg.Projects)
@@ -91,12 +104,11 @@ func Execute(ctx context.Context, cfg *Config) (graphs []*op.Graph, err error) {
 	return nil, runAll(ctx, cfg, graphs, lifetime)
 }
 
-// buildScopeGraphs groups the entries by scope and assembles one removal graph per scope, in removal
-// priority order.
+// buildScopeGraphs groups the entries by scope and assembles one removal graph per scope, in scope order.
 //
 // Parameters:
 //   - `ctx`: the planning context.
-//   - `cfg`: the decommission configuration.
+//   - `cfg`: the decommission configuration, whose [Config.ScopeOrder] orders the graphs.
 //   - `selected`: the deployed entries selected for removal.
 //
 // Returns:
@@ -111,7 +123,7 @@ func buildScopeGraphs(ctx context.Context, cfg *Config, selected []readback.Entr
 	}
 
 	var graphs []*op.Graph
-	for _, scope := range scopesInOrder(byScope) {
+	for _, scope := range scopesInOrder(byScope, cfg.ScopeOrder) {
 		graph, err := buildScopeGraph(ctx, cfg, scope, byScope[scope])
 		if err != nil {
 			return nil, err
@@ -178,7 +190,8 @@ func buildScopeGraph(
 
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Target < entries[j].Target })
 
-	return op.Plan(ctx, removalSpec(targetRoot, cfg.DryRun), func(environment *op.RuntimeEnvironment) (*op.Graph, error) {
+	spec := removalSpec(targetRoot, cfg.DryRun)
+	return op.Plan(ctx, spec, func(environment *op.RuntimeEnvironment) (*op.Graph, error) {
 
 		provider := plan.NewProvider(environment)
 		fileMetas := make(map[string]any, len(entries))
@@ -283,7 +296,9 @@ func runGraph(ctx context.Context, cfg *Config, graph *op.Graph, lifetime *cli.L
 	_, runErr := executor.Run(ctx, nil)
 
 	if trace := executor.Trace(); trace != nil {
-		if receiptPath, writeErr := cli.WriteLifetimeTrace(lifetime, cli.RunOperationDecommission, trace); writeErr != nil {
+		scope := graph.Origin().Scope()
+		receiptPath, writeErr := cli.WriteLifetimeTrace(lifetime, cli.RunOperationDecommission, scope, trace)
+		if writeErr != nil {
 			cli.Warn("failed to write receipt: %v", writeErr)
 		} else if cfg.Verbose {
 			cli.Note("Receipt: %s", receiptPath)
@@ -324,15 +339,16 @@ func removalSpec(root string, dryRun bool) *op.RuntimeEnvironmentSpec {
 		})
 }
 
-// selectEntries filters the folded inventory to the requested projects.
+// selectEntries filters the folded inventory to the requested projects, and to the named scopes when there are any.
 //
 // Parameters:
 //   - `inventory`: the readback fold.
 //   - `projects`: the projects to select; empty selects nothing.
+//   - `scopes`: the scopes to select, in lower case; empty selects every entry of the projects (#926).
 //
 // Returns:
 //   - `[]readback.Entry`: the selected entries, unordered.
-func selectEntries(inventory *readback.Inventory, projects []string) []readback.Entry {
+func selectEntries(inventory *readback.Inventory, projects, scopes []string) []readback.Entry {
 
 	wanted := make(map[string]bool, len(projects))
 	for _, p := range projects {
@@ -342,46 +358,28 @@ func selectEntries(inventory *readback.Inventory, projects []string) []readback.
 	var selected []readback.Entry
 	//nolint:gocritic // rangeValCopy: map values are unaddressable; the per-iteration copy is the read.
 	for _, entry := range inventory.Entries {
-		if wanted[entry.Project] {
+		if wanted[entry.Project] && entry.InScopes(scopes) {
 			selected = append(selected, entry)
 		}
 	}
 	return selected
 }
 
-// scopeOrder defines removal priority: System first, then Home, then unscoped.
-var scopeOrder = map[string]int{
-	"system": 0,
-	"home":   1,
-}
-
-// scopesInOrder returns the populated scopes in deterministic removal order.
+// scopesInOrder returns the populated scopes in removal order, which is scope order.
 //
 // Parameters:
 //   - `byScope`: the entries grouped by scope.
+//   - `order`: the scopes this platform defines, in scope order; see [readback.CompareScopes].
 //
 // Returns:
-//   - `[]string`: the scopes — system, home, then the rest lexically.
-func scopesInOrder(byScope map[string][]readback.Entry) []string {
+//   - `[]string`: the scopes this platform defines, in scope order; then any other, by name; then unscoped.
+func scopesInOrder(byScope map[string][]readback.Entry, order []string) []string {
 
 	scopes := make([]string, 0, len(byScope))
 	for scope := range byScope {
 		scopes = append(scopes, scope)
 	}
-	sort.Slice(scopes, func(i, j int) bool {
-		oi, ok := scopeOrder[scopes[i]]
-		if !ok {
-			oi = len(scopeOrder)
-		}
-		oj, ok := scopeOrder[scopes[j]]
-		if !ok {
-			oj = len(scopeOrder)
-		}
-		if oi != oj {
-			return oi < oj
-		}
-		return scopes[i] < scopes[j]
-	})
+	slices.SortFunc(scopes, readback.CompareScopes(order))
 	return scopes
 }
 

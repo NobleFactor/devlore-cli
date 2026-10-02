@@ -59,7 +59,8 @@ Conflict handling (--conflict) — occupied targets (phase-8 step 49):
 	}
 
 	cmd.Flags().StringP("conflict", "c", "stop", "Occupied-target policy: stop, skip, replace")
-	cmd.Flags().StringArrayP("segment", "s", nil, "Set a segment's value, NAME=value (repeatable); an extra must be declared in writ.segments")
+	cmd.Flags().StringArrayP("segment", "s", nil,
+		"Set a segment's value, NAME=value (repeatable); an extra must be declared in writ.segments")
 	cmd.Flags().Bool("allow-dirty", false, "Allow planning against layers with uncommitted changes")
 	cmd.Flags().StringSlice("scope", nil, scopeFlagUsage)
 
@@ -100,6 +101,8 @@ func runDeployV2(cmd *cobra.Command, args []string) error {
 		SourceRoot:   cfg.SourceRoot,
 		TargetRoot:   cfg.TargetRoot,
 		LayerSources: cfg.LayerSources,
+		ScopeOrder:   cfg.ScopeOrder,
+		Scopes:       cfg.Scopes,
 		Projects:     cfg.Projects,
 		Segments:     cfg.Segments,
 		Vars:         cfg.TemplateData,
@@ -177,16 +180,22 @@ Signature-gated safety (refusing unsigned state) arrives with graph signing (ste
 //   - `args`: the project names given on the command line.
 //
 // Returns:
-//   - `error`: [decommission.Execute]'s error, or the plan's rendering error under `--dry-run`; nil when done.
+//   - `error`: a refusal from parsing, [decommission.Execute]'s error, or the plan's rendering error under
+//     `--dry-run`; nil when done.
 func runDecommission(cmd *cobra.Command, args []string) error {
 
-	cfg := parseDecommissionConfig(cmd, args)
+	cfg, err := parseDecommissionConfig(cmd, args)
+	if err != nil {
+		return err
+	}
 
 	graphs, err := decommission.Execute(cmd.Context(), &decommission.Config{
-		Projects: cfg.Projects,
-		Prune:    cfg.Prune,
-		DryRun:   cfg.DryRun,
-		Verbose:  cfg.Verbose,
+		Projects:   cfg.Projects,
+		Scopes:     cfg.Scopes,
+		ScopeOrder: cfg.ScopeOrder,
+		Prune:      cfg.Prune,
+		DryRun:     cfg.DryRun,
+		Verbose:    cfg.Verbose,
 	})
 	if err != nil {
 		return err
@@ -228,7 +237,8 @@ entries cannot be compared without decrypting and follow the same --force rule.`
 	}
 
 	cmd.Flags().Bool("force", false, "Overwrite locally modified files without prompting")
-	cmd.Flags().StringArrayP("segment", "s", nil, "Set a segment's value, NAME=value (repeatable); an extra must be declared in writ.segments")
+	cmd.Flags().StringArrayP("segment", "s", nil,
+		"Set a segment's value, NAME=value (repeatable); an extra must be declared in writ.segments")
 	cmd.Flags().StringSlice("scope", nil, scopeFlagUsage)
 
 	return cmd
@@ -251,12 +261,14 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	}
 
 	graphs, err := upgrade.Execute(cmd.Context(), &upgrade.Config{
-		Projects: cfg.Projects,
-		Force:    cfg.Force,
-		Segments: cfg.Segments,
-		Vars:     cfg.TemplateData,
-		DryRun:   cfg.DryRun,
-		Verbose:  cfg.Verbose,
+		Projects:   cfg.Projects,
+		Scopes:     cfg.Scopes,
+		ScopeOrder: cfg.ScopeOrder,
+		Force:      cfg.Force,
+		Segments:   cfg.Segments,
+		Vars:       cfg.TemplateData,
+		DryRun:     cfg.DryRun,
+		Verbose:    cfg.Verbose,
 	})
 	if err != nil {
 		return err
@@ -306,7 +318,8 @@ Exit status -- the answer, gateable like git diff --exit-code (#756):
 		RunE: runReconcile,
 	}
 
-	cmd.Flags().StringArrayP("segment", "s", nil, "Set a segment's value, NAME=value (repeatable); an extra must be declared in writ.segments")
+	cmd.Flags().StringArrayP("segment", "s", nil,
+		"Set a segment's value, NAME=value (repeatable); an extra must be declared in writ.segments")
 	cmd.Flags().StringSlice("scope", nil, scopeFlagUsage)
 
 	return cmd
@@ -330,6 +343,7 @@ func runReconcile(cmd *cobra.Command, args []string) error {
 
 	report, err := reconcile.BuildReport(cmd.Context(), &reconcile.Config{
 		Projects: cfg.Projects,
+		Scopes:   cfg.Scopes,
 		Verbose:  cfg.Verbose,
 		Segments: cfg.Segments,
 		Vars:     cfg.TemplateData,

@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 
@@ -39,6 +40,14 @@ type Config struct {
 
 	// LayerSources are the layer sources for multi-source mode; each carries its own target scope and root.
 	LayerSources []tree.LayerSource
+
+	// ScopeOrder is every scope this platform defines, in scope order and in lower case: the order the per-scope
+	// graphs run in (#926).
+	ScopeOrder []string
+
+	// Scopes is the scopes `--scope` named, in lower case; none when the deploy runs every scope. The lifetime the
+	// deploy writes carries forward the current one's runs for every other scope (#926; see [cli.NextLifetime]).
+	Scopes []string
 
 	// Projects selects the projects to deploy (e.g. ["all", "noblefactor"]).
 	Projects []string
@@ -122,16 +131,21 @@ func Execute(ctx context.Context, cfg *Config) (graphs []*op.Graph, err error) {
 		return build.Graphs, nil
 	}
 
-	sortGraphsByScope(build.Graphs)
+	sortGraphsByScope(build.Graphs, cfg.ScopeOrder)
 
 	runPolicy, err := preflightConflicts(ctx, cfg, build.Graphs)
 	if err != nil {
 		return nil, err
 	}
 
-	// Deploy replaces the record (#913): this invocation is one lifetime across every scope it runs (#922), minted
-	// after pre-flight -- which read the lifetime being replaced -- and reaching the store with its first trace.
-	return nil, runAll(ctx, cfg, build.Graphs, runPolicy, cli.NewLifetime())
+	// Deploy replaces the record (#913) by writing its next generation (#926): a new lifetime from the current one's
+	// runs, carrying forward the scopes this deploy was not asked to run, minted after pre-flight -- which read the
+	// lifetime being replaced -- and reaching the store with its first trace.
+	current, err := cli.CurrentLifetime()
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	return nil, runAll(ctx, cfg, build.Graphs, runPolicy, cli.NextLifetime(current, cfg.Scopes))
 }
 
 // runAll executes every graph under the run policy, collecting per-scope failures.
@@ -239,7 +253,9 @@ func runGraph(
 	_, runErr := executor.Run(ctx, nil)
 
 	if trace := executor.Trace(); trace != nil {
-		if receiptPath, writeErr := cli.WriteLifetimeTrace(lifetime, cli.RunOperationDeploy, trace); writeErr != nil {
+		scope := graph.Origin().Scope()
+		receiptPath, writeErr := cli.WriteLifetimeTrace(lifetime, cli.RunOperationDeploy, scope, trace)
+		if writeErr != nil {
 			cli.Warn("failed to write receipt: %v", writeErr)
 		} else if cfg.Verbose {
 			cli.Note("Receipt: %s", receiptPath)
@@ -264,10 +280,10 @@ func runGraph(
 // writ's own unmodified outputs — an occupant that is what the record wrote, [readback.Entry.AsRecorded]: a
 // symlink whose literal endpoint is the recorded source, resolved or dangling, or a file whose digest is the
 // recorded as-deployed identity — are cleared for replacement (redeploys flow, and a file that moved between
-// layers is re-pointed, #883); anything foreign or locally modified is a violation, and the deploy refuses listing them and naming the flag. A cleared run (or an
-// explicit `skip` / `replace`) hands the resolved policy to the file provider's write seam, which enforces it
-// per target. A missing run index reads as zero knowledge (every occupant is foreign) — first deploys onto a
-// clean machine have no occupants, so nothing refuses.
+// layers is re-pointed, #883); anything foreign or locally modified is a violation, and the deploy refuses, listing
+// them and naming the flag. A cleared run (or an explicit `skip` / `replace`) hands the resolved policy to the file
+// provider's write seam, which enforces it per target. A missing run index reads as zero knowledge (every occupant
+// is foreign) — first deploys onto a clean machine have no occupants, so nothing refuses.
 //
 // Parameters:
 //   - `ctx`: the context for the readback fold.
@@ -367,28 +383,16 @@ func scopeLabel(graph *op.Graph) string {
 	return "default"
 }
 
-// scopeOrder defines the execution priority for target scopes: System first (root-confined), then Home.
-var scopeOrder = map[string]int{
-	"system": 0,
-	"home":   1,
-}
-
-// sortGraphsByScope sorts graphs into deterministic execution order: system, then home, then unscoped.
+// sortGraphsByScope sorts graphs into scope order, the order they run in (#926).
 //
 // Parameters:
-//   - `graphs`: the graphs to sort in place.
-func sortGraphsByScope(graphs []*op.Graph) {
+//   - `graphs`: the graphs to sort in place, each by its origin's scope.
+//   - `order`: the scopes this platform defines, in scope order; see [readback.CompareScopes].
+func sortGraphsByScope(graphs []*op.Graph, order []string) {
 
-	sort.SliceStable(graphs, func(i, j int) bool {
-		oi, ok := scopeOrder[graphs[i].Origin().Scope()]
-		if !ok {
-			oi = len(scopeOrder)
-		}
-		oj, ok := scopeOrder[graphs[j].Origin().Scope()]
-		if !ok {
-			oj = len(scopeOrder)
-		}
-		return oi < oj
+	compare := readback.CompareScopes(order)
+	slices.SortStableFunc(graphs, func(a, b *op.Graph) int {
+		return compare(a.Origin().Scope(), b.Origin().Scope())
 	})
 }
 

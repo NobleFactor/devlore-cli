@@ -16,6 +16,28 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/xdg"
 )
 
+// --- helpers ---
+
+// isolateDevloreHomes points every XDG base directory at a fresh temporary directory for one test, and resets viper
+// when the test ends.
+//
+// Parameters:
+//   - `t`: the test harness.
+//
+// Returns:
+//   - `string`: the temporary directory holding the four homes.
+func isolateDevloreHomes(t *testing.T) string {
+
+	t.Helper()
+
+	root := t.TempDir()
+	for _, home := range []string{"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"} {
+		t.Setenv(home, filepath.Join(root, home))
+	}
+	t.Cleanup(viper.Reset)
+	return root
+}
+
 // TestRoot_KeepsTheOutputConvention pins the root registration through the shared checkers: every command
 // inherits the common set from the root, none shadows an inherited flag or binds a reserved name, and the
 // set on the root is the shared root's (10-command-line-interface.md §4, §14).
@@ -203,26 +225,4 @@ func TestRoot_RefusesUndefinedBuiltinScopeKey(t *testing.T) {
 	if !strings.Contains(err.Error(), "ProgramFiles") {
 		t.Errorf("the refusal does not name ProgramFiles: %v", err)
 	}
-}
-
-// --- helpers ---
-
-// isolateDevloreHomes points every XDG base directory at a fresh temporary directory for one test, and resets viper
-// when the test ends.
-//
-// Parameters:
-//   - `t`: the test harness.
-//
-// Returns:
-//   - `string`: the temporary directory holding the four homes.
-func isolateDevloreHomes(t *testing.T) string {
-
-	t.Helper()
-
-	root := t.TempDir()
-	for _, home := range []string{"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"} {
-		t.Setenv(home, filepath.Join(root, home))
-	}
-	t.Cleanup(viper.Reset)
-	return root
 }

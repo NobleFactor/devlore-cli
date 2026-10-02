@@ -108,7 +108,10 @@ func newJourney(t *testing.T) *journey {
 		t.Fatal(err)
 	}
 	home := filepath.Join(root, "home")
-	for _, dir := range []string{home, filepath.Join(root, "config"), filepath.Join(root, "state"), filepath.Join(root, "data"), filepath.Join(root, "cache"), filepath.Join(root, "remotes")} {
+	for _, dir := range []string{
+		home, filepath.Join(root, "config"), filepath.Join(root, "state"), filepath.Join(root, "data"),
+		filepath.Join(root, "cache"), filepath.Join(root, "remotes"),
+	} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
@@ -129,7 +132,7 @@ func newJourney(t *testing.T) *journey {
 			"TMPDIR=" + os.TempDir(),
 		},
 	}
-	writeScopeConfig(t, filepath.Join(root, "config"), home)
+	writeScopeConfig(t, filepath.Join(root, "config"), map[string]string{"Home": home})
 
 	j := &journey{sandbox: sandbox, layers: map[string]*journeyLayer{}}
 	for _, fixture := range layerFixtures {
@@ -177,7 +180,8 @@ func materializeLayer(t *testing.T, layer *journeyLayer) {
 		if err := os.MkdirAll(bridgeDir, 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.Symlink(filepath.Join("..", "..", ".local", "bin", "Declare-BashScript"), filepath.Join(bridgeDir, "Declare-BashScript")); err != nil {
+		bridgeLink := filepath.Join(bridgeDir, "Declare-BashScript")
+		if err := os.Symlink(filepath.Join("..", "..", ".local", "bin", "Declare-BashScript"), bridgeLink); err != nil {
 			t.Fatalf("bridge symlink: %v", err)
 		}
 	}
@@ -221,7 +225,9 @@ func gitIn(t *testing.T, dir string, args ...string) {
 	t.Helper()
 
 	cmd := exec.CommandContext(context.Background(), "git", append([]string{"-C", dir}, args...)...)
-	cmd.Env = append(isolatedGitEnv(t), "GIT_AUTHOR_NAME=scenario", "GIT_AUTHOR_EMAIL=scenario@invalid", "GIT_COMMITTER_NAME=scenario", "GIT_COMMITTER_EMAIL=scenario@invalid")
+	cmd.Env = append(isolatedGitEnv(t),
+		"GIT_AUTHOR_NAME=scenario", "GIT_AUTHOR_EMAIL=scenario@invalid",
+		"GIT_COMMITTER_NAME=scenario", "GIT_COMMITTER_EMAIL=scenario@invalid")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("git %v in %s: %v\n%s", args, dir, err, output)
 	}
@@ -449,7 +455,8 @@ func (j *journey) reconcile(t *testing.T) map[string][]string {
 		}
 	}
 	if (err != nil) != (drift > 0) {
-		t.Fatalf("writ reconcile exited %d with %d drifted entries; the code must be 1 exactly when there is drift (#756)\n%s",
+		t.Fatalf("writ reconcile exited %d with %d drifted entries; "+
+			"the code must be 1 exactly when there is drift (#756)\n%s",
 			exitCodeOf(t, err), drift, summarize(byState))
 	}
 	return byState
@@ -775,12 +782,16 @@ func (j *journey) applyMove(t *testing.T) []string {
 
 	// The context scripts stop sourcing it (the state personal#174 left them in; the ruling that every bash
 	// script sources it is held on noblefactor-ops#147 and does not change what the move did).
-	for _, relative := range []string{filepath.Join("Home", "thenobles.Darwin", "local", "bin", "tn"), filepath.Join("Home", "microsoft.Unix", "local", "bin", "ms")} {
+	for _, relative := range []string{
+		filepath.Join("Home", "thenobles.Darwin", "local", "bin", "tn"),
+		filepath.Join("Home", "microsoft.Unix", "local", "bin", "ms"),
+	} {
 		makeSelfContained(t, filepath.Join(repo, relative))
 	}
 
 	gitIn(t, repo, "add", "-A")
-	gitIn(t, repo, "commit", "--quiet", "-m", "the move: noblefactor-ops takes the foundation; consumers say so by project")
+	gitIn(t, repo, "commit", "--quiet", "-m",
+		"the move: noblefactor-ops takes the foundation; consumers say so by project")
 	gitIn(t, repo, "push", "--quiet", "origin", "HEAD:main")
 
 	sort.Strings(gone)
@@ -836,7 +847,8 @@ func makeSelfContained(t *testing.T, path string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	text := strings.ReplaceAll(string(data), "\r\n", "\n") // a Windows checkout may have rewritten the fixture's line endings
+	// A Windows checkout may have rewritten the fixture's line endings.
+	text := strings.ReplaceAll(string(data), "\r\n", "\n")
 	preamble := `set -o errexit -o nounset -o pipefail
 
 script_name="$(basename "$0")" && readonly script_name
@@ -874,7 +886,8 @@ if ! script_arguments=$(getopt -n "${script_name}" -o "h" --long "help" -- "$@" 
 fi
 readonly script_arguments
 `
-	pattern := regexp.MustCompile(`# shellcheck source=Declare-BashScript\nsource "\$\(dirname "\$0"\)/Declare-BashScript" "\$0" "help" "h" "\$@"\n`)
+	pattern := regexp.MustCompile(`# shellcheck source=Declare-BashScript\n` +
+		`source "\$\(dirname "\$0"\)/Declare-BashScript" "\$0" "help" "h" "\$@"\n`)
 	if !pattern.MatchString(text) {
 		t.Fatalf("%s does not carry the standard source lines", path)
 	}
@@ -886,6 +899,42 @@ readonly script_arguments
 // ---------------------------------------------------------------------------------------------------------
 // The scenario
 // ---------------------------------------------------------------------------------------------------------
+
+// assertPresence asserts a path exists when want is true and is absent when it is false.
+//
+// Parameters:
+//   - `t`: the test harness; it fails when the presence of `path` differs from `want`.
+//   - `want`: true when `path` must exist, false when it must be absent.
+//   - `path`: the path checked with Lstat, so a dangling symlink counts as present.
+func assertPresence(t *testing.T, want bool, path string) {
+
+	t.Helper()
+
+	_, err := os.Lstat(path)
+	switch {
+	case want && err != nil:
+		t.Fatalf("expected %s to be deployed: %v", path, err)
+	case !want && err == nil:
+		t.Fatalf("expected nothing at %s", path)
+	}
+}
+
+// summarize renders reconcile states as counts.
+//
+// Parameters:
+//   - `states`: reconcile's targets keyed by state.
+//
+// Returns:
+//   - `string`: one state=count pair per state, sorted and space-separated.
+func summarize(states map[string][]string) string {
+
+	var parts []string
+	for state, targets := range states {
+		parts = append(parts, fmt.Sprintf("%s=%d", state, len(targets)))
+	}
+	sort.Strings(parts)
+	return strings.Join(parts, " ")
+}
 
 // TestWritLayerJourneyScenario_Harness is Phase 1's deliverable: three layers materialized and named, each
 // with a working tree and a bare remote, and the binary answering inside the sandbox.
@@ -954,7 +1003,8 @@ func TestWritLayerJourneyScenario_Part0_SelfInstall(t *testing.T) {
 			placeholders = append(placeholders, entry.Name())
 		}
 		if len(placeholders) > 0 {
-			j.skip(t, issueSelfInstallPlaceholders, fmt.Sprintf("self install left placeholder registrations %v", placeholders))
+			j.skip(t, issueSelfInstallPlaceholders,
+				fmt.Sprintf("self install left placeholder registrations %v", placeholders))
 		}
 		stdout, stderr, err := runWrit(t, j.sandbox, "repo", "list", "-o", "json")
 		if err != nil {
@@ -1021,7 +1071,8 @@ func TestWritLayerJourneyScenario_Part1_RepoSet(t *testing.T) {
 	if err := os.MkdirAll(stray, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if _, stderr, err := runWrit(t, j.sandbox, "repo", "set", "personal", stray); err == nil || !strings.Contains(stderr, "not-a-repository") {
+	if _, stderr, err := runWrit(t, j.sandbox, "repo", "set", "personal", stray); err == nil ||
+		!strings.Contains(stderr, "not-a-repository") {
 		t.Fatalf("repo set accepted a non-repository or did not name it:\n%s", stderr)
 	}
 
@@ -1040,7 +1091,10 @@ func TestWritLayerJourneyScenario_Part1_RepoSet(t *testing.T) {
 //   - `t`: the test harness.
 func TestWritLayerJourneyScenario_Part1_Subsets(t *testing.T) {
 
-	subsets := [][]string{{"base"}, {"team"}, {"personal"}, {"base", "team"}, {"base", "personal"}, {"team", "personal"}, {"base", "team", "personal"}}
+	subsets := [][]string{
+		{"base"}, {"team"}, {"personal"}, {"base", "team"}, {"base", "personal"}, {"team", "personal"},
+		{"base", "team", "personal"},
+	}
 	for i, subset := range subsets {
 		subset := subset
 		t.Run(strings.Join(subset, "+"), func(t *testing.T) {
@@ -1060,7 +1114,8 @@ func TestWritLayerJourneyScenario_Part1_Subsets(t *testing.T) {
 			// common* from each registered layer, and nothing from an unregistered one
 			assertPresence(t, has("base"), filepath.Join(home, ".local", "bin", "git-scenario"))
 			assertPresence(t, has("team"), filepath.Join(home, ".config", "scenario", "team.conf"))
-			assertPresence(t, has("base") || has("personal"), filepath.Join(home, ".local", "bin", "Declare-BashScript"))
+			assertPresence(t, has("base") || has("personal"),
+				filepath.Join(home, ".local", "bin", "Declare-BashScript"))
 			assertPresence(t, has("personal"), filepath.Join(home, ".config", "scenario", "personal.conf"))
 			// the repository-named project: personal's Home/devlore-cli deploys only when devlore-cli is a layer (#850)
 			wantOverrides := has("personal") && has("team")
@@ -1071,25 +1126,6 @@ func TestWritLayerJourneyScenario_Part1_Subsets(t *testing.T) {
 				t.Logf("base alone from an empty sandbox deployed: #477's proof that deploying base needs no base")
 			}
 		})
-	}
-}
-
-// assertPresence asserts a path exists when want is true and is absent when it is false.
-//
-// Parameters:
-//   - `t`: the test harness; it fails when the presence of `path` differs from `want`.
-//   - `want`: true when `path` must exist, false when it must be absent.
-//   - `path`: the path checked with Lstat, so a dangling symlink counts as present.
-func assertPresence(t *testing.T, want bool, path string) {
-
-	t.Helper()
-
-	_, err := os.Lstat(path)
-	switch {
-	case want && err != nil:
-		t.Fatalf("expected %s to be deployed: %v", path, err)
-	case !want && err == nil:
-		t.Fatalf("expected nothing at %s", path)
 	}
 }
 
@@ -1113,7 +1149,8 @@ func TestWritLayerJourneyScenario_Part2_Deploy(t *testing.T) {
 		// At A personal still carries the helper, so it and its three assets collide with the base's — personal
 		// wins, and writ says so (#470). The bare form itself is #843/#850; the shim names the set until then.
 		if !j.caps.bareDeploy {
-			t.Logf("2.1 bare `writ deploy` needs #%d/#%d; the shim names the set", issueBareDeploy, issueImplicitProjects)
+			t.Logf("2.1 bare `writ deploy` needs #%d/#%d; the shim names the set",
+				issueBareDeploy, issueImplicitProjects)
 		}
 		_, stderr, err := j.deploy(t, nil, "noblefactor")
 		if err != nil {
@@ -1184,14 +1221,16 @@ func TestWritLayerJourneyScenario_Part2_Deploy(t *testing.T) {
 		states := j.reconcile(t)
 		for state := range states {
 			if state != "linked" && state != "copied" {
-				t.Fatalf("reconcile reports %d entries in state %q after a clean deploy: %v", len(states[state]), state, states[state])
+				t.Fatalf("reconcile reports %d entries in state %q after a clean deploy: %v",
+					len(states[state]), state, states[state])
 			}
 		}
 	})
 
 	t.Run("2.6 a bare deploy keeps thenobles", func(t *testing.T) {
 		if !j.caps.bareDeploy {
-			j.skip(t, issueImplicitProjects, "deploy adds a named project to the machine's selection and a later bare deploy keeps it")
+			j.skip(t, issueImplicitProjects,
+				"deploy adds a named project to the machine's selection and a later bare deploy keeps it")
 		}
 		if _, stderr, err := j.deploy(t, nil); err != nil {
 			t.Fatalf("bare redeploy failed: %v\n%s", err, stderr)
@@ -1201,14 +1240,16 @@ func TestWritLayerJourneyScenario_Part2_Deploy(t *testing.T) {
 
 	t.Run("2.7-2.8 decommission", func(t *testing.T) {
 		if !j.caps.decommissionAll {
-			j.skip(t, issueDecommission, "decommission re-converges after a named removal and refuses implicit projects by name")
+			j.skip(t, issueDecommission,
+				"decommission re-converges after a named removal and refuses implicit projects by name")
 		}
 		if _, stderr, err := runWrit(t, j.sandbox, "decommission", "thenobles"); err != nil {
 			t.Fatalf("decommission thenobles: %v\n%s", err, stderr)
 		}
 		assertAbsent(t, filepath.Join(home, ".config", "scenario", "tn.conf"))
 		for _, name := range []string{"common", "noblefactor-ops"} {
-			if _, stderr, err := runWrit(t, j.sandbox, "decommission", name); err == nil || !strings.Contains(stderr, "repo unset") {
+			if _, stderr, err := runWrit(t, j.sandbox, "decommission", name); err == nil ||
+				!strings.Contains(stderr, "repo unset") {
 				t.Fatalf("decommission %s must be refused, pointing at writ repo unset:\n%s", name, stderr)
 			}
 		}
@@ -1263,7 +1304,8 @@ func TestWritLayerJourneyScenario_Part3_Move(t *testing.T) {
 			sort.Strings(expected)
 			got := dangling(after)
 			if strings.Join(got, "\n") != strings.Join(expected, "\n") {
-				t.Fatalf("dangling after the move:\n  got  %d: %v\n  want %d: %v\n(moved or deleted in the repository: %d paths)", len(got), got, len(expected), expected, len(gone))
+				t.Fatalf("dangling after the move:\n  got  %d: %v\n  want %d: %v\n"+
+					"(moved or deleted in the repository: %d paths)", len(got), got, len(expected), expected, len(gone))
 			}
 			if len(got) == 0 {
 				t.Fatal("the move dangled nothing; the fixture no longer carries the dependency it is meant to move")
@@ -1281,7 +1323,8 @@ func TestWritLayerJourneyScenario_Part3_Move(t *testing.T) {
 			if _, stderr, err := j.deploy(t, []string{"--dry-run", "-o", "none"}); err != nil {
 				t.Fatalf("dry run failed: %v\n%s", err, stderr)
 			} else if strings.Contains(stderr, "occupied") || strings.Contains(stderr, "refusing") {
-				t.Fatalf("the dry run now reports the pre-flight — #%d has landed; update this step:\n%s", issueDryRunPreflight, stderr)
+				t.Fatalf("the dry run now reports the pre-flight — #%d has landed; update this step:\n%s",
+					issueDryRunPreflight, stderr)
 			}
 
 			// 3.3 the redeploy, under the default policy (#883): the dangling links are what the record wrote, so
@@ -1317,7 +1360,8 @@ func TestWritLayerJourneyScenario_Part3_Move(t *testing.T) {
 				}
 			}
 			if len(orphans) != oldTree {
-				t.Fatalf("expected the %d old ~/local links to remain as orphans (#%d); found %d: %v", oldTree, issueOrphans, len(orphans), orphans)
+				t.Fatalf("expected the %d old ~/local links to remain as orphans (#%d); found %d: %v",
+					oldTree, issueOrphans, len(orphans), orphans)
 			}
 
 			// 3.4 / 3.5 the redeploy replaced the record (#922): the moved-away targets, the orphans, belong to the
@@ -1335,13 +1379,15 @@ func TestWritLayerJourneyScenario_Part3_Move(t *testing.T) {
 			for state, paths := range states {
 				for _, path := range paths {
 					if slices.Contains(orphans, path) {
-						t.Fatalf("the record still mentions a moved-away target after the redeploy replaced it (#922): %s is %s",
+						t.Fatalf("the record still mentions a moved-away target after the redeploy "+
+							"replaced it (#922): %s is %s",
 							path, state)
 					}
 				}
 			}
 			if got := len(states["missing"]); got != 0 {
-				t.Fatalf("reconcile reports %d missing after the redeploy; the replaced lifetime's targets are not in the record (#922): %v",
+				t.Fatalf("reconcile reports %d missing after the redeploy; "+
+					"the replaced lifetime's targets are not in the record (#922): %v",
 					got, summarize(states))
 			}
 
@@ -1352,11 +1398,13 @@ func TestWritLayerJourneyScenario_Part3_Move(t *testing.T) {
 
 			// 3.7 a file outside Home/ forces --allow-dirty (#852)
 			repo := j.registeredPath("personal")
-			if err := os.WriteFile(filepath.Join(repo, "Inventory", "x"), []byte("dirty outside Home\n"), 0o644); err != nil {
+			inventoryFile := filepath.Join(repo, "Inventory", "x")
+			if err := os.WriteFile(inventoryFile, []byte("dirty outside Home\n"), 0o644); err != nil {
 				t.Fatal(err)
 			}
 			if _, stderr, err := j.deploy(t, nil); err == nil {
-				t.Fatalf("deploy accepted a dirty repository without --allow-dirty — #%d has landed; update this step", issueDirtyAtRoot)
+				t.Fatalf("deploy accepted a dirty repository without --allow-dirty — #%d has landed; "+
+					"update this step", issueDirtyAtRoot)
 			} else if !strings.Contains(stderr, "uncommitted changes") {
 				t.Fatalf("expected the dirty refusal, got: %v\n%s", err, stderr)
 			}
@@ -1365,21 +1413,4 @@ func TestWritLayerJourneyScenario_Part3_Move(t *testing.T) {
 			}
 		})
 	}
-}
-
-// summarize renders reconcile states as counts.
-//
-// Parameters:
-//   - `states`: reconcile's targets keyed by state.
-//
-// Returns:
-//   - `string`: one state=count pair per state, sorted and space-separated.
-func summarize(states map[string][]string) string {
-
-	var parts []string
-	for state, targets := range states {
-		parts = append(parts, fmt.Sprintf("%s=%d", state, len(targets)))
-	}
-	sort.Strings(parts)
-	return strings.Join(parts, " ")
 }

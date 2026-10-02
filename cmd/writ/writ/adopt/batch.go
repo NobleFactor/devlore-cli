@@ -174,7 +174,9 @@ func runBatch(ctx context.Context, cfg *Config, lifetime *cli.Lifetime, root str
 	_, runErr := executor.Run(ctx, nil)
 
 	if trace := executor.Trace(); trace != nil {
-		if receiptPath, writeErr := cli.WriteLifetimeTrace(lifetime, cli.RunOperationAdopt, trace); writeErr != nil {
+		scope := graph.Origin().Scope()
+		receiptPath, writeErr := cli.WriteLifetimeTrace(lifetime, cli.RunOperationAdopt, scope, trace)
+		if writeErr != nil {
 			cli.Note("Failed to save receipt: %v", writeErr)
 		} else if cfg.Verbose {
 			cli.Note("Receipt: %s", receiptPath)

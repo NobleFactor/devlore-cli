@@ -85,8 +85,18 @@ defined.
 
 - **deploy:** `CollectLayerSources` walks the selected scopes only; a layer directory for an unselected scope is not
   planned; one for a scope undefined here is skipped with no output.
-- **upgrade, decommission:** the record's entries are filtered to the selected scopes before their graphs are built.
-- **reconcile:** the report covers the selected scopes' entries only; the exit code reads the same subset.
+- **upgrade, decommission:** the record's entries are filtered to the named scopes before their graphs are built.
+  With no `--scope`, every entry (ruled 2026-10-02, open question 4).
+- **reconcile:** the report covers the named scopes' entries only, and the exit code reads the same subset. With no
+  `--scope`, the whole record.
+- **order:** deploy's graphs, upgrade's regenerations and decommission's removals run in scope order, the model's,
+  in place of deploy's and decommission's hard-coded `{"system": 0, "home": 1}` maps and upgrade's alphabetical sort,
+  which ran home before system: the defined scopes, then any scope the record holds that is no longer defined, by
+  name, then unscoped entries. One comparator in `readback`, which all four operations import, gives the order.
+- **the record** (ruled 2026-10-02, open question 5): every run a lifetime records carries its scope. A deploy's new
+  lifetime carries forward, by reference, the current lifetime's runs for the scopes the deploy was not asked to
+  run -- none without `--scope` -- and a scope it ran and failed keeps its previous runs. So
+  `writ deploy --scope Home` replaces Home's part of the record and keeps every other scope's.
 
 ### Requirement 4: the pages
 
@@ -110,7 +120,9 @@ Every Go file this lane touches passes `star lint go-style` in the lane's commit
 
 ### Phase 3: The operations
 
-- [ ] Requirement 3, with a scenario step: `--scope=Home` deploys Home alone; bare deploy deploys every scope.
+- [x] Requirement 3, with a scenario step: `--scope=Home` deploys Home alone; bare deploy deploys every scope.
+  `TestWritDeployScenario_Scopes` deploys a custom scope, `Staging`, beside Home: `--scope Home` deploys Home
+  alone, a bare deploy adds Staging, and a later `--scope Home` keeps Staging in the record (open question 5).
 
 ### Phase 4: The pages and the gate
 
@@ -136,6 +148,7 @@ refused; `--target=Home` refused at 64. The Windows proof is CI's; the Windows V
 | 3 | `--scope` refusals: unknown, undefined builtin; `--target` gone; `--scope` on the four lifecycle commands only | unit | a refusal is missing, or the flag is on another command |
 | 3a | `workflow verify --scope` matches the recorded scope without case | unit | `Home` selects nothing `home` selects |
 | 4 | deploy, upgrade, reconcile, decommission honor the selection | integration, scenario | an operation reaches an unselected scope |
+| 4a | a scoped deploy keeps every other scope in the record; a bare deploy replaces it all; a failed scope keeps its runs | unit, scenario | `--scope Home` drops another scope's entries, or a bare deploy carries a stale run |
 | 5 | the behavior on a real install | VM | the machine behaves otherwise |
 
 ## Files to Create/Modify
@@ -146,8 +159,12 @@ refused; `--target=Home` refused at 64. The Windows proof is CI's; the Windows V
 | `cmd/writ/writ/layer.go`, `layer_test.go`, `root.go`, `root_test.go`, `config.go` | Modify: the model, the flag, the selection |
 | `cmd/writ/writ/commands.go` | Modify: `deploy`, `upgrade`, `reconcile` and `decommission` register `--scope` |
 | `cmd/internal/cli/workflow.go`, `workflow_test.go` | Modify: `workflow verify --scope` matches without case |
+| `cmd/internal/cli/lifetime.go`, `lifetime_test.go` | Modify: runs record their scope; a deploy's lifetime carries forward the scopes it does not run |
+| `cmd/writ/writ/readback/readback.go`, the `deploy`, `upgrade`, `decommission`, `reconcile` and `adopt` packages | Modify: the scope filter, the scope order, and the scope each run records |
+| `docs/architecture/5.1-reconciliation.md`, `docs/architecture/10-command-line-interface.md`, `docs/plans/feature/847-kept-snapshots.md` | Modify: the generation model, as ruled |
 | `cmd/writ/writ/deploy`, `upgrade`, `reconcile`, `decommission` | Modify: honor the selection |
 | scenario tests | Modify: the `--scope` step |
+| `cmd/writ/scenario_integration_test.go`, `cmd/writ/scenario_layer_journey_test.go`, `cmd/writ/testdata/personal-repo/Staging/` | Modify, Create: the `Staging` leg; the sandbox's scope roots; §8's widths and §9's helpers-first in the two files touched |
 | `docs/architecture/10-command-line-interface.md`, `docs/guides/writ/manage-environments.md` | Modify: the flag |
 
 ## Open questions
@@ -176,6 +193,52 @@ refused; `--target=Home` refused at 64. The Windows proof is CI's; the Windows V
    definition and traces record. Offered: (a) `--scope` on the four lifecycle commands, and `workflow verify --scope`
    matching without case; (b) the root's flag, with the shared `workflow verify` reading it on writ alone; (c) a
    rename of one. **Ruled (a).** The word `workflow` itself changes in lane 30 (#1017), when the schedule reaches it.
+
+4. **Found 2026-10-02 planning phase 3, ruled the same day: (a).** Read literally, "absent, every scope defined on
+   this platform" would filter the record too: with no `--scope`, `reconcile`, `upgrade` and `decommission` would
+   lose the entries of a custom scope since removed from `writ.scopes`, and the unscoped entries of single-source
+   mode. Offered: (a) with no `--scope` they read the whole record, and `--scope` only narrows; (b) the literal
+   reading. **Ruled (a)**: the record is the reference. Deploy is unaffected: with no `--scope` it deploys every
+   scope defined here.
+
+5. **Found 2026-10-02 in phase 3, ruled the same day: lifetimes are generations.** Deploy replaces the record
+   (#913): each invocation mints a new lifetime (`cli.NewLifetime`, `deploy.go:139`), and the record is the current
+   lifetime's runs alone. So `writ deploy --scope Home` would leave a lifetime holding Home's runs only, and every
+   other scope's entries would drop out of the record while their files stay deployed: `reconcile` would stop
+   seeing them, `decommission` could not reach them, and the next deploy's pre-flight, reading the Home-only record,
+   would find their links foreign. The owner framed it as two alternatives -- decommission before re-deploying, or
+   carry forward what is not re-deployed -- and asked how package managers see it: only GNU Stow, which keeps no
+   record, re-deploys by tearing down; dpkg, rpm, Homebrew and Nix treat a re-install as a delta against their
+   record. **Ruled: writ follows git and Nix** (`5.1-reconciliation.md` § Lifetimes are generations):
+   - a lifetime references its runs and replicates none, a complete set like a commit's tree, not a delta on its
+     parent;
+   - each run records its scope, and, for each layer, the commit it deployed from (#847's pins, per run);
+   - a scoped deploy replaces only its scopes;
+   - decommission with nothing named removes everything; `--scope` and projects narrow it.
+
+   Ruled the same day, walking a first install: adopt needs no deployment, and requires a registered repository;
+   both are #1018, lane 31, which carries adopt's part of the model since lane 14 (#931) had closed.
+
+   **What lane 7 builds of it** (Requirement 3, the record): every run records its scope; a deploy's new lifetime
+   carries forward, by reference, the current lifetime's runs for the scopes it was not asked to deploy -- none when
+   no `--scope` is given, so a bare deploy still replaces everything, including the runs of lifetimes written before
+   runs recorded a scope -- and a scope the deploy ran and failed keeps its previous runs. The rest is amended into
+   lanes 11, 12, 13, 16, 17 and 31 when the schedule reaches them.
+
+6. **Found 2026-10-02 answering the owner's question on adopt; open, proposed for this lane.** Two gaps between
+   adopt and the scope model, both lane 7's to close as proposed:
+   - adopt records its scope capitalized, `Home` or `System` (`inferScope`, `cmd/writ/writ/adopt/batch.go`), where
+     deploy records `home` and `system`. With phase 3's filters, `reconcile --scope Home` misses adopted entries,
+     `decommission --scope Home` leaves adopted links, and a `--scope Home` deploy carries adopt's old Home run
+     forward. Proposed: every run records its scope in lower case.
+   - #931's item 4 handed this lane adopt's scope inference over the platform's scope set ("a Windows item under
+     `%ProgramData%` infers `ProgramData`"); this plan did not list it. Adopt still infers Home or System alone,
+     and takes System's root to be `/` itself (`collectItem`) rather than from the model. On Windows, `inferScope`'s
+     doc comment and `writ adopt`'s help (`adopt_cmd.go`) say System is `%SystemRoot%`; the code makes everything
+     outside the home directory System. Proposed: adopt infers
+     the scope whose root is the deepest that holds the item, over `ScopeOrder()`, and takes that scope's root
+     from the model. #761 is this gap on Windows; lane 7's phase 2 fixed its other half (System is
+     `%SystemDrive%\`).
 
 ## Related Documents
 

@@ -36,6 +36,10 @@ type Config struct {
 	// Projects filters the inventory section; empty reports every project.
 	Projects []string
 
+	// Scopes filters the inventory section to the scopes `--scope` named, in lower case; empty reports the whole
+	// record (#926). The exit code reads the same subset.
+	Scopes []string
+
 	// Verbose narrates store detail via the shared console narrator.
 	Verbose bool
 
@@ -88,6 +92,9 @@ func BuildReport(ctx context.Context, cfg *Config) (*Report, error) {
 	//nolint:gocritic // rangeValCopy: map values are unaddressable; the per-iteration copy is the read.
 	for _, entry := range inventory.Entries {
 		if len(wanted) > 0 && !wanted[entry.Project] {
+			continue
+		}
+		if !entry.InScopes(cfg.Scopes) {
 			continue
 		}
 		report.Entries = append(report.Entries, classifyEntry(entry))

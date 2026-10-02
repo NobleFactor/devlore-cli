@@ -60,7 +60,8 @@ func resolveSelection(ctx context.Context, named []string) (Selection, error) {
 		}
 	}
 
-	sources, err := CollectLayerSources()
+	// Every defined scope, whatever `--scope` selects: a project is known when any layer carries it, in any scope.
+	sources, err := CollectLayerSources(ScopeOrder())
 	if err != nil {
 		return Selection{}, fmt.Errorf("collect layer sources: %w", err)
 	}
@@ -198,8 +199,8 @@ func knownProject(project string, sources []tree.LayerSource) error {
 			}
 		}
 	}
-	return cli.ExitWith(cli.ExitUsage,
-		fmt.Errorf("unknown project %q: no registered layer has Home/%s or Home/%s.<suffix>", project, project, project))
+	return cli.ExitWith(cli.ExitUsage, fmt.Errorf(
+		"unknown project %q: no registered layer has %s/ or %s.<suffix>/ in any scope", project, project, project))
 }
 
 // endregion

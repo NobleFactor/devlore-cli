@@ -23,8 +23,10 @@ type Config struct {
 	TargetRoot   string
 
 	// Selection
-	Projects []string
-	Segments segment.Segments
+	Projects   []string
+	Scopes     []string // the scopes `--scope` named, in lower case; nil reads the whole record (#926)
+	ScopeOrder []string // every scope this platform defines, in scope order and in lower case (#926)
+	Segments   segment.Segments
 
 	// Behavior
 	DryRun         bool

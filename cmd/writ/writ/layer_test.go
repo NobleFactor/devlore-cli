@@ -13,8 +13,41 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
+	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/tree"
 )
+
+// --- helpers ---
+
+// testScopePlatform returns a platform for a scope test: the operating system named, the environment given, and a
+// fixed home directory.
+//
+// Parameters:
+//   - `goos`: the operating system, as `runtime.GOOS` names it.
+//   - `environment`: the environment variables the platform has; nil for none.
+//
+// Returns:
+//   - `scopePlatform`: the platform.
+func testScopePlatform(goos string, environment map[string]string) scopePlatform {
+	return scopePlatform{
+		goos:   goos,
+		getenv: func(name string) string { return environment[name] },
+		home:   "/home/scope-test",
+	}
+}
+
+// windowsEnvironment returns the environment a stock Windows install gives its known folders.
+//
+// Returns:
+//   - `map[string]string`: `SystemDrive`, `ProgramData`, `ProgramFiles` and `ProgramFiles(x86)`.
+func windowsEnvironment() map[string]string {
+	return map[string]string{
+		"ProgramData":       `C:\ProgramData`,
+		"ProgramFiles":      `C:\Program Files`,
+		"ProgramFiles(x86)": `C:\Program Files (x86)`,
+		"SystemDrive":       "C:",
+	}
+}
 
 // --- PartitionByScope ---
 
@@ -367,34 +400,44 @@ func TestScopeDirectory_CustomWithoutCase(t *testing.T) {
 	}
 }
 
-// --- helpers ---
+// --- CollectLayerSources ---
 
-// testScopePlatform returns a platform for a scope test: the operating system named, the environment given, and a
-// fixed home directory.
+// TestCollectLayerSources_TheGivenScopesOnly proves deploy collects only the scopes it is given, in their order, a
+// custom scope's directory found without case (#926).
 //
 // Parameters:
-//   - `goos`: the operating system, as `runtime.GOOS` names it.
-//   - `environment`: the environment variables the platform has; nil for none.
-//
-// Returns:
-//   - `scopePlatform`: the platform.
-func testScopePlatform(goos string, environment map[string]string) scopePlatform {
-	return scopePlatform{
-		goos:   goos,
-		getenv: func(name string) string { return environment[name] },
-		home:   "/home/scope-test",
-	}
-}
+//   - `t`: the test harness.
+func TestCollectLayerSources_TheGivenScopesOnly(t *testing.T) {
 
-// windowsEnvironment returns the environment a stock Windows install gives its known folders.
-//
-// Returns:
-//   - `map[string]string`: `SystemDrive`, `ProgramData`, `ProgramFiles` and `ProgramFiles(x86)`.
-func windowsEnvironment() map[string]string {
-	return map[string]string{
-		"ProgramData":       `C:\ProgramData`,
-		"ProgramFiles":      `C:\Program Files`,
-		"ProgramFiles(x86)": `C:\Program Files (x86)`,
-		"SystemDrive":       "C:",
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	layer := filepath.Join(devlore.WritLayersDir(), "base")
+	for _, name := range []string{"Home", "Staging", "System"} {
+		if err := os.MkdirAll(filepath.Join(layer, name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	home := ScopeSpec{SourceDir: "Home", TargetRoot: "/home/scope-test"}
+	sources, err := CollectLayerSources([]ScopeSpec{home})
+	if err != nil {
+		t.Fatalf("CollectLayerSources(Home): %v", err)
+	}
+	if len(sources) != 1 || sources[0].ScopeName != "Home" || sources[0].SourceRoot != filepath.Join(layer, "Home") {
+		t.Fatalf("Home alone collected %+v, want base/Home alone", sources)
+	}
+
+	every := []ScopeSpec{{SourceDir: "System", TargetRoot: "/"}, home, {SourceDir: "staging", TargetRoot: "/srv"}}
+	if sources, err = CollectLayerSources(every); err != nil {
+		t.Fatalf("CollectLayerSources(every): %v", err)
+	}
+	names := make([]string, len(sources))
+	for i, source := range sources {
+		names[i] = source.ScopeName
+	}
+	if want := []string{"System", "Home", "staging"}; !slices.Equal(names, want) {
+		t.Errorf("collected scopes %q, want %q in the order given", names, want)
+	}
+	if staging := sources[len(sources)-1]; staging.SourceRoot != filepath.Join(layer, "Staging") {
+		t.Errorf("the custom scope staging collected %s, want the layer's Staging directory", staging.SourceRoot)
 	}
 }

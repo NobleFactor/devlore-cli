@@ -111,19 +111,22 @@ func SelectScopes(names []string) ([]ScopeSpec, error) {
 }
 
 // CollectLayerSources gathers all configured repository layers and expands them into source/target pairs: one per
-// layer and scope whose directory exists, layers in [LayerOrder] and scopes in [ScopeOrder] within each.
+// layer and scope whose directory exists, layers in [LayerOrder] and the given scopes, in their order, within each.
 //
-// A layer directory for a scope this platform does not define is skipped in silence (#926): the repository is shared,
-// and the directory is there for the machines that define the scope.
+// A layer directory for a scope not given is not planned; one for a scope this platform does not define is never
+// given, so it is skipped in silence (#926): the repository is shared, and the directory is there for the machines
+// that define the scope.
+//
+// Parameters:
+//   - `scopes`: the scopes to collect, in scope order: [SelectScopes]' selection, or [ScopeOrder] for every one.
 //
 // Returns:
-//   - `[]tree.LayerSource`: one source per configured layer and defined scope whose directory exists; nil when none.
+//   - `[]tree.LayerSource`: one source per configured layer and given scope whose directory exists; nil when none.
 //   - `error`: always nil.
-func CollectLayerSources() ([]tree.LayerSource, error) {
+func CollectLayerSources(scopes []ScopeSpec) ([]tree.LayerSource, error) {
 
 	var sources []tree.LayerSource
 
-	scopes := ScopeOrder()
 	for i, layer := range LayerOrder {
 		path := getConfiguredRepo(layer)
 		if path == "" {
@@ -335,6 +338,22 @@ func scopeDirectory(layerPath, name string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// scopeNames returns the names of scopes in lower case, as the record and the graphs' origins name them.
+//
+// Parameters:
+//   - `scopes`: the scopes.
+//
+// Returns:
+//   - `[]string`: their names in lower case, in the same order.
+func scopeNames(scopes []ScopeSpec) []string {
+
+	names := make([]string, len(scopes))
+	for i, scope := range scopes {
+		names[i] = strings.ToLower(scope.SourceDir)
+	}
+	return names
 }
 
 // scopeRoot returns the root of one scope a platform defines.

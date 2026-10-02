@@ -14,6 +14,7 @@
 package readback
 
 import (
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -21,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -113,6 +115,20 @@ func (e Entry) AsRecorded() bool {
 		return false
 	}
 	return ContentDigest(current) == e.RecordedDigest
+}
+
+// InScopes reports whether the entry belongs to the scopes a run names (#926).
+//
+// A run that names no scope reads the whole record (ruled 2026-10-02): the entries of a scope no longer defined here,
+// and the unscoped entries of single-source mode, are still the record's.
+//
+// Parameters:
+//   - `scopes`: the scopes named, in lower case as the record names them; none for every entry.
+//
+// Returns:
+//   - `bool`: true when `scopes` is empty or holds the entry's scope.
+func (e Entry) InScopes(scopes []string) bool {
+	return len(scopes) == 0 || slices.Contains(scopes, e.Scope)
 }
 
 // Inventory is the fold's output: the deployed entries plus the store-health findings.
@@ -421,7 +437,8 @@ func recordedIdentity(catalog *op.ResourceLedgerSnapshot) map[string]contentIden
 		if !ok {
 			continue
 		}
-		recorded[filepath.Join(catalog.Root, filepath.FromSlash(rel))] = contentIdentity{etag: entry.Etag, digest: entry.Digest}
+		target := filepath.Join(catalog.Root, filepath.FromSlash(rel))
+		recorded[target] = contentIdentity{etag: entry.Etag, digest: entry.Digest}
 	}
 
 	return recorded
@@ -440,6 +457,36 @@ func ContentDigest(data []byte) string {
 
 	sum := sha256.Sum256(data)
 	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// CompareScopes returns the order the record's scopes are taken in, by deploy, upgrade and decommission alike (#926).
+//
+// The scopes this platform defines come first, in scope order; then any other scope the record holds, such as a
+// custom scope since removed from `writ.scopes`, by name; then the unscoped entries of single-source mode, "".
+//
+// Parameters:
+//   - `order`: the scopes this platform defines, in scope order and in lower case as the record names them.
+//
+// Returns:
+//   - `func(a, b string) int`: a comparison of two scope names, for [slices.SortFunc].
+func CompareScopes(order []string) func(a, b string) int {
+
+	rank := func(scope string) int {
+		if scope == "" {
+			return len(order) + 1
+		}
+		if index := slices.Index(order, scope); index >= 0 {
+			return index
+		}
+		return len(order)
+	}
+
+	return func(a, b string) int {
+		if ranked := cmp.Compare(rank(a), rank(b)); ranked != 0 {
+			return ranked
+		}
+		return strings.Compare(a, b)
+	}
 }
 
 // stringField reads a string value from a decoded annotation map, tolerating absence.

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -19,11 +20,13 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-// A lifetime is one `writ deploy` invocation, across every scope it ran, together with the upgrades,
-// reconciliations and adoptions that follow it, until a later deploy replaces it or a decommission ends it
-// (ruled 2026-09-22 and 2026-09-23; devlore-cli#913, #922). The record a deployment leaves is the fold of the
-// current lifetime's runs and nothing else: deploy replaces the record, upgrade updates it, decommission removes
-// it, reconcile restores the system to it.
+// A lifetime is a generation of the record (ruled 2026-10-02, devlore-cli#926): a complete set of references to
+// runs, as a commit is a whole tree, never a delta on the lifetime before it. A deploy writes a new one from the
+// current one's runs, carrying forward the scopes it was not asked to run, and makes it current; upgrades,
+// reconciliations, adoptions and decommissions write into the current one until lanes 11, 12 and 14 of #916 give
+// them their own. The record a deployment leaves is the fold of the current lifetime's runs and nothing else:
+// deploy replaces the record, upgrade updates it, decommission removes it, reconcile restores the system to it
+// (ruled 2026-09-22 and 2026-09-23; #913, #922).
 //
 // The lifetime is a document of its own under [LifetimesDir], `<id>.yaml`, and `current` names the current one.
 // The run index stays a detection hint; the lifetime document is the truth about membership, so a trace on disk
@@ -65,6 +68,10 @@ type LifetimeRun struct {
 	// Operation is the lifecycle operation that wrote the run: one of the RunOperation* constants.
 	Operation string `json:"operation" yaml:"operation"`
 
+	// Scope is the scope the run's graph deployed, in lower case as the graph's origin names it; "" for an unscoped
+	// run. A deploy replaces a scope's runs by it (#926).
+	Scope string `json:"scope" yaml:"scope"`
+
 	// GraphChecksum is the run's graph identity, the join key into [GraphsDir] and [TracesDir].
 	GraphChecksum string `json:"graph_checksum" yaml:"graph_checksum"`
 
@@ -88,8 +95,14 @@ type Lifetime struct {
 	// State is [LifetimeCurrent], [LifetimeReplaced] or [LifetimeEnded].
 	State string `json:"state" yaml:"state"`
 
-	// Runs is every run the lifetime owns, in write order.
+	// Runs is every run the lifetime holds, in write order: the runs it carried forward, by reference, then its own.
 	Runs []LifetimeRun `json:"runs" yaml:"runs"`
+
+	// persisted reports whether the document has reached the store; its first save makes it the current lifetime.
+	persisted bool
+
+	// previous is the replaced lifetime's runs, from which a scope a deploy ran and failed keeps its own.
+	previous []LifetimeRun
 }
 
 // LifetimesDir returns the lifetimes directory under the store root.
@@ -100,18 +113,41 @@ func LifetimesDir() string {
 	return storePath(lifetimesDirname)
 }
 
-// NewLifetime mints a lifetime that is not yet on disk.
+// NextLifetime mints the lifetime a deploy writes, not yet on disk (ruled 2026-10-02: lifetimes are generations).
 //
-// A deploy mints after its pre-flight passes and before its first scope runs; the lifetime reaches the store,
-// and replaces the current one, when its first run is appended -- so a deploy that fails before it writes any
-// trace replaces nothing.
+// It starts from the current lifetime's runs, by reference: the runs of every scope the deploy was not asked to run
+// are carried forward, so `writ deploy --scope Home` replaces Home's part of the record and keeps the rest. A deploy
+// that names no scope runs every scope and carries nothing forward. A scope the deploy runs and fails keeps its
+// previous runs; see [WriteLifetimeTrace].
+//
+// A deploy mints after its pre-flight passes and before its first scope runs; the lifetime reaches the store, and
+// replaces the current one, when its first run is appended -- so a deploy that fails before it writes any trace
+// replaces nothing.
+//
+// Parameters:
+//   - `current`: the current lifetime; nil when the store has none.
+//   - `scopes`: the scopes the deploy was asked to run, in lower case; none for every scope.
 //
 // Returns:
-//   - `*Lifetime`: the minted lifetime, state [LifetimeCurrent], no runs, not persisted.
-func NewLifetime() *Lifetime {
+//   - `*Lifetime`: the minted lifetime, state [LifetimeCurrent], holding the runs it carries, not persisted.
+func NextLifetime(current *Lifetime, scopes []string) *Lifetime {
 
 	now := time.Now().UTC()
-	return &Lifetime{ID: uuid.Must(uuid.NewV7()).String(), Opened: now, State: LifetimeCurrent}
+	next := &Lifetime{ID: uuid.Must(uuid.NewV7()).String(), Opened: now, State: LifetimeCurrent}
+	if current == nil {
+		return next
+	}
+
+	next.previous = slices.Clone(current.Runs)
+	if len(scopes) == 0 {
+		return next
+	}
+	for _, run := range current.Runs {
+		if !slices.Contains(scopes, run.Scope) {
+			next.Runs = append(next.Runs, run)
+		}
+	}
+	return next
 }
 
 // CurrentLifetime loads the current lifetime.
@@ -148,15 +184,16 @@ func LoadLifetime(id string) (*Lifetime, error) {
 	if err := yaml.Unmarshal(data, &lifetime); err != nil {
 		return nil, fmt.Errorf("decode lifetime %s: %w", id, err)
 	}
+	lifetime.persisted = true
 
 	return &lifetime, nil
 }
 
 // AppendRun records a run on the lifetime and persists the document.
 //
-// The first run persisted for a [LifetimeCurrent] lifetime makes it the current one: the previous current, if
-// any, becomes [LifetimeReplaced] with `Closed` set. A lifetime that is replaced or ended refuses the run: it is
-// no longer the record, and nothing writes into history.
+// The first run persisted for a [LifetimeCurrent] lifetime -- its first save, whatever runs it carried forward --
+// makes it the current one: the previous current, if any, becomes [LifetimeReplaced] with `Closed` set. A lifetime
+// that is replaced or ended refuses the run: it is no longer the record, and nothing writes into history.
 //
 // Parameters:
 //   - `run`: the run to record; `At` is set to now when zero.
@@ -222,28 +259,39 @@ func RequireCurrentLifetime(operation string) (*Lifetime, error) {
 	return lifetime, nil
 }
 
-// WriteLifetimeTrace persists a run's trace and records the run on its lifetime.
+// WriteLifetimeTrace persists a run's trace and records the run, with its scope, on its lifetime.
 //
 // [WriteTrace] then [Lifetime.AppendRun]: the trace is in the store before the lifetime names it, so a crash
 // between the two leaves a trace no lifetime owns -- which the fold does not read -- rather than a lifetime naming
-// a trace that is not there.
+// a trace that is not there. A deploy's run that failed keeps its scope's previous runs ahead of it (#926): the run
+// was undone, or did only part of its work, so the replaced runs still say what the rest of the scope holds.
 //
 // Parameters:
 //   - `lifetime`: the lifetime the run belongs to; for a deploy, the one it minted, for the others, the current.
 //   - `operation`: the RunOperation* constant naming the writer.
+//   - `scope`: the scope the run's graph deployed, in lower case as its origin names it; "" for an unscoped run.
 //   - `trace`: the run's trace.
 //
 // Returns:
 //   - `string`: the trace's path, as [WriteTrace] returns it.
 //   - `error`: when the trace cannot be written, or the lifetime refuses the run.
-func WriteLifetimeTrace(lifetime *Lifetime, operation string, trace *op.Trace) (string, error) {
+func WriteLifetimeTrace(lifetime *Lifetime, operation, scope string, trace *op.Trace) (string, error) {
 
 	path, err := WriteTrace(trace)
 	if err != nil {
 		return "", err
 	}
 
-	run := LifetimeRun{Operation: operation, GraphChecksum: trace.GraphChecksum, TraceFile: filepath.Base(path)}
+	if operation == RunOperationDeploy && trace.RunStatus.Condition >= op.ConditionExecutionFailed {
+		lifetime.keepPrevious(scope)
+	}
+
+	run := LifetimeRun{
+		Operation:     operation,
+		Scope:         scope,
+		GraphChecksum: trace.GraphChecksum,
+		TraceFile:     filepath.Base(path),
+	}
 	if err := lifetime.AppendRun(run); err != nil {
 		return path, fmt.Errorf("record %s run on lifetime %s: %w", operation, lifetime.ID, err)
 	}
@@ -251,8 +299,21 @@ func WriteLifetimeTrace(lifetime *Lifetime, operation string, trace *op.Trace) (
 	return path, nil
 }
 
-// replacePrevious marks the current lifetime replaced when `l` is about to take its place -- once, on `l`'s first
-// persisted run. A previous current that is `l` itself, or none, changes nothing.
+// keepPrevious carries forward the replaced lifetime's runs for one scope, which a deploy ran and failed.
+//
+// Parameters:
+//   - `scope`: the scope whose previous runs the lifetime keeps, each once.
+func (l *Lifetime) keepPrevious(scope string) {
+
+	for _, run := range l.previous {
+		if run.Scope == scope && !slices.Contains(l.Runs, run) {
+			l.Runs = append(l.Runs, run)
+		}
+	}
+}
+
+// replacePrevious marks the current lifetime replaced when `l` is about to take its place -- once, before `l`'s
+// first save. A previous current that is `l` itself, or none, changes nothing.
 //
 // Parameters:
 //   - `stateRoot`: the open store root.
@@ -261,7 +322,7 @@ func WriteLifetimeTrace(lifetime *Lifetime, operation string, trace *op.Trace) (
 //   - `error`: when the previous lifetime cannot be read or rewritten.
 func (l *Lifetime) replacePrevious(stateRoot fsroot.Dir) error {
 
-	if len(l.Runs) != 1 {
+	if l.persisted {
 		return nil
 	}
 
@@ -296,7 +357,11 @@ func (l *Lifetime) save(stateRoot fsroot.Dir) error {
 		return fmt.Errorf("encode lifetime %s: %w", l.ID, err)
 	}
 
-	return writeAtomically(stateRoot, lifetimePath(l.ID), data)
+	if err := writeAtomically(stateRoot, lifetimePath(l.ID), data); err != nil {
+		return err
+	}
+	l.persisted = true
+	return nil
 }
 
 // lifetimePath returns the document path of the lifetime with `id`.
