@@ -24,10 +24,20 @@ var (
 	prerelease = application.IsPrerelease()
 )
 
+// lifecycleCommands are the commands a retired configuration key stops: the ones that deploy from the layers or read
+// the record (#926). Every other command runs -- `config` above all, since it is how the key is removed.
+var lifecycleCommands = map[string]bool{
+	"adopt":        true,
+	"decommission": true,
+	"deploy":       true,
+	"reconcile":    true,
+	"upgrade":      true,
+}
+
 // NewRootCmd creates the root writ command with all subcommands.
 //
 // Returns:
-//   - *cobra.Command: configured writ command with target flag and all subcommands
+//   - `*cobra.Command`: the writ command, with its persistent flags and every subcommand.
 func NewRootCmd() *cobra.Command {
 	rootCmd := cli.NewRootCmd(cli.RootConfig{
 		Name:  "writ",
@@ -52,13 +62,17 @@ Declare your environment once — writ deploys it everywhere you work.`,
 
 	rootCmd.PersistentFlags().String("target", "Home", "Target to operate on")
 
-	// The configuration is loaded by the shared root's pre-run; writ then refuses a key it has retired, before any
-	// command runs, rather than ignoring it (#925).
+	// The configuration is loaded by the shared root's pre-run. writ then refuses a key it has retired rather than
+	// ignoring it (#925), for the lifecycle commands only (#926): `writ config unset` must still run, or the key could
+	// not be removed with writ, as `git config --unset` removes any key.
 	loadConfiguration := rootCmd.PersistentPreRunE
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
 
 		if err := loadConfiguration(cmd, args); err != nil {
 			return err
+		}
+		if cmd.Parent() != cmd.Root() || !lifecycleCommands[cmd.Name()] {
+			return nil
 		}
 		return refuseRetiredConfiguration()
 	}

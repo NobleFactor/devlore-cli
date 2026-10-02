@@ -37,8 +37,8 @@ func TestRoot_KeepsTheOutputConvention(t *testing.T) {
 	}
 }
 
-// TestRoot_RefusesWritTargets proves the retired key is refused before any command runs (#925): a configuration
-// that sets `writ.targets` fails with [cli.ExitConfig] and names `writ.scopes`, rather than being ignored.
+// TestRoot_RefusesWritTargets proves the retired key stops a lifecycle command (#925): a configuration that sets
+// `writ.targets` fails with [cli.ExitConfig] and names `writ.scopes`, rather than being ignored.
 //
 // Parameters:
 //   - `t`: the test harness.
@@ -66,5 +66,41 @@ func TestRoot_RefusesWritTargets(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "writ.scopes") {
 		t.Errorf("the refusal does not name writ.scopes: %v", err)
+	}
+}
+
+// TestRoot_ConfigRunsWithWritTargets proves the refusal stops only the lifecycle commands (#926): with `writ.targets`
+// set, `writ config unset writ.targets` runs and removes the key, as it removes any other.
+//
+// Parameters:
+//   - `t`: the test harness.
+func TestRoot_ConfigRunsWithWritTargets(t *testing.T) {
+
+	root := t.TempDir()
+	for _, home := range []string{"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CACHE_HOME"} {
+		t.Setenv(home, filepath.Join(root, home))
+	}
+	t.Cleanup(viper.Reset)
+
+	config := filepath.Join(root, "XDG_CONFIG_HOME", "devlore", "config.yaml")
+	if err := os.MkdirAll(filepath.Dir(config), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(config, []byte("writ:\n  targets:\n    home: /tmp/elsewhere\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	command := NewRootCmd()
+	command.SetArgs([]string{"--silent", "config", "unset", "writ.targets"})
+	if err := command.Execute(); err != nil {
+		t.Fatalf("writ config unset writ.targets was refused: %v", err)
+	}
+
+	content, err := os.ReadFile(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(content), "targets") {
+		t.Errorf("writ.targets is still in the configuration:\n%s", content)
 	}
 }

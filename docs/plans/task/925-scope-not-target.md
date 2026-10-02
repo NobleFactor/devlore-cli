@@ -3,7 +3,7 @@ title: "Lane 6: the word is scope, not target"
 issue: https://github.com/NobleFactor/devlore-cli/issues/925
 status: complete
 created: 2026-10-01
-updated: 2026-10-01
+updated: 2026-10-02
 ---
 
 # Plan: Lane 6 of the writ lifecycle schedule
@@ -73,6 +73,10 @@ so the documented `Home:` and `System:` work as written. A configuration that se
 loads its configuration, before any command runs, with `ExitConfig` (78): "writ.targets is retired; name scope roots
 under writ.scopes". A test proves the refusal. The scenario harness writes `writ.scopes.Home`.
 
+> **Amended 2026-10-02 (#926, open question 2, ruled):** the refusal runs for the lifecycle commands only -- `deploy`,
+> `upgrade`, `reconcile`, `decommission` and `adopt`. Found while planning lane 7: run before every command, it also
+> stopped `writ config unset writ.targets`, so the key could not be removed with writ.
+
 ### Requirement 3: the style gate
 
 Every Go file this lane touches passes `star lint go-style` in the commit that touches it, every violation fixed,
@@ -86,11 +90,19 @@ not only the renamed lines. The commit script runs the gate on exactly those fil
 
 ### Phase 2: The rename and the key
 
-- [x] Requirements 1 and 2, 2026-10-01: 58 renames in 12 files; `writ.scopes.home|system` read; `writ.targets` refused at 78 by writ's root pre-run (`refuseRetiredConfiguration`, `TestRoot_RefusesWritTargets`); `TestScopeRoots_ReadWritScopes`; the harness writes `writ.scopes.Home`. `make check` and `make test-scenario` green.
+- [x] Requirements 1 and 2, 2026-10-01: 58 renames in 12 files; `writ.scopes.home|system` read; `writ.targets` refused
+      at 78 by writ's root pre-run (`refuseRetiredConfiguration`, `TestRoot_RefusesWritTargets`);
+      `TestScopeRoots_ReadWritScopes`; the harness writes `writ.scopes.Home`. `make check` and `make test-scenario`
+      green.
 
 ### Phase 3: The style gate
 
-- [x] Requirement 3, 2026-10-01: 176 findings across 15 files (the 12 surveyed plus `root.go`, `root_test.go` and `cmd/internal/cli/config.go`) cleared by a consented fan-out, seven fixers and seven skeptics, comments only, proven against saved copies; then by hand: one inaccurate Returns bullet in `tree/builder.go`, old-form bullets in `layer.go`, nine test summaries in the colon form section 4 forbids though the linter misses it, and two `//nolint` reasons past 120 columns. `star lint go-style` reports all 15 compliant; `make check` and `make test-scenario` green.
+- [x] Requirement 3, 2026-10-01: 176 findings across 15 files (the 12 surveyed plus `root.go`, `root_test.go` and
+      `cmd/internal/cli/config.go`) cleared by a consented fan-out, seven fixers and seven skeptics, comments only,
+      proven against saved copies; then by hand: one inaccurate Returns bullet in `tree/builder.go`, old-form bullets
+      in `layer.go`, nine test summaries in the colon form section 4 forbids though the linter misses it, and two
+      `//nolint` reasons past 120 columns. `star lint go-style` reports all 15 compliant; `make check` and `make
+      test-scenario` green.
 
 ### Phase 4: Both virtual machines
 
@@ -98,8 +110,13 @@ Snapshot first; install the built writ by the remote smoke-test procedure. On ea
 `writ.targets`; then a bare `writ deploy` and `writ upgrade`, with the same results as before the rename. Output under
 `build/e2e/925-e2e-<host>.log`.
 
-- [x] `danoble-ud24-1.local` (linux/arm64), 2026-10-01: no `writ.targets` in its configuration; the dry-run plan has 820 units under the installed writ and under the new one; a configuration setting `writ.targets` refused at 78 with the message; bare `writ deploy` 164 files, `writ upgrade` and `writ reconcile` all exit 0. Log `build/e2e/925-e2e-ud24.log`.
-- [x] `danoble-wd11-3.local` (windows/arm64): **skipped, ruled by the owner 2026-10-01** ("we'll skip windows"). Reachable, no `writ.targets` in its configuration; its snapshot could not be taken with 27 GB free on the host. CI's Windows jobs remain the Windows proof.
+- [x] `danoble-ud24-1.local` (linux/arm64), 2026-10-01: no `writ.targets` in its configuration; the dry-run plan has
+      820 units under the installed writ and under the new one; a configuration setting `writ.targets` refused at 78
+      with the message; bare `writ deploy` 164 files, `writ upgrade` and `writ reconcile` all exit 0. Log
+      `build/e2e/925-e2e-ud24.log`.
+- [x] `danoble-wd11-3.local` (windows/arm64): **skipped, ruled by the owner 2026-10-01** ("we'll skip windows").
+      Reachable, no `writ.targets` in its configuration; its snapshot could not be taken with 27 GB free on the host.
+      CI's Windows jobs remain the Windows proof.
 
 ### Phase 5: Closure
 
@@ -129,7 +146,8 @@ Snapshot first; install the built writ by the remote smoke-test procedure. On ea
 
 ## Open questions
 
-1. **Ruled 2026-10-01: fixed here, as the gate requires.** The touched files carry 140 style violations today, and the Go-style sweep (#991, for #964) is fixing the same
+1. **Ruled 2026-10-01: fixed here, as the gate requires.** The touched files carry 140 style violations today, and the
+   Go-style sweep (#991, for #964) is fixing the same
    files.** Measured 2026-10-01: `scenario_layer_journey_test.go` 50, `scenario_integration_test.go` 22, `config.go`
    15, `tree/tree_test.go` 15, `snapshot/snapshot_test.go` 14, `tree/builder.go` 12, and 12 more across five files;
    `deploy/plan.go` and `deploy/report.go` are clean. Most are doc comments missing their Parameters or Returns
