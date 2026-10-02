@@ -585,6 +585,36 @@ func NewPath(root, rel string) Path {
 	return Path{root: root, rel: canonicalRel(rel), abs: filepath.Join(root, rel)}
 }
 
+// CommonAncestor returns the deepest directory that holds two machine-absolute paths: the tightest root a run can be
+// confined to when it reaches both.
+//
+// The judgment is lexical, as [RelWithin]'s is: no symlink resolution and no disk contact. Names compare as the
+// platform compares them, without case on Windows, and a volume's root keeps its separator: `C:\`, never the
+// drive-relative `C:`. Paths on two volumes, two drives or a drive and a share, have no common ancestor, and
+// answering one would anchor a run on whatever drive the process stands on.
+//
+// Parameters:
+//   - `first`: a machine-absolute path.
+//   - `second`: another machine-absolute path.
+//
+// Returns:
+//   - `string`: the deepest directory holding both, OS-native; "" when none does.
+//   - `bool`: true when a directory holds both.
+func CommonAncestor(first, second string) (string, bool) {
+
+	second = filepath.Clean(second)
+
+	for candidate := filepath.Clean(first); ; candidate = filepath.Dir(candidate) {
+		rel, err := filepath.Rel(candidate, second)
+		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return candidate, true
+		}
+		if filepath.Dir(candidate) == candidate {
+			return "", false
+		}
+	}
+}
+
 // RelWithin reports whether the machine-absolute `path` lies within the root anchored at `rootName`,
 // and when it does, the slash-canonical rel that names it there.
 //

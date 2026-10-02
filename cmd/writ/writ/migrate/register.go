@@ -7,12 +7,11 @@ import (
 	"context"
 	"fmt"
 	"os"
-
 	"path/filepath"
-	"strings"
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/deploy"
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/plan"
@@ -38,14 +37,20 @@ import (
 //   - `verbose`: narrate progress via [cli.Note].
 //
 // Returns:
-//   - `error`: non-nil when the guard refuses, planning fails, or the run fails.
+//   - `error`: non-nil when the guard refuses, the source and the layer share no directory (another Windows drive),
+//     planning fails, or the run fails.
 func RegisterLayer(ctx context.Context, sourceRoot, layerDir string, useMove, verbose bool) error {
 
 	if err := clearExistingLayer(layerDir, verbose); err != nil {
 		return err
 	}
 
-	root := commonAncestor(sourceRoot, layerDir)
+	// The run reaches both the source repository and the layers tree, so its root is the deepest directory that holds
+	// both: the tightest confinement the registration allows, typically `$HOME`.
+	root, shared := fsroot.CommonAncestor(sourceRoot, layerDir)
+	if !shared {
+		return fmt.Errorf("%s and the layer %s share no directory, so no run can reach both", sourceRoot, layerDir)
+	}
 
 	if verbose {
 		if useMove {
@@ -195,39 +200,6 @@ func clearExistingLayer(layerDir string, verbose bool) error {
 	}
 
 	return fmt.Errorf("layer path %s exists and is not a directory or symlink", layerDir)
-}
-
-// commonAncestor returns the deepest directory containing both `a` and `b`.
-//
-// The settled confinement ruling for the registration graph: the run's Root anchors here, so the graph reaches both
-// the source repository and the layers tree with the tightest confinement the operation allows (typically `$HOME`;
-// `/` only when the trees genuinely span that far).
-//
-// Parameters:
-//   - `a`: the first absolute path.
-//   - `b`: the second absolute path.
-//
-// OS-native, deliberately: the result becomes the run's Root — a confinement anchor handed to the
-// filesystem — so it must be a path the platform can resolve. A slash-form answer made [fsroot] panic on
-// Windows trying to relate `C:\...` to `/`.
-//
-// Returns:
-//   - `string`: the deepest common ancestor directory, OS-native.
-func commonAncestor(a, b string) string {
-
-	segmentsA := strings.Split(filepath.Clean(a), string(filepath.Separator))
-	segmentsB := strings.Split(filepath.Clean(b), string(filepath.Separator))
-
-	var common []string
-	for i := 0; i < len(segmentsA) && i < len(segmentsB) && segmentsA[i] == segmentsB[i]; i++ {
-		common = append(common, segmentsA[i])
-	}
-
-	ancestor := strings.Join(common, string(filepath.Separator))
-	if ancestor == "" {
-		return string(filepath.Separator)
-	}
-	return ancestor
 }
 
 // endregion

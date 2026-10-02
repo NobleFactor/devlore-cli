@@ -39,6 +39,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/tree"
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/encryption"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
@@ -448,7 +449,8 @@ func classifyEncryptedChain(entry readback.Entry, source []byte, targetUnchanged
 //
 // Returns:
 //   - `*op.Graph`: the assembled regeneration graph.
-//   - `error`: non-nil when planning or assembly fails.
+//   - `error`: non-nil when the entries carry no target root, a source shares no directory with the run root (one on
+//     another Windows drive), or planning or assembly fails.
 func buildScopeGraph(
 	ctx context.Context, cfg *Config, scope string, entries []readback.Entry, data map[string]any,
 ) (*op.Graph, error) {
@@ -459,7 +461,12 @@ func buildScopeGraph(
 	}
 	targetRoot := runRoot
 	for i := range entries {
-		runRoot = deploy.CommonAncestor(runRoot, filepath.Dir(entries[i].Source))
+		ancestor, shared := fsroot.CommonAncestor(runRoot, filepath.Dir(entries[i].Source))
+		if !shared {
+			return nil, fmt.Errorf("scope %q: the run root %s and the source %s share no directory; cannot "+
+				"confine the upgrade", scope, runRoot, entries[i].Source)
+		}
+		runRoot = ancestor
 	}
 
 	return op.Plan(ctx, upgradeSpec(runRoot, cfg.DryRun), func(environment *op.RuntimeEnvironment) (*op.Graph, error) {

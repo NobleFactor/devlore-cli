@@ -15,6 +15,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/tree"
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/encryption"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
@@ -287,31 +288,6 @@ func PlanSpacePath(runtimeEnvironment *op.RuntimeEnvironment, abs string) (strin
 	return slash, nil
 }
 
-// CommonAncestor returns the deepest directory containing both `a` and `b`.
-//
-// Parameters:
-//   - `a`: the first absolute path.
-//   - `b`: the second absolute path.
-//
-// Returns:
-//   - `string`: the deepest common ancestor directory.
-func CommonAncestor(a, b string) string {
-
-	segmentsA := strings.Split(filepath.Clean(a), string(filepath.Separator))
-	segmentsB := strings.Split(filepath.Clean(b), string(filepath.Separator))
-
-	var common []string
-	for i := 0; i < len(segmentsA) && i < len(segmentsB) && segmentsA[i] == segmentsB[i]; i++ {
-		common = append(common, segmentsA[i])
-	}
-
-	ancestor := strings.Join(common, string(filepath.Separator))
-	if ancestor == "" {
-		return string(filepath.Separator)
-	}
-	return ancestor
-}
-
 // region HELPER FUNCTIONS
 
 // buildScopeGraph plans one scope's graph: deduped parent mkdirs, one planned chain per file entry, and the
@@ -330,13 +306,17 @@ func CommonAncestor(a, b string) string {
 //   - `*op.Graph`: the assembled scope graph.
 //   - `[]Duplicate`: the products more than one of the scope's manifests claimed.
 //   - `[]Deferred`: the scope's claims that resolve to registry packages.
-//   - `error`: non-nil when planning or assembly fails.
+//   - `error`: non-nil when a source shares no directory with the scope's root (one on another Windows drive), or
+//     planning or assembly fails.
 func buildScopeGraph(
 	ctx context.Context, cfg *Config, pin *PinInfo,
 	scope, targetRoot string, layers []string, files, manifests []*tree.FileEntry,
 ) (*op.Graph, []Duplicate, []Deferred, error) {
 
-	runRoot := runRootFor(cfg, targetRoot, files)
+	runRoot, err := runRootFor(cfg, targetRoot, files)
+	if err != nil {
+		return nil, nil, nil, err
+	}
 
 	spec := deploySpec(runRoot, cfg.DryRun, cfg.Conflict)
 
@@ -551,22 +531,33 @@ func planChains(provider *plan.Provider, chains []*tree.FileEntry, data map[stri
 //
 // Returns:
 //   - `string`: the deepest directory containing the target root and every source.
-func runRootFor(cfg *Config, targetRoot string, files []*tree.FileEntry) string {
+//   - `error`: non-nil, naming the two, when a source shares no directory with the root: one on another Windows
+//     drive.
+func runRootFor(cfg *Config, targetRoot string, files []*tree.FileEntry) (string, error) {
 
-	root := filepath.Clean(targetRoot)
-
+	var reached []string
 	if len(cfg.LayerSources) == 0 && cfg.SourceRoot != "" {
-		root = CommonAncestor(root, filepath.Clean(cfg.SourceRoot))
+		reached = append(reached, filepath.Clean(cfg.SourceRoot))
 	}
 	for _, f := range files {
-		root = CommonAncestor(root, filepath.Dir(f.Source))
+		reached = append(reached, filepath.Dir(f.Source))
 		// Links stat and target the origin path, so the root must span it too (ruled 2026-08-08).
 		if f.Origin != "" && f.Origin != f.Source {
-			root = CommonAncestor(root, filepath.Dir(f.Origin))
+			reached = append(reached, filepath.Dir(f.Origin))
 		}
 	}
 
-	return root
+	root := filepath.Clean(targetRoot)
+	for _, path := range reached {
+		ancestor, shared := fsroot.CommonAncestor(root, path)
+		if !shared {
+			return "", fmt.Errorf("the run root %s and the source %s share no directory, so no run can reach both",
+				root, path)
+		}
+		root = ancestor
+	}
+
+	return root, nil
 }
 
 // scopeLayers returns the unique layer names contributing to `scope`, in source order (base → team → personal).
