@@ -189,7 +189,10 @@ on); see [Platform Awareness](/guides/writ/platform-awareness/). The suffix must
 [selector grammar](/guides/selectors/#the-grammar) and name this machine, so adopt never creates a directory the next
 deploy refuses or skips: on Ubuntu, `Debian` is accepted, and `Fedora`, `Linux.Debian` and `arm64.Debian` are refused.
 An adoption is recorded like a deploy, so the adopted link is writ's own from then on and reconcile reports it. Adopt
-therefore needs a current deployment to record into; on a machine that has never deployed, deploy first.
+needs a repository registered as a layer, and with none it refuses and names `writ repo set`. It needs no deployment:
+on a machine that has never deployed, an adoption starts the record. Until writ is built this way, adopt refuses on a
+machine that has never deployed, with exit 66, and the way through is to register a repository as a layer and
+deploy first.
 
 ### Adopt from a lore receipt
 

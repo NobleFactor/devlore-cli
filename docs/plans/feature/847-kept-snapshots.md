@@ -109,6 +109,16 @@ Read 2026-09-27 at `5509da4d`.
 Windows, `ProgramFiles`, `ProgramData` and whatever `writ.scopes` adds
 ([#926](https://github.com/NobleFactor/devlore-cli/issues/926)).
 
+**Amended by the owner, 2026-10-02: lifetimes are generations, and the pin belongs to the run** (lane 7 of #916,
+[#926](https://github.com/NobleFactor/devlore-cli/issues/926), open question 5; `5.1-reconciliation.md`
+§ Lifetimes are generations). A scoped deploy carries the other scopes forward, so one lifetime can hold Home at one
+commit of a layer and System at another: `--scope Home` today and `--scope System` a week later pin the layer
+wherever its HEAD is each time. So each scope's run records, for each layer, the commit it deployed from. A snapshot
+is one per layer and commit, holding the scopes deployed from that commit, not one per layer per lifetime, and
+pruning collects a snapshot, as it collects a trace, when no kept lifetime's run refers to it. A deploy without
+`--scope` still puts every scope of a layer at one commit. Reconcile already reads each entry against the ref that
+produced it (ruling 3).
+
 **Noted by the owner, 2026-09-27: the narration carries the choice.**
 
 > make note that the reconcile narrations will be critical to understanding the result of reconciliation and the
@@ -183,6 +193,10 @@ The process exception for machine-originated retain branches is lane 19, noblefa
 | #762 Requirement 2 | "no command flags" superseded in part: restore is a flag |
 | `docs/architecture/5.1-reconciliation.md`, `10-command-line-interface.md` §3.1 | dated notes, 2026-09-27 |
 | #844, #845, #846 | prerequisites, as #847 lists them: upgrade pins, upgrade's whole job, snapshots out of the cache |
+| #846, #971, lanes 16 and 17 | 2026-10-02: a snapshot per layer and commit, the pin recorded per run; deploy's cleanup of a replaced scope's runs (#960) |
+| #928, #931, lanes 11 and 14 | 2026-10-02: upgrade and adopt write a new lifetime from the current one's runs, rather than into the current one |
+| #929, lane 12 | 2026-10-02: decommission with nothing named removes everything and ends the lifetime, asking first when interactive; narrowed by `--scope` or project names, it writes a new lifetime without what it removed |
+| #930, lane 13 | 2026-10-02: pruning collects traces and snapshots by reference |
 
 ## Related Documents
 

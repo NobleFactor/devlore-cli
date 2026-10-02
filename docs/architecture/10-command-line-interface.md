@@ -157,6 +157,13 @@ owns every merge:** writ never merges, commits to, moves or pushes any branch bu
 every change that reaches HEAD, the default branch or main is a merge the maintainer makes by a pull request
 ([5.1](5.1-reconciliation.md), the kept-snapshots note).
 
+**Lifetimes are generations** (ruled 2026-10-02, [#926](https://github.com/NobleFactor/devlore-cli/issues/926)). This
+refines "each deploy is one lifetime": writ follows git and Nix, and every operation that changes the system writes a
+new lifetime, which references the runs of the one before it and replicates none, and makes it current. Each run
+records its scope and, for each layer, the commit it deployed from; a scoped deploy replaces only its scopes and
+carries the rest forward; `writ decommission` with nothing named removes everything, and `--scope` or project names
+narrow it. [5.1](5.1-reconciliation.md) "Lifetimes are generations" states the model and what is built of it.
+
 The mechanics, per program:
 
 | Verb | `lore` -- a package | `writ` -- an environment |
