@@ -378,7 +378,9 @@ format, which is why two `writ` commands cannot emit YAML today.
 
 `--scope` is `writ`'s alone. `lore` deploys into a package's own execution scope
 ([2.4](2.4-hermeticity-guarantees.md) §Lore Package Scope); `star` and `devlore-test` have no deployment
-surface. It is persistent on `writ`'s root, because all four lifecycle verbs take it.
+surface. `deploy`, `upgrade`, `reconcile` and `decommission` each register it as a flag of their own rather than
+`writ`'s root carrying it: the shared root's `workflow verify --scope` already names one recorded scope, and two
+flags of one name on one command would let the nearer win in silence (ruled 2026-10-02, #926).
 
 | Flag | Short | Type | Meaning |
 | --- | --- | --- | --- |
@@ -389,9 +391,11 @@ posture, and its own graph. The scope names a directory in the root of a layer r
 directories beneath it are projects. `Home/.config/app/x` deploys to `<home>/.config/app/x`; paths are
 preserved. A scope *has* a target root, and that root is generally not known until runtime.
 
-**Repeatable because the default is plural.** Absent the flag, every scope the layer defines runs, each as
-its own graph, in order. A single-valued flag would make "System and ProgramFiles but not Home"
-inexpressible, and on Windows that is the ordinary case.
+**Repeatable because the default is plural.** Absent the flag, `deploy` runs every scope this platform defines,
+each as its own graph, in scope order; `upgrade`, `reconcile` and `decommission` read the whole record, so the
+entries of a scope since undefined stay in reach (ruled 2026-10-02). The flag only narrows. A single-valued flag
+would make "System and ProgramFiles but not Home" inexpressible, and on Windows that is the ordinary case. Names
+match without case: `--scope home` is `--scope Home`.
 
 Five scopes are builtin, reserved on **every** platform and defined on some:
 
@@ -408,19 +412,34 @@ documents no supported way to relocate **Local** AppData, so it is pinned beneat
 through `Home` as an ordinary relative path, while **Roaming** *is* redirectable under domain policy, so a
 builtin would hardcode a location an administrator is entitled to override.
 
+**Custom scopes** are the other keys of `writ.scopes`, each a name and a root (`Staging: ~/staging/root`), in
+scope order after the builtins, by name. A builtin's own key relocates the builtin: `writ.scopes.Home` moves
+Home's root, which is how a deployment is addressed to a staging tree or a sandbox (ruled 2026-10-01).
+
 **Data is skipped; instructions are refused.**
 
 | Situation | Behavior |
 | --- | --- |
 | A layer carries `ProgramFiles/` on a Unix machine | skipped, silently |
-| `--scope=ProgramFiles` on a Unix machine | error: not defined on this platform |
-| Config introduces a scope named `ProgramFiles`, on **any** platform | error: a builtin name |
+| `--scope=ProgramFiles` on a Unix machine | refused, exit 64, naming the scopes defined here |
+| `writ.scopes` names `ProgramFiles` on a Unix machine | refused, exit 78: a builtin this platform does not define |
+| `writ.scopes` names a scope with no root | refused, exit 78 |
 
 The first is data: the repository is shared across machines, and that directory is there for the Windows
-ones. The second is an instruction that cannot be carried out. The third is reserved everywhere rather than
-only where it resolves — otherwise one repository would mean two things on two machines, which is the failure
-the layer model exists to prevent. Segments answer the same shape the same way, and the rule generalizes:
-**a directory that does not apply is skipped, a flag that cannot apply is refused.**
+ones. The second is an instruction that cannot be carried out. The third would let one repository mean two things
+on two machines, which is the failure the layer model exists to prevent: a builtin's name is reserved on every
+platform, and relocates the scope only where the scope exists. Segments answer the same shape the same way, and
+the rule generalizes: **a directory that does not apply is skipped, a flag that cannot apply is refused.**
+
+**A scoped deploy replaces only its scopes.** A deploy writes a new lifetime that carries the current one's runs
+for every scope it was not asked to run, by reference ([5.1](5.1-reconciliation.md) §Lifetimes are generations), so
+`writ deploy --scope Home` replaces Home's part of the record and leaves System's as it was.
+
+**`adopt` takes no `--scope`.** Each adopted item goes to the scope whose root is the deepest that holds it: under
+`$HOME`, Home; under a custom scope's root, or on Windows under `%ProgramData%` or a Program Files folder, that
+scope; elsewhere, System. The run is confined to the deepest directory holding both that root and the layer it
+writes into, so an item whose scope's root shares no directory with the layer, a layer on another Windows drive,
+is refused.
 
 **Elevation is per scope**, and automatic: updating `/` or `%SystemDrive%\` runs as a sudo user on Unix and
 as an Administrator on Windows, as needed. A scope declares that it requires elevation;

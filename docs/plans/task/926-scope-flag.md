@@ -133,8 +133,11 @@ Ruled 2026-10-02, open question 6:
 
 ### Requirement 5: the pages
 
-`10-command-line-interface.md` §4 and the `writ deploy` help say what `--scope` does; the manage-environments guide
-shows it, and says how adopt picks a scope.
+`10-command-line-interface.md` §4 and the `writ deploy` help say what `--scope` does, and the help of `upgrade`,
+`reconcile` and `decommission` shows it once each (agreed 2026-10-02); the manage-environments guide shows it, and
+says how adopt picks a scope. §4.1 takes the lane's rulings: the flag on the four lifecycle commands (open question
+3), absent reading the whole record for all but deploy (4), a builtin's key relocating it (1), a scoped deploy
+replacing only its scopes (5), and adopt's inference (6, 7).
 
 ### Requirement 6: the style gate
 
@@ -169,7 +172,8 @@ Every Go file this lane touches passes `star lint go-style` in the lane's commit
 
 ### Phase 5: The pages and the gate
 
-- [ ] Requirements 5 and 6; `make check` and `make test-scenario` green.
+- [x] Requirements 5 and 6; `make check` and `make test-scenario` green. The flag's usage line had named every
+  defined scope as the default on all four commands; each now states its own, the others' being the whole record.
 
 ### Phase 6: The VM
 
@@ -216,6 +220,8 @@ refused; `--target=Home` refused at 64; `writ adopt` of a file under `/etc` land
 | `cmd/writ/writ/deploy/plan.go`, `cmd/writ/writ/upgrade/upgrade.go`, `cmd/writ/writ/migrate/register.go` | Modify: the run roots come from `fsroot.CommonAncestor`; the two copies go |
 | `cmd/writ/writ/migrate/register_unix_test.go` | Delete: its one test moves to `fsroot` with the function it tested |
 | `docs/architecture/10-command-line-interface.md`, `docs/guides/writ/manage-environments.md` | Modify: the flag, and how adopt picks a scope |
+| `docs/architecture/2.4-hermeticity-guarantees.md` | Modify: a builtin's name in `writ.scopes` relocates it (open question 1), where the page still refused it |
+| `cmd/writ/writ/commands.go`, `layer.go` | Modify: the help of `deploy`, `upgrade`, `reconcile` and `decommission` shows `--scope`, each with its own default |
 
 ## Open questions
 

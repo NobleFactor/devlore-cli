@@ -43,6 +43,11 @@ Platform-specific variants (e.g., project.Darwin) are selected automatically.
 If a project contains packages-manifest.yaml, the manifest is resolved through
 the lore Planner, adding package installation nodes to the execution graph.
 
+Scopes (--scope, repeatable): Home and System, the Windows scopes on Windows,
+and those writ.scopes names. Without --scope, every scope this platform defines
+deploys, each as its own graph. With it, only the scopes named deploy, and the
+record keeps every other scope's entries as they were. Names match without case.
+
 Conflict handling (--conflict) — occupied targets (phase-8 step 49):
   stop     (default) Refuse foreign or locally-modified occupants, listing them;
            writ's own unmodified outputs are recognized and replaced, so
@@ -54,6 +59,7 @@ Conflict handling (--conflict) — occupied targets (phase-8 step 49):
   writ deploy noblefactor thenobles
   writ deploy --conflict=replace noblefactor
   writ deploy --conflict=skip noblefactor
+  writ deploy --scope Home       # Home alone; the record keeps the other scopes
   writ deploy -s ROLE=desktop noblefactor`,
 		RunE: runDeployV2,
 	}
@@ -62,7 +68,7 @@ Conflict handling (--conflict) — occupied targets (phase-8 step 49):
 	cmd.Flags().StringArrayP("segment", "s", nil,
 		"Set a segment's value, NAME=value (repeatable); an extra must be declared in writ.segments")
 	cmd.Flags().Bool("allow-dirty", false, "Allow planning against layers with uncommitted changes")
-	cmd.Flags().StringSlice("scope", nil, scopeFlagUsage)
+	cmd.Flags().StringSlice("scope", nil, scopeFlagUsage+" (default: every scope defined on this platform)")
 
 	return cmd
 }
@@ -161,14 +167,15 @@ Signature-gated safety (refusing unsigned state) arrives with graph signing (ste
 
 `,
 		Example: `  writ decommission noblefactor              # Remove project files
-  writ decommission all noblefactor          # Remove multiple projects
-  writ decommission --prune noblefactor      # Also remove empty parent directories`,
+  writ decommission noblefactor thenobles    # Remove multiple projects
+  writ decommission --prune noblefactor      # Also remove empty parent directories
+  writ decommission --scope Home noblefactor # Remove the project's Home files only`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: runDecommission,
 	}
 
 	cmd.Flags().Bool("prune", false, "Remove empty parent directories after file removal")
-	cmd.Flags().StringSlice("scope", nil, scopeFlagUsage)
+	cmd.Flags().StringSlice("scope", nil, scopeFlagUsage+" (default: the whole record)")
 
 	return cmd
 }
@@ -232,14 +239,15 @@ source-changed cannot be distinguished from target-modified. Encrypted (sops)
 entries cannot be compared without decrypting and follow the same --force rule.`,
 		Example: `  writ upgrade                     # Regenerate all copied files
   writ upgrade noblefactor         # Regenerate for specific project
-  writ upgrade --force             # Overwrite locally modified files`,
+  writ upgrade --force             # Overwrite locally modified files
+  writ upgrade --scope System      # Regenerate System's copied files only`,
 		RunE: runUpgrade,
 	}
 
 	cmd.Flags().Bool("force", false, "Overwrite locally modified files without prompting")
 	cmd.Flags().StringArrayP("segment", "s", nil,
 		"Set a segment's value, NAME=value (repeatable); an extra must be declared in writ.segments")
-	cmd.Flags().StringSlice("scope", nil, scopeFlagUsage)
+	cmd.Flags().StringSlice("scope", nil, scopeFlagUsage+" (default: the whole record)")
 
 	return cmd
 }
@@ -314,13 +322,14 @@ Exit status -- the answer, gateable like git diff --exit-code (#756):
 		Example: `  writ reconcile                 # Report everything writ has deployed
   writ reconcile noblefactor     # Report one project
   writ reconcile -o json         # Machine-readable report
-  writ reconcile -o table        # Aligned columns`,
+  writ reconcile -o table        # Aligned columns
+  writ reconcile --scope Home    # Report Home's entries only`,
 		RunE: runReconcile,
 	}
 
 	cmd.Flags().StringArrayP("segment", "s", nil,
 		"Set a segment's value, NAME=value (repeatable); an extra must be declared in writ.segments")
-	cmd.Flags().StringSlice("scope", nil, scopeFlagUsage)
+	cmd.Flags().StringSlice("scope", nil, scopeFlagUsage+" (default: the whole record)")
 
 	return cmd
 }

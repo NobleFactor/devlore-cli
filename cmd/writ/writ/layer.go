@@ -20,9 +20,9 @@ import (
 )
 
 // scopeFlagUsage is the usage of `--scope`, which `deploy`, `upgrade`, `reconcile` and `decommission` each register:
-// a choice for one run, not a setting (#926).
-const scopeFlagUsage = "Scope to operate on, repeatable: Home, System, a Windows scope, or one writ.scopes names " +
-	"(default: every scope defined on this platform)"
+// a choice for one run, not a setting (#926). Each command adds its own default: deploy runs every scope this
+// platform defines, and the others read the whole record (open question 4).
+const scopeFlagUsage = "Scope to operate on, repeatable: Home, System, a Windows scope, or one writ.scopes names"
 
 // LayerOrder defines the processing order for repository layers.
 // Layers are processed in this order, with later layers overriding earlier ones.

@@ -14,10 +14,10 @@ record, upgrading copied files, adopting files you already have, and
 decommissioning what writ deployed.
 
 Every operation acts on **the record**: the receipts writ writes to its store
-as it runs. A deploy replaces the record, an upgrade updates it, a
-decommission removes what it names, and reconcile compares the machine
-against it. The record is the desired state; your layer checkout is only
-what a deploy reads.
+as it runs. A deploy replaces the record (with `--scope`, only those scopes'
+part of it), an upgrade updates it, a decommission removes what it names, and
+reconcile compares the machine against it. The record is the desired state;
+your layer checkout is only what a deploy reads.
 
 ## Deploy projects
 
@@ -43,7 +43,36 @@ within a layer; see [Selectors](/guides/selectors/#which-directories-apply-and-i
 projects were implicit, which the record already held, and which you named.
 
 Each `writ deploy` invocation is one deployment. Its receipts are the record
-until the next deploy replaces it.
+until the next deploy replaces them, and a deploy with `--scope` replaces only
+the scopes it names.
+
+### Scopes
+
+A layer repository holds its projects under scope directories: `Home/` deploys beneath your home directory, and
+`System/` beneath `/` (`%SystemDrive%\` on Windows). On Windows, `ProgramData/`, `ProgramFiles/` and
+`ProgramFilesX86/` deploy beneath their folders too. A bare deploy deploys every scope this machine defines. Name
+the scopes to deploy with `--scope`, as often as you need; names match without case:
+
+```bash
+writ deploy --scope Home
+writ deploy --scope System --scope Home
+```
+
+A deploy with `--scope` replaces only those scopes' part of the record: every other scope's entries stay as they
+were, and reconcile still reports them. `upgrade`, `reconcile` and `decommission` take `--scope` too; without it,
+each covers the whole record.
+
+Your own scopes go in configuration, each a name and the root its directory deploys beneath:
+
+```yaml
+writ:
+  scopes:
+    Staging: ~/staging/root    # the layers' Staging/ directories deploy beneath this
+```
+
+A builtin's own key relocates it: `Home: ~/sandbox` deploys Home into a sandbox. A layer directory for a scope this
+machine does not define, `ProgramFiles/` on Linux, is skipped; asking for one, `--scope ProgramFiles` on Linux, is
+refused.
 
 ### Occupied targets
 
@@ -103,6 +132,9 @@ writ reconcile
 # Report one project
 writ reconcile noblefactor
 
+# Report one scope
+writ reconcile --scope Home
+
 # The report as JSON, and the drifted entries alone
 writ reconcile -o json
 writ reconcile -o json --jq '[.entries[] | select(.state != "linked" and .state != "copied")]'
@@ -152,6 +184,9 @@ writ upgrade noblefactor
 
 # Also regenerate copies you edited locally (reconcile reports them `changed`)
 writ upgrade --force
+
+# Regenerate one scope's copied files
+writ upgrade --scope System
 ```
 
 Without `--force`, a copy that differs from what the record says is left
@@ -161,9 +196,13 @@ alone with a warning, since the difference may be your own edit.
 
 Adopt moves a file you already have into a project directory and leaves a
 symlink in its place, so it deploys like everything else. The project is
-named by `--project`; the scope is inferred from the item's location — under
-your home directory the item is adopted into `Home/`, elsewhere into
-`System/`.
+named by `--project`; the scope is inferred from the item's location: of the
+scopes this machine defines, the one whose root is the deepest that holds the
+item. Under your home directory an item is adopted into `Home/`; under a
+custom scope's root, or on Windows under `%ProgramData%` or a Program Files
+folder, into that scope's directory; elsewhere, into `System/`. An item whose
+scope's root shares no directory with the layer — on Windows, a layer on
+another drive — is refused.
 
 ```bash
 # Adopt a single file into the personal layer
@@ -220,6 +259,9 @@ writ decommission noblefactor thenobles
 
 # Also remove parent directories the removal left empty
 writ decommission --prune noblefactor
+
+# Remove a project's files from one scope
+writ decommission --scope Home noblefactor
 ```
 
 ## Migrate an existing dotfiles repository
