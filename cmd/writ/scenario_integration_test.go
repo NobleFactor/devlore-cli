@@ -793,8 +793,10 @@ func TestWritDeployScenario_Deploy(t *testing.T) {
 
 // TestWritDeployScenario_Scopes is lane 7's leg (#926): a custom scope, Staging, beside Home. `--scope Home` deploys
 // Home alone; a bare deploy adds Staging; a later `--scope Home` keeps Staging in the record, because a scoped deploy
-// carries forward the scopes it does not run (open question 5, ruled 2026-10-02). The other legs leave Staging
-// undefined, so its directory in the fixture is skipped in silence there.
+// carries forward the scopes it does not run (open question 5, ruled 2026-10-02). Then adopt takes each item's scope
+// from the model (open question 6): an item under Home lands in the layer's Home/, one under Staging's root in its
+// Staging/, and `reconcile --scope` finds each. The other legs leave Staging undefined, so its directory in the
+// fixture is skipped in silence there.
 //
 // Parameters:
 //   - `t`: the test harness.
@@ -844,6 +846,35 @@ func TestWritDeployScenario_Scopes(t *testing.T) {
 	for _, target := range reconcileTargets(t, sandbox, "reconcile", "--scope", "Staging", "--output", "json") {
 		if !strings.HasPrefix(target, staging) {
 			t.Errorf("reconcile --scope Staging reported %s, outside Staging", target)
+		}
+	}
+
+	// Adopt infers each item's scope from the model and records it as deploy does, so --scope finds the adoptions.
+	homeItem := filepath.Join(sandbox.Home, ".adopted.conf")
+	stagingItem := filepath.Join(staging, "scenario", "adopted.conf")
+	for _, item := range []string{homeItem, stagingItem} {
+		if err := os.WriteFile(item, []byte("adopted = true"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, stderr, err := runWrit(t, sandbox, "adopt", "--project", "adopted", homeItem, stagingItem); err != nil {
+		t.Fatalf("writ adopt failed: %v\n%s", err, stderr)
+	}
+	assertLinked(t, homeItem, "adopted = true")
+	assertLinked(t, stagingItem, "adopted = true")
+
+	for _, adopted := range []string{
+		filepath.Join(sandbox.Repo, "Home", "adopted", ".adopted.conf"),
+		filepath.Join(sandbox.Repo, "Staging", "adopted", "scenario", "adopted.conf"),
+	} {
+		if _, err := os.Stat(adopted); err != nil {
+			t.Errorf("the adopted file is not in its scope's directory in the layer: %v", err)
+		}
+	}
+	for scope, item := range map[string]string{"Home": homeItem, "Staging": stagingItem} {
+		targets := reconcileTargets(t, sandbox, "reconcile", "--scope", scope, "--output", "json")
+		if !slices.Contains(targets, item) {
+			t.Errorf("reconcile --scope %s does not report the adopted %s: %q", scope, item, targets)
 		}
 	}
 }

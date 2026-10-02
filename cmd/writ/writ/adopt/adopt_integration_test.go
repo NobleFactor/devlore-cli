@@ -23,7 +23,16 @@ import (
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/inventory"
 )
 
-// configForTest builds an [*adopt.Config] rooted at `root` for the behavioral tests.
+// configForTest builds an [*adopt.Config] rooted at `root` for the behavioral tests: Home's root is `root`, System's
+// the volume root above it, and a deployment is in place for the adoptions to join.
+//
+// Parameters:
+//   - `t`: the test harness; the XDG homes are redirected beneath `root` for the test's duration.
+//   - `root`: the test's temporary directory, which stands in for the home directory.
+//   - `files`: the items to adopt.
+//
+// Returns:
+//   - `*adopt.Config`: the configuration, adopting into `root`/layers/personal under the project `behavioral-test`.
 func configForTest(t *testing.T, root string, files ...string) *adopt.Config {
 
 	t.Helper()
@@ -39,13 +48,21 @@ func configForTest(t *testing.T, root string, files ...string) *adopt.Config {
 	return &adopt.Config{
 		Files:      files,
 		TargetRoot: root,
-		LayerPath:  filepath.Join(root, "layers", "personal"),
-		Project:    "behavioral-test",
+		Scopes: []adopt.Scope{
+			{Name: "system", Directory: "System", Root: filepath.VolumeName(root) + string(filepath.Separator)},
+			{Name: "home", Directory: "Home", Root: root},
+		},
+		LayerPath: filepath.Join(root, "layers", "personal"),
+		Project:   "behavioral-test",
 	}
 }
 
 // deployForTest opens a lifetime for the adoptions to join (#922, #931): one deployed file from a throwaway
 // project, so `writ adopt` has a current deployment to write into.
+//
+// Parameters:
+//   - `t`: the test harness, failed when the seed cannot be written or deployed.
+//   - `root`: the test's temporary directory; the seed project is written beneath it and deployed into it.
 func deployForTest(t *testing.T, root string) {
 
 	t.Helper()
@@ -65,6 +82,14 @@ func deployForTest(t *testing.T, root string) {
 }
 
 // runForTest drives the slice-A batch path: enumeration into scope groups, then one graph run per group.
+//
+// Parameters:
+//   - `t`: the test harness.
+//   - `cfg`: the adopt configuration.
+//
+// Returns:
+//   - `int`: the number of files adopted.
+//   - `error`: the batches' failure.
 func runForTest(t *testing.T, cfg *adopt.Config) (int, error) {
 
 	t.Helper()
@@ -375,7 +400,8 @@ func TestValidatePlatform_TheGrammar(t *testing.T) {
 }
 
 // TestAdopt_LeavesADeploymentRecord pins #931's record: after an adopt the fold holds the link as a deployed entry,
-// it is what the record wrote, and reconcile reports it linked.
+// it is what the record wrote, and reconcile reports it linked. The entry and the run name their scope in lower case,
+// as deploy's do, so reconcile narrowed to Home reports the link too (#926).
 func TestAdopt_LeavesADeploymentRecord(t *testing.T) {
 
 	root := t.TempDir()
@@ -408,13 +434,20 @@ func TestAdopt_LeavesADeploymentRecord(t *testing.T) {
 	if !entry.AsRecorded() {
 		t.Error("the adopted link is not what the record wrote; a deploy under stop would refuse it")
 	}
+	if entry.Scope != "home" {
+		t.Errorf("the adopted entry's scope is %q, want home, as deploy records it", entry.Scope)
+	}
 
 	lifetime, err := cli.CurrentLifetime()
 	if err != nil {
 		t.Fatalf("CurrentLifetime: %v", err)
 	}
-	if last := lifetime.Runs[len(lifetime.Runs)-1]; last.Operation != cli.RunOperationAdopt {
+	last := lifetime.Runs[len(lifetime.Runs)-1]
+	if last.Operation != cli.RunOperationAdopt {
 		t.Errorf("the lifetime's last run is %s, want adopt", last.Operation)
+	}
+	if last.Scope != "home" {
+		t.Errorf("the adopt run records scope %q, want home", last.Scope)
 	}
 
 	report, err := reconcile.BuildReport(context.Background(), &reconcile.Config{})
@@ -425,5 +458,17 @@ func TestAdopt_LeavesADeploymentRecord(t *testing.T) {
 		if classified.Target == sourceFile && classified.State != reconcile.StateLinked {
 			t.Errorf("reconcile says %s for the adopted link, want linked", classified.State.Label())
 		}
+	}
+
+	scoped, err := reconcile.BuildReport(context.Background(), &reconcile.Config{Scopes: []string{"home"}})
+	if err != nil {
+		t.Fatalf("BuildReport --scope Home: %v", err)
+	}
+	reported := false
+	for _, classified := range scoped.Entries {
+		reported = reported || classified.Target == sourceFile
+	}
+	if !reported {
+		t.Error("reconcile narrowed to Home does not report the adopted link")
 	}
 }

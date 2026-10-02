@@ -16,7 +16,9 @@ writ-only, names which scopes a run covers; absent, every scope defined on this 
 on writ's root and read by nothing; it goes, with no alias. Scopes are the builtins -- `Home` and `System` everywhere,
 and on Windows `ProgramData`, `ProgramFiles` and `ProgramFilesX86` -- plus the custom scopes `writ.scopes` names.
 
-**This plan covers this one lane.** Anything found while working it stops the work and goes to the owner.
+**This plan covers this one lane.** Anything found while working it stops the work and goes to the owner. One such
+finding, open question 6, brought adopt into the scope model in a phase of this lane, and that phase closes #761,
+lane 32 of #916.
 
 ## Issue 926
 
@@ -98,12 +100,43 @@ defined.
   run -- none without `--scope` -- and a scope it ran and failed keeps its previous runs. So
   `writ deploy --scope Home` replaces Home's part of the record and keeps every other scope's.
 
-### Requirement 4: the pages
+### Requirement 4: adopt and the scope model
+
+Ruled 2026-10-02, open question 6:
+
+- **inference:** each item's scope is the one, of the scopes this platform defines, whose root is the deepest that
+  holds the item. A tie goes to the scope that comes first in scope order. An item under no scope's root is refused
+  as a missing item is: an error naming it, and the rest adopt.
+- **the directory:** the item lands in its scope's directory in the layer: a builtin's own name (`Home/`, `System/`,
+  `ProgramData/`), or a custom scope's existing directory, found without case as deploy finds it, else the name
+  `writ.scopes` gives it.
+- **the root:** the item's path is taken relative to its scope's root, from the model, in place of the `/` adopt
+  assumes for System today (#761).
+- **the record:** the run records its scope in lower case, as deploy's runs do, so the `--scope` filters and the
+  lifetime's carry-forward see adopted entries. Records already written with `Home` or `System` need nothing: the
+  next bare deploy replaces them.
+- **order:** the scope groups run in scope order, as deploy's graphs do, in place of sorted roots: `RunBatches`
+  walks `Config.Scopes`, which `ScopeOrder()` orders. Adopt produces only scopes defined here, so it needs none of
+  `readback.CompareScopes`' places for the others.
+- **the structure:** `adopt` cannot import `writ`, which imports it, so the cobra layer hands adopt the scopes:
+  `adopt.Config` gains `Scopes []adopt.Scope`, each the scope's lower-case name, its directory in the layer, and its
+  root, built from `ScopeOrder()` by `adoptScopes` in `adopt_cmd.go`. The inference (`inferScope`) reads them;
+  `Config.TargetRoot` stays the Home root that relative items resolve against. Batches are keyed by scope name.
+- **the run's root** (ruled 2026-10-02, open questions 7 and 8): each scope's run is confined to the deepest directory
+  that holds both the scope's root and the layer, since a run writes into the layer; the record's `target_root` stays
+  the scope's root. An item whose scope's root shares no directory with the layer, a layer on another Windows drive,
+  is refused as an item under no root is. The directory comes from `fsroot.CommonAncestor`, new: lexical, keeping a
+  volume's root whole (`C:\`), blind to case on Windows, and answering none across volumes. It replaces
+  `deploy.CommonAncestor` and `migrate.commonAncestor`, so deploy's, upgrade's and layer registration's run roots
+  stop answering `C:` for a drive's root and `\` across drives; each refuses when its paths share no directory.
+- **the help:** `writ adopt`'s help and `inferScope`'s doc comment say what the model does; `%SystemRoot%` goes.
+
+### Requirement 5: the pages
 
 `10-command-line-interface.md` §4 and the `writ deploy` help say what `--scope` does; the manage-environments guide
-shows it.
+shows it, and says how adopt picks a scope.
 
-### Requirement 5: the style gate
+### Requirement 6: the style gate
 
 Every Go file this lane touches passes `star lint go-style` in the lane's commit.
 
@@ -124,20 +157,31 @@ Every Go file this lane touches passes `star lint go-style` in the lane's commit
   `TestWritDeployScenario_Scopes` deploys a custom scope, `Staging`, beside Home: `--scope Home` deploys Home
   alone, a bare deploy adds Staging, and a later `--scope Home` keeps Staging in the record (open question 5).
 
-### Phase 4: The pages and the gate
+### Phase 4: Adopt and the scope model
 
-- [ ] Requirements 4 and 5; `make check` and `make test-scenario` green.
+- [x] Requirement 4, with unit tests for the inference (the deepest root wins, a tie goes to scope order, an item
+  under no root is refused, a relocated Home, a custom scope) and a step in `TestWritDeployScenario_Scopes`: after
+  its deploys, `writ adopt` of a file under the sandbox's Home and one under Staging's root lands each in its scope's
+  directory in the layer, and `writ reconcile --scope Home` and `--scope Staging` each report the adoption.
+  `TestAdopt_LeavesADeploymentRecord` asserts the entry and the run name `home`. `fsroot.CommonAncestor`'s tests
+  cover a shared tree, a volume's root, and, on Windows, case and two drives; `make vet-all` compiles them for every
+  platform. Closes #761 with PR C.
 
-### Phase 5: The VM
+### Phase 5: The pages and the gate
+
+- [ ] Requirements 5 and 6; `make check` and `make test-scenario` green.
+
+### Phase 6: The VM
 
 Snapshot first. On `danoble-ud24-1.local`: `writ deploy --scope=Home`, then a bare deploy; `--scope=ProgramFiles`
-refused; `--target=Home` refused at 64. The Windows proof is CI's; the Windows VM is gone.
+refused; `--target=Home` refused at 64; `writ adopt` of a file under `/etc` lands in `System/`, and
+`writ reconcile --scope System` reports it. The Windows proof is CI's; the Windows VM is gone.
 
 - [ ] `danoble-ud24-1.local` (linux/arm64)
 
-### Phase 6: Closure
+### Phase 7: Closure
 
-- [ ] The lane's commit on this branch. PR C opens after lane 8, with `Closes #926`.
+- [ ] The lane's commit on this branch. PR C opens after lane 8, with `Closes #926` and `Closes #761`.
 
 ## Test Plan
 
@@ -149,6 +193,7 @@ refused; `--target=Home` refused at 64. The Windows proof is CI's; the Windows V
 | 3a | `workflow verify --scope` matches the recorded scope without case | unit | `Home` selects nothing `home` selects |
 | 4 | deploy, upgrade, reconcile, decommission honor the selection | integration, scenario | an operation reaches an unselected scope |
 | 4a | a scoped deploy keeps every other scope in the record; a bare deploy replaces it all; a failed scope keeps its runs | unit, scenario | `--scope Home` drops another scope's entries, or a bare deploy carries a stale run |
+| 4b | adopt infers each item's scope and root from the model and records the scope in lower case | unit, scenario | an item lands in the wrong scope or beneath the wrong root, or `reconcile --scope Home` misses an adopted entry |
 | 5 | the behavior on a real install | VM | the machine behaves otherwise |
 
 ## Files to Create/Modify
@@ -165,7 +210,12 @@ refused; `--target=Home` refused at 64. The Windows proof is CI's; the Windows V
 | `cmd/writ/writ/deploy`, `upgrade`, `reconcile`, `decommission` | Modify: honor the selection |
 | scenario tests | Modify: the `--scope` step |
 | `cmd/writ/scenario_integration_test.go`, `cmd/writ/scenario_layer_journey_test.go`, `cmd/writ/testdata/personal-repo/Staging/` | Modify, Create: the `Staging` leg; the sandbox's scope roots; §8's widths and §9's helpers-first in the two files touched |
-| `docs/architecture/10-command-line-interface.md`, `docs/guides/writ/manage-environments.md` | Modify: the flag |
+| `cmd/writ/writ/adopt/adopt.go`, `batch.go`, `plan.go`, `adopt_integration_test.go`, `cmd/writ/writ/adopt_cmd.go`, `cmd/writ/scenario_integration_test.go` | Modify: adopt infers, roots and records its scopes from the model; the help and the package doc say so; the scenario's adopt step |
+| `cmd/writ/writ/adopt/batch_test.go`, `batch_windows_test.go` | Create: the inference's unit tests; a layer on another drive |
+| `pkg/fsroot/fsroot.go`, `commonancestor_test.go`, `commonancestor_unix_test.go`, `commonancestor_windows_test.go` | Modify, Create: `CommonAncestor` and its tests, in files of their own: `fsroot_test.go` carries 33 style findings this lane does not take on |
+| `cmd/writ/writ/deploy/plan.go`, `cmd/writ/writ/upgrade/upgrade.go`, `cmd/writ/writ/migrate/register.go` | Modify: the run roots come from `fsroot.CommonAncestor`; the two copies go |
+| `cmd/writ/writ/migrate/register_unix_test.go` | Delete: its one test moves to `fsroot` with the function it tested |
+| `docs/architecture/10-command-line-interface.md`, `docs/guides/writ/manage-environments.md` | Modify: the flag, and how adopt picks a scope |
 
 ## Open questions
 
@@ -225,8 +275,8 @@ refused; `--target=Home` refused at 64. The Windows proof is CI's; the Windows V
    runs recorded a scope -- and a scope the deploy ran and failed keeps its previous runs. The rest is amended into
    lanes 11, 12, 13, 16, 17 and 31 when the schedule reaches them.
 
-6. **Found 2026-10-02 answering the owner's question on adopt; open, proposed for this lane.** Two gaps between
-   adopt and the scope model, both lane 7's to close as proposed:
+6. **Found 2026-10-02 answering the owner's question on adopt, ruled the same day: (a).** Two gaps between adopt
+   and the scope model:
    - adopt records its scope capitalized, `Home` or `System` (`inferScope`, `cmd/writ/writ/adopt/batch.go`), where
      deploy records `home` and `system`. With phase 3's filters, `reconcile --scope Home` misses adopted entries,
      `decommission --scope Home` leaves adopted links, and a `--scope Home` deploy carries adopt's old Home run
@@ -240,9 +290,52 @@ refused; `--target=Home` refused at 64. The Windows proof is CI's; the Windows V
      from the model. #761 is this gap on Windows; lane 7's phase 2 fixed its other half (System is
      `%SystemDrive%\`).
 
+   Offered: (a) both in this lane, as a phase before the pages, with #761 joining PR C; (b) the case fix here and
+   the inference in lane 31 (#1018); (c) both in lane 31. **Ruled (a)**: Requirement 4 and phase 4. #761 joins PR C as
+   lane 32 of #916, and phase 4 closes it.
+
+7. **Found 2026-10-02 running phase 4's scenario step, ruled the same day: (a).** Adopt confines each run to its
+   scope's root (`buildSpec(scope.Root)`), and a run writes into the layer, so the layer must lie beneath that root.
+   A usual install meets that for Home, whose root holds the layer under `$HOME`, and for System, whose root is `/`
+   (or `%SystemDrive%\`, with the layer on the system drive), so adopt has never failed on it. Phase 4 sends an item
+   to the scope whose root holds it: a custom scope's (`/srv/staging`), a Windows scope's (`C:\ProgramData`), or a
+   relocated Home's. The layer is beneath none of those, so the run refuses before it moves a file:
+   `…/Personal/Home/adopted lies outside scoped root …/home`. The scenario's sandbox keeps its layer outside its
+   Home, which is how the step found it, for Home as well. Offered:
+   - (a) anchor each adopt run at the deepest directory that holds both the scope's root and the layer, and refuse
+     an item when none does (a layer on another Windows drive); the record's `target_root` stays the scope's root.
+     Home and System on a usual install run exactly as before;
+   - (b) anchor every adopt run at the root of its scope's volume (`/`, `C:\`);
+   - (c) keep the scope's root, and refuse, naming the layer, an item whose scope's root does not hold the layer;
+     custom scopes, the Windows scopes and a relocated Home then cannot be adopted into on a usual layout.
+
+   **Ruled (a)**, the tightest confinement an adoption allows: Requirement 4's run-root bullet.
+
+8. **Found 2026-10-02 building open question 7's (a), ruled the same day: (a).** The deepest directory that holds
+   two paths is computed twice already, by the same segment-matching code: `deploy.CommonAncestor`, for deploy's
+   and upgrade's run roots, and `migrate.commonAncestor`, for layer registration. On Windows it answers wrongly at a
+   drive's root. For `C:\` and `C:\Users\…` it answers `C:`, the current directory on drive C rather than its root;
+   for paths on two drives it answers `\`, the root of whatever drive the process stands on, where the answer is
+   none; and it compares names with their case, which Windows ignores. Deploy and upgrade for System, whose root is
+   `%SystemDrive%\`, reach the first; adopt into ProgramData or ProgramFiles would too. Containment is fsroot's
+   question (`fsroot.RelWithin`, lexical and volume-aware), and the deepest common directory is the same question.
+   Offered:
+   - (a) add it to fsroot, volume-aware and blind to case on Windows, answering none across volumes; adopt uses it,
+     and it replaces deploy's and migrate's copies in this phase, which closes #761, System on Windows;
+   - (b) the same fsroot function for adopt now; the copies' defect filed as a bug for a lane of its own;
+   - (c) a helper local to adopt.
+
+   The owner then raised two roots per run, a target root and the source roots, which is #597's named roots.
+   **Ruled (a)** for this lane: `fsroot.CommonAncestor` replaces both copies, and adopt uses it. Named roots is
+   designed after this lane lands, as lane 33 of #916: "we have been talking about named roots for a while now ... we
+   will design that after we land this lane."
+
 ## Related Documents
 
 - [#926](https://github.com/NobleFactor/devlore-cli/issues/926) -- the issue and its ruling
+- [#761](https://github.com/NobleFactor/devlore-cli/issues/761) -- adopt's half of the System root, closed by phase 4
+- [#931](https://github.com/NobleFactor/devlore-cli/issues/931) -- lane 14, whose item 4 handed adopt's inference here
+- [#597](https://github.com/NobleFactor/devlore-cli/issues/597) -- named roots, lane 33, designed after this lane
 - [925-scope-not-target.md](925-scope-not-target.md) -- lane 6, the rename this builds on
 - [762-lifecycle-scopes.md](../feature/762-lifecycle-scopes.md) -- Phase 4, and Requirement 8 on `writ.scopes`
 - [2.4-hermeticity-guarantees.md](../../architecture/2.4-hermeticity-guarantees.md) -- what a scope is

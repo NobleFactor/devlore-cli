@@ -31,7 +31,8 @@ type Item struct {
 	// DestPath is the destination inside `<layer>/<scope>/<project>/`, preserving RelPath.
 	DestPath string
 
-	// Scope is the scope the item was inferred into (Home or System); the record names it.
+	// Scope is the name, in lower case, of the scope the item was inferred into; the record names it, as a deploy's
+	// record names its scopes.
 	Scope string
 }
 
