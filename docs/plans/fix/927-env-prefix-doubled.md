@@ -1,5 +1,5 @@
 ---
-title: "Lane 8: a setting's environment variable is the prefix plus the bare key, for every program"
+title: "Lane 8: a program setting's variable is the prefix plus the bare key; a variable naming nothing is warned of"
 issue: https://github.com/NobleFactor/devlore-cli/issues/927
 status: draft
 created: 2026-10-02
@@ -11,64 +11,101 @@ updated: 2026-10-02
 ## Summary
 
 Lane 8 of [#916](https://github.com/NobleFactor/devlore-cli/issues/916), in PR C, which opens after it and lane 33.
-Ruled on #927 (2026-09-23): **a setting's environment variable is the prefix plus the bare key, for every program**:
-`WRIT_VERBOSE`, `LORE_VERBOSE`, `STAR_VERBOSE`. The key's program segment is dropped when the prefix already names
-the program; `WRIT_WRIT_VERBOSE` is not honored. That is how `aws`, `gh` and `docker` name theirs. The lane changes
-configuration naming only, and is independent of lane 33's named roots.
+Ruled on #927 (2026-09-23): **a setting's environment variable is the prefix plus the bare key**; the key's program
+segment is dropped when the prefix already names the program, and the doubled spelling is not honored. That is how
+`aws`, `gh` and `docker` name theirs. Planning it on 2026-10-02, the owner ruled the shared root's flags (`--verbose`,
+`--dry-run` and the rest) **global settings**, built in lane 24
+([#1010](https://github.com/NobleFactor/devlore-cli/issues/1010)) with `DEVLORE_` variables, and #1011 goes with them.
+This lane keeps the settings only one program has, adds a test that no two settings share a variable, and adds **a
+warning for a variable that names nothing**. It changes configuration naming only, and is independent of lane 33's
+named roots.
 
 ## Issue 927
 
-Bug, epic WritDeployment (#451), feature #762; #916 lane 8, PR C. Lane 23
-([#1011](https://github.com/NobleFactor/devlore-cli/issues/1011)) waits on it.
+Bug, epic WritDeployment (#451), feature #762; #916 lane 8, PR C. Its acceptance, written around `WRIT_VERBOSE`, is
+rewritten to this plan, since `--verbose` is now a global setting.
+
+## Rulings
+
+All by the owner on 2026-10-02, while planning this lane.
+
+1. **Lane 23 (#1011) goes with lane 24.** It first joined this lane ("Lane 23 should join lane 8"), then followed the
+   shared root's flags to lane 24 when they went global: "split confirmed".
+2. **The model settings' variables are `DEVLORE_MODEL_*` alone.** "WRIT_MODEL_PROVIDER should go away. we have a
+   DEVLORE_MODEL_PROVIDER. I don't see that as limiting. leave it in lane 24."
+3. **The shared root's flags are global settings**: "yes, global in lane 24". `--verbose`, `--dry-run`, `--interactive`,
+   `--unattended`, `--silent`, `--config` and the `--model-*` flags bind to global settings read from
+   `DEVLORE_<KEY>`. Lane 24 builds that, and its generated reference names their variables.
+4. **A hyphen becomes `_`, not squeezed.** "keep _, add the collision test", reaffirmed after weighing Spring Boot's
+   squeeze, which drops hyphens because Spring binds variables back into settings and viper never does: "keep _, add
+   the warning."
+5. **A variable that names nothing draws a warning**: "add the warning."
 
 ## Goals
 
-1. A program's setting reads from the prefix plus the key without the program's own segment: `writ.verbose` from
-   `WRIT_VERBOSE`, `writ.deploy.conflict` from `WRIT_DEPLOY_CONFLICT`.
-2. The doubled spelling, `WRIT_WRIT_VERBOSE`, is not honored.
-3. Every program on the shared root alike: writ, lore, star and devlore-test.
-4. The CLI design document states the rule in one line, and the generated reference names each bound flag's
-   variable.
-5. Every Go file the lane touches passes `star lint go-style`.
+1. A program setting reads from the program's prefix plus the key without the program's own segment: `writ.repo`
+   from `WRIT_REPO`, and a nested `writ.deploy.conflict` would read `WRIT_DEPLOY_CONFLICT`.
+2. The doubled spelling, `WRIT_WRIT_REPO`, is not honored.
+3. A hyphen in a setting's name becomes `_` in its variable.
+4. No two settings share a variable, by test.
+5. A variable whose name begins with a program's prefix or `DEVLORE_`, and that nothing reads, draws a warning
+   naming it.
+6. The CLI design document states the rule.
+7. Every Go file the lane touches passes `star lint go-style`.
 
 ## Current State
 
-Read 2026-10-02 at `aa553b34`.
+Read 2026-10-02 at `72a73e40`.
 
 | Component | Status | Notes |
 | --- | --- | --- |
-| `cmd/internal/cli/viper.go` `InitViper` | ❌ | `SetEnvPrefix(prefix)`, `AutomaticEnv`, and a replacer from `.` to `_`. `BindFlags` binds each shared-root flag under `<program>.<flag>`, so `writ.verbose` reads `WRIT_WRIT_VERBOSE`. The function's doc comment already states the ruled form (`WRIT_REPO → writ.repo`), which the code does not do |
-| prefixes | ⚠️ | `cmd/internal/cli/root.go`: the program's name upper-cased, `-` as `_`: `WRIT`, `LORE`, `STAR`, `DEVLORE_TEST`. devlore-test's verbose reads `DEVLORE_TEST_DEVLORE-TEST_VERBOSE` today |
-| hyphenated flags | ⚠️ | `dry-run`, `model-api-key`, `model-endpoint`, `model-provider` map to names with a hyphen (`WRIT_WRIT_DRY-RUN`), which a POSIX shell cannot set: lane 23 (#1011) |
-| suite-wide variables | out of scope | `cmd/internal/config/config.go` reads `DEVLORE_VERBOSITY`, `DEVLORE_DRY_RUN`, `DEVLORE_MODEL_*` and `DEVLORE_REGISTRY_*` by name, and `DEVLORE_PAGER`, `DEVLORE_VERSION` and `WRIT_SEGMENT_<NAME>` are read by name too. Lanes 24 and 25 own the model and registry ones |
+| `cmd/internal/cli/viper.go` `InitViper` | ❌ | `SetEnvPrefix(prefix)`, `AutomaticEnv`, and a replacer from `.` to `_`; a key already namespaced under its program reads the doubled name, `WRIT_WRIT_REPO`. The function's doc comment states the ruled form, which the code does not do |
+| program settings read through viper | ⚠️ | `writ.repo` and `writ.vars` (`cmd/writ/writ/config.go`), and `writ.scopes`, which `layer.go` reads as a map, so no variable reaches its entries. lore, star and devlore-test read none; lore's model settings go global in lane 24 |
+| the shared root's flags | lane 24 | bound per program today (`writ.verbose`, `writ.dry-run`); lane 24 makes them global |
+| graph parameters | ⚠️ | `pkg/op`'s `VariableResolver` reads a parameter from `<PREFIX>_<NAME>`, the namespace the settings use (open question 1) |
+| variables read by name | ✓ | `DEVLORE_VERBOSITY`, `DEVLORE_DRY_RUN`, `DEVLORE_MODEL_*` and `DEVLORE_REGISTRY_*` (`cmd/internal/config`), `DEVLORE_PAGER`, `DEVLORE_VERSION`, `DEVLORE_REGISTRY` (devlore-index) and `WRIT_SEGMENT_<NAME>`; the installers read `DEVLORE_BASE`, `DEVLORE_TEAM`, `DEVLORE_PERSONAL`, `DEVLORE_TOOLS` and `DEVLORE_VERSION` |
+| `config get` | n/a | reads the configuration file, not viper, so it shows no variable's value |
 | `10-command-line-interface.md` | ❌ | states the precedence (flags, then the environment, then configuration) but not how a variable is named |
-| the generated reference (`cmd/devlore-docs`) | ❌ | names no variable |
 | viper v1.21.0 | ready | upper-cases `PREFIX_key` before applying the key replacer (`mergeWithEnvPrefix`, then `getEnv`), so a replacer can drop the doubled segment at the start of the name and nowhere else |
 
 ## Requirements
 
 ### Requirement 1: the mapping
 
-For a program whose prefix is `P`, a key `<program>.<rest>` reads `P_<REST>`: the rest upper-cased, dots as
-underscores. A key outside the program's section, such as `pager`, reads `P_<KEY>`. The doubled `P_<PROGRAM>_<REST>`
-is not honored. The rule lives in one place, `InitViper`'s key replacer, whose first pair turns the doubled prefix
-`P_<PROGRAM>.` into `P_`. Viper prefixes the key before it replaces, so the pair matches at the start of the name
-only. `InitViper`'s doc comment states the rule.
+For a program whose prefix is `P`, a key `<program>.<rest>` reads `P_<REST>`: the rest upper-cased, dots and hyphens
+as underscores. The doubled `P_<PROGRAM>_<REST>` is not honored. The rule lives in one place, `InitViper`'s key
+replacer, whose first pair turns the doubled prefix `P_<PROGRAM>.` into `P_`; viper prefixes the key before it
+replaces, so the pair matches at the start of the name only. `InitViper`'s doc comment states the rule.
 
-### Requirement 2: the tests
+### Requirement 2: the collision test
 
-- **Unit:** the mapping for each program's prefix: a plain key, a nested key, a key outside the program's section,
-  and the doubled spelling refused.
-- **Subprocess, one per program on the shared root:** `WRIT_VERBOSE=1 writ version` behaves as `--verbose`, and
-  `WRIT_WRIT_VERBOSE=1` does nothing; the same for lore, star and devlore-test. They run beside the self-install
-  scenarios in `cmd/scenario`, which belong to no single program, under `make test-scenario`.
+A test maps every known setting (flags, defaults, documented settings, and the variables read by name) to its
+variable, and fails if two settings share one.
 
-### Requirement 3: the pages
+### Requirement 3: the warning
 
-`10-command-line-interface.md` states the rule in one line, beside the precedence. The generated reference names,
-beside each flag bound to a setting, the variable that sets it.
+At startup, a variable whose name begins with a program's prefix or `DEVLORE_`, and that names nothing a program
+reads, draws a warning through the narrator, so `--silent` quiets it. The warning names the variable and, when one
+is near, the known name it resembles: `WRIT_WRIT_REPO` suggests `WRIT_REPO`, and `DEVLORE_DRYRUN` suggests
+`DEVLORE_DRY_RUN`. The known names are Requirement 2's table, the installers' variables, and the families that carry
+a name, such as `WRIT_SEGMENT_<NAME>` for a declared segment; graph parameters are open question 1.
 
-### Requirement 4: the style gate
+### Requirement 4: the tests
+
+- **Unit:** the mapping, for each program's prefix: a plain key, a nested key, a hyphenated key, and the doubled
+  spelling refused; the collision test; the warning's known names and its nearest-name suggestion.
+- **Subprocess, one per program on the shared root:** an unknown variable with the program's prefix draws the
+  warning on standard error, the doubled spelling of a known setting draws it naming the bare one, and under
+  `--silent` neither prints. They run beside the self-install scenarios in `cmd/scenario`, under
+  `make test-scenario`.
+
+### Requirement 5: the pages
+
+`10-command-line-interface.md` states the rule in one line, beside the precedence: a program setting's variable is
+the program's prefix plus the bare key, and a global setting's is `DEVLORE_` plus the key, which lane 24 builds. It
+states the warning too.
+
+### Requirement 6: the style gate
 
 Every Go file this lane touches passes `star lint go-style` in the lane's commit.
 
@@ -78,23 +115,27 @@ Every Go file this lane touches passes `star lint go-style` in the lane's commit
 
 - [ ] This document, reviewed with the owner and chartered.
 
-### Phase 2: The mapping and its tests
+### Phase 2: The mapping and the collision test
 
-- [ ] Requirements 1 and 2.
+- [ ] Requirements 1 and 2, with their unit tests.
 
-### Phase 3: The pages and the gate
+### Phase 3: The warning
 
-- [ ] Requirements 3 and 4; `make check` and `make test-scenario` green.
+- [ ] Requirement 3, and Requirement 4's warning tests.
 
-### Phase 4: The VM
+### Phase 4: The pages and the gate
 
-On `danoble-ud24-1.local`, with the build installed: `WRIT_VERBOSE=1 writ version` narrates as `--verbose` does, and
-`WRIT_WRIT_VERBOSE=1 writ version` does not; the same for `lore` and `star`. The Windows box is out of service; CI's
-Windows jobs are the Windows proof.
+- [ ] Requirements 5 and 6; `make check` and `make test-scenario` green.
+
+### Phase 5: The VM
+
+On `danoble-ud24-1.local`, with the build installed: `WRIT_WRIT_REPO=x writ version` warns and suggests `WRIT_REPO`,
+and an unknown `LORE_` and `STAR_` variable each draws the warning. The Windows box is out of service; CI's Windows
+jobs are the Windows proof.
 
 - [ ] `danoble-ud24-1.local` (linux/arm64)
 
-### Phase 5: Closure
+### Phase 6: Closure
 
 - [ ] The lane's commits on this branch. PR C opens after lane 33, with `Closes #927`.
 
@@ -102,9 +143,9 @@ Windows jobs are the Windows proof.
 
 | # | What it proves | Level | Fails when |
 | --- | --- | --- | --- |
-| 1 | the mapping, for each program's prefix | unit | a key reads the doubled name, or a nested or unsectioned key maps otherwise |
-| 2 | each program honors the bare variable and ignores the doubled one | subprocess, `make test-scenario` | `WRIT_VERBOSE=1` does not narrate, or `WRIT_WRIT_VERBOSE=1` does |
-| 3 | the reference names each bound flag's variable | unit, on `cmd/devlore-docs` | a bound flag shows no variable, or the wrong one |
+| 1 | the mapping, for each program's prefix | unit | a key reads the doubled name, or a nested or hyphenated key maps otherwise |
+| 2 | no two settings share a variable | unit | two known settings map to one variable |
+| 3 | the warning names what nothing reads, and suggests the near name | unit, subprocess | a known variable warns, an unknown one does not, or `--silent` lets it print |
 | 4 | the behavior on a real install | VM | the machine behaves otherwise |
 
 ## Files to Create/Modify
@@ -112,28 +153,27 @@ Windows jobs are the Windows proof.
 | File | Action | Purpose |
 | --- | --- | --- |
 | `docs/plans/fix/927-env-prefix-doubled.md` | Create | this plan |
-| `cmd/internal/cli/viper.go`, its test | Modify | the mapping and its unit tests |
+| `cmd/internal/cli/viper.go`, its test | Modify | the mapping, its unit tests, and the collision test |
+| `cmd/internal/cli`, beside `viper.go` | Create | the known names and the warning |
 | `cmd/scenario/` (a new test file) and the `Makefile`'s `test-scenario` target | Create, Modify | the subprocess tests, one per program |
-| `cmd/devlore-docs/template.go`, its test | Modify | the variable beside each bound flag |
-| `docs/architecture/10-command-line-interface.md` | Modify | the rule, in one line |
+| `docs/architecture/10-command-line-interface.md` | Modify | the rule and the warning |
 
 ## Open Questions
 
-1. **Hyphens (lane 23, #1011).** Of the shared root's flags, `dry-run`, `model-api-key`, `model-endpoint` and
-   `model-provider` have hyphens. This lane alone leaves their variables unsettable (`WRIT_DRY-RUN`), and the
-   reference would name variables a shell cannot set. Lane 23's ruling is already made: "we convert - to _ when
-   mapping to environment variables and configuration setting names." Offered: (a) take lane 23 into this lane, as
-   one more replacer pair, its tests, and a reference that names only settable variables; (b) keep lane 23 separate,
-   and have this lane's reference name a hyphenated flag's variable only after lane 23 lands. Recommended: (a), since
-   both change the same line and lane 23 waits on this one.
-2. **The model settings.** Under this rule the shared root's `--model-*` flags read `WRIT_MODEL_PROVIDER` and its
-   kin, while `cmd/internal/config` reads `DEVLORE_MODEL_PROVIDER`. Lane 24 (#1010) rules which governs; this lane
-   changes neither.
+1. **Graph parameters share the namespace.** `pkg/op`'s `VariableResolver` reads a parameter from `<PREFIX>_<NAME>`,
+   the names the settings use, so a warning at startup cannot tell a parameter's variable from a misspelled
+   setting. Offered:
+   - (a) parameters move to a namespace of their own, so each warning checks an exact set: settings at startup,
+     a run's declared parameters when it resolves them. Recommended: the two are different things, and the split
+     makes both warnings exact;
+   - (b) the warning runs at the end of a graph run, knowing that run's parameters, and stays quiet on `<PREFIX>_`
+     names a run without a graph cannot judge;
+   - (c) the warning covers only `DEVLORE_` names and the doubled spellings.
 
 ## Related Documents
 
 - [#927](https://github.com/NobleFactor/devlore-cli/issues/927) -- the issue and its ruling
-- [#1011](https://github.com/NobleFactor/devlore-cli/issues/1011) -- lane 23, hyphens in variable names
-- [#1010](https://github.com/NobleFactor/devlore-cli/issues/1010) -- lane 24, the model settings
+- [#1010](https://github.com/NobleFactor/devlore-cli/issues/1010) -- lane 24: the shared root's flags as global
+  settings, with #1011 ([#1011](https://github.com/NobleFactor/devlore-cli/issues/1011))
 - [10-command-line-interface.md](../../architecture/10-command-line-interface.md) -- the precedence, and the rule
 - [926-scope-flag.md](../task/926-scope-flag.md) -- lane 7, the lane before this one
