@@ -13,8 +13,8 @@
   `IterableMapping`; `HasAttrs` dropped; script migration `.get`→indexing detailed); import-time announcement via
   `devconfig.AnnounceSection` (fourth member of the `Announce*` family; reflect.Type-keyed, name-fetched,
   fatal-on-collision; schema registry process-wide; one resolved `Config` per application process, built at startup —
-  resolution, a runtime event, not a compile step); three-axis ordered-overlay roll-up (source / scope / **environment** —
-per-scope `dev`/`test`/`stage`/`prod` variants, scope-dominant); per-key overlay with
+  resolution, a runtime event, not a compile step); three-axis ordered-overlay roll-up (source / scope /
+  **environment** — per-scope `dev`/`test`/`stage`/`prod` variants, scope-dominant); per-key overlay with
   sidecar provenance, values instantiated by declared types' own unmarshalers (no read-time conversion); placement
   principle; prior-art synthesis (star / OpenTelemetry / Kubernetes / Go idioms / koanf); the data-path schema is
   **tagged `defaults:`** — each value's YAML tag declares its setting's type (Go `:=`-style), containers untyped.
@@ -46,8 +46,8 @@ per-scope `dev`/`test`/`stage`/`prod` variants, scope-dominant); per-key overlay
 - Schema versioning + migration — the held-in-reserve Kubernetes idea.
 - `show` and `sync` on all four programs, or star's alone — asked 2026-09-02.
 - Star unification sequencing — shape defined in the doc ("Star unification and the two announcement paths": two
-  collision policies, snapshot taken at resolution, project source layer, dotted-name flattening, guarantees G1–G3, sequence
-  diagrams for both paths); timing open.
+  collision policies, snapshot taken at resolution, project source layer, dotted-name flattening, guarantees G1–G3,
+  sequence diagrams for both paths); timing open.
 
 ## Discrepancies (design vs. current code)
 
@@ -60,3 +60,15 @@ per-scope `dev`/`test`/`stage`/`prod` variants, scope-dominant); per-key overlay
 - `self install` writes `~/.config/devlore/config.d/<program>.yaml`, which no program reads. Configuration is one file
   ([configuration.md § One user configuration file](configuration.md#one-user-configuration-file), ruled 2026-10-02);
   #1009 retires the directory (recorded 2026-10-02).
+- The variable resolver binds a variable from the flag map, the configuration map and `<PREFIX>_<NAME>`, all settings'
+  layers. § Variables gives the variable space its own family, `--variable NAME=value`, `<PREFIX>_VARIABLE_<NAME>`
+  and `<program>.variable`, and keeps every setting out of it (ruled 2026-10-02). #927's phase 3 moves the
+  environment lookup to `<PREFIX>_VARIABLE_<NAME>` and drops the settings lookups; #1023 adds the flag and the file
+  (recorded 2026-10-02).
+- The name-keyed families' keys are singular in the design: `writ.scope`, `writ.segment` and `<program>.variable`.
+  writ reads `writ.scopes`, `writ.segments` and `writ.vars` until #1024 and #1023 land (recorded 2026-10-02).
+- The runtime section owns dry-run, which nothing else may read. Today lore and devlore-test hand the runtime `dry-run`
+  in the flag map while it reads `dry_run`, so `lore deploy --dry-run` runs every provider method, and a provider
+  method called outside a graph never checks; #1022, done in #927's lane (recorded 2026-10-02).
+- The environment-variable naming rule of § Resolution is built (#927: `50e03403`, `6644c382`); the warning for a
+  variable that names nothing is not (recorded 2026-10-02).

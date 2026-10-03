@@ -90,8 +90,19 @@ fetched build, replacing each program's record; the suite; a running binary repl
 `develop` and `release`, and their stamp; what decides a run (`--from`, `--channel`, `DEVLORE_VERSION`,
 `self.channel`, the stamp), with `--prerelease` and `self.prerelease`; `GH_TOKEN`. §11 points at it as the ladder
 followed rung for rung.
+- [ ] **§11's setting chain, variable naming and families, written 2026-10-02.** Built: a program setting's
+  environment variable is the program's prefix plus the bare key (#927, `50e03403`), and a test fails when two
+  settings share a variable or one lies in a reserved family (`6644c382`). Not built: the warning, and the variable
+  resolver's move to `<PREFIX>_VARIABLE_<NAME>` (#927's phase 3); `--variable` and `<program>.variable`
+  ([#1023](https://github.com/NobleFactor/devlore-cli/issues/1023)); `writ.scope` and `writ.segment`
+  ([#1024](https://github.com/NobleFactor/devlore-cli/issues/1024)); global settings under `DEVLORE_` (#1010); and
+  dry-run read by the runtime alone ([#1022](https://github.com/NobleFactor/devlore-cli/issues/1022)).
 
 ## Document discrepancies
+
+- **2026-10-02 — §11 names the singular keys; the code reads the plural ones.** `writ.scope`, `writ.segment` and
+  `<program>.variable` are ruled; writ reads `writ.scopes`, `writ.segments` and `writ.vars` until #1024 and #1023
+  land. The document states the target, and the guides follow the code.
 
 - ~~`extract-output-package.md` is marked complete while describing absent code.~~ **Corrected 2026-08-30**
   with a note at the head of that plan: no `internal/output` package exists, the code went to `pkg/result` +

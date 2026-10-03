@@ -412,9 +412,10 @@ documents no supported way to relocate **Local** AppData, so it is pinned beneat
 through `Home` as an ordinary relative path, while **Roaming** *is* redirectable under domain policy, so a
 builtin would hardcode a location an administrator is entitled to override.
 
-**Custom scopes** are the other keys of `writ.scopes`, each a name and a root (`Staging: ~/staging/root`), in
-scope order after the builtins, by name. A builtin's own key relocates the builtin: `writ.scopes.Home` moves
-Home's root, which is how a deployment is addressed to a staging tree or a sandbox (ruled 2026-10-01).
+**Custom scopes** are the other keys of `writ.scope`, each a name and a root (`Staging: ~/staging/root`), in
+scope order after the builtins, by name. A builtin's own key relocates the builtin: `writ.scope.Home` moves
+Home's root, which is how a deployment is addressed to a staging tree or a sandbox (ruled 2026-10-01). The key is
+singular, as segment's and variable's are (§11).
 
 **Data is skipped; instructions are refused.**
 
@@ -422,8 +423,8 @@ Home's root, which is how a deployment is addressed to a staging tree or a sandb
 | --- | --- |
 | A layer carries `ProgramFiles/` on a Unix machine | skipped, silently |
 | `--scope=ProgramFiles` on a Unix machine | refused, exit 64, naming the scopes defined here |
-| `writ.scopes` names `ProgramFiles` on a Unix machine | refused, exit 78: a builtin this platform does not define |
-| `writ.scopes` names a scope with no root | refused, exit 78 |
+| `writ.scope` names `ProgramFiles` on a Unix machine | refused, exit 78: a builtin this platform does not define |
+| `writ.scope` names a scope with no root | refused, exit 78 |
 
 The first is data: the repository is shared across machines, and that directory is there for the Windows
 ones. The second is an instruction that cannot be carried out. The third would let one repository mean two things
@@ -1005,33 +1006,63 @@ Highest to lowest: **flags**, then environment variables, then project configura
 This document owns only the first rung; [`configuration.md`](configuration.md) owns the rest and is
 authoritative where the two meet.
 
-A flag always wins. A command must not read configuration in a way that overrides an explicitly passed flag,
-including when the flag's value equals its default.
+**A setting is the whole chain**: its default, overridden by the configuration file, overridden by its environment
+variable, overridden by its flag (ruled 2026-10-02). A flag always wins. A command must not read configuration in a
+way that overrides an explicitly passed flag, including when the flag's value equals its default.
+
+**A program setting's environment variable is the program's prefix plus the bare key**: the key without the
+program's own segment, upper-cased, each `.` and `-` as `_` (#927). `writ.repo` reads `WRIT_REPO`,
+`writ.deploy.conflict` reads `WRIT_DEPLOY_CONFLICT`, and `devlore-test.dry-run` reads `DEVLORE_TEST_DRY_RUN`; the
+doubled `WRIT_WRIT_REPO` names nothing. A global setting's variable is `DEVLORE_` plus its key (`dry_run` reads
+`DEVLORE_DRY_RUN`), and the shared root's flags become global settings in #1010. No two settings share a variable. A
+variable whose name begins with a program's prefix or `DEVLORE_`, and that names nothing, draws a warning, which
+`--silent` quiets.
 
 `self upgrade` follows the ladder rung for rung -- `--channel`, then `DEVLORE_VERSION`, then `self.channel` -- with the
 channel stamped into the build beneath them all (§3).
 
+### Settings and variables
+
+**Settings and variables are orthogonal** (ruled 2026-10-02). A setting configures a program, the runtime, or a
+provider. A variable is a graph's input: a planner declares it by reference (`plan.variable(name)`), the references
+bubble up from the graph's nodes during planning, and the variable resolver binds each one when the run starts. **No
+setting enters the variable space.** A setting the runtime applies stays the runtime's: dry-run is one, and no graph,
+script, provider or command reads it (#1022).
+
+A variable comes from its own family of settings, which only the variable resolver reads: `--variable NAME=value`,
+then `<PREFIX>_VARIABLE_<NAME>`, then `<program>.variable.<NAME>` in the configuration file, then the default its
+reference declares; a value the run's caller supplies overrides them all. lore, star, writ and devlore-test carry the
+family, and no other program. A value on the command line or in the environment is a string, JSON for a structure;
+the file spells it in YAML ([#1023](https://github.com/NobleFactor/devlore-cli/issues/1023)).
+
 ### Introducing a name and setting its value
 
-Segments and scopes are extensible sets, and each takes **one key, holding both the names and their values.**
-Scopes are a map: a key introduces the name; its value sets it. Segments are an ordered list, because a directory
-name carries the extra segments in the order they are declared: each entry introduces a `name`, declares the
-`values` it may take, and may set this machine's `value`. The grammar a declaration feeds is
+Scopes, segments and variables are the extensible sets, the only families whose entries the user names. Each takes
+**one key, singular, holding both the names and their values** (ruled 2026-10-02: "singular for all three"). Scopes
+and variables are maps: a key introduces the name; its value sets it. Segments are an ordered list, because a
+directory name carries the extra segments in the order they are declared: each entry introduces a `name`, declares
+the `values` it may take, and may set this machine's `value`. The grammar a declaration feeds is
 [Selectors](../guides/selectors.md#extra-segments).
+
+| Family | File | Environment | Flag |
+| --- | --- | --- | --- |
+| scope | `writ.scope`, a map from name to root | decided in #1024's plan | none: `--scope` selects scopes |
+| segment | `writ.segment`, an ordered list | `WRIT_SEGMENT_<NAME>` | `--segment NAME=value` |
+| variable | `<program>.variable`, a map from name to value | `<PREFIX>_VARIABLE_<NAME>` | `--variable NAME=value` |
 
 ```yaml
 writ:
-  segments:
+  segment:
     - name: ROLE             # introduced and set
       values: [desktop, server]
       value: desktop
     - name: SITE             # introduced; set by WRIT_SEGMENT_SITE or --segment
       values: [aws, home]
-  scopes:
+  scope:
     Staging: ~/staging/root  # a custom scope
     Home: ~/staging/home     # a BUILTIN's root, overridden
-  vars:
-    USER_NAME: "Your Name"   # what templates interpolate, and nothing else
+  variable:
+    USER_NAME: "Your Name"   # a variable, which a graph or a template reads by reference
 ```
 
 **A segment with no value introduces without setting.** The value then comes from the environment or a flag, and
@@ -1046,11 +1077,11 @@ doesn't declare. A declaration is refused when it breaks a rule that
 is aimed by naming the builtin. For `Home` this is the only way: the home directory is resolved from the
 account database, and `HOME` cannot move a deployment.
 
-**`vars` holds template variables alone.** It carried segment values as well, which meant a reader had to
-know a key's concept from its name; each concept now states its own.
+**`variable` holds variables alone.** It replaces `vars`, which once carried segment values as well, so a reader had
+to know a key's concept from its name; each concept now states its own.
 
 Their builtins differ as well. The segment builtins (`OS`, `DISTRO`, `ARCH`) are detected, never declared: no
-entry in `writ.segments` may take their names, and `--segment` and `WRIT_SEGMENT_<NAME>` set them without a
+entry in `writ.segment` may take their names, and `--segment` and `WRIT_SEGMENT_<NAME>` set them without a
 declaration. `OS` and `ARCH` resolve on every platform; `DISTRO` resolves only on a Linux host whose os-release
 names a distribution. Scope builtins resolve per platform, and their keys override their roots, so scopes carry a
 rule segments do not -- override the root of a builtin that resolves here, never introduce one that does not.

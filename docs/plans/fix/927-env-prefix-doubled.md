@@ -3,7 +3,7 @@ title: "Lane 8: a program setting's variable is the prefix plus the bare key; a 
 issue: https://github.com/NobleFactor/devlore-cli/issues/927
 status: chartered
 created: 2026-10-02
-updated: 2026-10-02
+updated: 2026-10-03
 ---
 
 # Plan: Lane 8 of the writ lifecycle schedule
@@ -20,8 +20,9 @@ This lane keeps the settings only one program has, adds a test that no two setti
 variable resolver's environment lookup to `<PREFIX>_VARIABLE_<NAME>` and off the settings, and adds **a warning for a
 variable that names nothing**. It also takes [#1022](https://github.com/NobleFactor/devlore-cli/issues/1022), lane
 37: **dry-run belongs to the runtime**, and today `lore deploy --dry-run` runs every provider method. The variables
-family's surfaces, `--variable` and `<program>.variables`, are
-[#1023](https://github.com/NobleFactor/devlore-cli/issues/1023), lane 38, in PR C′. It is independent of lane 33's
+family's surfaces, `--variable` and `<program>.variable`, are
+[#1023](https://github.com/NobleFactor/devlore-cli/issues/1023), lane 38, in PR C′, and the name-keyed families take
+singular keys ([#1024](https://github.com/NobleFactor/devlore-cli/issues/1024)). It is independent of lane 33's
 named roots.
 
 ## Issue 927
@@ -68,14 +69,21 @@ All by the owner on 2026-10-02, while planning this lane.
     VariableResolver. It is the logical place. the VariableResolver needs access to settings. it's domain is the
     variable space. It should not need to do more than resolve the set of variables defined by the current
     application. ... I propose --variable NAME=value." Its names, ruled "yes", follow segments': `--variable
-    NAME=value`, `<PREFIX>_VARIABLE_<NAME>` and `<program>.variables`, which `writ.vars` becomes. A long value has no
-    file form until a use case asks for one, ruled "(a)". "our shipping apps (lore, star, and writ) and devlore-test
-    are the apps that should carry variables. none other."
+    NAME=value`, `<PREFIX>_VARIABLE_<NAME>` and `<program>.variables` (singular by ruling 15), which `writ.vars`
+    becomes. A long value has no file form until a use case asks for one, ruled "(a)". "our shipping apps (lore,
+    star, and writ) and devlore-test are the apps that should carry variables. none other."
 13. **The work splits**, ruled "(c)": this lane moves the resolver's environment lookup to `<PREFIX>_VARIABLE_<NAME>`
     and drops its lookups of settings; the surfaces are #1023, filed as a feature on the owner's "yes" and scheduled
     as lane 38 in PR C′, with #975 and #683 as lanes 39 and 40.
 14. **The collision test reads the code's viper keys**, ruled "(a)": it also gathers, from the source, the keys the
     code reads through viper, and names lore's three model pairs as lane 24's exception, which lane 24 deletes.
+15. **The name-keyed families take singular keys**: "whatever we do, we should do it to scopes, segments, and
+    variables", then "yes, singular for all three": `writ.scope` and `writ.segment`
+    ([#1024](https://github.com/NobleFactor/devlore-cli/issues/1024)), and `<program>.variable` (#1023). Under this
+    lane's rule, `writ.variable.<NAME>` reads `WRIT_VARIABLE_<NAME>`: the file key and the environment variable are
+    one setting chain.
+16. **The design documents, the plan and the issues follow the full scope**: "update the design docs, the plan, and
+    the issues associated with the full scope of this work." Done 2026-10-03 (Requirement 7).
 
 The owner also said, of how code reaches settings: "the real point of access for providers and starlark code is
 config. That work is TBD." This lane does not build that access.
@@ -139,7 +147,7 @@ they are the test's one exception, and the test fails once the exception no long
 environment, decoded as today (`envValue`, then `op.Convert`), then its declared default. Its flag and configuration
 steps go: they read settings (ruling 11). The missing-variable message names the variable it tried. `pkg/op`'s example
 and tests, and devlore-test's builtins and fixtures that feed the resolver's settings lookups, change with it. The
-family's flag and file layers, `--variable` and `<program>.variables`, are #1023's.
+family's flag and file layers, `--variable` and `<program>.variable`, are #1023's.
 
 ### Requirement 4: the warning
 
@@ -179,6 +187,12 @@ The warning names the variable and, when one is near, the known name it resemble
 the program's prefix plus the bare key, and a global setting's is `DEVLORE_` plus the key, which lane 24 builds. It
 states the warning too. 2.1 and 2.5 state the line between settings and variables and point to the variables family
 (#1023), and `configuration.md` states that dry-run is the runtime's setting.
+
+Written ahead of the code on 2026-10-03, at the owner's direction (ruling 16): `10-command-line-interface.md`
+§ `--scope` and §11 (the setting chain, the naming rule and the warning, settings and variables, the families
+singular), `configuration.md` § Resolution, § Variables and the runtime section, `2.1-typed-slots.md` § Variables,
+`2.5-lifecycle-pipeline-construction.md` § Construction, and `3.5.7-template-provider.md`'s `Env`, each status page
+recording what the code does not yet do. Phase 5 checks them against what this lane builds.
 
 ### Requirement 8: the style gate
 
@@ -248,8 +262,9 @@ installed changes nothing. The Windows box is out of service; CI's Windows jobs 
 | `cmd/star/provider/setup/provider.go` | Modify | its own dry-run checks go |
 | `pkg/op/provider/plan/provider.go` and `pkg/op/provider/file/provider.go` | Modify | `plan.spec`'s dry-run for a sub-run, and the conflict policy, from the runtime's settings |
 | `cmd/scenario/` (a new test file) and the `Makefile`'s `test-scenario` target | Create, Modify | the subprocess tests, one per program |
-| `docs/architecture/10-command-line-interface.md` and `configuration.md` | Modify | the rule, the warning, and dry-run as the runtime's setting |
-| `docs/architecture/2.1-typed-slots.md` and `2.5-lifecycle-pipeline-construction.md` | Modify | the line between settings and variables |
+| `docs/architecture/10-command-line-interface.md` and `configuration.md`, and their status pages | Modify | the rule, the warning, the families singular, and dry-run as the runtime's setting |
+| `docs/architecture/2.1-typed-slots.md` and `2.5-lifecycle-pipeline-construction.md`, and their status pages | Modify | the line between settings and variables |
+| `docs/architecture/3.5.7-template-provider.md` and its status page | Modify | `Env` reads the variable space (#683) |
 
 ## Open Questions
 
@@ -272,6 +287,7 @@ installed changes nothing. The Windows box is out of service; CI's Windows jobs 
 - [#927](https://github.com/NobleFactor/devlore-cli/issues/927) -- the issue and its ruling
 - [#1022](https://github.com/NobleFactor/devlore-cli/issues/1022) -- dry-run belongs to the runtime; lane 37
 - [#1023](https://github.com/NobleFactor/devlore-cli/issues/1023) -- the variables family; lane 38, PR C′
+- [#1024](https://github.com/NobleFactor/devlore-cli/issues/1024) -- scopes and segments take singular keys
 - [#1010](https://github.com/NobleFactor/devlore-cli/issues/1010) -- lane 24: the shared root's flags as global
   settings, with #1011 ([#1011](https://github.com/NobleFactor/devlore-cli/issues/1011))
 - [#694](https://github.com/NobleFactor/devlore-cli/issues/694) -- how configuration reaches a run

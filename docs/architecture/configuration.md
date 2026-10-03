@@ -71,9 +71,9 @@ type ProviderConfig struct {
 
 Three consequences, each deliberate:
 
-- **No conversion at read time.** Every value is instantiated when the configuration is resolved by its declared type's own
-  unmarshaler (`UnmarshalYAML` / `encoding.TextUnmarshaler`); by the time a consumer fetches, the value already has
-  the declared type. Read-time conversion would reintroduce live-source semantics through the back door.
+- **No conversion at read time.** Every value is instantiated when the configuration is resolved by its declared
+  type's own unmarshaler (`UnmarshalYAML` / `encoding.TextUnmarshaler`); by the time a consumer fetches, the value
+  already has the declared type. Read-time conversion would reintroduce live-source semantics through the back door.
 - **The section is the fetch unit.** A Go consumer fetches the whole section —
   `devconfig.SectionOf[*SigningConfig](cfg)` (type→name resolved through the registry; they were announced
   together), usually wrapped by the owner as `signing.ConfigFrom(cfg)` — and reads fields directly. One assert at
@@ -94,8 +94,8 @@ the winning `Step` (the last writer), `History(path)` the full override chain.
 > `applications` layers — is settled. One point remains open (end of section).
 
 Configuration is a **recursive tree** built from two pairs (see [The model](#the-model)): a **`Section`** (named, via
-`SectionBase`) holds settings and `Config`-typed sub-tree fields; a **`Config`** (a container, via `ConfigBase`, unnamed)
-holds named sections. The recursion alternates: section → `Config` field → sections → `Config` field → …
+`SectionBase`) holds settings and `Config`-typed sub-tree fields; a **`Config`** (a container, via `ConfigBase`,
+unnamed) holds named sections. The recursion alternates: section → `Config` field → sections → `Config` field → …
 
 It is one structure seen two ways: the **layers** (`base` → `profiles.<stage>` → `applications.<app>`) and the
 **containment** within a layer (`provider` → `broker` → `service`).
@@ -122,7 +122,8 @@ the path string (consistent with YAML, where both are just nested keys). The pat
 typed descent**, so `Path()` is a stored byproduct of parsing — no parent back-pointers.
 
 **Sections nest, and that nesting is the provider → broker → service hierarchy** — the flat model could not host it
-without an untyped aggregate. Settings stay typed struct fields, so depth lives in the *tree*, never in `map[string]any`.
+without an untyped aggregate. Settings stay typed struct fields, so depth lives in the *tree*, never in
+`map[string]any`.
 
 Resolution traverses and overlays the layers, last writer wins:
 
@@ -396,7 +397,8 @@ a value comes from and the **layer** of the tree it sits in (the precedence alre
   value still overrides a profile value of the same key. No active profile → only `base` and the application layers
   apply. See ["Profiles"](#profiles--deployment-stage-overlays) below.
 
-plus the **builtin floor** (`SourceBuiltin`) beneath all — the compiled-in default, not the `base` layer above. The load is a staged overlay that **walks matching paths down the tree**, each step overwriting only the keys it sets:
+plus the **builtin floor** (`SourceBuiltin`) beneath all — the compiled-in default, not the `base` layer above. The
+load is a staged overlay that **walks matching paths down the tree**, each step overwriting only the keys it sets:
 
 ```
 1. construct sections with builtin floors                  (lowest)
@@ -408,6 +410,13 @@ plus the **builtin floor** (`SourceBuiltin`) beneath all — the compiled-in def
 7. overlay  env  (DEVLORE_* / <APP>_*)
 8. overlay  cli flags                                      (highest)
 ```
+
+**An environment variable is named for its setting** (#927): a program setting's is the program's prefix plus the key
+without the program's own segment, upper-cased, each `.` and `-` as `_`, so `writ.repo` is `WRIT_REPO`; a global
+setting's is `DEVLORE_` plus its key. No two settings share a variable, and a variable under a program's prefix or
+`DEVLORE_` that names nothing draws a warning.
+[10-command-line-interface.md §11](10-command-line-interface.md#11-configuration-precedence) states the rule for the
+command line, where a setting is the whole chain: default, file, environment, flag.
 
 Because each layer is itself a tree, the overlay is **per-key down matching paths**:
 `base.providers.elevation.brokers.ssh.default_ttl` is overwritten by
@@ -629,9 +638,26 @@ offer→broker refusal is the worked instance (see [`6.1-privilege-elevation.md`
 ## Variables — supplemental
 
 Variables are the **Make-style** supplemental layer: `FOO = bar`, overridable from the command line and environment,
-referenced as `$FOO` throughout the runtime environment. They are a **`Vars` `Section`** the user authors (today
-`WritConfig.Vars`), resolved by the same roll-up and expanded by the loader's Converter pass. Variables are *not* a
-parallel system — the variable resolver becomes a thin reader over the one rolled-up config.
+referenced as `$FOO` throughout the runtime environment, and expanded by the loader's Converter pass. They are the
+runtime variable space's own family, **orthogonal to settings** (ruled 2026-10-02): a planner declares a variable by
+reference (`plan.variable(name)`), the references bubble up from the graph's nodes during planning, and the variable
+resolver binds each when the run starts. **No setting enters the variable space.** The family is its only way in,
+and the variable resolver the family's only reader, highest first:
+
+1. a value the run's caller supplies;
+2. `--variable NAME=value` on the command line, repeatable;
+3. `<PREFIX>_VARIABLE_<NAME>` in the environment;
+4. `<program>.variable.<NAME>` in the configuration file;
+5. the default the reference declares.
+
+The key is singular, as `writ.scope`'s and `writ.segment`'s are ("singular for all three"), so `writ.variable.<NAME>`
+and `WRIT_VARIABLE_<NAME>` are one setting chain under the variable-naming rule above. A value can be anything a
+provider method takes: a string from the command line or the environment decodes through `envValue`, JSON for a
+structure, and every value projects through `op.Convert`. A long value has no file form until a use case asks for
+one. lore, star, writ and devlore-test carry the family, and no other program. Its surfaces are
+[#1023](https://github.com/NobleFactor/devlore-cli/issues/1023); writ's template variables, `writ.vars` today, become
+it ([#975](https://github.com/NobleFactor/devlore-cli/issues/975)), and a template's `Env` reads it
+([#683](https://github.com/NobleFactor/devlore-cli/issues/683)).
 
 ## Where sections live
 
@@ -672,13 +698,17 @@ The sections that must exist, each at its owner (the working ledger; sequencing 
 [implementation plan's item 7](../plans/extract-starlark-from-op/phase-8/configuration.md)):
 
 1. **`runtime`** (`pkg/op`, announced) — `BackupSuffix`, `DryRun`, `ConflictPolicy` ({stop, skip, replace},
-   phase-8 step 49). Until the loader delivers the cli source, `dry-run` and `conflict` travel the interim
-   `Application.Flags` channel (the DryRun precedent, ruled 2026-07-16) and retire onto the roll-up with the
-   flat sources.
+   phase-8 step 49). Dry-run is the runtime's alone: no graph, script, provider or command reads it (ruled
+   2026-10-02, [#1022](https://github.com/NobleFactor/devlore-cli/issues/1022)), and the owner named verbosity as
+   another setting the runtime owns. Until the loader delivers the cli source, `dry-run` and `conflict` travel the
+   interim `Application.Flags` channel (the DryRun precedent, ruled 2026-07-16), where #1022 found lore handing the
+   runtime `dry-run` while it reads `dry_run`; they retire onto the roll-up with the flat sources.
 2. **`policies`** (`pkg/op`, announced) — `Retry` + `Transition`; the executor's floor fallback becomes the
    resolved-config read once `Application.Config` exists.
 3. **`writ`** (`cmd/writ`) and **`lore`** (`cmd/lore`) — the app sections, dissolving `cmd/internal/config` and the
-   viper keys (`writ.repo`, `writ.vars`, `*.dry-run`, `*.verbose`).
+   viper keys (`writ.repo`, `writ.vars`, `*.dry-run`, `*.verbose`). The name-keyed families take singular keys:
+   `writ.scope` and `writ.segment` ([#1024](https://github.com/NobleFactor/devlore-cli/issues/1024)), and
+   `<program>.variable`, which replaces `writ.vars` (#1023).
 4. **`model`** (absorbing `cmd/internal/config/model.go`) — provider/endpoint/model/api_key, unifying the viper,
    `DEVLORE_MODEL_*`, and `--model-*` sources into the loader overlay.
 5. **The registry section** (`pkg/devregistry` extraction) — lore's package-registry location.
@@ -722,8 +752,8 @@ guarantees that fall out, and both paths worked end to end.
 - **G1 — framework names cannot be hijacked.** Go `init()` announcements strictly precede extension discovery, so
   compiled-in sections (`signing`, the op runtime section, …) always claim their names first; an extension claiming a
   taken name gets an error, never the name.
-- **G2 — a `Config` is a snapshot taken at resolution.** Membership is fixed at resolution; sections announced later appear only in
-  `Config`s built later. Star resolves lazily, after discovery, so its extensions are always in.
+- **G2 — a `Config` is a snapshot taken at resolution.** Membership is fixed at resolution; sections announced later
+  appear only in `Config`s built later. Star resolves lazily, after discovery, so its extensions are always in.
 - **G3 — collisions never corrupt.** First writer keeps the name. Go-path duplicate: the process dies at startup with
   both claimants named. Data-path duplicate: the extension is reported and disabled; the process continues.
 
