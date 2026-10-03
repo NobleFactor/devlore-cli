@@ -61,10 +61,10 @@
   ([configuration.md § One user configuration file](configuration.md#one-user-configuration-file), ruled 2026-10-02);
   #1009 retires the directory (recorded 2026-10-02).
 - The variable resolver binds a variable from the flag map, the configuration map and `<PREFIX>_<NAME>`, all settings'
-  layers. § Variables gives the variable space its own family, `--variable NAME=value`, `<PREFIX>_VARIABLE_<NAME>`
-  and `<program>.variable`, and keeps every setting out of it (ruled 2026-10-02). #927's phase 3 moves the
-  environment lookup to `<PREFIX>_VARIABLE_<NAME>` and drops the settings lookups; #1023 adds the flag and the file
-  (recorded 2026-10-02).
+  layers. § Variables gives the variable space its own section, `<program>.variable`, read through the config system
+  like every section, and keeps every setting out of it (ruled 2026-10-02 and 2026-10-03). #927's phase 3 has the
+  resolver read the section's entry for each declared name and drop its own lookups; #1023 binds `--variable` into
+  the section and renames `writ.vars` (recorded 2026-10-02, corrected 2026-10-03).
 - The name-keyed families' keys are singular in the design: `writ.scope`, `writ.segment` and `<program>.variable`.
   writ reads `writ.scopes`, `writ.segments` and `writ.vars` until #1024 and #1023 land (recorded 2026-10-02).
 - The runtime section owns dry-run, which nothing else may read. Today lore and devlore-test hand the runtime `dry-run`
@@ -72,3 +72,11 @@
   method called outside a graph never checks; #1022, done in #927's lane (recorded 2026-10-02).
 - The environment-variable naming rule of § Resolution is built (#927: `50e03403`, `6644c382`); the warning for a
   variable that names nothing is not (recorded 2026-10-02).
+- § Settings with counterparts in the environment makes a conventional variable its setting's last resort, as git
+  does. The pager follows the order (`DEVLORE_PAGER`, then `<program>.pager`, then `PAGER`, then the fallback), but
+  reads `DEVLORE_PAGER` by hand; the editor reads `EDITOR` before `VISUAL`, the reverse of the order, with no setting
+  above either; and no mechanism is formalized, which the design leaves open. #1025 brings the code to the rule
+  (recorded 2026-10-03).
+- Code reads devlore's own variables by hand beside the config system: `applyEnvOverrides`, `DEVLORE_PAGER`,
+  `DEVLORE_VERSION`, `AGE_IDENTITY`, `WRIT_SEGMENT_<NAME>`, `{{ env }}`, and devlore-index's `DEVLORE_REGISTRY`.
+  [#1025](https://github.com/NobleFactor/devlore-cli/issues/1025) states the rule and guards it (recorded 2026-10-03).

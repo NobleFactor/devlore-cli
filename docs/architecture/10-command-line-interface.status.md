@@ -93,7 +93,8 @@ followed rung for rung.
 - [ ] **§11's setting chain, variable naming and families, written 2026-10-02.** Built: a program setting's
   environment variable is the program's prefix plus the bare key (#927, `50e03403`), and a test fails when two
   settings share a variable or one lies in a reserved family (`6644c382`). Not built: the warning, and the variable
-  resolver's move to `<PREFIX>_VARIABLE_<NAME>` (#927's phase 3); `--variable` and `<program>.variable`
+  resolver reading the `<program>.variable` section through the config system (#927's phase 3); `--variable` and
+  the `<program>.variable` key
   ([#1023](https://github.com/NobleFactor/devlore-cli/issues/1023)); `writ.scope` and `writ.segment`
   ([#1024](https://github.com/NobleFactor/devlore-cli/issues/1024)); global settings under `DEVLORE_` (#1010); and
   dry-run read by the runtime alone ([#1022](https://github.com/NobleFactor/devlore-cli/issues/1022)).

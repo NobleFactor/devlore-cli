@@ -427,6 +427,26 @@ override happens at overlay time, there is no per-setting "is-set" bookkeeping a
 sections are "app-specific" vs "shared": a section registers **once**, layer-agnostic, and the user places a value under
 `base`, a profile, or `applications.<app>` as they wish. *Layer is value placement, not schema.*
 
+### Settings with counterparts in the environment
+
+Some settings have a counterpart that the platform or another program already defines in the environment, and the
+suite respects it, as git and other well-known programs do (ruled 2026-10-03: "we should respect the environment
+variables that apply to our apps. this is the same as git and other well-known apps."). **A counterpart is a last
+resort**: the lowest layer of the setting it serves, above the builtin floor and beneath the configuration file. The
+program's own variable and its flag sit above the file, as always. Git's pager is the pattern: `GIT_PAGER`, then
+`core.pager`, then `PAGER`, then `less`; its editor is `GIT_EDITOR`, then `core.editor`, then `VISUAL`, then
+`EDITOR`, then `vi`.
+
+| Kind | Variables | How the suite reads them |
+| --- | --- | --- |
+| a counterpart of one of our settings | `PAGER` (and `LESS`, `MANPAGER`); `VISUAL`, then `EDITOR`; `NO_COLOR`, `FORCE_COLOR`, `CLICOLOR`, `CLICOLOR_FORCE`; `COLUMNS`, `LINES`; the model providers' `*_API_KEY`; `GH_TOKEN`, `GITHUB_TOKEN` | the setting's lowest layer, a last resort |
+| where things are, or what the platform is | `HOME`, `USER`, `LOGNAME`, `SHELL`, `PATH`, `TMPDIR`; the XDG variables and the de-facto `XDG_BIN_HOME`; on Windows `USERPROFILE`, `APPDATA`, `LOCALAPPDATA`, `ProgramData`, `ProgramFiles`, `SystemDrive`, `SystemRoot`, `TEMP`, `TMP`; `TERM`, `COLORTERM`, `LANG`, `LC_*`, `TZ`; under sudo `SUDO_USER`, `SUDO_UID`, `SUDO_GID` | where the platform defines them |
+| read by other tools and libraries for themselves | `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`, `SSL_CERT_FILE`, `SSL_CERT_DIR`; `SOPS_AGE_KEY*`; `GIT_*`, `SSH_AUTH_SOCK`; `GODEBUG`, `GOMAXPROCS` | left to them |
+
+**The configuration system might formalize this**, for example by letting a setting declare its counterparts, so
+that the loader reads them as one more layer. The mechanism is to be discussed (noted 2026-10-03); until then, the
+rule stands. Bringing the code to the rule is [#1025](https://github.com/NobleFactor/devlore-cli/issues/1025).
+
 ### One user configuration file
 
 > **Ruled 2026-10-02.** Configuration is centralized: every program reads one user configuration file. If a real need
@@ -649,6 +669,10 @@ and the variable resolver the family's only reader, highest first:
 3. `<PREFIX>_VARIABLE_<NAME>` in the environment;
 4. `<program>.variable.<NAME>` in the configuration file;
 5. the default the reference declares.
+
+Layers 2 to 4 are the `<program>.variable` section's own, resolved by the config system like every section's: for
+each declared name the resolver asks it for `<program>.variable.<NAME>`, and reads no layer itself (ruled
+2026-10-03).
 
 The key is singular, as `writ.scope`'s and `writ.segment`'s are ("singular for all three"), so `writ.variable.<NAME>`
 and `WRIT_VARIABLE_<NAME>` are one setting chain under the variable-naming rule above. A value can be anything a
