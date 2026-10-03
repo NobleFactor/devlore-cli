@@ -15,92 +15,48 @@ import (
 	"github.com/spf13/viper"
 )
 
-// ViperConfig holds configuration for Viper initialization.
+// region SUPPORTING TYPES
+
+// ViperConfig carries what [InitViper] needs to set up a program's settings: its name, its environment prefix, and
+// where its configuration file is.
 type ViperConfig struct {
-	// Name is the tool name (e.g., "lore", "writ")
+
+	// Name is the program's name, such as "lore" or "writ". It is required.
 	Name string
 
-	// EnvPrefix is the environment variable prefix (e.g., "LORE", "WRIT")
-	// If empty, defaults to uppercase Name
+	// EnvPrefix is the prefix of the program's environment variables, such as "WRIT". When it is empty, it is Name
+	// upper-cased with each `-` as `_`, so devlore-test's is "DEVLORE_TEST".
 	EnvPrefix string
 
-	// ConfigName is the config file name without extension (default: "config")
+	// ConfigName is the configuration file's name without its extension (default: "config").
 	ConfigName string
 
-	// ConfigType is the config file type (default: "yaml")
+	// ConfigType is the configuration file's type (default: "yaml").
 	ConfigType string
 
-	// UseSharedConfig uses ~/.config/devlore/config.yaml with tool-specific section
-	// When true, config is read from the tool's section (e.g., config.writ.repo)
+	// UseSharedConfig reads the shared configuration file, `~/.config/devlore/config.yaml`, where each program's
+	// settings sit under its name, instead of a file of the program's own.
 	UseSharedConfig bool
 }
 
-// InitViper initializes Viper with standard devlore conventions.
-// Do this in PersistentPreRunE of the root command.
+// endregion
+
+// region EXPORTED FUNCTIONS
+
+// BindFlags binds each persistent flag of `cmd` to the setting of the same name.
 //
-// Precedence (lowest to highest):
-//  1. Config file defaults
-//  2. Config file values
-//  3. Environment variables (TOOL_KEY_NAME)
-//  4. Command-line flags
+// With the shared configuration file, a flag's setting sits under the program's name: `--repo` binds `writ.repo`.
+// Without it, the setting is the flag's name alone: `--repo` binds `repo`.
 //
-// Environment variable mapping:
-//   - WRIT_REPO → writ.repo (with UseSharedConfig)
-//   - WRIT_VARS_USER_NAME → writ.vars.user_name
-//   - Dots become underscores, keys are case-insensitive
-func InitViper(cfg ViperConfig) error {
-	if cfg.Name == "" {
-		return fmt.Errorf("ViperConfig.ReceiverName is required")
-	}
-
-	if cfg.EnvPrefix == "" {
-		cfg.EnvPrefix = strings.ToUpper(cfg.Name)
-	}
-	if cfg.ConfigName == "" {
-		cfg.ConfigName = "config"
-	}
-	if cfg.ConfigType == "" {
-		cfg.ConfigType = "yaml"
-	}
-
-	// Set config file details
-	viper.SetConfigName(cfg.ConfigName)
-	viper.SetConfigType(cfg.ConfigType)
-
-	// Add config paths
-	if cfg.UseSharedConfig {
-		// Shared devlore config: ~/.config/devlore/config.yaml
-		viper.AddConfigPath(devlore.ConfigHome())
-	} else {
-		// Tool-specific config: ~/.config/<tool>/config.yaml
-		viper.AddConfigPath(xdg.ConfigPath(cfg.Name))
-	}
-
-	// Environment variable binding
-	viper.SetEnvPrefix(cfg.EnvPrefix)
-	viper.AutomaticEnv()
-	// Replace dots with underscores for nested keys: writ.vars.user_name → WRIT_VARS_USER_NAME
-	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
-
-	// Read config file (ignore if not found)
-	if err := viper.ReadInConfig(); err != nil {
-		var notFound viper.ConfigFileNotFoundError
-		if !errors.As(err, &notFound) {
-			return fmt.Errorf("error reading config: %w", err)
-		}
-		// Config file not found is OK - use defaults and env vars
-	}
-
-	return nil
-}
-
-// BindFlags binds all persistent flags from a command to Viper.
-// Do this after defining flags and before Execute().
+// Parameters:
+//   - `cmd`: the command whose persistent flags are bound; the shared root passes the program's root.
+//   - `toolName`: the program's name, such as "writ".
+//   - `useSharedConfig`: whether the program reads the shared configuration file.
 //
-// Flags are bound with the tool's section prefix when using shared config:
-//   - --repo flag → viper key "writ.repo" (with UseSharedConfig)
-//   - --repo flag → viper key "repo" (without UseSharedConfig)
+// Returns:
+//   - `error`: non-nil when viper refuses to bind a flag.
 func BindFlags(cmd *cobra.Command, toolName string, useSharedConfig bool) error {
+
 	var bindErr error
 
 	cmd.PersistentFlags().VisitAll(func(f *pflag.Flag) {
@@ -114,14 +70,107 @@ func BindFlags(cmd *cobra.Command, toolName string, useSharedConfig bool) error 
 		}
 
 		if err := viper.BindPFlag(key, f); err != nil {
-			bindErr = fmt.Errorf("failed to starlarkbridge flag %s: %w", f.Name, err)
+			bindErr = fmt.Errorf("failed to bind flag %s: %w", f.Name, err)
 		}
 	})
 
 	return bindErr
 }
 
-// SharedConfigPath returns the path to the shared devlore config file.
+// InitViper sets up a program's settings: its configuration file, and the environment variables that override it.
+//
+// Precedence, lowest to highest: the configuration file, then the environment, then the command line. The shared root
+// calls it before any command runs.
+//
+// A setting's environment variable is the program's prefix plus the setting's key without the program's own segment,
+// upper-cased, with each `.` and `-` as `_`: `writ.repo` reads `WRIT_REPO`, `writ.deploy.conflict` reads
+// `WRIT_DEPLOY_CONFLICT`, and `devlore-test.dry-run` reads `DEVLORE_TEST_DRY_RUN`. The doubled spelling,
+// `WRIT_WRIT_REPO`, names nothing. A map read whole, such as `writ.vars`, comes from the configuration file alone: no
+// variable reaches its entries.
+//
+// Parameters:
+//   - `cfg`: the program's name and prefix, and where its configuration file is.
+//
+// Returns:
+//   - `error`: non-nil when `cfg.Name` is empty, or when the configuration file exists and cannot be read.
+func InitViper(cfg ViperConfig) error {
+
+	if cfg.Name == "" {
+		return errors.New("ViperConfig.Name is required")
+	}
+
+	if cfg.EnvPrefix == "" {
+		cfg.EnvPrefix = strings.ReplaceAll(strings.ToUpper(cfg.Name), "-", "_")
+	}
+	if cfg.ConfigName == "" {
+		cfg.ConfigName = "config"
+	}
+	if cfg.ConfigType == "" {
+		cfg.ConfigType = "yaml"
+	}
+
+	viper.SetConfigName(cfg.ConfigName)
+	viper.SetConfigType(cfg.ConfigType)
+
+	if cfg.UseSharedConfig {
+		viper.AddConfigPath(devlore.ConfigHome())
+	} else {
+		viper.AddConfigPath(xdg.ConfigPath(cfg.Name))
+	}
+
+	bindEnvironment(viper.GetViper(), cfg.EnvPrefix, cfg.Name)
+
+	// A missing configuration file is not an error: the settings come from the environment, the flags, and their
+	// defaults.
+	if err := viper.ReadInConfig(); err != nil {
+		var notFound viper.ConfigFileNotFoundError
+		if !errors.As(err, &notFound) {
+			return fmt.Errorf("error reading config: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// SharedConfigPath returns the path of the shared configuration file, `~/.config/devlore/config.yaml`.
+//
+// Returns:
+//   - `string`: the file's path, whether or not it exists.
 func SharedConfigPath() string {
 	return devlore.ConfigPath("config.yaml")
 }
+
+// endregion
+
+// region HELPER FUNCTIONS
+
+// bindEnvironment makes `settings` read each setting from its environment variable, named as [InitViper] states.
+//
+// Parameters:
+//   - `settings`: the viper instance to configure; [InitViper] passes the process-wide one.
+//   - `prefix`: the program's environment prefix, such as "WRIT".
+//   - `program`: the program's name, such as "writ"; a key that begins with its segment reads the variable without it.
+func bindEnvironment(settings *viper.Viper, prefix, program string) {
+
+	settings.SetEnvPrefix(prefix)
+	settings.AutomaticEnv()
+	settings.SetEnvKeyReplacer(environmentKeyReplacer(prefix, program))
+}
+
+// environmentKeyReplacer returns the replacer that turns a setting's prefixed key into its environment variable.
+//
+// viper upper-cases `<prefix>_<key>` before it replaces, so a key under the program's own segment arrives as
+// `<PREFIX>_<PROGRAM>.<REST>`, the doubled prefix leading the name. The first pair turns that doubled prefix into
+// `<PREFIX>_`; the others turn each `.` and `-` into `_`.
+//
+// Parameters:
+//   - `prefix`: the program's environment prefix, such as "WRIT".
+//   - `program`: the program's name, such as "writ".
+//
+// Returns:
+//   - `*strings.Replacer`: the replacer viper applies to each name it looks up.
+func environmentKeyReplacer(prefix, program string) *strings.Replacer {
+	return strings.NewReplacer(prefix+"_"+strings.ToUpper(program)+".", prefix+"_", ".", "_", "-", "_")
+}
+
+// endregion

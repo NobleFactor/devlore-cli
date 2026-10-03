@@ -16,10 +16,13 @@ segment is dropped when the prefix already names the program, and the doubled sp
 `aws`, `gh` and `docker` name theirs. Planning it on 2026-10-02, the owner ruled the shared root's flags (`--verbose`,
 `--dry-run` and the rest) **global settings**, built in lane 24
 ([#1010](https://github.com/NobleFactor/devlore-cli/issues/1010)) with `DEVLORE_` variables, and #1011 goes with them.
-This lane keeps the settings only one program has, adds a test that no two settings share a variable, settles how a
-graph variable relates to the settings, and adds **a warning for a variable that names nothing**. It also takes
-[#1022](https://github.com/NobleFactor/devlore-cli/issues/1022), lane 37: **dry-run belongs to the runtime**, and
-today `lore deploy --dry-run` runs every provider method. It is independent of lane 33's named roots.
+This lane keeps the settings only one program has, adds a test that no two settings share a variable, moves the
+variable resolver's environment lookup to `<PREFIX>_VARIABLE_<NAME>` and off the settings, and adds **a warning for a
+variable that names nothing**. It also takes [#1022](https://github.com/NobleFactor/devlore-cli/issues/1022), lane
+37: **dry-run belongs to the runtime**, and today `lore deploy --dry-run` runs every provider method. The variables
+family's surfaces, `--variable` and `<program>.variables`, are
+[#1023](https://github.com/NobleFactor/devlore-cli/issues/1023), lane 38, in PR C′. It is independent of lane 33's
+named roots.
 
 ## Issue 927
 
@@ -46,8 +49,8 @@ All by the owner on 2026-10-02, while planning this lane.
    squeeze, which drops hyphens because Spring binds variables back into settings and viper never does: "keep _, add
    the warning."
 5. **A variable that names nothing draws a warning**: "add the warning."
-6. **Graph variables get a namespace of their own**: "(a), plan chartered." Reopened the same day by rulings 8 and 9
-   and the owner's view that configuration is how code reaches settings; it stands until open question 1 is ruled.
+6. **Graph variables get a namespace of their own**: "(a), plan chartered." Reopened the same day by rulings 8 and 9,
+   then settled by rulings 11 to 13: the namespace is the variables family's, `<PREFIX>_VARIABLE_<NAME>`.
 7. **"Setting" names the whole chain.** "I would like to establish a shorthand for talking about flags => environment
    variables => configuration settings. To me they are all settings arranged in a hierarchy. configuration settings
    have defaults overridden by config which is overridden by environment variable values which are overridden by
@@ -58,9 +61,22 @@ All by the owner on 2026-10-02, while planning this lane.
    do too. verbosity comes to mind." The runtime applies it whether a provider method is called in a graph or outside
    one; no graph reads it; lore's `package.dry_run` is withdrawn; providers and commands stop reading it.
 10. **#1022 joins this lane**: "log the defect and include it in lane 8." It is lane 37 on #916.
+11. **Settings stay out of the runtime variable space.** "Until we have specific use cases with a syntax for
+    introducing settings (as i've now defined settings) they will not be entered into the runtime variable space.
+    Bindings are entered into the runtime variable space using a syntax similar to what make uses."
+12. **The variables family.** "this seems like a big hole that was meant to be filled exclusively by the
+    VariableResolver. It is the logical place. the VariableResolver needs access to settings. it's domain is the
+    variable space. It should not need to do more than resolve the set of variables defined by the current
+    application. ... I propose --variable NAME=value." Its names, ruled "yes", follow segments': `--variable
+    NAME=value`, `<PREFIX>_VARIABLE_<NAME>` and `<program>.variables`, which `writ.vars` becomes. A long value has no
+    file form until a use case asks for one, ruled "(a)". "our shipping apps (lore, star, and writ) and devlore-test
+    are the apps that should carry variables. none other."
+13. **The work splits**, ruled "(c)": this lane moves the resolver's environment lookup to `<PREFIX>_VARIABLE_<NAME>`
+    and drops its lookups of settings; the surfaces are #1023, filed as a feature on the owner's "yes" and scheduled
+    as lane 38 in PR C′, with #975 and #683 as lanes 39 and 40.
 
 The owner also said, of how code reaches settings: "the real point of access for providers and starlark code is
-config. That work is TBD." This lane does not build that access; open questions 1 and 2 keep clear of it.
+config. That work is TBD." This lane does not build that access.
 
 ## Goals
 
@@ -69,7 +85,8 @@ config. That work is TBD." This lane does not build that access; open questions 
 2. The doubled spelling, `WRIT_WRIT_REPO`, is not honored.
 3. A hyphen in a setting's name becomes `_` in its variable.
 4. No two settings share a variable, by test.
-5. A graph variable never reads a setting's environment variable.
+5. A graph variable reads the environment only as `<PREFIX>_VARIABLE_<NAME>`, and the variable resolver reads no
+   setting.
 6. A variable whose name begins with a program's prefix or `DEVLORE_`, and that nothing reads, draws a warning
    naming it.
 7. Every dry run reaches the runtime's skip, whichever layer of the setting asked for it, and nothing but the runtime
@@ -79,13 +96,13 @@ config. That work is TBD." This lane does not build that access; open questions 
 
 ## Current State
 
-Read 2026-10-02 at `72a73e40`; the rows on `viper.go`, graph variables, the runtime's dry-run, and 2.1 and 2.5 at
-`d24bff32`.
+Read 2026-10-02 at `72a73e40`; the rows on `viper.go`, settings read by code, graph variables, the runtime's dry-run,
+and 2.1 and 2.5 at `d24bff32`.
 
 | Component | Status | Notes |
 | --- | --- | --- |
-| `cmd/internal/cli/viper.go` `InitViper` | ❌ | `SetEnvPrefix(prefix)`, `AutomaticEnv`, and a replacer from `.` to `_`; a key already namespaced under its program reads the doubled name, `WRIT_WRIT_REPO`, and devlore-test's `verbose` reads `DEVLORE_TEST_DEVLORE-TEST_VERBOSE`, which a POSIX shell cannot export. The doc comment states the ruled form, which the code does not do, and its example `WRIT_VARS_USER_NAME` names a variable nothing reads, since `writ.vars` is read as one map. `InitViper`'s error names a field that does not exist (`ViperConfig.ReceiverName`), and `BindFlags`' reads `failed to starlarkbridge flag`, leftovers of a rename sweep. No test covers the file |
-| program settings read through viper | ⚠️ | `writ.repo` and `writ.vars` (`cmd/writ/writ/config.go`), and `writ.scopes`, which `layer.go` reads as a map, so no variable reaches its entries. lore, star and devlore-test read none; lore's model settings go global in lane 24 |
+| `cmd/internal/cli/viper.go` `InitViper` | ❌ | `SetEnvPrefix(prefix)`, `AutomaticEnv`, and a replacer from `.` to `_`; a key already namespaced under its program reads the doubled name, `WRIT_WRIT_REPO`, and devlore-test's `verbose` reads `DEVLORE_TEST_DEVLORE-TEST_VERBOSE`, which a POSIX shell cannot export. The doc comment states the ruled form, which the code does not do, and its example `WRIT_VARS_USER_NAME` names a variable nothing reads, since `writ.vars` is read as one map. `InitViper`'s error names a field that does not exist (`ViperConfig.ReceiverName`), and `BindFlags`' reads `failed to starlarkbridge flag`, leftovers of a rename sweep. No test covers the file; `star lint go-style` finds 5 violations, all missing doc sections |
+| settings read by code | ⚠️ | through viper: `writ.repo`, `writ.vars` and `writ.scopes` (maps, read whole, so no variable reaches their entries), `writ.targets` (`IsSet`, for its refusal), `writ.dry-run`, `writ.verbose`, `lore.dry-run`, `lore.verbose`, and `lore.model.provider`, `.endpoint`, `.api_key` and `.model`. Once the prefix is not doubled, `lore.model.provider` and the `--model-provider` flag's `lore.model-provider` both read `LORE_MODEL_PROVIDER`, as do the endpoint and API-key pairs; and `--model`'s key `lore.model` is also their parent. Lane 24 (#1010) removes both sides; open question 1 |
 | the shared root's flags | lane 24 | bound per program today (`writ.verbose`, `writ.dry-run`); lane 24 makes them global |
 | graph variables | ⚠️ | declared by reference (`plan.variable(...)`), gathered from the nodes by `Graph.Parameters()`, and bound at the run's start by `pkg/op`'s `VariableResolver` from override, flag, environment (`<PREFIX>_<NAME>`, the names the settings use), configuration and default; the middle three are a setting's layers. No shipped graph declares one: writ builds its graphs in Go without variable bindings, lore's packages take only the reserved `package` and `phase`, and star's commands take their flags as `run` arguments. devlore-test's fixtures declare seven (`dest_dir`, `dest_path`, `source_path`, `layer`, `mode`, `greeting` and `items`; `item` is bound per gather iteration), and `pkg/op`'s tests five. star's providers register `config` and `command_tree`, which star supplies as overrides; their path skips the environment |
 | the runtime's dry-run | ❌ | `Application.DryRun()` reads `dry_run` from the flag map (`pkg/application/application.go:106`); `action.Do` and its two siblings skip on it, and the process runner takes it. lore and devlore-test hand it `dry-run`, so `lore deploy --dry-run` runs every provider method; writ returns before running (#853). A call made outside a graph never checks (`pkg/op/starlarkbridge/go_receiver.go:933`): star's setup provider checks for itself, the file provider does not, and `shell.exec` bypasses the process runner (#800). lore hands scripts `package.dry_run`, which no package reads. `RuntimeEnvironmentConfig` (`pkg/op/runtime_environment.go:809`), the runtime's section, holds dry-run, the conflict policy and the backup suffix, with a TODO to move the dry-run readers onto it |
@@ -93,7 +110,7 @@ Read 2026-10-02 at `72a73e40`; the rows on `viper.go`, graph variables, the runt
 | `config get` | n/a | reads the configuration file, not viper, so it shows no variable's value |
 | `10-command-line-interface.md` | ❌ | states the precedence (flags, then the environment, then configuration) but not how a variable is named |
 | `2.1-typed-slots.md`, `2.5-lifecycle-pipeline-construction.md` | ❌ | say a graph variable resolves from flags, configuration and the environment |
-| viper v1.21.0 | ready | upper-cases `PREFIX_key` before applying the key replacer (`mergeWithEnvPrefix`, then `getEnv`), so the doubled segment a replacer must drop sits at the start of the name |
+| viper v1.21.0 | ready | upper-cases `PREFIX_key` before applying the key replacer (`mergeWithEnvPrefix`, then `getEnv`, `viper.go:418`, `:442` and `:1231`), so the doubled segment a replacer must drop sits at the start of the name |
 
 ## Requirements
 
@@ -108,22 +125,25 @@ states the rule.
 ### Requirement 2: the collision test
 
 A test maps every known setting (flags, defaults, documented settings, and the variables read by name) to its
-variable, and fails if two settings share one. If open question 1 leaves graph variables an environment namespace,
-the test also fails when a setting maps into it.
+variable, and fails if two settings share one, or if one maps into a reserved family: `<PREFIX>_VARIABLE_`, the
+variables family's (#1023), and `WRIT_SEGMENT_`, the segments'. Whether keys the code reads through viper join the
+known settings is open question 1.
 
-### Requirement 3: graph variables and the settings
+### Requirement 3: the resolver reads no setting
 
-Settled by open question 1. Whichever answer it takes, the missing-variable message names what the resolver tried,
-and `pkg/op`'s example and tests, devlore-test's fixtures that exercise the resolver, and pages 2.1 and 2.5 change
-with it.
+`VariableResolver` binds a variable from the values the run's caller supplies, then `<PREFIX>_VARIABLE_<NAME>` in the
+environment, decoded as today (`envValue`, then `op.Convert`), then its declared default. Its flag and configuration
+steps go: they read settings (ruling 11). The missing-variable message names the variable it tried. `pkg/op`'s example
+and tests, and devlore-test's builtins and fixtures that feed the resolver's settings lookups, change with it. The
+family's flag and file layers, `--variable` and `<program>.variables`, are #1023's.
 
 ### Requirement 4: the warning
 
 A variable whose name begins with a program's prefix or `DEVLORE_`, and that names nothing, draws a warning through
-the narrator, so `--silent` quiets it. At startup, it is checked against the program's settings: Requirement 2's
-table, the installers' variables, and the families that carry a name, such as `WRIT_SEGMENT_<NAME>` for a declared
-segment. If open question 1 leaves graph variables an environment namespace, a name in it is checked when a run
-binds its variables, against the variables the run declares.
+the narrator, so `--silent` quiets it. At startup, a name outside the variables family is checked against the
+program's settings: Requirement 2's table, the installers' variables, and the families that carry a name, such as
+`WRIT_SEGMENT_<NAME>` for a declared segment. A name in `<PREFIX>_VARIABLE_` is checked when a run binds its
+variables, against the variables the run declares.
 
 The warning names the variable and, when one is near, the known name it resembles: `WRIT_WRIT_REPO` suggests
 `WRIT_REPO`, and `DEVLORE_DRYRUN` suggests `DEVLORE_DRY_RUN`.
@@ -140,9 +160,10 @@ The warning names the variable and, when one is near, the known name it resemble
 ### Requirement 6: the tests
 
 - **Unit:** the mapping, for each program's prefix: a plain key, a nested key, a hyphenated key, and the doubled
-  spelling refused; the collision test; the resolver as open question 1 rules it; the warning's known names and its
-  nearest-name suggestion; a graph run and a call outside a graph, under dry-run, invoke no provider method.
-- **devlore-test:** the fixtures that exercise the resolver, as open question 1 rules it.
+  spelling refused; the collision test; the resolver binding from the caller, `<PREFIX>_VARIABLE_<NAME>` and the
+  default, and from no flag, configuration or `<PREFIX>_<NAME>`; the warning's known names and its nearest-name
+  suggestion; a graph run and a call outside a graph, under dry-run, invoke no provider method.
+- **devlore-test:** the fixtures that exercise the resolver, against `<PREFIX>_VARIABLE_<NAME>`.
 - **Subprocess, one per program on the shared root:** an unknown variable with the program's prefix draws the
   warning on standard error, the doubled spelling of a known setting draws it naming the bare one, and under
   `--silent` neither prints; a dry run asked for by the flag and by the environment changes nothing. They run beside
@@ -152,8 +173,8 @@ The warning names the variable and, when one is near, the known name it resemble
 
 `10-command-line-interface.md` states the rule in one line, beside the precedence: a program setting's variable is
 the program's prefix plus the bare key, and a global setting's is `DEVLORE_` plus the key, which lane 24 builds. It
-states the warning too. 2.1 and 2.5 state the line between settings and variables as open question 1 rules it, and
-`configuration.md` states that dry-run is the runtime's setting.
+states the warning too. 2.1 and 2.5 state the line between settings and variables and point to the variables family
+(#1023), and `configuration.md` states that dry-run is the runtime's setting.
 
 ### Requirement 8: the style gate
 
@@ -164,13 +185,13 @@ Every Go file this lane touches passes `star lint go-style` in the lane's commit
 ### Phase 1: The plan
 
 - [x] This document, reviewed with the owner and chartered: "(a), plan chartered. go on phase 2." (2026-10-02).
-  Rulings 7 to 10 and #1022 were added the same day.
+  Rulings 7 to 13, #1022, and the split that made #1023 were added the same day.
 
 ### Phase 2: The mapping and the collision test
 
 - [ ] Requirements 1 and 2, with their unit tests.
 
-### Phase 3: Graph variables and the warning
+### Phase 3: The resolver and the warning
 
 - [ ] Requirements 3 and 4, and Requirement 6's tests for them.
 
@@ -199,8 +220,8 @@ installed changes nothing. The Windows box is out of service; CI's Windows jobs 
 | # | What it proves | Level | Fails when |
 | --- | --- | --- | --- |
 | 1 | the mapping, for each program's prefix | unit | a key reads the doubled name, or a nested or hyphenated key maps otherwise |
-| 2 | no two settings share a variable | unit | two known settings map to one variable |
-| 3 | graph variables, as open question 1 rules | unit, devlore-test | a variable binds from a source the ruling excludes |
+| 2 | no two settings share a variable, and none falls in a reserved family | unit | two known settings map to one variable, or one maps into `<PREFIX>_VARIABLE_` or `WRIT_SEGMENT_` |
+| 3 | the resolver reads no setting | unit, devlore-test | a variable binds from the flag map, the configuration map or `<PREFIX>_<NAME>`, or `<PREFIX>_VARIABLE_<NAME>` goes unread |
 | 4 | the warning names what nothing reads, and suggests the near name | unit, subprocess | a known variable warns, an unknown one does not, or `--silent` lets it print |
 | 5 | a dry run invokes no provider method | unit, subprocess | a provider method runs under dry-run, in a graph or outside one, whichever layer set it |
 | 6 | the behavior on a real install | VM | the machine behaves otherwise |
@@ -210,15 +231,14 @@ installed changes nothing. The Windows box is out of service; CI's Windows jobs 
 | File | Action | Purpose |
 | --- | --- | --- |
 | `docs/plans/fix/927-env-prefix-doubled.md` | Create | this plan |
-| `cmd/internal/cli/viper.go`, its test | Modify, Create | the mapping, its unit tests, the collision test, and the two error messages |
-| `cmd/internal/cli`, beside `viper.go` | Create | the known names and the warning |
-| `pkg/op/variable_resolver.go`, its test, and `pkg/op/variable.go` | Modify | graph variables, as open question 1 rules |
-| `cmd/devlore-test/devloretest/data/test_writ_adopt_origin_full.star` and `test_writ_adopt_precedence.star` | Modify | the fixtures that exercise the resolver |
+| `cmd/internal/cli/viper.go`, its test | Modify, Create | the mapping, its unit tests, and the two error messages |
+| `cmd/internal/cli`, beside `viper.go` | Create | the known names, the collision test, and the warning |
+| `pkg/op/variable_resolver.go`, its test, and `pkg/op/variable.go` | Modify | the resolver reads `<PREFIX>_VARIABLE_<NAME>` and no setting |
+| `cmd/devlore-test/devloretest/test_context.go`, `runner.go`, and the fixtures `test_writ_adopt_origin_full.star` and `test_writ_adopt_precedence.star` | Modify | the builtins and fixtures that feed or exercise the resolver |
 | `pkg/op/action_types.go`, `pkg/op/starlarkbridge/go_receiver.go` and `pkg/op/runtime_environment.go` | Modify | the runtime applies dry-run in both paths, from one place |
 | `pkg/application/application.go`, its test | Modify | dry-run leaves the variables' flag map |
 | `cmd/lore/lore/commands.go` and `cmd/lore/lore/package_context.go` | Modify | lore hands the runtime its setting; `package.dry_run` withdrawn |
 | `cmd/writ/writ/deploy/plan.go`, `upgrade/upgrade.go`, `decommission/decommission.go` and `secret/encrypt.go` | Modify | writ hands the runtime its settings the same way |
-| `cmd/devlore-test/devloretest/runner.go` | Modify | devlore-test does too |
 | `cmd/star/provider/setup/provider.go` | Modify | its own dry-run checks go |
 | `pkg/op/provider/plan/provider.go` and `pkg/op/provider/file/provider.go` | Modify | `plan.spec`'s dry-run for a sub-run, and the conflict policy, from the runtime's settings |
 | `cmd/scenario/` (a new test file) and the `Makefile`'s `test-scenario` target | Create, Modify | the subprocess tests, one per program |
@@ -227,15 +247,16 @@ installed changes nothing. The Windows box is out of service; CI's Windows jobs 
 
 ## Open Questions
 
-1. **Graph variables and the settings.** Ruling 8 makes them orthogonal, and ruling 6 gave variables an environment
-   namespace of their own. `VariableResolver` binds a variable from override, flag, environment, configuration and
-   default; the middle three are a setting's layers. Offered:
-   - (a) the resolver stops reading settings: its flag, environment and configuration steps go, and a variable binds
-     what the run's caller supplies, or its declared default. Ruling 6's namespace is moot, and withdrawn with its
-     infix. Recommended: it is what orthogonality means in the code, nothing shipped declares a variable, and code
-     reaches settings through configuration, which is the owner's TBD work;
-   - (b) ruling 6 as ruled: variables keep the flag and configuration steps, and read the environment from a
-     namespace of their own, `VAR`, `PARAM` or `INPUT` (`WRIT_VAR_DEST_DIR`).
+1. **The collision test's sources.** Found 2026-10-02 writing phase 2: once the prefix is not doubled, lore's model
+   reads (`lore.model.provider`, `.endpoint` and `.api_key`) share variables with its `--model-*` flags
+   (`lore.model-provider` and the rest), so `LORE_MODEL_PROVIDER` names two keys; lane 24 (#1010) removes both
+   sides. Requirement 2's sources leave out the keys the code reads through viper, so the test would pass with these
+   pairs in place. Offered:
+   - (a) the test also gathers the keys the code reads through viper, from the source, and names the lore model
+     pairs as lane 24's exception, which lane 24 deletes. Recommended: the test sees every setting the code reads,
+     and the known exception has an owner;
+   - (b) as chartered: flags, defaults, documented settings and the variables read by name;
+   - (c) this lane takes lore's model settings from lane 24.
 2. **How the runtime receives dry-run** (#1022), with the settings that join it, such as verbosity and the conflict
    policy. Offered:
    - (a) the program resolves them through the chain and supplies them as the runtime's section,
@@ -254,6 +275,7 @@ installed changes nothing. The Windows box is out of service; CI's Windows jobs 
 
 - [#927](https://github.com/NobleFactor/devlore-cli/issues/927) -- the issue and its ruling
 - [#1022](https://github.com/NobleFactor/devlore-cli/issues/1022) -- dry-run belongs to the runtime; lane 37
+- [#1023](https://github.com/NobleFactor/devlore-cli/issues/1023) -- the variables family; lane 38, PR C′
 - [#1010](https://github.com/NobleFactor/devlore-cli/issues/1010) -- lane 24: the shared root's flags as global
   settings, with #1011 ([#1011](https://github.com/NobleFactor/devlore-cli/issues/1011))
 - [#694](https://github.com/NobleFactor/devlore-cli/issues/694) -- how configuration reaches a run
