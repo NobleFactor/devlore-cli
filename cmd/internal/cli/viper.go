@@ -24,8 +24,8 @@ type ViperConfig struct {
 	// Name is the program's name, such as "lore" or "writ". It is required.
 	Name string
 
-	// EnvPrefix is the prefix of the program's environment variables, such as "WRIT". When it is empty, it is Name
-	// upper-cased with each `-` as `_`, so devlore-test's is "DEVLORE_TEST".
+	// EnvPrefix is the prefix of the program's environment variables, such as "WRIT". When it is empty, it is
+	// [EnvironmentPrefix] of Name, so devlore-test's is "DEVLORE_TEST".
 	EnvPrefix string
 
 	// ConfigName is the configuration file's name without its extension (default: "config").
@@ -77,6 +77,35 @@ func BindFlags(cmd *cobra.Command, toolName string, useSharedConfig bool) error 
 	return bindErr
 }
 
+// EnvironmentPrefix returns the prefix of a program's environment variables: its name upper-cased, each `-` as `_`.
+//
+// Parameters:
+//   - `program`: the program's name, such as "writ" or "devlore-test".
+//
+// Returns:
+//   - `string`: the prefix without its separator, such as "WRIT" or "DEVLORE_TEST".
+func EnvironmentPrefix(program string) string {
+	return strings.ReplaceAll(strings.ToUpper(program), "-", "_")
+}
+
+// EnvironmentVariable returns the environment variable from which `program` reads the setting `key`.
+//
+// It is the name [InitViper] has viper look up: the program's prefix plus the key without the program's own segment,
+// upper-cased, each `.` and `-` as `_`. The suite's global settings take the suite's name, "devlore", as their
+// program: `dry_run` is `DEVLORE_DRY_RUN`.
+//
+// Parameters:
+//   - `program`: the program's name, such as "writ".
+//   - `key`: the setting's key, such as "writ.repo".
+//
+// Returns:
+//   - `string`: the variable's name, such as "WRIT_REPO".
+func EnvironmentVariable(program, key string) string {
+
+	prefix := EnvironmentPrefix(program)
+	return environmentKeyReplacer(prefix, program).Replace(strings.ToUpper(prefix + "_" + key))
+}
+
 // InitViper sets up a program's settings: its configuration file, and the environment variables that override it.
 //
 // Precedence, lowest to highest: the configuration file, then the environment, then the command line. The shared root
@@ -100,7 +129,7 @@ func InitViper(cfg ViperConfig) error {
 	}
 
 	if cfg.EnvPrefix == "" {
-		cfg.EnvPrefix = strings.ReplaceAll(strings.ToUpper(cfg.Name), "-", "_")
+		cfg.EnvPrefix = EnvironmentPrefix(cfg.Name)
 	}
 	if cfg.ConfigName == "" {
 		cfg.ConfigName = "config"

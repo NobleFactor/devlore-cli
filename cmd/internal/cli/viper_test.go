@@ -10,53 +10,54 @@ import (
 	"github.com/spf13/viper"
 )
 
+// mappingCases are settings and the variables they read from, for every program on the shared root: a plain key, a
+// nested key, a hyphenated key, a key without a section, and another program's section kept.
+var mappingCases = []struct {
+	program  string
+	key      string
+	variable string
+}{
+	{program: "devlore-test", key: "devlore-test.verbose", variable: "DEVLORE_TEST_VERBOSE"},
+	{program: "lore", key: "lore.registry", variable: "LORE_REGISTRY"},
+	{program: "star", key: "star.model-endpoint", variable: "STAR_MODEL_ENDPOINT"},
+	{program: "writ", key: "lore.dry-run", variable: "WRIT_LORE_DRY_RUN"},
+	{program: "writ", key: "pager", variable: "WRIT_PAGER"},
+	{program: "writ", key: "writ.deploy.conflict", variable: "WRIT_DEPLOY_CONFLICT"},
+	{program: "writ", key: "writ.dry-run", variable: "WRIT_DRY_RUN"},
+	{program: "writ", key: "writ.repo", variable: "WRIT_REPO"},
+}
+
 // settingsFor returns a fresh viper instance that reads the environment as [InitViper] sets it up for `program`.
 //
 // Parameters:
 //   - `t`: the test the instance serves.
-//   - `prefix`: the program's environment prefix, such as "WRIT".
 //   - `program`: the program's name, such as "writ".
 //
 // Returns:
 //   - `*viper.Viper`: the instance, touching none of the process-wide settings.
-func settingsFor(t *testing.T, prefix, program string) *viper.Viper {
+func settingsFor(t *testing.T, program string) *viper.Viper {
 
 	t.Helper()
 	settings := viper.New()
-	bindEnvironment(settings, prefix, program)
+	bindEnvironment(settings, EnvironmentPrefix(program), program)
 	return settings
 }
 
 // --- bindEnvironment ---
 
 // TestBindEnvironment_ReadsThePrefixPlusTheBareKey reads each setting from the program's prefix plus its key without
-// the program's own segment, dots and hyphens as underscores, for every program on the shared root.
+// the program's own segment, dots and hyphens as underscores.
 func TestBindEnvironment_ReadsThePrefixPlusTheBareKey(t *testing.T) {
 
-	cases := []struct {
-		prefix   string
-		program  string
-		key      string
-		variable string
-	}{
-		{prefix: "WRIT", program: "writ", key: "writ.repo", variable: "WRIT_REPO"},
-		{prefix: "WRIT", program: "writ", key: "writ.deploy.conflict", variable: "WRIT_DEPLOY_CONFLICT"},
-		{prefix: "WRIT", program: "writ", key: "writ.dry-run", variable: "WRIT_DRY_RUN"},
-		{prefix: "WRIT", program: "writ", key: "pager", variable: "WRIT_PAGER"},
-		{prefix: "LORE", program: "lore", key: "lore.registry", variable: "LORE_REGISTRY"},
-		{prefix: "STAR", program: "star", key: "star.model-endpoint", variable: "STAR_MODEL_ENDPOINT"},
-		{prefix: "DEVLORE_TEST", program: "devlore-test", key: "devlore-test.verbose",
-			variable: "DEVLORE_TEST_VERBOSE"},
-	}
-
-	for _, testCase := range cases {
+	for _, testCase := range mappingCases {
 		t.Run(testCase.variable, func(t *testing.T) {
 
 			t.Setenv(testCase.variable, "from the environment")
 
-			settings := settingsFor(t, testCase.prefix, testCase.program)
+			settings := settingsFor(t, testCase.program)
 			if got := settings.GetString(testCase.key); got != "from the environment" {
-				t.Errorf("%s = %q, want the value of %s", testCase.key, got, testCase.variable)
+				t.Errorf("%s under %s = %q, want the value of %s", testCase.key, testCase.program, got,
+					testCase.variable)
 			}
 		})
 	}
@@ -67,15 +68,13 @@ func TestBindEnvironment_ReadsThePrefixPlusTheBareKey(t *testing.T) {
 func TestBindEnvironment_IgnoresTheDoubledSpelling(t *testing.T) {
 
 	cases := []struct {
-		prefix   string
 		program  string
 		key      string
 		variable string
 	}{
-		{prefix: "WRIT", program: "writ", key: "writ.repo", variable: "WRIT_WRIT_REPO"},
-		{prefix: "LORE", program: "lore", key: "lore.dry-run", variable: "LORE_LORE_DRY_RUN"},
-		{prefix: "DEVLORE_TEST", program: "devlore-test", key: "devlore-test.verbose",
-			variable: "DEVLORE_TEST_DEVLORE_TEST_VERBOSE"},
+		{program: "devlore-test", key: "devlore-test.verbose", variable: "DEVLORE_TEST_DEVLORE_TEST_VERBOSE"},
+		{program: "lore", key: "lore.dry-run", variable: "LORE_LORE_DRY_RUN"},
+		{program: "writ", key: "writ.repo", variable: "WRIT_WRIT_REPO"},
 	}
 
 	for _, testCase := range cases {
@@ -83,7 +82,7 @@ func TestBindEnvironment_IgnoresTheDoubledSpelling(t *testing.T) {
 
 			t.Setenv(testCase.variable, "from the doubled spelling")
 
-			settings := settingsFor(t, testCase.prefix, testCase.program)
+			settings := settingsFor(t, testCase.program)
 			if got := settings.GetString(testCase.key); got != "" {
 				t.Errorf("%s = %q from %s, want nothing", testCase.key, got, testCase.variable)
 			}
@@ -91,15 +90,42 @@ func TestBindEnvironment_IgnoresTheDoubledSpelling(t *testing.T) {
 	}
 }
 
-// TestBindEnvironment_KeepsAnotherProgramsSegment drops only the running program's own segment: a key under another
-// program's name keeps it, under the running program's prefix.
-func TestBindEnvironment_KeepsAnotherProgramsSegment(t *testing.T) {
+// --- EnvironmentPrefix ---
 
-	t.Setenv("WRIT_LORE_DRY_RUN", "from the environment")
+// TestEnvironmentPrefix_TurnsAHyphenIntoAnUnderscore upper-cases a program's name, and turns the hyphen a shell
+// variable cannot hold into `_`.
+func TestEnvironmentPrefix_TurnsAHyphenIntoAnUnderscore(t *testing.T) {
 
-	settings := settingsFor(t, "WRIT", "writ")
-	if got := settings.GetString("lore.dry-run"); got != "from the environment" {
-		t.Errorf("lore.dry-run under writ = %q, want the value of WRIT_LORE_DRY_RUN", got)
+	if got := EnvironmentPrefix("writ"); got != "WRIT" {
+		t.Errorf(`EnvironmentPrefix("writ") = %q, want "WRIT"`, got)
+	}
+	if got := EnvironmentPrefix("devlore-test"); got != "DEVLORE_TEST" {
+		t.Errorf(`EnvironmentPrefix("devlore-test") = %q, want "DEVLORE_TEST"`, got)
+	}
+}
+
+// --- EnvironmentVariable ---
+
+// TestEnvironmentVariable_NamesWhatViperReads names, for each case, the variable viper reads the setting from.
+func TestEnvironmentVariable_NamesWhatViperReads(t *testing.T) {
+
+	for _, testCase := range mappingCases {
+		if got := EnvironmentVariable(testCase.program, testCase.key); got != testCase.variable {
+			t.Errorf("EnvironmentVariable(%q, %q) = %q, want %q", testCase.program, testCase.key, got,
+				testCase.variable)
+		}
+	}
+}
+
+// TestEnvironmentVariable_GivesAGlobalSettingTheSuitesPrefix names a global setting's variable under the suite's
+// name, as `DEVLORE_<KEY>`.
+func TestEnvironmentVariable_GivesAGlobalSettingTheSuitesPrefix(t *testing.T) {
+
+	if got := EnvironmentVariable("devlore", "dry_run"); got != "DEVLORE_DRY_RUN" {
+		t.Errorf(`EnvironmentVariable("devlore", "dry_run") = %q, want "DEVLORE_DRY_RUN"`, got)
+	}
+	if got := EnvironmentVariable("devlore", "model.api_key"); got != "DEVLORE_MODEL_API_KEY" {
+		t.Errorf(`EnvironmentVariable("devlore", "model.api_key") = %q, want "DEVLORE_MODEL_API_KEY"`, got)
 	}
 }
 

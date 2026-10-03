@@ -74,6 +74,8 @@ All by the owner on 2026-10-02, while planning this lane.
 13. **The work splits**, ruled "(c)": this lane moves the resolver's environment lookup to `<PREFIX>_VARIABLE_<NAME>`
     and drops its lookups of settings; the surfaces are #1023, filed as a feature on the owner's "yes" and scheduled
     as lane 38 in PR C′, with #975 and #683 as lanes 39 and 40.
+14. **The collision test reads the code's viper keys**, ruled "(a)": it also gathers, from the source, the keys the
+    code reads through viper, and names lore's three model pairs as lane 24's exception, which lane 24 deletes.
 
 The owner also said, of how code reaches settings: "the real point of access for providers and starlark code is
 config. That work is TBD." This lane does not build that access.
@@ -101,8 +103,8 @@ and 2.1 and 2.5 at `d24bff32`.
 
 | Component | Status | Notes |
 | --- | --- | --- |
-| `cmd/internal/cli/viper.go` `InitViper` | ❌ | `SetEnvPrefix(prefix)`, `AutomaticEnv`, and a replacer from `.` to `_`; a key already namespaced under its program reads the doubled name, `WRIT_WRIT_REPO`, and devlore-test's `verbose` reads `DEVLORE_TEST_DEVLORE-TEST_VERBOSE`, which a POSIX shell cannot export. The doc comment states the ruled form, which the code does not do, and its example `WRIT_VARS_USER_NAME` names a variable nothing reads, since `writ.vars` is read as one map. `InitViper`'s error names a field that does not exist (`ViperConfig.ReceiverName`), and `BindFlags`' reads `failed to starlarkbridge flag`, leftovers of a rename sweep. No test covers the file; `star lint go-style` finds 5 violations, all missing doc sections |
-| settings read by code | ⚠️ | through viper: `writ.repo`, `writ.vars` and `writ.scopes` (maps, read whole, so no variable reaches their entries), `writ.targets` (`IsSet`, for its refusal), `writ.dry-run`, `writ.verbose`, `lore.dry-run`, `lore.verbose`, and `lore.model.provider`, `.endpoint`, `.api_key` and `.model`. Once the prefix is not doubled, `lore.model.provider` and the `--model-provider` flag's `lore.model-provider` both read `LORE_MODEL_PROVIDER`, as do the endpoint and API-key pairs; and `--model`'s key `lore.model` is also their parent. Lane 24 (#1010) removes both sides; open question 1 |
+| `cmd/internal/cli/viper.go` `InitViper` | ✓ | Fixed by phase 2 (`50e03403`). Before it: `SetEnvPrefix(prefix)`, `AutomaticEnv`, and a replacer from `.` to `_`; a key already namespaced under its program reads the doubled name, `WRIT_WRIT_REPO`, and devlore-test's `verbose` reads `DEVLORE_TEST_DEVLORE-TEST_VERBOSE`, which a POSIX shell cannot export. The doc comment states the ruled form, which the code does not do, and its example `WRIT_VARS_USER_NAME` names a variable nothing reads, since `writ.vars` is read as one map. `InitViper`'s error names a field that does not exist (`ViperConfig.ReceiverName`), and `BindFlags`' reads `failed to starlarkbridge flag`, leftovers of a rename sweep. No test covers the file; `star lint go-style` finds 5 violations, all missing doc sections |
+| settings read by code | ⚠️ | through viper: `writ.repo`, `writ.vars` and `writ.scopes` (maps, read whole, so no variable reaches their entries), `writ.targets` (`IsSet`, for its refusal), `writ.dry-run`, `writ.verbose`, `lore.dry-run`, `lore.verbose`, and `lore.model.provider`, `.endpoint`, `.api_key` and `.model`. Once the prefix is not doubled, `lore.model.provider` and the `--model-provider` flag's `lore.model-provider` both read `LORE_MODEL_PROVIDER`, as do the endpoint and API-key pairs; and `--model`'s key `lore.model` is also their parent. Lane 24 (#1010) removes both sides; ruling 14 |
 | the shared root's flags | lane 24 | bound per program today (`writ.verbose`, `writ.dry-run`); lane 24 makes them global |
 | graph variables | ⚠️ | declared by reference (`plan.variable(...)`), gathered from the nodes by `Graph.Parameters()`, and bound at the run's start by `pkg/op`'s `VariableResolver` from override, flag, environment (`<PREFIX>_<NAME>`, the names the settings use), configuration and default; the middle three are a setting's layers. No shipped graph declares one: writ builds its graphs in Go without variable bindings, lore's packages take only the reserved `package` and `phase`, and star's commands take their flags as `run` arguments. devlore-test's fixtures declare seven (`dest_dir`, `dest_path`, `source_path`, `layer`, `mode`, `greeting` and `items`; `item` is bound per gather iteration), and `pkg/op`'s tests five. star's providers register `config` and `command_tree`, which star supplies as overrides; their path skips the environment |
 | the runtime's dry-run | ❌ | `Application.DryRun()` reads `dry_run` from the flag map (`pkg/application/application.go:106`); `action.Do` and its two siblings skip on it, and the process runner takes it. lore and devlore-test hand it `dry-run`, so `lore deploy --dry-run` runs every provider method; writ returns before running (#853). A call made outside a graph never checks (`pkg/op/starlarkbridge/go_receiver.go:933`): star's setup provider checks for itself, the file provider does not, and `shell.exec` bypasses the process runner (#800). lore hands scripts `package.dry_run`, which no package reads. `RuntimeEnvironmentConfig` (`pkg/op/runtime_environment.go:809`), the runtime's section, holds dry-run, the conflict policy and the backup suffix, with a TODO to move the dry-run readers onto it |
@@ -126,8 +128,10 @@ states the rule.
 
 A test maps every known setting (flags, defaults, documented settings, and the variables read by name) to its
 variable, and fails if two settings share one, or if one maps into a reserved family: `<PREFIX>_VARIABLE_`, the
-variables family's (#1023), and `WRIT_SEGMENT_`, the segments'. Whether keys the code reads through viper join the
-known settings is open question 1.
+variables family's (#1023), and `WRIT_SEGMENT_`, the segments'. It gathers the keys the code reads through viper from
+the source, and fails on one it cannot read (ruling 14). Lore's three model pairs share `LORE_MODEL_PROVIDER`,
+`LORE_MODEL_ENDPOINT` and `LORE_MODEL_API_KEY` with the `--model-*` flags until lane 24 (#1010) removes both sides;
+they are the test's one exception, and the test fails once the exception no longer holds, so lane 24 deletes it.
 
 ### Requirement 3: the resolver reads no setting
 
@@ -154,8 +158,8 @@ The warning names the variable and, when one is near, the known name it resemble
 - A provider method called outside a graph is skipped under dry-run, as one in a graph is.
 - Nothing but the runtime reads dry-run: `package.dry_run` is withdrawn, star's setup provider stops checking, and no
   program hands dry-run to the runtime through the variables' flag map. How the runtime receives it is open question
-  2; the conflict policy, carried the same way today, goes with it.
-- writ's commands still return before running under `--dry-run`; open question 3.
+  1; the conflict policy, carried the same way today, goes with it.
+- writ's commands still return before running under `--dry-run`; open question 2.
 
 ### Requirement 6: the tests
 
@@ -185,11 +189,13 @@ Every Go file this lane touches passes `star lint go-style` in the lane's commit
 ### Phase 1: The plan
 
 - [x] This document, reviewed with the owner and chartered: "(a), plan chartered. go on phase 2." (2026-10-02).
-  Rulings 7 to 13, #1022, and the split that made #1023 were added the same day.
+  Rulings 7 to 14, #1022, and the split that made #1023 were added the same day.
 
 ### Phase 2: The mapping and the collision test
 
-- [ ] Requirements 1 and 2, with their unit tests.
+- [x] Requirements 1 and 2, with their unit tests: the mapping in `50e03403`, and the collision test,
+  `cmd/internal/cli/environment_test.go`, with this box. The mapping is exported as `cli.EnvironmentPrefix` and
+  `cli.EnvironmentVariable`; the test's one exception is lore's three model pairs (ruling 14), which lane 24 deletes.
 
 ### Phase 3: The resolver and the warning
 
@@ -231,8 +237,8 @@ installed changes nothing. The Windows box is out of service; CI's Windows jobs 
 | File | Action | Purpose |
 | --- | --- | --- |
 | `docs/plans/fix/927-env-prefix-doubled.md` | Create | this plan |
-| `cmd/internal/cli/viper.go`, its test | Modify, Create | the mapping, its unit tests, and the two error messages |
-| `cmd/internal/cli`, beside `viper.go` | Create | the known names, the collision test, and the warning |
+| `cmd/internal/cli/viper.go`, its test | Modify, Create | the mapping, exported as `EnvironmentPrefix` and `EnvironmentVariable`, its unit tests, and the two error messages |
+| `cmd/internal/cli`, beside `viper.go` | Create | the collision test, in package `cli_test` because it builds the four programs' roots; then the known names and the warning |
 | `pkg/op/variable_resolver.go`, its test, and `pkg/op/variable.go` | Modify | the resolver reads `<PREFIX>_VARIABLE_<NAME>` and no setting |
 | `cmd/devlore-test/devloretest/test_context.go`, `runner.go`, and the fixtures `test_writ_adopt_origin_full.star` and `test_writ_adopt_precedence.star` | Modify | the builtins and fixtures that feed or exercise the resolver |
 | `pkg/op/action_types.go`, `pkg/op/starlarkbridge/go_receiver.go` and `pkg/op/runtime_environment.go` | Modify | the runtime applies dry-run in both paths, from one place |
@@ -247,17 +253,7 @@ installed changes nothing. The Windows box is out of service; CI's Windows jobs 
 
 ## Open Questions
 
-1. **The collision test's sources.** Found 2026-10-02 writing phase 2: once the prefix is not doubled, lore's model
-   reads (`lore.model.provider`, `.endpoint` and `.api_key`) share variables with its `--model-*` flags
-   (`lore.model-provider` and the rest), so `LORE_MODEL_PROVIDER` names two keys; lane 24 (#1010) removes both
-   sides. Requirement 2's sources leave out the keys the code reads through viper, so the test would pass with these
-   pairs in place. Offered:
-   - (a) the test also gathers the keys the code reads through viper, from the source, and names the lore model
-     pairs as lane 24's exception, which lane 24 deletes. Recommended: the test sees every setting the code reads,
-     and the known exception has an owner;
-   - (b) as chartered: flags, defaults, documented settings and the variables read by name;
-   - (c) this lane takes lore's model settings from lane 24.
-2. **How the runtime receives dry-run** (#1022), with the settings that join it, such as verbosity and the conflict
+1. **How the runtime receives dry-run** (#1022), with the settings that join it, such as verbosity and the conflict
    policy. Offered:
    - (a) the program resolves them through the chain and supplies them as the runtime's section,
      `RuntimeEnvironmentConfig`, as it supplies the platform (`WithPlatform`): #694's rule, that the framework reads
@@ -265,7 +261,7 @@ installed changes nothing. The Windows box is out of service; CI's Windows jobs 
      the resolved setting whichever layer set it, and no setting rides in the variables' sources;
    - (b) the resolved value under one key in the variables' flag map: the smallest change, but a setting stays among
      the variables' sources, which ruling 8 separates.
-3. **writ's early return under dry-run.** Ruling 9 has the runtime apply dry-run, so writ's commands would stop
+2. **writ's early return under dry-run.** Ruling 9 has the runtime apply dry-run, so writ's commands would stop
    returning before they run. #853, in writ's thread, already asks for the dry run to run the pre-flight. Offered:
    - (a) #853 takes it, in its own lane. Recommended: it changes what writ's dry run prints, and #853's acceptance
      says how;
