@@ -284,8 +284,8 @@ Example:
 //
 // The binary installed is the running executable. With it go the man pages, when a `man` command exists, and the
 // completions for the shells `flags` names, or for those detected when it names none. The configuration and cache
-// are initialized, the post-install hooks run, and writ's layer directories are created. What the previous record
-// owned and this install does not is retired (#933), and the manifest is written last.
+// are initialized and the post-install hooks run. No layer is touched: `writ repo set` registers layers (#1030). What
+// the previous record owned and this install does not is retired (#933), and the manifest is written last.
 //
 // Parameters:
 //   - `rootCmd`: the command tree the man pages and completions are generated from.
@@ -294,9 +294,9 @@ Example:
 //   - `flags`: the install flags; `Shells` names the shells to install completions for.
 //
 // Returns:
-//   - `error`: non-nil when the prefix cannot be opened; when the binary, man pages, completions, configuration or
-//     writ's layer directories cannot be placed; or when the manifest cannot be written. `self upgrade` judges each
-//     program by this exit status (#947).
+//   - `error`: non-nil when the prefix cannot be opened; when the binary, man pages, completions or configuration
+//     cannot be placed; or when the manifest cannot be written. `self upgrade` judges each program by this exit
+//     status (#947).
 func runSelfInstall(rootCmd *cobra.Command, prefix string, info SelfInstallInfo, flags installFlags) (err error) {
 
 	// One root for the whole install, threaded through every stage below (#405, phase 2b). The prefix is the
@@ -356,18 +356,13 @@ func runSelfInstall(rootCmd *cobra.Command, prefix string, info SelfInstallInfo,
 	installed = append(installed, hookLines...)
 	manifestFiles = append(manifestFiles, hookPaths...)
 
-	// 6. Create writ layer directories.
-	if err := initWritLayerDirectories(info.Name); err != nil {
-		return err
-	}
-
-	// 7. Retire what the record this install replaces owned and this one does not (#933).
+	// 6. Retire what the record this install replaces owned and this one does not (#933).
 	//
 	// Before the manifest is written, because the previous record is what it is read from; after
 	// everything is placed, so a failure above leaves the previous install intact.
 	retired, retainedByChange := retireSupersededFiles(prefixRoot, prefix, info.Name, manifestFiles)
 
-	// 8. Write manifest. An install that cannot record what it placed has stranded it, so the failure is the
+	// 7. Write manifest. An install that cannot record what it placed has stranded it, so the failure is the
 	// install's, and `self upgrade` relies on each program's install to say so in its exit status (#947).
 	if err := writeManifest(prefixRoot, info.Name, info.Version, manifestFiles); err != nil {
 		return fmt.Errorf("failed to write manifest %s: %w", manifestPath(prefix, info.Name), err)
@@ -501,37 +496,6 @@ func runPostInstallHooks(prefix string, hooks []func(string) []string) (installe
 	}
 
 	return installed, manifestFiles
-}
-
-// initWritLayerDirectories creates and reports writ's layer directories; a no-op for every other tool.
-//
-// Parameters:
-//   - `toolName`: the tool being installed; only `writ` has layer directories.
-//
-// Returns:
-//   - `error`: non-nil when the directories cannot be created.
-func initWritLayerDirectories(toolName string) error {
-
-	if toolName != "writ" {
-		return nil
-	}
-
-	layerPaths, err := initWritLayers()
-	if err != nil {
-		return fmt.Errorf("failed to create layer directories: %w", err)
-	}
-
-	if len(layerPaths) == 0 {
-		return nil
-	}
-
-	Note("")
-	Note("Layer directories:")
-	for _, p := range layerPaths {
-		Note("  %s", p)
-	}
-
-	return nil
 }
 
 // printInstallSummary reports what was installed, where, and what the user must still do.
@@ -1142,33 +1106,6 @@ func initDevloreCache(toolName string) (path string, err error) {
 	}
 
 	return cacheDir.Abs(), nil
-}
-
-// initWritLayers creates the writ layer directories if they don't exist.
-//
-// This function is the campaign's LAST item in disguise: the shared CLI package creating one tool's
-// directories is why `devlore` still knows what a writ layer is. See the closure list in
-// docs/plans/windows-native-permissions.md — it moves to `cmd/writ` as a post-install hook, and this
-// conversion is deliberately shallow so that move stays a move.
-func initWritLayers() (created []string, err error) {
-
-	layersRoot, err := OpenTree(devlore.WritLayersDir())
-	if err != nil {
-		return nil, err
-	}
-	defer iox.Close(&err, layersRoot)
-
-	for _, layer := range []string{"base", "team", "personal"} {
-		layerPath := layersRoot.NewPath(layer)
-		if _, err := layersRoot.Stat(layerPath); os.IsNotExist(err) {
-			if err := layersRoot.MkdirAll(layerPath, 0o750); err != nil {
-				return created, err
-			}
-			created = append(created, layerPath.Abs())
-		}
-	}
-
-	return created, nil
 }
 
 // =============================================================================

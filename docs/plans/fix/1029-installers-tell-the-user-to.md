@@ -70,7 +70,8 @@ The two installers behave identically.
 
 ### Requirement 2: A layer is registered only when it resolves to a git working tree (#1030)
 
-- **One check.** `cmd/internal/devlore` gains the rule every reader uses: a layer's entry in `WritLayersDir()` is
+- **One check.** A new package, `cmd/writ/writ/layers`, holds the rule every reader uses (`layers.Read`): a layer's
+  entry in `WritLayersDir()` is
   - `registered` when it resolves to a git working tree, the test `validateWorkingTree` makes;
   - `unregistered` when nothing is there, or a directory is there that is not a git working tree;
   - `broken` when a link is there that doesn't resolve, or resolves to something that is not a git working tree;
@@ -137,8 +138,8 @@ The two installers behave identically.
 
 ### Phase 3: writ (Requirement 2)
 
-- [ ] The one check, its readers, `self install`, and adopt. `make test`, `make vet-all`, `make lint-all` and
-      `star lint go` pass; `gofmt -l` lists nothing
+- [x] The one check, its readers, `self install`, and adopt. `make test` (108 packages), `make vet-all`,
+      `make lint-all` and `star lint go` pass; `gofmt -l` lists nothing
 
 ### Phase 4: The suites build what they test (Requirements 3, 4)
 
@@ -177,7 +178,10 @@ The two installers behave identically.
 - **D2. Only `registered` counts as already registered.** Any other state needs `writ repo set`, which is what the
   skipped line says.
 - **D3. One summary line, with the layers' names and not their roots.** It matches the "Registered:" line beside it.
-- **D4. The one check lives in `cmd/internal/devlore`, beside `WritLayersDir()`.** `reconcile` and `secret` are
-  packages under `cmd/writ/writ`, which imports them, so they can't import a check that lives there.
+- **D4. The one check is its own package, `cmd/writ/writ/layers`.** `reconcile` and `secret` are packages under
+  `cmd/writ/writ`, which imports them, so they can't import a check that lives in writ's own package. Nor does it go in
+  `cmd/internal/devlore`, which every program links: `docs/plans/windows-native-permissions.md` moves writ's anchors
+  out of it and lets nothing command-specific in. (First written as `cmd/internal/devlore`; corrected 2026-10-04 on
+  reading that plan.) Deleting `initWritLayers` closes that plan's `toolName != "writ"` item, and it says so.
 - **D5. The suites build with `make dist`,** the release job's own target, so the archive under test is packed exactly
   as a release is. A hand-built archive would test a packing no user receives.

@@ -17,6 +17,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
 	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
+	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/layers"
 )
 
 // newRepoCmd builds the repo command family: layer-repository registration through the layers directory.
@@ -270,12 +271,12 @@ func runRepoSet(cmd *cobra.Command, layer, location, destination, branch string)
 //   - `error`: a filesystem failure.
 func writeRegistration(layer, root string) error {
 
-	layers := devlore.WritLayersDir()
-	if err := os.MkdirAll(layers, 0o750); err != nil {
+	registry := devlore.WritLayersDir()
+	if err := os.MkdirAll(registry, 0o750); err != nil {
 		return err
 	}
 
-	link := filepath.Join(layers, layer)
+	link := filepath.Join(registry, layer)
 	if _, err := os.Lstat(link); err == nil {
 		if err := os.Remove(link); err != nil {
 			return err
@@ -400,7 +401,7 @@ func validateWorkingTree(root string) error {
 	if !info.IsDir() {
 		return fmt.Errorf("working-tree-root %s is not a directory", root)
 	}
-	if _, err := os.Stat(filepath.Join(root, ".git")); err != nil {
+	if !layers.IsWorkingTree(root) {
 		return fmt.Errorf(
 			"%s is not a git working tree (deploy pins layers from git history; run 'git init' first)", root)
 	}
@@ -644,25 +645,18 @@ func runRepoList(cmd *cobra.Command) error {
 //   - `RepoRegistration`: the layer, its state, and its target when there is one.
 func repoRegistration(ctx context.Context, layer string) RepoRegistration {
 
-	link := filepath.Join(devlore.WritLayersDir(), layer)
+	read := layers.Read(layer)
 
-	info, err := os.Lstat(link)
-	if err != nil {
+	switch read.State {
+	case layers.Unregistered:
 		return RepoRegistration{Layer: layer, State: repoStateUnregistered}
+	case layers.Unreadable:
+		return RepoRegistration{Layer: layer, State: repoStateUnreadable}
+	case layers.Broken:
+		return RepoRegistration{Layer: layer, State: repoStateBroken, RepoTarget: repoTarget(ctx, read.Target)}
 	}
 
-	target := link
-	if info.Mode()&os.ModeSymlink != 0 {
-		if target, err = os.Readlink(link); err != nil {
-			return RepoRegistration{Layer: layer, State: repoStateUnreadable}
-		}
-	}
-
-	if _, err := filepath.EvalSymlinks(link); err != nil {
-		return RepoRegistration{Layer: layer, State: repoStateBroken, RepoTarget: repoTarget(ctx, target)}
-	}
-
-	return RepoRegistration{Layer: layer, State: repoStateRegistered, RepoTarget: repoTarget(ctx, target)}
+	return RepoRegistration{Layer: layer, State: repoStateRegistered, RepoTarget: repoTarget(ctx, read.Target)}
 }
 
 // repoTarget describes the tree at `root`: where it is, which repository it is, and whose it is.

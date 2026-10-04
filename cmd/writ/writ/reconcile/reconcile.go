@@ -20,11 +20,10 @@ import (
 	"context"
 	"errors"
 	"os"
-	"path/filepath"
 	"sort"
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
-	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
+	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/layers"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/readback"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/segment"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
@@ -210,43 +209,36 @@ func classifyCopied(classified *Entry, entry readback.Entry) {
 	classified.State = StateCopied
 }
 
-// layerStatuses reports the registered layer tree under [devlore.WritLayersDir].
+// layerStatuses reports the registered layer tree, as [layers.Read] reads it: an unregistered layer is absent,
+// whatever is in its place (#1030).
 //
 // Returns:
 //   - `[]Layer`: one status per conventional layer (base, team, personal), in precedence order.
 func layerStatuses() []Layer {
 
-	var layers []Layer
+	var statuses []Layer
 
 	for _, name := range []string{"base", "team", "personal"} {
 
-		path := filepath.Join(devlore.WritLayersDir(), name)
-		layer := Layer{Name: name, Path: path}
+		read := layers.Read(name)
+		layer := Layer{Name: name, Path: read.Path}
 
-		info, err := os.Lstat(path)
 		switch {
-		case errors.Is(err, os.ErrNotExist):
+		case read.State == layers.Unregistered:
 			layer.State = "absent"
-		case err != nil:
+		case read.State != layers.Registered:
 			layer.State = "broken-link"
-		case info.Mode()&os.ModeSymlink != 0:
-			target, resolveErr := filepath.EvalSymlinks(path)
-			if resolveErr != nil {
-				layer.State = "broken-link"
-			} else {
-				layer.State = "link"
-				layer.Target = target
-			}
-		case info.IsDir():
-			layer.State = "directory"
+		case read.Link:
+			layer.State = "link"
+			layer.Target = read.Root
 		default:
-			layer.State = "broken-link"
+			layer.State = "directory"
 		}
 
-		layers = append(layers, layer)
+		statuses = append(statuses, layer)
 	}
 
-	return layers
+	return statuses
 }
 
 // endregion
