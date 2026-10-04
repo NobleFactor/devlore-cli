@@ -13,8 +13,10 @@
     never touched. The one exception is `irm | iex`, which takes no parameters and installs into ~/.local: that case
     runs only in CI ($env:GITHUB_ACTIONS), on a machine thrown away afterwards.
 
-    The cases of #1002's one list, which install.sh's test runs too, run against a fixture release instead of GitHub,
-    each check named by its number in the plan (docs/plans/fix/1002-installers-install-an-archive.md). Functions named
+    Every install runs against a faux channel (#1031): a fixture release instead of GitHub, whose archive for this
+    platform is this checkout's lore, star and writ, so the installer under test installs the programs under test. The
+    cases of #1002's one list, which install.sh's test runs too, run against it, each check named by its number in the
+    plan (docs/plans/fix/1002-installers-install-an-archive.md). Functions named
     Invoke-WebRequest and Invoke-RestMethod, defined where the installer runs, stand in for GitHub and answer from
     files made here, as install.sh's test's fake curl does. Invoke-WebRequest answers the release's public links,
     https://github.com/NobleFactor/devlore-cli/releases/download/<tag>/<name>, as GitHub's download host does: it takes
@@ -34,8 +36,10 @@
     Prints PASS or FAIL for each check, with what the installer printed under each failure, and exits 1 if any
     check failed. Run by .github/workflows/installers.yaml on Windows, under both editions (#950, #965).
 
-    Environment: $env:GH_TOKEN, optional, is passed to the installer, which sends it to GitHub's API;
-    $env:DEVLORE_VERSION, optional, picks the release tag to install.
+    Environment: $env:GH_TOKEN, optional, is passed to the installer, which sends it to GitHub's API.
+    $env:DEVLORE_TEST_DIST is a directory holding what `make dist DEVLORE_VERSION=v0.0.0-test.1002` made: this
+    platform's archive. On Windows it is required, since Windows builds no archive; elsewhere, without it, the suite
+    runs that for this platform itself, which needs Go and GNU make 3.82 or later.
 
 .EXAMPLE
     powershell.exe -NoProfile -File scripts/Test-InstallScript.ps1
@@ -321,31 +325,45 @@ function ConvertTo-EncodedCommand {
     return [System.Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($Command))
 }
 
-# Initialize-FixtureArchive: the fixture release's archive, named as the installer looks for it on this platform. Its
-# one product, fixture.ps1, answers `self install <prefix> --unattended` by writing its arguments to
-# <prefix>/bin/fixture.args, so a case can tell the installer ran what it verified. Returns the archive's path.
+# Initialize-FixtureArchive: the faux channel's archive for this platform (#1031): this checkout's lore, star and writ,
+# as `make dist` builds and packs them for a release, named for the fixtures' tag, so the installer under test installs
+# the programs under test. In CI, one job builds them for every platform, off Windows, and $env:DEVLORE_TEST_DIST names
+# them. Without it, off Windows, this suite builds this platform's; on Windows it refuses, since Windows builds
+# nothing and needs neither tar nor zip. Returns the archive's path.
 function Initialize-FixtureArchive {
     [CmdletBinding()]
     [OutputType([string])]
     param()
 
-    $product = Join-Path $fixtureDir 'product'
-    New-Item -ItemType Directory -Path $product -Force | Out-Null
-    Set-Content -LiteralPath (Join-Path $product 'fixture.ps1') -Value @(
-        "Set-Content -LiteralPath (Join-Path (Join-Path `$args[2] 'bin') 'fixture.args') -Value (`$args -join ' ')"
-        'exit 0'
-    )
-    $archive = Join-Path $fixtureDir $fixtureArchiveName
+    $dist = $env:DEVLORE_TEST_DIST
 
-    if ($fixtureExt -eq 'zip') {
-        Compress-Archive -LiteralPath (Join-Path $product 'fixture.ps1') -DestinationPath $archive -Force
-    }
-    else {
-        & tar --create --gzip --file $archive --directory $product fixture.ps1
+    if (-not $dist) {
+        if ($onWindows) {
+            throw ('set $env:DEVLORE_TEST_DIST to a directory holding what `make dist DEVLORE_VERSION=' +
+                "$fixtureTag`` made, off Windows: Windows builds no archive")
+        }
+
+        $platform = "$fixtureOs/$fixtureArch"
+        Write-Information -InformationAction Continue `
+            "Building the faux channel: make dist PLATFORM=$platform DEVLORE_VERSION=$fixtureTag"
+        $log = Join-Path $scratch 'dist.log'
+
+        # Continue, not Stop: PowerShell makes each line a native command writes to stderr an error record when it
+        # carries the stream, as it does here. The exit status is what says whether it built.
+        $ErrorActionPreference = 'Continue'
+        & make -C $repo dist "PLATFORM=$platform" "DEVLORE_VERSION=$fixtureTag" *> $log
 
         if ($LASTEXITCODE -ne 0) {
-            throw "tar exited $LASTEXITCODE building $archive"
+            throw "make dist exited ${LASTEXITCODE}:`n$(Get-Content -Raw -LiteralPath $log)"
         }
+
+        $dist = Join-Path $repo 'dist'
+    }
+
+    $archive = Join-Path $dist $fixtureArchiveName
+
+    if (-not (Test-Path -LiteralPath $archive -PathType Leaf)) {
+        throw "$dist has no ${fixtureArchiveName}: it holds no make dist DEVLORE_VERSION=$fixtureTag for this platform"
     }
 
     return $archive
@@ -520,7 +538,10 @@ function Invoke-FixtureInstall {
         $Lookup = 'Tag',
 
         [string]
-        $Token
+        $Token,
+
+        [hashtable]
+        $Arguments = @{}
     )
 
     $prefix = Use-Account -Name $Name
@@ -707,7 +728,11 @@ function Invoke-FixtureInstall {
         $PSCmdlet.ThrowTerminatingError($refusal)
     }
 
+    # Every stream redirected, as a caller that captures the install redirects them: each line is kept as text, and an
+    # error record among them is counted, since a program's stderr carried by PowerShell arrives as one (#1029,
+    # Requirement 7).
     $output = New-Object -TypeName 'System.Collections.Generic.List[string]'
+    $errorRecords = New-Object -TypeName 'System.Collections.Generic.List[string]'
     $message = ''
     $stack = ''
     $env:DEVLORE_VERSION = $fixtureTag
@@ -722,7 +747,12 @@ function Invoke-FixtureInstall {
     $env:GH_TOKEN = $Token
 
     try {
-        & $block -Prefix $prefix *>&1 | ForEach-Object { $output.Add("$_") }
+        & $block -Prefix $prefix @Arguments *>&1 | ForEach-Object {
+            if ($_ -is [System.Management.Automation.ErrorRecord]) {
+                $errorRecords.Add("$_")
+            }
+            $output.Add("$_")
+        }
     }
     catch {
         $message = $_.Exception.Message
@@ -745,6 +775,7 @@ function Invoke-FixtureInstall {
         Requests = $fixtureRequests.ToArray()
         Tokens   = $fixtureTokens.ToArray()
         Output   = $output -join "`n"
+        Errors   = $errorRecords.ToArray()
         Prefix   = $prefix
         Reset    = $reset
     }
@@ -787,7 +818,7 @@ function Test-Refusal {
 }
 
 # Test-Verified: two checks of a fixture run that must install. "<case>: <expected>" passes when the run finished, said
-# it verified the checksum, and ran the product it verified. "<case>: asks GitHub for ..." is Test-Request's: by
+# it verified the checksum, and installed the writ it verified, whose version is the release's (#1031). "<case>: asks GitHub for ..." is Test-Request's: by
 # default the checksums file's link, then the archive's.
 function Test-Verified {
     [CmdletBinding()]
@@ -808,17 +839,17 @@ function Test-Verified {
         $Requests = @($fixtureChecksumsLink, $fixtureArchiveLink)
     )
 
-    $record = Join-Path (Join-Path $Result.Prefix 'bin') 'fixture.args'
-    $ran = ''
+    $writ = Join-Path (Join-Path $Result.Prefix 'bin') $writName
+    $version = ''
 
-    if (Test-Path -LiteralPath $record) {
-        $ran = (Get-Content -Raw -LiteralPath $record).Trim()
+    if (Test-Path -LiteralPath $writ) {
+        $version = (& $writ --version) -join "`n"
     }
 
     Test-Expectation -Description "${Case}: $Expected" `
         -Condition (-not $Result.Message -and $Result.Output.Contains('success: Checksum verified') -and
-            $ran -ceq "self install $($Result.Prefix) --unattended") `
-        -Detail "message: $($Result.Message)`nran: $ran`n$($Result.Output)"
+            $version.Contains($fixtureTag)) `
+        -Detail "message: $($Result.Message)`nwrit --version: $version`n$($Result.Output)"
     Test-Request -Case $Case -Result $Result -Requests $Requests
 }
 
@@ -982,19 +1013,28 @@ $savedVersion = $env:DEVLORE_VERSION
 $savedToken = $env:GH_TOKEN
 
 try {
+    # --- The faux channel (#1031): its release carries this checkout's programs, and every install below is from it ---
+
+    New-Item -ItemType Directory -Path $fixtureDir -Force | Out-Null
+    $fixtureArchive = Initialize-FixtureArchive
+    $fixtureOther = Join-Path $fixtureDir 'not-the-archive'
+    Set-Content -LiteralPath $fixtureOther -Value "not $fixtureArchiveName"
+    $fixtureHash = (Get-FileHash -LiteralPath $fixtureArchive -Algorithm SHA256).Hash.ToLowerInvariant()
+    $listed = "$fixtureHash  $fixtureArchiveName"
+
     # --- The script-block form: a path layer and a URL layer, run twice; the second changes nothing ---
 
-    $prefix = Use-Account -Name 'layers'
-    $writ = Join-Path (Join-Path $prefix 'bin') $writName
+    $layerArguments = @{ Personal = $repo; Team = $teamUrl }
+    $writ = Join-Path (Join-Path (Join-Path (Join-Path $scratch 'layers') 'prefix') 'bin') $writName
     $runs = @()
     foreach ($run in 1, 2) {
-        try {
-            & $block -Prefix $prefix -Personal $repo -Team $teamUrl
-            $runs += Get-Registration -Writ $writ
-            Write-Pass -Description "script-block form: run $run completes"
-        } catch {
-            Write-Fail -Description "script-block form: run $run completes" -Detail $_.Exception.Message
-        }
+        $result = Invoke-FixtureInstall -Name 'layers' -Line @($listed) -Arguments $layerArguments
+        Test-Expectation -Description "script-block form: run $run completes" -Condition (-not $result.Message) `
+            -Detail "message: $($result.Message)`n$($result.Output)"
+        Test-Expectation -Description "script-block form: run ${run}, every stream redirected, carries no error record" `
+            -Condition ($result.Errors.Count -eq 0) `
+            -Detail "error records:`n$($result.Errors -join "`n")`n----`n$($result.Output)"
+        $runs += Get-Registration -Writ $writ
     }
     $personalRoot = Get-LayerRoot -Writ $writ -Layer 'personal'
     Test-Expectation -Description 'script-block form: personal is the checkout' -Condition ($personalRoot -eq $repo) `
@@ -1009,17 +1049,14 @@ try {
 
     # --- No flags, where writ already has team and personal: they are named as registered, and only base is skipped ---
 
-    try {
-        $run3 = (& $block -Prefix $prefix 6>&1 | Out-String)
-        Test-Expectation -Description 'script-block form, no flags: names the layers writ already has' `
-            -Condition ($run3.Contains('Already registered: team personal')) -Detail $run3
-        $skippedLines = @([regex]::Matches($run3, '(?m)^skipped: .*$') | ForEach-Object { $_.Value.TrimEnd() })
-        Test-Expectation -Description 'script-block form, no flags: skips base alone' `
-            -Condition ($skippedLines.Count -eq 1 -and $skippedLines[0] -eq 'skipped: base; to register it later:') `
-            -Detail $run3
-    } catch {
-        Write-Fail -Description 'script-block form, no flags: completes' -Detail $_.Exception.Message
-    }
+    $result = Invoke-FixtureInstall -Name 'layers' -Line @($listed)
+    Test-Expectation -Description 'script-block form, no flags: names the layers writ already has' `
+        -Condition (-not $result.Message -and $result.Output.Contains('Already registered: team personal')) `
+        -Detail "message: $($result.Message)`n$($result.Output)"
+    $skippedLines = @([regex]::Matches($result.Output, '(?m)^skipped: .*$') | ForEach-Object { $_.Value.TrimEnd() })
+    Test-Expectation -Description 'script-block form, no flags: skips base alone' `
+        -Condition ($skippedLines.Count -eq 1 -and $skippedLines[0] -eq 'skipped: base; to register it later:') `
+        -Detail $result.Output
 
     # --- -Help prints the usage and returns ---
 
@@ -1060,11 +1097,6 @@ try {
 
     # --- The one list of cases (#1002), which install.sh's test runs too, each check named by the plan's number ---
 
-    $fixtureArchive = Initialize-FixtureArchive
-    $fixtureOther = Join-Path $fixtureDir 'not-the-archive'
-    Set-Content -LiteralPath $fixtureOther -Value "not $fixtureArchiveName"
-    $fixtureHash = (Get-FileHash -LiteralPath $fixtureArchive -Algorithm SHA256).Hash.ToLowerInvariant()
-    $listed = "$fixtureHash  $fixtureArchiveName"
     $upper = $fixtureArchiveName.ToUpperInvariant()
     $neighbor = "$('0' * 64)  devlore-cli_${fixtureTag}_plan9_amd64.tar.gz"
     $unlisted = Join-Path $fixtureDir 'unlisted.txt'
@@ -1242,29 +1274,6 @@ try {
             -Message $noChecksums -Requests $checksumsThenRelease
     }
 
-    # --- The caller's streams redirected: the run still finishes ---
-
-    $prefix = Use-Account -Name 'redirected'
-    $log = Join-Path $scratch 'redirected.log'
-    try {
-        & $block -Prefix $prefix -Personal $repo *>&1 | Tee-Object -FilePath $log | Out-Null
-        Write-Pass -Description 'streams redirected (*>&1 | Tee-Object): the run finishes'
-    } catch {
-        $logged = if (Test-Path -LiteralPath $log) { Get-Content -Raw -LiteralPath $log } else { '' }
-        Write-Fail -Description 'streams redirected (*>&1 | Tee-Object): the run finishes' `
-            -Detail "$($_.Exception.Message)`n$logged"
-    }
-
-    # The published release, read by the installer under test: its checksums file has the archive's line, by exact name.
-    $logged = ''
-
-    if (Test-Path -LiteralPath $log) {
-        $logged = [string](Get-Content -Raw -LiteralPath $log)
-    }
-
-    Test-Expectation -Description 'streams redirected: the published archive is verified against its checksums file' `
-        -Condition ($logged.Contains('success: Checksum verified')) -Detail $logged
-
     # --- Run as a file: a failure exits 1, -Help exits 0 ---
 
     $prefix = Use-Account -Name 'file'
@@ -1284,6 +1293,9 @@ try {
         -Detail "exit $($helped.ExitCode)`n$($helped.Output)"
 
     # --- irm | iex with $env:DEVLORE_BASE, in a child session: it installs into ~/.local, so CI alone runs it ---
+    #
+    # The published release, from GitHub: the child session is beyond the faux channel's stand-ins. What it checks, base
+    # registered and the session alive, holds whichever writ it installs (#1031).
 
     if ($env:GITHUB_ACTIONS -eq 'true') {
         $null = Use-Account -Name 'iex'
@@ -1300,8 +1312,6 @@ Get-Content -Raw -LiteralPath '$installer' | Invoke-Expression
         Test-Expectation -Description 'irm | iex with $env:DEVLORE_BASE: base registered, the session goes on' `
             -Condition ($baseRoot -eq $repo -and $iex.Output -match 'after: session alive') `
             -Detail "base: $baseRoot; exit $($iex.ExitCode)`n$($iex.Output)"
-        Test-Expectation -Description 'irm | iex with $env:DEVLORE_BASE: team and personal skipped, last' `
-            -Condition (([regex]::Matches($iex.Output, '(?m)^skipped: ')).Count -eq 2) -Detail $iex.Output
     } else {
         Write-Information -InformationAction Continue `
             'SKIP irm | iex: it installs into ~/.local, so it runs in CI alone'

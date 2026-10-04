@@ -64,7 +64,8 @@ irm https://delightful-grass-0ac0a4c1e-develop.westus2.6.azurestaticapps.net/ins
 - Each is optional. A location is a working-tree root or a repository URL, as `writ repo set` takes it; an
   SSH URL clones over SSH. A flag wins over its variable.
 - The installer never asks. A layer you don't give is skipped, and the run's last lines name the
-  `writ repo set` command that registers it later.
+  `writ repo set` command that registers it later. A layer writ already has is not skipped: the
+  summary names it as already registered.
 - It installs into `~/.local` on every platform: the programs in `~/.local/bin`, with their man pages,
   completions and star's extensions. `--prefix` (`-Prefix`) changes that. `DEVLORE_VERSION` installs a
   particular release, and `DEVLORE_TOOLS` one program. `GH_TOKEN`, if you set it, lifts GitHub's limit of 60

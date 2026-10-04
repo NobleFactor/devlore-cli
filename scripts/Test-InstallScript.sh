@@ -18,22 +18,25 @@ touched. On macOS the installer runs under /bin/bash with PATH=/usr/bin:/bin:/us
 bash 3.2, bsdtar, BSD grep and sed, and shasum, whatever else is installed. Prints PASS or FAIL for each check, with
 the installer's output under each failure, and exits 1 if any check failed.
 
-The installs from GitHub install the newest release, or DEVLORE_VERSION's. The refusals of an archive that can't be
-verified run against a stand-in for GitHub instead: a fake curl, first on PATH, answers the installer from releases
-made here, one for each way a release can fail it or mislead it (#1002), each with GitHub's JSON indented and again
-on one line, as GitHub sends it either way (#1008). Nothing in install.sh is overridden; it asks for what it always
-asks for.
+Every install runs against a faux channel (#1031): a stand-in for GitHub, a fake curl first on PATH, that answers the
+installer from releases made here. Its release carries this checkout's lore, star and writ, as `make dist` builds and
+packs them for a release, so the installer under test installs the programs under test.
+The other releases are each a way a release can fail the installer or mislead it (#1002), each with GitHub's JSON
+indented and again on one line, as GitHub sends it either way (#1008). Nothing in install.sh is overridden; it asks
+for what it always asks for.
 
-Run by .github/workflows/installers.yaml on every platform the installers serve (#950).
+Run by .github/workflows/installers.yaml on every pull request, on every platform the installers serve (#950, #1031),
+with DEVLORE_TEST_DIST the archives its build job made.
 
   --keep-path       on macOS, run the installer with this PATH and the bash it finds, not macOS's own: the Installers
                     workflow's MacPorts leg puts MacPorts' GNU tools first, as on the owner's Macs (#1002)
   -h, --help        show this help and exit
 
 Environment:
-  GH_TOKEN          optional; passed to the installer, which sends it to GitHub's API
-  DEVLORE_VERSION   optional; the release tag to install from GitHub (default: the newest release, pre-releases
-                    included); the refusals always use their own
+  GH_TOKEN          optional; passed to the installer, which sends it to the faux channel's API
+  DEVLORE_TEST_DIST optional; a directory holding what `make dist DEVLORE_VERSION=v0.0.0-test.1002` made: this
+                    platform's archive and the checksums file. Without it, the suite runs that for this platform
+                    itself, which needs Go and GNU make 3.82 or later
 EOF
 }
 
@@ -219,43 +222,6 @@ tools_only() {
     done
 }
 
-# --- A path layer and a URL layer, run twice: the second run changes nothing ---
-
-run1="${scratch}/layers.run1"
-run2="${scratch}/layers.run2"
-install_pipe layers "$run1" -- --personal="$repo" --team="$team_url"
-expect "layers: the first run exits 0" "$run1" is "$status" 0
-expect "layers: the first run verified the archive" "$run1" holds "$run1" "Checksum verified"
-install_pipe layers "$run2" -- --personal="$repo" --team="$team_url"
-expect "layers: the second run exits 0" "$run2" is "$status" 0
-expect "layers: personal is the checkout" "$run2" is "$(root_of layers personal)" "$repo"
-expect "layers: team is cloned into the account" "$run2" \
-    is "$(root_of layers team)" "${scratch}/layers/home/.local/share/devlore/writ/repos/noblefactor-ops"
-expect "layers: the second run is unchanged for both" "$run2" at_least "$(count ": unchanged," "$run2")" 2
-expect "layers: the skipped base is last" "$run1" \
-    is "$(line_from_end 2 "$run1")" "skipped: base; to register it later:"
-
-# --- No flags, where writ already has team and personal: they are named as registered, and only base is skipped ---
-
-run3="${scratch}/layers.run3"
-install_pipe layers "$run3" --
-expect "layers, no flags: exits 0" "$run3" is "$status" 0
-expect "layers, no flags: names the layers writ already has" "$run3" \
-    holds "$run3" "Already registered: team personal"
-expect "layers, no flags: skips base alone" "$run3" is "$(count "skipped: " "$run3")" 1
-expect "layers, no flags: the skipped base is last" "$run3" \
-    is "$(line_from_end 2 "$run3")" "skipped: base; to register it later:"
-
-# --- No flags: nothing registered, and the three skipped layers are the last lines ---
-
-output="${scratch}/none.out"
-install_pipe none "$output" --
-expect "no flags: exits 0" "$output" is "$status" 0
-expect "no flags: verified the archive" "$output" holds "$output" "Checksum verified"
-expect "no flags: the three skipped layers are last" "$output" is "$(tail -n 6 "$output" | grep --count '^skipped: ')" 3
-expect "no flags: personal's command is the last line" "$output" \
-    is "$(line_from_end 1 "$output")" "  writ repo set personal <working-tree-root>|<repository-url>"
-
 # --- Refusals, before any network call ---
 
 output="${scratch}/tools.out"
@@ -295,7 +261,7 @@ archives=(darwin_amd64.tar.gz darwin_arm64.tar.gz linux_amd64.tar.gz linux_arm64
 github="${scratch}/github"
 fake_bin="${github}/bin"
 files="${github}/files"
-mkdir -p "$fake_bin" "${files}/programs"
+mkdir -p "$fake_bin" "$files"
 
 cat >"${github}/not-found.json" <<'EOF'
 {
@@ -436,16 +402,29 @@ esac
 EOF
 chmod +x "${fake_bin}/curl"
 
-# The archive for this platform holds stand-ins for the programs: `self install <prefix> --unattended` copies one into
-# <prefix>/bin. The other archives are never downloaded, so any bytes do.
-for program in lore star writ; do
-    cat >"${files}/programs/${program}" <<'EOF'
-#!/bin/sh
-mkdir -p "$3/bin" && cp "$0" "$3/bin/"
-EOF
-    chmod +x "${files}/programs/${program}"
+# The faux channel's archive for this platform is this checkout's lore, star and writ, as make dist builds and packs
+# them for a release, named for the fixtures' tag, with the checksums file make dist writes (#1031): the installer under
+# test installs the programs under test. In CI, one job builds them for every platform and DEVLORE_TEST_DIST names them;
+# without it, this suite builds this platform's. The other archives are never downloaded, so any bytes do.
+dist="${DEVLORE_TEST_DIST:-}"
+if [[ -z "$dist" ]]; then
+    printf 'Building the faux channel: make dist PLATFORM=%s/%s DEVLORE_VERSION=%s\n' "$os" "$arch" "$fixture_tag"
+    if ! make -C "$repo" dist PLATFORM="${os}/${arch}" DEVLORE_VERSION="$fixture_tag" >"${scratch}/dist.out" 2>&1; then
+        cat "${scratch}/dist.out"
+        printf 'error: make dist failed, so there is no release to install from\n' >&2
+        exit 1
+    fi
+    dist="${repo}/dist"
+fi
+for built in "$fixture_archive" "$fixture_checksums"; do
+    if [[ ! -f "${dist}/${built}" ]]; then
+        printf 'error: %s has no %s: it holds no make dist DEVLORE_VERSION=%s for this platform\n' "$dist" "$built" \
+            "$fixture_tag" >&2
+        exit 1
+    fi
 done
-COPYFILE_DISABLE=1 tar --create --gzip --file "${files}/${fixture_archive}" --directory "${files}/programs" lore star writ
+cp "${dist}/${fixture_archive}" "${files}/${fixture_archive}"
+cp "${dist}/${fixture_checksums}" "${files}/checksums.dist"
 for suffix in "${archives[@]}"; do
     name="devlore-cli_${fixture_tag}_${suffix}"
     if [[ "$name" != "$fixture_archive" ]]; then
@@ -527,8 +506,9 @@ EOF
             size=0
             digest=""
             if [[ -n "$source" ]]; then
-                cp "$source" "${dir}/api/releases/assets/${id}"
-                cp "$source" "${dir}/download/${fixture_tag}/${name}"
+                # Hard links, not copies: this platform's archive is a real release's, and every fixture serves it.
+                ln -f "$source" "${dir}/api/releases/assets/${id}"
+                ln -f "$source" "${dir}/download/${fixture_tag}/${name}"
                 size=$(($(wc -c <"$source")))
                 digest=$(sha256_of "$source")
             fi
@@ -661,18 +641,26 @@ rate_limited() {
     clock_of "$reset"
 }
 
-# against <fixture> <account> <output> [VAR=value ...]: install.sh in its own scratch account, answered by the fake
-# curl from <fixture> with its JSON laid out as layout says, with DEVLORE_VERSION the fixtures' tag. Sets status. Every
-# URL the fake curl was asked for is then in ${scratch}/<account>.requests, and every one it was sent a token with in
-# ${scratch}/<account>.requests.token.
+# against <fixture> <account> <output> [VAR=value ...] [-- install.sh argument ...]: install.sh in its own scratch
+# account, answered by the fake curl from <fixture> with its JSON laid out as layout says, with DEVLORE_VERSION the
+# fixtures' tag. Sets status. Every URL the fake curl was asked for is then in ${scratch}/<account>.requests, and every
+# one it was sent a token with in ${scratch}/<account>.requests.token.
 against() {
-    local fixture="$1" account="$2" output="$3"
+    local fixture="$1" account="$2" output="$3" settings=()
     shift 3
+    while [[ $# -gt 0 && "$1" != "--" ]]; do
+        settings+=("$1")
+        shift
+    done
+    if [[ $# -gt 0 ]]; then
+        shift
+    fi
     : >"${scratch}/${account}.requests"
     : >"${scratch}/${account}.requests.token"
+    # ${settings[@]+...}: bash 3.2 reports an empty array as unbound under nounset.
     install_pipe "$account" "$output" PATH="${fake_bin}:${installer_path}" FAKE_GITHUB="$fixture" \
         FAKE_GITHUB_JSON="$layout" FAKE_GITHUB_LOG="${scratch}/${account}.requests" DEVLORE_VERSION="$fixture_tag" \
-        ${@+"$@"} --
+        ${settings[@]+"${settings[@]}"} -- ${@+"$@"}
 }
 
 # refused <account> <what> <fixture> <message> [VAR=value ...]: install.sh, against the fixture, exits 1, prints the
@@ -740,6 +728,48 @@ installs() {
     expect "${what}: downloads both files by their public links" "${scratch}/${account}.requests" \
         by_link "${scratch}/${account}.requests"
 }
+
+# The layer cases, against the faux channel's release: the writ that registers the layers is the writ under test
+# (#1031).
+
+layout=indented
+
+# --- A path layer and a URL layer, run twice: the second run changes nothing ---
+
+run1="${scratch}/layers.run1"
+run2="${scratch}/layers.run2"
+against "${github}/verified" layers "$run1" -- --personal="$repo" --team="$team_url"
+expect "layers: the first run exits 0" "$run1" is "$status" 0
+expect "layers: the first run verified the archive" "$run1" holds "$run1" "Checksum verified"
+against "${github}/verified" layers "$run2" -- --personal="$repo" --team="$team_url"
+expect "layers: the second run exits 0" "$run2" is "$status" 0
+expect "layers: personal is the checkout" "$run2" is "$(root_of layers personal)" "$repo"
+expect "layers: team is cloned into the account" "$run2" \
+    is "$(root_of layers team)" "${scratch}/layers/home/.local/share/devlore/writ/repos/noblefactor-ops"
+expect "layers: the second run is unchanged for both" "$run2" at_least "$(count ": unchanged," "$run2")" 2
+expect "layers: the skipped base is last" "$run1" \
+    is "$(line_from_end 2 "$run1")" "skipped: base; to register it later:"
+
+# --- No flags, where writ already has team and personal: they are named as registered, and only base is skipped ---
+
+run3="${scratch}/layers.run3"
+against "${github}/verified" layers "$run3"
+expect "layers, no flags: exits 0" "$run3" is "$status" 0
+expect "layers, no flags: names the layers writ already has" "$run3" \
+    holds "$run3" "Already registered: team personal"
+expect "layers, no flags: skips base alone" "$run3" is "$(count "skipped: " "$run3")" 1
+expect "layers, no flags: the skipped base is last" "$run3" \
+    is "$(line_from_end 2 "$run3")" "skipped: base; to register it later:"
+
+# --- No flags: nothing registered, and the three skipped layers are the last lines ---
+
+output="${scratch}/none.out"
+against "${github}/verified" none "$output"
+expect "no flags: exits 0" "$output" is "$status" 0
+expect "no flags: verified the archive" "$output" holds "$output" "Checksum verified"
+expect "no flags: the three skipped layers are last" "$output" is "$(tail -n 6 "$output" | grep --count '^skipped: ')" 3
+expect "no flags: personal's command is the last line" "$output" \
+    is "$(line_from_end 1 "$output")" "  writ repo set personal <working-tree-root>|<repository-url>"
 
 # The one list of cases both installers' tests run, each check named by its case's number in the plan
 # (docs/plans/fix/1002-installers-install-an-archive.md, Requirement 6), then install.sh's own case, then the checks of
@@ -832,31 +862,22 @@ for layout in indented one-line; do
         "${scratch}/${layout}.token.requests.token" absent "${download}/" "${scratch}/${layout}.token.requests.token"
 done
 
-# --- The guide's checksum line, against the release just installed ---
+# --- The guide's checksum line, against the faux channel's release ---
 #
-# The release is the one the layers run installed, named by the writ it installed. When that run installed none, there
-# is no release to check: this check fails, and the summary still comes (Requirement 6a).
+# The archive and the checksums file make dist wrote for it, as the release job writes them (#1031).
 
 output="${scratch}/checksum.out"
-tag=$("${scratch}/layers/home/.local/bin/writ" --version 2>/dev/null | awk 'NR == 1 { sub(/,$/, "", $3); print $3 }') ||
-    tag=""
-if [[ -z "$tag" ]]; then
-    fail "the guide's checksum line: no release to check it against, as the layers run installed no writ" "$run1"
-else
-    archive="devlore-cli_${tag}_${os}_${arch}.tar.gz"
-    release="https://github.com/NobleFactor/devlore-cli/releases/download/${tag}"
-    mkdir -p "${scratch}/checksum"
-    status=0
-    (
-        cd "${scratch}/checksum"
-        curl --fail --silent --show-error --location --remote-name "${release}/${archive}"
-        curl --fail --silent --show-error --location --remote-name "${release}/devlore-cli_${tag}_checksums.txt"
-        # shellcheck disable=SC2016,SC2086 # $2 is awk's; checksum_check is a command and its options, split on purpose
-        env PATH="$installer_path" awk -v archive="$archive" '$2 == archive' "devlore-cli_${tag}_checksums.txt" |
-            env PATH="$installer_path" $checksum_check
-    ) >"$output" 2>&1 || status=$?
-    expect "the guide's checksum line (${checksum_check}) verifies ${archive}" "$output" is "$status" 0
-fi
+mkdir -p "${scratch}/checksum"
+cp "${files}/${fixture_archive}" "${scratch}/checksum/${fixture_archive}"
+cp "${files}/checksums.dist" "${scratch}/checksum/${fixture_checksums}"
+status=0
+(
+    cd "${scratch}/checksum"
+    # shellcheck disable=SC2016,SC2086 # $2 is awk's; checksum_check is a command and its options, split on purpose
+    env PATH="$installer_path" awk -v archive="$fixture_archive" '$2 == archive' "$fixture_checksums" |
+        env PATH="$installer_path" $checksum_check
+) >"$output" 2>&1 || status=$?
+expect "the guide's checksum line (${checksum_check}) verifies ${fixture_archive}" "$output" is "$status" 0
 
 if [[ $failures -gt 0 ]]; then
     printf '%s check(s) failed\n' "$failures"

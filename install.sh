@@ -16,7 +16,8 @@ usage() {
 Usage: install.sh [--prefix=<dir>] [--base=<loc>] [--team=<loc>] [--personal=<loc>]
 
 Installs lore, star and writ into <prefix> (default ~/.local), then registers each layer given with
-writ repo set, base first. A layer not given is skipped and named at the end. Never asks.
+writ repo set, base first. A layer not given is skipped and named at the end, unless writ already has it
+registered. Never asks.
 
 The release's archive is verified against its checksums file, with sha256sum or shasum, before anything is
 extracted. An archive that can't be verified is not installed: a release without the checksums file, a checksums
@@ -458,8 +459,9 @@ main() {
         writ="${writ}.exe"
     fi
     local registered=()
+    local held=()
     local skipped=()
-    local layer location
+    local layer location root
     for layer in base team personal; do
         case "$layer" in
             base) location="$BASE" ;;
@@ -467,7 +469,18 @@ main() {
             *) location="$PERSONAL" ;;
         esac
         if [[ -z "$location" ]]; then
-            skipped+=("$layer")
+            # A layer not given is skipped unless the writ just installed already has it registered (#1029). A writ
+            # this run didn't install, or that can't answer, leaves it skipped.
+            root=""
+            if [[ -x "$writ" ]]; then
+                root=$("$writ" repo list --filter "layer=${layer}" --filter state=registered --jq '.[].root' \
+                    --output value 2>/dev/null) || root=""
+            fi
+            if [[ -n "$root" ]]; then
+                held+=("$layer")
+            else
+                skipped+=("$layer")
+            fi
             continue
         fi
         info "Registering ${layer}: ${location}"
@@ -481,6 +494,9 @@ main() {
     success "Location: ${INSTALL_DIR}"
     if [[ ${#registered[@]} -gt 0 ]]; then
         success "Registered: ${registered[*]}"
+    fi
+    if [[ ${#held[@]} -gt 0 ]]; then
+        success "Already registered: ${held[*]}"
     fi
     echo
 

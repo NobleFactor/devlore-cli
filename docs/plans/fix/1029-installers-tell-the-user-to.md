@@ -88,19 +88,31 @@ The two installers behave identically.
 
 ### Requirement 3: The installer suites install the programs in the same commit (#1031)
 
-- **Build.** Each suite runs `make dist PLATFORM=<this machine> DEVLORE_VERSION=<the fixture's tag>`: the archive and
-  checksums file the release job builds, packed the same way, for the machine the suite runs on.
-- **Serve.** The suite's stand-in for GitHub serves them as the newest release. Every case that installs runs against
-  it, the layer cases included, so the installer under test installs the writ under test.
-- **GitHub itself** is asked only by the cases that test GitHub's own answers: a release it doesn't have, and the name
-  its download host serves. The guide's checksum line is checked against the built release.
-- **Both suites,** `scripts/Test-InstallScript.sh` and `scripts/Test-InstallScript.ps1`. Each says in its help that it
-  needs Go and GNU make.
+- **Build, once, off Windows.** The archives are `make dist`'s, the release job's own target, built for every platform
+  with `DEVLORE_VERSION` the fixtures' tag: the files a release would publish, packed as a release packs them. Ruled
+  2026-10-04: Windows takes no dependency on `tar` or `zip` ("NONE"), and the zips are not rebuilt on Windows ("I've got
+  the zip files. Why do i need to reconstruct them?"). In CI, one Linux job builds them and every installer job
+  downloads them. A suite is pointed at them with `DEVLORE_TEST_DIST`, a directory; without it, the bash suite, and the
+  PowerShell suite off Windows, run `make dist` for this machine themselves, and the PowerShell suite on Windows
+  refuses, naming the variable.
+- **Serve.** The suite's stand-in for GitHub serves them as the newest release: a faux channel, ruled 2026-10-04
+  ("Faux channel is good by me"), over publishing each pull request to a real one. Every case that installs runs
+  against it, the layer cases included, so the installer under test installs the writ under test.
+- **GitHub itself** is asked only by the cases that test GitHub's own answers: a release it doesn't have, the name its
+  download host serves, and a file a release lacks. The guide's checksum line is checked against the built release.
+- **The two PowerShell cases that installed the published release** (ruled 2026-10-04, (a)): "streams redirected" goes,
+  since every faux-channel install runs with every stream redirected; `irm | iex`, which runs in a child session the
+  stand-in can't reach, stays on GitHub, and checks what it is for (base registered, the session alive) without
+  counting skipped layers, which depends on the published writ.
+- **Both suites,** `scripts/Test-InstallScript.sh` and `scripts/Test-InstallScript.ps1`. Each says in its help what
+  `DEVLORE_TEST_DIST` is, and that without it the suite needs Go and GNU make.
 
 ### Requirement 4: The Installers workflow runs on every pull request, with Go (#1031)
 
-- `paths:` goes from both triggers in `.github/workflows/installers.yaml`.
-- Each of its seven jobs sets up Go as `ci.yaml` does, and on macOS GNU make 3.82+, before its tests.
+- `paths:` goes from both triggers in `.github/workflows/installers.yaml` ("Run them on every pull request.").
+- A first job, on Linux, sets up Go as `ci.yaml` does, runs `make dist` for every platform with the fixtures' tag, and
+  uploads `dist/` as an artifact. Each of the seven installer jobs needs it, downloads it, and sets
+  `DEVLORE_TEST_DIST`. No installer job sets up Go or make.
 - The workflow's header comment says what the suites now test.
 
 ### Requirement 5: The tests for #1029
@@ -119,6 +131,25 @@ The two installers behave identically.
   corrected. The CLI reference is regenerated, never edited.
 - #1002's plan: its last Phase 7 box is ticked, citing the live check of 2026-10-04 (`v0.1.0-dev.20261004061541`,
   build `f30c2092`, "Checksum verified"), and its status becomes `complete`.
+
+### Requirement 7: install.ps1 runs every program outside PowerShell's streams
+
+PowerShell wraps a program's stderr in error records whenever it carries it, which is whenever the caller redirects;
+Windows PowerShell 5.1 then applies `$ErrorActionPreference` to them, so under `Stop` the first line of narration ends
+the install. At `f30c2092`, `Invoke-NativeCommand` works around it by switching the call to `Continue`. Ruled
+2026-10-04: "Then we have to capture stderr outside the purview of powershell"; "We ALWAYS Write-Information so that
+powershell leaves us alone"; "when we run ANY standard program from install.ps1 we ALWAYS use the Process object and
+redirect stderr to the PowerShell information stream"; and no separate issue.
+
+- `Invoke-NativeCommand` starts every program `install.ps1` runs (`tar`, `chmod`, each program's `self install`,
+  `writ repo list`, `writ repo set`) with .NET's `Process` class, stdout and stderr redirected by the operating system.
+- Each line of the program's stderr goes to `Write-Information` as the program prints it. Its stdout is returned to
+  the caller as text; only `writ repo list`'s is used, and the other callers discard it.
+- The program runs in the user's working directory, so a relative layer location resolves where it was typed, and
+  `$LASTEXITCODE` carries its exit status, as the callers read it today.
+- The `Continue` workaround goes.
+- **The test:** `Invoke-FixtureInstall` counts the error records in what it captures with every stream redirected, and
+  the layer cases expect none.
 
 ## Implementation Phases
 
@@ -143,12 +174,16 @@ The two installers behave identically.
 
 ### Phase 4: The suites build what they test (Requirements 3, 4)
 
-- [ ] Both suites build and serve the commit's programs; the workflow runs on every pull request, with Go
+- [x] Both suites serve the commit's programs from a faux channel, `DEVLORE_TEST_DIST`'s or one they build; the
+      workflow runs on every pull request, its one build job on Linux and no installer job building anything.
+      Proven here against `make dist` for every platform (89 s): bash 246 checks under bash 5 and 3.2, pwsh 79
 
-### Phase 5: Both installers (Requirements 1, 5)
+### Phase 5: Both installers (Requirements 1, 5, 7)
 
-- [ ] `install.sh` and `install.ps1` ask writ about each layer not given. Both suites pass: bash 5, bash 3.2, and
-      pwsh. The PowerShell gate and shell lint pass
+- [x] `install.sh` and `install.ps1` ask writ about each layer not given, and `install.ps1` runs every program
+      outside PowerShell's streams (Requirement 7). Both suites pass: bash 5 and bash 3.2 (246 checks), and pwsh 7
+      (79). The PowerShell gate (4 checked, 0 with findings) and `star lint shell` pass; the workflow parses. Windows
+      PowerShell 5.1 runs in CI
 
 ### Phase 6: The documents (Requirement 6)
 
