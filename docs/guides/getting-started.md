@@ -86,8 +86,8 @@ release=https://github.com/NobleFactor/devlore-cli/releases/download/$tag
 curl --fail --silent --show-error --location --remote-name "$release/$archive"
 curl --fail --silent --show-error --location --remote-name "$release/devlore-cli_${tag}_checksums.txt"
 
-# 2. Verify the archive (on macOS: shasum --algorithm 256 --check)
-grep "$archive" "devlore-cli_${tag}_checksums.txt" | sha256sum --check
+# 2. Verify the archive against the line that names it exactly (on macOS: shasum --algorithm 256 --check)
+awk -v archive="$archive" '$2 == archive' "devlore-cli_${tag}_checksums.txt" | sha256sum --check
 
 # 3. Extract it, with the programs in bin/ beside share/, where star finds its extensions
 mkdir -p devlore/bin
@@ -111,7 +111,8 @@ $release = "https://github.com/NobleFactor/devlore-cli/releases/download/$tag"
 
 Invoke-WebRequest -Uri "$release/$archive" -OutFile $archive -UseBasicParsing
 Invoke-WebRequest -Uri "$release/$checksums" -OutFile $checksums -UseBasicParsing
-$expected = ((Get-Content $checksums | Where-Object { $_ -match $archive }) -split '\s+')[0]
+$expected = ((Get-Content $checksums | Where-Object { ($_ -split '\s+')[1] -ceq $archive }) -split '\s+')[0]
+if (-not $expected) { throw "$checksums has no line for $archive" }
 if ((Get-FileHash -Path $archive -Algorithm SHA256).Hash -ne $expected) { throw "Checksum mismatch for $archive" }
 
 Expand-Archive -Path $archive -DestinationPath devlore

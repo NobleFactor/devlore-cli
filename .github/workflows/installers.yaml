@@ -62,6 +62,41 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: scripts/Test-InstallScript.sh
 
+  install-sh-macports:
+    name: install.sh (darwin-arm64, MacPorts)
+    # macOS with MacPorts' GNU tools first on PATH, as on the owner's Macs (#1002): every tool the installer calls
+    # resolves to its GNU version, where install-sh's macOS legs run it with macOS's own.
+    runs-on: macos-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install MacPorts
+        env:
+          # gh reads the release of macports/macports-base with it.
+          GH_TOKEN: ${{ github.token }}
+        # The newest MacPorts release's installer for this runner's macOS, MacPorts-<version>-<major>-<name>.pkg.
+        run: |
+          set -o errexit -o nounset -o pipefail
+          major=$(sw_vers --productVersion | cut -d . -f 1)
+          gh release download --repo macports/macports-base --pattern "MacPorts-*-${major}-*.pkg" \
+            --output "${RUNNER_TEMP}/MacPorts.pkg"
+          sudo installer -pkg "${RUNNER_TEMP}/MacPorts.pkg" -target /
+          sudo /opt/local/bin/port -N selfupdate
+
+      - name: Install the GNU tools
+        run: sudo /opt/local/bin/port -N install coreutils gsed grep gawk gnutar
+
+      - name: Test install.sh
+        env:
+          # The installer sends it to GitHub's API, which then allows the job more than 60 requests an hour.
+          GH_TOKEN: ${{ github.token }}
+          PATH: /opt/local/libexec/gnubin:/opt/local/bin:/opt/local/sbin:/usr/bin:/bin
+        # --keep-path: the installer runs with this PATH, not macOS's own tools.
+        run: scripts/Test-InstallScript.sh --keep-path
+
   install-ps1:
     name: install.ps1 (${{ matrix.platform }})
     # Both Windows runners, under both editions: Windows PowerShell 5.1 is what a fresh Windows machine has (#948).
