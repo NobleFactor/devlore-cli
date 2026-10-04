@@ -1007,6 +1007,20 @@ try {
     Test-Expectation -Description 'script-block form: the second run leaves the registrations as the first did' `
         -Condition ($runs.Count -eq 2 -and $runs[0] -and $runs[0] -eq $runs[1]) -Detail ($runs -join "`n----`n")
 
+    # --- No flags, where writ already has team and personal: they are named as registered, and only base is skipped ---
+
+    try {
+        $run3 = (& $block -Prefix $prefix 6>&1 | Out-String)
+        Test-Expectation -Description 'script-block form, no flags: names the layers writ already has' `
+            -Condition ($run3.Contains('Already registered: team personal')) -Detail $run3
+        $skippedLines = @([regex]::Matches($run3, '(?m)^skipped: .*$') | ForEach-Object { $_.Value.TrimEnd() })
+        Test-Expectation -Description 'script-block form, no flags: skips base alone' `
+            -Condition ($skippedLines.Count -eq 1 -and $skippedLines[0] -eq 'skipped: base; to register it later:') `
+            -Detail $run3
+    } catch {
+        Write-Fail -Description 'script-block form, no flags: completes' -Detail $_.Exception.Message
+    }
+
     # --- -Help prints the usage and returns ---
 
     $null = Use-Account -Name 'help'

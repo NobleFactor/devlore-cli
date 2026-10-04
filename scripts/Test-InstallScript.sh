@@ -235,6 +235,17 @@ expect "layers: the second run is unchanged for both" "$run2" at_least "$(count 
 expect "layers: the skipped base is last" "$run1" \
     is "$(line_from_end 2 "$run1")" "skipped: base; to register it later:"
 
+# --- No flags, where writ already has team and personal: they are named as registered, and only base is skipped ---
+
+run3="${scratch}/layers.run3"
+install_pipe layers "$run3" --
+expect "layers, no flags: exits 0" "$run3" is "$status" 0
+expect "layers, no flags: names the layers writ already has" "$run3" \
+    holds "$run3" "Already registered: team personal"
+expect "layers, no flags: skips base alone" "$run3" is "$(count "skipped: " "$run3")" 1
+expect "layers, no flags: the skipped base is last" "$run3" \
+    is "$(line_from_end 2 "$run3")" "skipped: base; to register it later:"
+
 # --- No flags: nothing registered, and the three skipped layers are the last lines ---
 
 output="${scratch}/none.out"
