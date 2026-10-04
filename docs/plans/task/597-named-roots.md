@@ -1,9 +1,9 @@
 ---
 title: "Lane 33: named roots -- one fsroot.Binding for each tree an activity touches"
 issue: https://github.com/NobleFactor/devlore-cli/issues/597
-status: draft
+status: approved
 created: 2026-10-02
-updated: 2026-10-02
+updated: 2026-10-03
 ---
 
 # Plan: Lane 33 of the writ lifecycle schedule
@@ -24,7 +24,7 @@ root.
 Task, epic ResourceModel, feature [#546](https://github.com/NobleFactor/devlore-cli/issues/546) ("Paths and URIs:
 neutral identity, native access"). On #916 as lane 33, PR C, after lane 7. The design also answers
 [#571](https://github.com/NobleFactor/devlore-cli/issues/571), star's session-root anchor, whose candidate 4 is this
-design.
+design. #571 is lane 44 on #916, done in this lane, and PR C closes it with #597 (amended 2026-10-03).
 
 ## Goals
 
@@ -138,7 +138,7 @@ it retires. #571 closes with the design.
 
 ### Phase 1: The plan
 
-- [ ] This document, reviewed with the owner and chartered.
+- [x] This document, reviewed with the owner and approved: "I approve lane 33" (2026-10-03).
 - [x] The design document begun with it, 2026-10-02: `4.6-named-roots.md` and its status page hold the rulings,
   the index lists them, and 2.4, 4.4 and 4.5 point to them. The owner: "Please also ensure the design docs track
   this work as we progress, starting now." From here on each ruling enters 4.6 the day it is made, not in phase 3.
