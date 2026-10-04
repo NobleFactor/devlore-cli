@@ -1,9 +1,9 @@
 ---
 title: "The installers refuse an archive they can't verify, and install.sh says why it stops"
 issue: https://github.com/NobleFactor/devlore-cli/issues/1002
-status: active
+status: complete
 created: 2026-10-01
-updated: 2026-10-03
+updated: 2026-10-04
 ---
 
 # Plan: the installers refuse an archive they can't verify
@@ -253,8 +253,11 @@ of Scope (`:333-338`) says "a follow-up issue" four times; each becomes its issu
 
 - [x] PR script written, shown, and handed over; its `git add` list proven with `git add --dry-run`. The PR resolves
       #1002 and #1008
-- [ ] After the merge, the site serves the merged installers, and an install on this machine through the published
-      one-liner prints "Checksum verified"
+- [x] After the merge, the site serves the merged installers, and an install on this machine through the published
+      one-liner prints "Checksum verified". Checked 2026-10-04 on DANOBLE-UD24-1: the site's `install.sh` and
+      `install.ps1` matched `develop` at `f30c2092` byte for byte, and `curl -fsSL .../install.sh | bash` installed
+      `v0.1.0-dev.20261004061541`, build `f30c2092`, after "Checksum verified". The same run found #1029, closed with
+      this box in its pull request
 
 ## Out of Scope
 

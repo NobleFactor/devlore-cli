@@ -187,7 +187,9 @@ redirect stderr to the PowerShell information stream"; and no separate issue.
 
 ### Phase 6: The documents (Requirement 6)
 
-- [ ] The usage texts, the guides, the regenerated reference, and #1002's plan
+- [x] The usage texts and `docs/guides/getting-started.md`, in the commit that changed the installers; no guide or
+      reference says `self install` makes layer directories (`writ migrate --move`'s "layer directory" is still
+      so), and every build regenerated `docs/cli` unchanged; #1002's plan closes
 
 ### Phase 7: Merge
 
