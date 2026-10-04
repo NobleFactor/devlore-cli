@@ -12,7 +12,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/decommission"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/deploy"
-	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/layers"
+	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/layer"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/reconcile"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/upgrade"
 	"github.com/spf13/cobra"
@@ -298,14 +298,14 @@ func runReconcile(cmd *cobra.Command, args []string) error {
 // getConfiguredRepo returns a registered layer's working tree, or an empty string when the layer is not registered.
 //
 // Parameters:
-//   - `layer`: the layer.
+//   - `name`: the layer.
 //
 // Returns:
-//   - `string`: the working tree, as [layers.Read] reports its root; empty unless the layer is registered.
-func getConfiguredRepo(layer string) string {
+//   - `string`: the working tree, as [layer.Read] reports its root; empty unless the layer is registered.
+func getConfiguredRepo(name string) string {
 
-	read := layers.Read(layer)
-	if read.State != layers.Registered {
+	read := layer.Read(name)
+	if read.State != layer.Registered {
 		return ""
 	}
 

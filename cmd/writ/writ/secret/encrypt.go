@@ -23,7 +23,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
 	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/deploy"
-	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/layers"
+	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/layer"
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
@@ -295,7 +295,7 @@ func refuseExistingDestinations(groups []layerGroup) error {
 
 // registeredLayers enumerates the registered layers as name to canonical working-tree root.
 //
-// A missing layers directory yields an empty map (every file then fails containment); an entry [layers.Read] does
+// A missing layers directory yields an empty map (every file then fails containment); an entry [layer.Read] does
 // not call registered, an empty directory among them (#1030), is skipped.
 //
 // Returns:
@@ -314,8 +314,8 @@ func registeredLayers() (map[string]string, error) {
 	}
 
 	for _, entry := range entries {
-		read := layers.Read(entry.Name())
-		if read.State != layers.Registered {
+		read := layer.Read(entry.Name())
+		if read.State != layer.Registered {
 			continue
 		}
 		root, err := filepath.EvalSymlinks(read.Path)
@@ -342,9 +342,9 @@ func runAll(ctx context.Context, cfg *EncryptConfig, graphs []*op.Graph) error {
 
 	for _, graph := range graphs {
 		if runErr := runGraph(ctx, cfg, graph); runErr != nil {
-			layer := layerAnnotation(graph)
-			cli.Warn("encrypt layer %s failed: %v", layer, runErr)
-			failures = append(failures, fmt.Errorf("layer %s: %w", layer, runErr))
+			failed := layerAnnotation(graph)
+			cli.Warn("encrypt layer %s failed: %v", failed, runErr)
+			failures = append(failures, fmt.Errorf("layer %s: %w", failed, runErr))
 		}
 	}
 

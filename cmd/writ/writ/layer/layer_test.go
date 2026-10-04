@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Noble Factor. All rights reserved.
 
-package layers_test
+package layer_test
 
 import (
 	"os"
@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
-	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/layers"
+	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/layer"
 )
 
 // registry points XDG_DATA_HOME at a temporary root, creates the layers directory, and returns it.
@@ -42,7 +42,7 @@ func TestRead_NothingThereIsUnregistered(t *testing.T) {
 
 	registry(t)
 
-	if got := layers.Read("base"); got.State != layers.Unregistered || got.Target != "" || got.Root != "" {
+	if got := layer.Read("base"); got.State != layer.Unregistered || got.Target != "" || got.Root != "" {
 		t.Fatalf("Read(base) = %+v with nothing there; want unregistered, no target, no root", got)
 	}
 }
@@ -54,7 +54,7 @@ func TestRead_EmptyDirectoryIsUnregistered(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := layers.Read("team"); got.State != layers.Unregistered || got.Target != "" || got.Root != "" {
+	if got := layer.Read("team"); got.State != layer.Unregistered || got.Target != "" || got.Root != "" {
 		t.Fatalf("Read(team) = %+v over an empty directory; want unregistered, no target, no root", got)
 	}
 }
@@ -66,8 +66,8 @@ func TestRead_WorkingTreeDirectoryIsRegistered(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := layers.Read("personal")
-	if got.State != layers.Registered || got.Link || got.Root != dir || got.Target != dir {
+	got := layer.Read("personal")
+	if got.State != layer.Registered || got.Link || got.Root != dir || got.Target != dir {
 		t.Fatalf("Read(personal) = %+v over a working tree moved into place; want registered at %s", got, dir)
 	}
 }
@@ -84,8 +84,8 @@ func TestRead_LinkToWorkingTreeIsRegistered(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := layers.Read("personal")
-	if got.State != layers.Registered || !got.Link || got.Target != tree || got.Root != resolved {
+	got := layer.Read("personal")
+	if got.State != layer.Registered || !got.Link || got.Target != tree || got.Root != resolved {
 		t.Fatalf("Read(personal) = %+v; want registered, linked, target %s, root %s", got, tree, resolved)
 	}
 }
@@ -98,7 +98,7 @@ func TestRead_LinkToATreeThatIsNotARepositoryIsBroken(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := layers.Read("base"); got.State != layers.Broken || got.Target != tree || got.Root != "" {
+	if got := layer.Read("base"); got.State != layer.Broken || got.Target != tree || got.Root != "" {
 		t.Fatalf("Read(base) = %+v, a link to a tree with no .git; want broken, target %s, no root", got, tree)
 	}
 }
@@ -111,7 +111,7 @@ func TestRead_DanglingLinkIsBroken(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := layers.Read("base"); got.State != layers.Broken || got.Target != gone {
+	if got := layer.Read("base"); got.State != layer.Broken || got.Target != gone {
 		t.Fatalf("Read(base) = %+v, a link to nothing; want broken, target %s", got, gone)
 	}
 }
@@ -123,7 +123,7 @@ func TestRead_FileIsBroken(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := layers.Read("team"); got.State != layers.Broken || got.Root != "" {
+	if got := layer.Read("team"); got.State != layer.Broken || got.Root != "" {
 		t.Fatalf("Read(team) = %+v over a file; want broken, no root", got)
 	}
 }
@@ -151,7 +151,7 @@ func TestIsWorkingTree(t *testing.T) {
 		"a file":            {file, false},
 		"nothing":           {filepath.Join(t.TempDir(), "gone"), false},
 	} {
-		if got := layers.IsWorkingTree(test.root); got != test.want {
+		if got := layer.IsWorkingTree(test.root); got != test.want {
 			t.Errorf("IsWorkingTree(%s) = %v; want %v", name, got, test.want)
 		}
 	}

@@ -70,7 +70,7 @@ The two installers behave identically.
 
 ### Requirement 2: A layer is registered only when it resolves to a git working tree (#1030)
 
-- **One check.** A new package, `cmd/writ/writ/layers`, holds the rule every reader uses (`layers.Read`): a layer's
+- **One check.** A new package, `cmd/writ/writ/layer`, holds the rule every reader uses (`layer.Read`): a layer's
   entry in `WritLayersDir()` is
   - `registered` when it resolves to a git working tree, the test `validateWorkingTree` makes;
   - `unregistered` when nothing is there, or a directory is there that is not a git working tree;
@@ -178,10 +178,15 @@ The two installers behave identically.
 - **D2. Only `registered` counts as already registered.** Any other state needs `writ repo set`, which is what the
   skipped line says.
 - **D3. One summary line, with the layers' names and not their roots.** It matches the "Registered:" line beside it.
-- **D4. The one check is its own package, `cmd/writ/writ/layers`.** `reconcile` and `secret` are packages under
-  `cmd/writ/writ`, which imports them, so they can't import a check that lives in writ's own package. Nor does it go in
-  `cmd/internal/devlore`, which every program links: `docs/plans/windows-native-permissions.md` moves writ's anchors
-  out of it and lets nothing command-specific in. (First written as `cmd/internal/devlore`; corrected 2026-10-04 on
-  reading that plan.) Deleting `initWritLayers` closes that plan's `toolName != "writ"` item, and it says so.
+- **D4. The one check is package `layer`, `cmd/writ/writ/layer`, with type `Registration`.** Ruled 2026-10-04: "Let's
+  go with A." The API: `layer.Read(name string) layer.Registration`, `layer.IsWorkingTree(root string) bool`, and the
+  states `layer.Registered`, `layer.Unregistered`, `layer.Broken` and `layer.Unreadable`. Its five callers are those
+  Requirement 2 names. `reconcile` and `secret` are packages writ imports, so they can't reach a check in writ's own
+  package; and `cmd/internal/devlore`, which every program links, takes nothing command-specific
+  (`docs/plans/windows-native-permissions.md`). The package was first written as `layers`, with type `Layer`, before
+  any design discussion: a breach, disclosed 2026-10-04. The owner then ruled the name: "The functions operate on a
+  layer, not layers and the Layer stutter is unacceptable." Parameters and locals named `layer` in the callers are
+  renamed, so they don't hide the package. Deleting `initWritLayers` closes that plan's `toolName != "writ"` item, and
+  it says so.
 - **D5. The suites build with `make dist`,** the release job's own target, so the archive under test is packed exactly
   as a release is. A hand-built archive would test a packing no user receives.

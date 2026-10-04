@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright Noble Factor. All rights reserved.
 
-// Package layers reads writ's layer registry: whether each layer is registered, and where its working tree is.
+// Package layer reads a layer's registration: whether it is registered, and where its working tree is.
 //
 // A layer is a git working tree, because deploy pins layers from git history; `writ repo set` registers nothing else.
 // Every part of writ that asks whether a layer is registered asks [Read], so an entry that is not a working tree,
 // such as the empty directories `self install` once made where the layers go, is no layer to any of them (#1030).
-package layers
+package layer
 
 import (
 	"os"
@@ -34,8 +34,8 @@ const (
 	Unreadable State = "unreadable"
 )
 
-// Layer is one layer's entry in the registry, read.
-type Layer struct {
+// Registration is a layer's entry in the registry, read.
+type Registration struct {
 	Name   string // the layer: base, team or personal
 	Path   string // its entry, beneath [devlore.WritLayersDir]
 	Link   bool   // whether the entry is a symbolic link
@@ -67,52 +67,52 @@ func IsWorkingTree(root string) bool {
 	return err == nil
 }
 
-// Read reads the layer `name`'s entry in the registry.
+// Read reads the layer `name`'s registration.
 //
 // Parameters:
 //   - `name`: the layer.
 //
 // Returns:
-//   - `Layer`: the entry, and where the layer stands.
-func Read(name string) Layer {
+//   - `Registration`: the layer's entry, and where it stands.
+func Read(name string) Registration {
 
-	layer := Layer{Name: name, Path: filepath.Join(devlore.WritLayersDir(), name), State: Unregistered}
+	registration := Registration{Name: name, Path: filepath.Join(devlore.WritLayersDir(), name), State: Unregistered}
 
-	info, err := os.Lstat(layer.Path)
+	info, err := os.Lstat(registration.Path)
 	if err != nil {
-		return layer
+		return registration
 	}
 
-	layer.Link = info.Mode()&os.ModeSymlink != 0
-	if !layer.Link {
+	registration.Link = info.Mode()&os.ModeSymlink != 0
+	if !registration.Link {
 		switch {
 		case !info.IsDir():
-			layer.Target = layer.Path
-			layer.State = Broken
-		case IsWorkingTree(layer.Path):
-			layer.Target = layer.Path
-			layer.Root = layer.Path
-			layer.State = Registered
+			registration.Target = registration.Path
+			registration.State = Broken
+		case IsWorkingTree(registration.Path):
+			registration.Target = registration.Path
+			registration.Root = registration.Path
+			registration.State = Registered
 		}
-		return layer
+		return registration
 	}
 
-	target, err := os.Readlink(layer.Path)
+	target, err := os.Readlink(registration.Path)
 	if err != nil {
-		layer.State = Unreadable
-		return layer
+		registration.State = Unreadable
+		return registration
 	}
-	layer.Target = target
+	registration.Target = target
 
-	root, err := filepath.EvalSymlinks(layer.Path)
+	root, err := filepath.EvalSymlinks(registration.Path)
 	if err != nil || !IsWorkingTree(root) {
-		layer.State = Broken
-		return layer
+		registration.State = Broken
+		return registration
 	}
-	layer.Root = root
-	layer.State = Registered
+	registration.Root = root
+	registration.State = Registered
 
-	return layer
+	return registration
 }
 
 // endregion

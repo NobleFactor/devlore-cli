@@ -23,7 +23,7 @@ import (
 	"sort"
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
-	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/layers"
+	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/layer"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/readback"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/segment"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
@@ -209,7 +209,7 @@ func classifyCopied(classified *Entry, entry readback.Entry) {
 	classified.State = StateCopied
 }
 
-// layerStatuses reports the registered layer tree, as [layers.Read] reads it: an unregistered layer is absent,
+// layerStatuses reports the registered layer tree, as [layer.Read] reads it: an unregistered layer is absent,
 // whatever is in its place (#1030).
 //
 // Returns:
@@ -220,22 +220,22 @@ func layerStatuses() []Layer {
 
 	for _, name := range []string{"base", "team", "personal"} {
 
-		read := layers.Read(name)
-		layer := Layer{Name: name, Path: read.Path}
+		read := layer.Read(name)
+		status := Layer{Name: name, Path: read.Path}
 
 		switch {
-		case read.State == layers.Unregistered:
-			layer.State = "absent"
-		case read.State != layers.Registered:
-			layer.State = "broken-link"
+		case read.State == layer.Unregistered:
+			status.State = "absent"
+		case read.State != layer.Registered:
+			status.State = "broken-link"
 		case read.Link:
-			layer.State = "link"
-			layer.Target = read.Root
+			status.State = "link"
+			status.Target = read.Root
 		default:
-			layer.State = "directory"
+			status.State = "directory"
 		}
 
-		statuses = append(statuses, layer)
+		statuses = append(statuses, status)
 	}
 
 	return statuses
