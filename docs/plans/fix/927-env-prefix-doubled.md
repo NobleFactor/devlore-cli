@@ -1,7 +1,7 @@
 ---
 title: "Lane 8: a program setting's variable is the prefix plus the bare key; a variable naming nothing is warned of"
 issue: https://github.com/NobleFactor/devlore-cli/issues/927
-status: chartered
+status: active
 created: 2026-10-02
 updated: 2026-10-03
 ---
@@ -14,13 +14,14 @@ Lane 8 of [#916](https://github.com/NobleFactor/devlore-cli/issues/916), in PR C
 Ruled on #927 (2026-09-23): **a setting's environment variable is the prefix plus the bare key**; the key's program
 segment is dropped when the prefix already names the program, and the doubled spelling is not honored. That is how
 `aws`, `gh` and `docker` name theirs. Planning it on 2026-10-02, the owner ruled the shared root's flags (`--verbose`,
-`--dry-run` and the rest) **global settings**, built in lane 24
-([#1010](https://github.com/NobleFactor/devlore-cli/issues/1010)) with `DEVLORE_` variables, and #1011 goes with them.
-This lane keeps the settings only one program has, adds a test that no two settings share a variable, has the
-variable resolver read the `<program>.variable` section through the config system and nothing else, and adds **a
-warning for a variable that names nothing**. It also takes
-[#1022](https://github.com/NobleFactor/devlore-cli/issues/1022), lane 37: **dry-run belongs to the runtime**, and
-today `lore deploy --dry-run` runs every provider method. The variables family's surfaces, `--variable` and
+`--dry-run` and the rest) **global settings** with `DEVLORE_` variables. Since ruling 18 this lane builds them: it puts
+**every `DEVLORE_` setting in the config system** ([#1026](https://github.com/NobleFactor/devlore-cli/issues/1026),
+lane 43), taking in lanes 24 ([#1010](https://github.com/NobleFactor/devlore-cli/issues/1010)) and 23
+([#1011](https://github.com/NobleFactor/devlore-cli/issues/1011)). This lane also keeps the settings only one program
+has, adds a test that no two settings share a variable, has the variable resolver read the `<program>.variable`
+section through the config system and nothing else, and adds **a warning for a variable that names nothing**. It
+takes [#1022](https://github.com/NobleFactor/devlore-cli/issues/1022), lane 37: **dry-run belongs to the runtime**,
+and today `lore deploy --dry-run` runs every provider method. The variables family's surfaces, `--variable` and
 `<program>.variable`, are [#1023](https://github.com/NobleFactor/devlore-cli/issues/1023), lane 38, in PR C′, and the
 name-keyed families take singular keys ([#1024](https://github.com/NobleFactor/devlore-cli/issues/1024)). It is
 independent of lane 33's named roots.
@@ -34,6 +35,11 @@ rewritten to this plan, since `--verbose` is now a global setting.
 
 Bug, epic UnifiedConfiguration (#441), feature #456; #916 lane 37, done in this lane, PR C. Found 2026-10-02 while
 enumerating graph variables for the owner; read in the code, not reproduced.
+
+## Issue 1026
+
+Task, epic UnifiedConfiguration (#441), feature #456, `Priority:P1`; #916 lane 43, done in this lane, PR C. Filed
+2026-10-03 on the owner's ruling 18. Lanes 23 (#1011) and 24 (#1010) moved into this lane with it.
 
 ## Rulings
 
@@ -96,6 +102,11 @@ All by the owner on 2026-10-02, while planning this lane.
     map itself, and the environment layer, `<PREFIX>_VARIABLE_<NAME>`, comes from the section by this lane's naming
     rule. Known names come from the config system, never from a side table. This supersedes ruling 13's first half;
     #1023 binds `--variable` into the section, renames `writ.vars`, and points templates at it.
+18. **Every `DEVLORE_` setting is in the config system, in this lane** (2026-10-03). Offered a warning that skipped
+    `DEVLORE_` names because several are read outside the config system, the owner: "EVERY ONE of the DEVLORE_
+    settings must be in config. add that task to lane 8." Filed as #1026, lane 43; lanes 23 (#1011) and 24 (#1010),
+    which are its substance, moved into this lane, and #1025 keeps only the hand reads that are not `DEVLORE_`
+    variables. A gap the rule exposes is closed, never stepped around (Requirement 9).
 
 The owner also said, of how code reaches settings: "the real point of access for providers and starlark code is
 config. That work is TBD." This lane does not build that access.
@@ -115,6 +126,7 @@ config. That work is TBD." This lane does not build that access.
    reads dry-run (#1022).
 8. The design pages state the rule, the warning, and the line between settings and variables.
 9. Every Go file the lane touches passes `star lint go-style`.
+10. Every `DEVLORE_` setting is read through the config system, and nothing reads a `DEVLORE_` variable by hand (#1026).
 
 ## Current State
 
@@ -125,7 +137,7 @@ and 2.1 and 2.5 at `d24bff32`.
 | --- | --- | --- |
 | `cmd/internal/cli/viper.go` `InitViper` | ✓ | Fixed by phase 2 (`50e03403`). Before it: `SetEnvPrefix(prefix)`, `AutomaticEnv`, and a replacer from `.` to `_`; a key already namespaced under its program reads the doubled name, `WRIT_WRIT_REPO`, and devlore-test's `verbose` reads `DEVLORE_TEST_DEVLORE-TEST_VERBOSE`, which a POSIX shell cannot export. The doc comment states the ruled form, which the code does not do, and its example `WRIT_VARS_USER_NAME` names a variable nothing reads, since `writ.vars` is read as one map. `InitViper`'s error names a field that does not exist (`ViperConfig.ReceiverName`), and `BindFlags`' reads `failed to starlarkbridge flag`, leftovers of a rename sweep. No test covers the file; `star lint go-style` finds 5 violations, all missing doc sections |
 | settings read by code | ⚠️ | through viper: `writ.repo`, `writ.vars` and `writ.scopes` (maps, read whole, so no variable reaches their entries), `writ.targets` (`IsSet`, for its refusal), `writ.dry-run`, `writ.verbose`, `lore.dry-run`, `lore.verbose`, and `lore.model.provider`, `.endpoint`, `.api_key` and `.model`. Once the prefix is not doubled, `lore.model.provider` and the `--model-provider` flag's `lore.model-provider` both read `LORE_MODEL_PROVIDER`, as do the endpoint and API-key pairs; and `--model`'s key `lore.model` is also their parent. Lane 24 (#1010) removes both sides; ruling 14 |
-| the shared root's flags | lane 24 | bound per program today (`writ.verbose`, `writ.dry-run`); lane 24 makes them global |
+| the shared root's flags | ❌ | bound per program today (`writ.verbose`, `writ.dry-run`); Requirement 9 makes them global settings, read through the config system |
 | graph variables | ⚠️ | declared by reference (`plan.variable(...)`), gathered from the nodes by `Graph.Parameters()`, and bound at the run's start by `pkg/op`'s `VariableResolver` from override, flag, environment (`<PREFIX>_<NAME>`, the names the settings use), configuration and default; the middle three are a setting's layers. No shipped graph declares one: writ builds its graphs in Go without variable bindings, lore's packages take only the reserved `package` and `phase`, and star's commands take their flags as `run` arguments. devlore-test's fixtures declare seven (`dest_dir`, `dest_path`, `source_path`, `layer`, `mode`, `greeting` and `items`; `item` is bound per gather iteration), and `pkg/op`'s tests five. star's providers register `config` and `command_tree`, which star supplies as overrides; their path skips the environment |
 | the runtime's dry-run | ❌ | `Application.DryRun()` reads `dry_run` from the flag map (`pkg/application/application.go:106`); `action.Do` and its two siblings skip on it, and the process runner takes it. lore and devlore-test hand it `dry-run`, so `lore deploy --dry-run` runs every provider method; writ returns before running (#853). A call made outside a graph never checks (`pkg/op/starlarkbridge/go_receiver.go:933`): star's setup provider checks for itself, the file provider does not, and `shell.exec` bypasses the process runner (#800). lore hands scripts `package.dry_run`, which no package reads. `RuntimeEnvironmentConfig` (`pkg/op/runtime_environment.go:809`), the runtime's section, holds dry-run, the conflict policy and the backup suffix, with a TODO to move the dry-run readers onto it |
 | variables read by name | ✓ | `DEVLORE_VERBOSITY`, `DEVLORE_DRY_RUN`, `DEVLORE_MODEL_*` and `DEVLORE_REGISTRY_*` (`cmd/internal/config`), `DEVLORE_PAGER`, `DEVLORE_VERSION`, `DEVLORE_REGISTRY` (devlore-index) and `WRIT_SEGMENT_<NAME>`; the installers read `DEVLORE_BASE`, `DEVLORE_TEAM`, `DEVLORE_PERSONAL`, `DEVLORE_TOOLS` and `DEVLORE_VERSION` |
@@ -150,8 +162,8 @@ A test maps every known setting (flags, defaults, documented settings, and the v
 variable, and fails if two settings share one, or if one maps into a reserved family: `<PREFIX>_VARIABLE_`, the
 variables family's (#1023), and `WRIT_SEGMENT_`, the segments'. It gathers the keys the code reads through viper from
 the source, and fails on one it cannot read (ruling 14). Lore's three model pairs share `LORE_MODEL_PROVIDER`,
-`LORE_MODEL_ENDPOINT` and `LORE_MODEL_API_KEY` with the `--model-*` flags until lane 24 (#1010) removes both sides;
-they are the test's one exception, and the test fails once the exception no longer holds, so lane 24 deletes it.
+`LORE_MODEL_ENDPOINT` and `LORE_MODEL_API_KEY` with the `--model-*` flags until Requirement 9 removes both sides;
+they are the test's one exception, and the test fails once the exception no longer holds, so phase 4 deletes it.
 
 ### Requirement 3: the resolver reads the variable section
 
@@ -166,11 +178,11 @@ and the rename of `writ.vars` are #1023's.
 ### Requirement 4: the warning
 
 A variable whose name begins with a program's prefix or `DEVLORE_`, and that names no key the config system knows,
-draws a warning through the narrator, so `--silent` quiets it. The known keys come from the config system (ruling
-17): its bound flags, the keys it holds, and the schema's documented settings, mapped by Requirement 1's rule; beside
-them, the variables read by name and the installers' variables, which Requirement 2's source scan keeps listed. A
-name in `<PREFIX>_VARIABLE_` is an entry of the variable section, and is checked when a run binds its variables,
-against the variables the run declares.
+draws a warning through the narrator, so `--silent` quiets it. The known keys come from the config system alone
+(ruling 17): its bound flags, the keys it holds, and the schema's documented settings, mapped by Requirement 1's
+rule. Requirement 9 puts every `DEVLORE_` setting there first, and the installers' variables follow #1026's open
+question 1. A name in `<PREFIX>_VARIABLE_` is an entry of the variable section, and is checked when a run binds its
+variables, against the variables the run declares.
 
 The warning names the variable and, when one is near, the known name it resembles: `WRIT_WRIT_REPO` suggests
 `WRIT_REPO`, and `DEVLORE_DRYRUN` suggests `DEVLORE_DRY_RUN`.
@@ -199,25 +211,36 @@ The warning names the variable and, when one is near, the known name it resemble
 ### Requirement 7: the pages
 
 `10-command-line-interface.md` states the rule in one line, beside the precedence: a program setting's variable is
-the program's prefix plus the bare key, and a global setting's is `DEVLORE_` plus the key, which lane 24 builds. It
-states the warning too. 2.1 and 2.5 state the line between settings and variables and point to the variables family
-(#1023), and `configuration.md` states that dry-run is the runtime's setting.
+the program's prefix plus the bare key, and a global setting's is `DEVLORE_` plus the key, which Requirement 9
+builds. It states the warning too. 2.1 and 2.5 state the line between settings and variables and point to the
+variables family (#1023), and `configuration.md` states that dry-run is the runtime's setting.
 
 Written ahead of the code on 2026-10-03, at the owner's direction (ruling 16): `10-command-line-interface.md`
 § `--scope` and §11 (the setting chain, the naming rule and the warning, settings and variables, the families
 singular), `configuration.md` § Resolution, § Variables and the runtime section, `2.1-typed-slots.md` § Variables,
 `2.5-lifecycle-pipeline-construction.md` § Construction, and `3.5.7-template-provider.md`'s `Env`, each status page
-recording what the code does not yet do. Phase 5 checks them against what this lane builds.
+recording what the code does not yet do. Phase 7 checks them against what this lane builds.
 
 ### Requirement 8: the style gate
 
 Every Go file this lane touches passes `star lint go-style` in the lane's commit.
 
+### Requirement 9: every `DEVLORE_` setting is in the config system (#1026)
+
+Every `DEVLORE_` variable a program reads is the environment layer of a global setting, resolved by the config system,
+its name given by Requirement 1's rule: a global setting's variable is `DEVLORE_` plus its key. The shared root binds
+its flags to the global settings (`--dry-run` binds `dry_run`, the `--model-*` flags the `model` section), and every
+program reads them through the config system. `applyEnvOverrides`, the `lore.model.*` reads, and every hand read of a
+`DEVLORE_` variable go: `DEVLORE_PAGER` becomes the global `pager` setting, `DEVLORE_VERSION` the global `version`
+setting, and devlore-index's `DEVLORE_REGISTRY` a setting of the `registry` section. #1026's table lists every one,
+and its open question 1 asks what "in config" means for the installers' variables. This takes in #1010 and #1011,
+and the collision test's lane-24 exception goes with them: it fails once lore's model pairs no longer collide.
+
 ## Implementation Phases
 
 ### Phase 1: The plan
 
-- [x] This document, reviewed with the owner and chartered: "(a), plan chartered. go on phase 2." (2026-10-02).
+- [x] This document, reviewed with the owner and approved: "(a), plan chartered. go on phase 2." (2026-10-02).
   Rulings 7 to 14, #1022, and the split that made #1023 were added the same day.
 
 ### Phase 2: The mapping and the collision test
@@ -226,29 +249,40 @@ Every Go file this lane touches passes `star lint go-style` in the lane's commit
   `cmd/internal/cli/environment_test.go`, with this box. The mapping is exported as `cli.EnvironmentPrefix` and
   `cli.EnvironmentVariable`; the test's one exception is lore's three model pairs (ruling 14), which lane 24 deletes.
 
-### Phase 3: The resolver and the warning
+### Phase 3: The resolver
 
-- [ ] Requirements 3 and 4, and Requirement 6's tests for them.
+- [ ] Requirement 3, and Requirement 6's tests for it.
 
-### Phase 4: Dry-run belongs to the runtime (#1022)
+### Phase 4: Every `DEVLORE_` setting in the config system (#1026)
+
+- [ ] Requirement 9, its tests, and the collision test's lane-24 exception deleted.
+
+### Phase 5: The warning
+
+- [ ] Requirement 4, and Requirement 6's tests for it.
+
+### Phase 6: Dry-run belongs to the runtime (#1022)
 
 - [ ] Requirement 5, and Requirement 6's tests for it.
 
-### Phase 5: The pages and the gate
+### Phase 7: The pages and the gate
 
 - [ ] Requirements 7 and 8; `make check` and `make test-scenario` green.
 
-### Phase 6: The VM
+### Phase 8: The VM
 
 On `danoble-ud24-1.local`, with the build installed: `WRIT_WRIT_REPO=x writ version` warns and suggests `WRIT_REPO`,
-an unknown `LORE_` and `STAR_` variable each draws the warning, and `lore deploy --dry-run` of a package not yet
-installed changes nothing. The Windows box is out of service; CI's Windows jobs are the Windows proof.
+`DEVLORE_DRYRUN=1 writ version` warns and suggests `DEVLORE_DRY_RUN`, an unknown `LORE_` and `STAR_` variable each
+draws the warning, `DEVLORE_DRY_RUN=true lore deploy` of a package not yet installed changes nothing, as `--dry-run`
+does, and `DEVLORE_MODEL_PROVIDER` reaches `lore onboard`. The Windows box is out of service; CI's Windows jobs are
+the Windows proof.
 
 - [ ] `danoble-ud24-1.local` (linux/arm64)
 
-### Phase 7: Closure
+### Phase 9: Closure
 
-- [ ] The lane's commits on this branch. PR C opens after lane 33, with `Closes #927` and `Closes #1022`.
+- [ ] The lane's commits on this branch. PR C opens after lane 33, with `Closes` for #927, #1022, #1026, #1010 and
+  #1011.
 
 ## Test Plan
 
@@ -259,7 +293,8 @@ installed changes nothing. The Windows box is out of service; CI's Windows jobs 
 | 3 | the resolver reads the variable section | unit, devlore-test | a variable binds from the flag map, the configuration map or `<PREFIX>_<NAME>`, or a layer of `<program>.variable.<NAME>` goes unread |
 | 4 | the warning names what nothing reads, and suggests the near name | unit, subprocess | a known variable warns, an unknown one does not, or `--silent` lets it print |
 | 5 | a dry run invokes no provider method | unit, subprocess | a provider method runs under dry-run, in a graph or outside one, whichever layer set it |
-| 6 | the behavior on a real install | VM | the machine behaves otherwise |
+| 6 | every `DEVLORE_` setting reads through the config system | unit, subprocess | a `DEVLORE_` variable is read by hand, or a global flag, its `DEVLORE_` variable and the file resolve out of order |
+| 7 | the behavior on a real install | VM | the machine behaves otherwise |
 
 ## Files to Create/Modify
 
@@ -280,6 +315,10 @@ installed changes nothing. The Windows box is out of service; CI's Windows jobs 
 | `docs/architecture/10-command-line-interface.md` and `configuration.md`, and their status pages | Modify | the rule, the warning, the families singular, and dry-run as the runtime's setting |
 | `docs/architecture/2.1-typed-slots.md` and `2.5-lifecycle-pipeline-construction.md`, and their status pages | Modify | the line between settings and variables |
 | `docs/architecture/3.5.7-template-provider.md` and its status page | Modify | `Env` reads the variable space (#683) |
+| `cmd/internal/config/config.go`, `cmd/internal/cli/root.go` and `viper.go` | Modify | `applyEnvOverrides` goes; the shared root binds its flags to the global settings, read through the config system |
+| `cmd/internal/cli/pager.go`, `selfupgrade_channel.go`, `cmd/devlore-index/main.go` | Modify | `DEVLORE_PAGER`, `DEVLORE_VERSION` and `DEVLORE_REGISTRY` become settings |
+| `cmd/lore/lore/commands.go`, `cmd/writ/writ/migrate_cmd.go`, `cmd/writ/writ/config.go` | Modify | the model, dry-run and verbose reads go to the global settings |
+| `schema/devlore-config.json` and `cmd/internal/cli/environment_test.go` | Modify | the new global settings documented; the lane-24 exception deleted |
 
 ## Open Questions
 
@@ -303,8 +342,10 @@ installed changes nothing. The Windows box is out of service; CI's Windows jobs 
 - [#1022](https://github.com/NobleFactor/devlore-cli/issues/1022) -- dry-run belongs to the runtime; lane 37
 - [#1023](https://github.com/NobleFactor/devlore-cli/issues/1023) -- the variables family; lane 38, PR C′
 - [#1024](https://github.com/NobleFactor/devlore-cli/issues/1024) -- scopes and segments take singular keys
-- [#1010](https://github.com/NobleFactor/devlore-cli/issues/1010) -- lane 24: the shared root's flags as global
-  settings, with #1011 ([#1011](https://github.com/NobleFactor/devlore-cli/issues/1011))
+- [#1026](https://github.com/NobleFactor/devlore-cli/issues/1026) -- every `DEVLORE_` setting in the config system;
+  lane 43, in this lane
+- [#1010](https://github.com/NobleFactor/devlore-cli/issues/1010) -- lane 24: the global model section, now in this
+  lane, with #1011 ([#1011](https://github.com/NobleFactor/devlore-cli/issues/1011)), lane 23
 - [#694](https://github.com/NobleFactor/devlore-cli/issues/694) -- how configuration reaches a run
 - [#853](https://github.com/NobleFactor/devlore-cli/issues/853) -- writ deploy's dry run and the pre-flight
 - [10-command-line-interface.md](../../architecture/10-command-line-interface.md) -- the precedence, and the rule
