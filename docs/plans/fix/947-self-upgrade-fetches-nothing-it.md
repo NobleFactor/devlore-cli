@@ -3,7 +3,7 @@ title: "self upgrade fetches the newest build on its channel, verifies it, and u
 issue: https://github.com/NobleFactor/devlore-cli/issues/947
 status: active
 created: 2026-09-30
-updated: 2026-09-30
+updated: 2026-10-01
 ---
 
 # Plan: self upgrade fetches, verifies and upgrades the suite
@@ -331,11 +331,11 @@ channel with no release names the channel; a failed child names its program.
 - **star's extensions:** #990. Its self-copy truncation, reproduced here (`cmd/star/star/root.go:313-337`), goes with
   the code #990 deletes; a comment on #990 carries the evidence.
 - **The installers' checksums,** still warn-and-skip and matched by regular expression (`install.sh:297-311`,
-  `install.ps1:384-400`): a follow-up issue.
+  `install.ps1:384-400`): #1002, lane 23 of #949.
 - **`self uninstall` on Windows from the installed copy** can't remove the running `.exe`, counts it as "modified",
-  and then deletes the manifest (`selfinstall.go:594-597`, `:628`, `:653-658`): a follow-up issue.
-- **`self install` ignores `--dry-run`** (it writes the tree): a follow-up issue.
-- **`self uninstall --unattended` still prompts** (`selfinstall.go:187-201`): a follow-up issue.
+  and then deletes the manifest (`selfinstall.go:594-597`, `:628`, `:653-658`): #1003, lane 24 of #949.
+- **`self install` ignores `--dry-run`** (it writes the tree), and so does `self uninstall`: #1004, lane 25 of #949.
+- **`self uninstall --unattended` still prompts** (`selfinstall.go:187-201`): #1005, lane 26 of #949.
 - **Every manifest records every man page in `share/man/man1`:** #780.
 
 ## Decisions
