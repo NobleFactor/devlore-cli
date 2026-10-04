@@ -130,7 +130,10 @@ The two installers behave identically.
 
 - [x] #1029's case in both suites, run against `f30c2092`'s installers: fails for the reason stated (no "Already
       registered" line; personal's lines last)
-- [ ] #1030's Go tests, failing against `f30c2092`'s writ for the reason stated
+- [x] #1030's Go tests, failing against `f30c2092`'s writ for the reason stated: `repo list` calls empty
+      directories and a link to a tree with no `.git` registered; `self install` leaves the layers directory; adopt names
+      `self install` and accepts an empty directory; deploy, `reconcile` and the secrets code take an empty directory as a
+      layer. The fixtures that registered plain directories as layers gain a `.git`
 
 ### Phase 3: writ (Requirement 2)
 

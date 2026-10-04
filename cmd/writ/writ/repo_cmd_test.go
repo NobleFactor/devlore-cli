@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
+	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
 )
 
 // workingTree creates a temporary directory that passes the add-time git-working-tree validation.
@@ -756,6 +757,73 @@ func TestRepo_List_MarksBrokenLink(t *testing.T) {
 	}
 	if got := stateOf(t, listed, "personal"); got.State != repoStateBroken {
 		t.Fatalf("personal = %+v after its target was removed; want broken", got)
+	}
+}
+
+// TestRepo_List_EmptyLayerDirectoryIsUnregistered is #1030: the empty directories an earlier `self install` left
+// where the layers go are no layer. A layer is a git working tree, as `repo set` requires.
+func TestRepo_List_EmptyLayerDirectoryIsUnregistered(t *testing.T) {
+
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	for _, layer := range LayerOrder {
+		if err := os.MkdirAll(filepath.Join(devlore.WritLayersDir(), layer), 0o750); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	listed, err := runRepoResult(t, "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, layer := range LayerOrder {
+		if got := stateOf(t, listed, layer); got.State != repoStateUnregistered || got.Root != "" {
+			t.Errorf("%s = %+v over an empty directory; want unregistered, with no root", layer, got)
+		}
+	}
+}
+
+// TestRepo_List_LinkToATreeThatIsNotARepositoryIsBroken is #1030: a link to a directory with no `.git` names no
+// layer writ can deploy from, so it is reported for `repo set` to repair, not as registered.
+func TestRepo_List_LinkToATreeThatIsNotARepositoryIsBroken(t *testing.T) {
+
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	if err := os.MkdirAll(devlore.WritLayersDir(), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	tree := t.TempDir()
+	if err := os.Symlink(tree, filepath.Join(devlore.WritLayersDir(), "team")); err != nil {
+		t.Fatal(err)
+	}
+
+	listed, err := runRepoResult(t, "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := stateOf(t, listed, "team"); got.State != repoStateBroken {
+		t.Fatalf("team = %+v, a link to a tree with no .git; want broken", got)
+	}
+}
+
+// TestRepo_Set_ReplacesAnEmptyLayerDirectory is #1030: registering a layer where an earlier `self install` left an
+// empty directory puts the registration in its place.
+func TestRepo_Set_ReplacesAnEmptyLayerDirectory(t *testing.T) {
+
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	if err := os.MkdirAll(filepath.Join(devlore.WritLayersDir(), "personal"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	repo := workingTree(t)
+
+	if _, err := runRepo(t, "set", "personal", repo); err != nil {
+		t.Fatalf("repo set over an empty layer directory: %v", err)
+	}
+
+	listed, err := runRepoResult(t, "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := stateOf(t, listed, "personal"); got.State != repoStateRegistered || got.Root != repo {
+		t.Fatalf("personal = %+v after repo set; want registered at %s", got, repo)
 	}
 }
 

@@ -6,10 +6,12 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/xdg"
 	"github.com/spf13/cobra"
@@ -324,6 +326,23 @@ func installIntoTempPrefix(t *testing.T) (string, SelfInstallInfo) {
 
 	t.Helper()
 
+	return installToolIntoTempPrefix(t, "selftest")
+}
+
+// installToolIntoTempPrefix is [installIntoTempPrefix] for the tool named, for a test of what one tool's install
+// does that another's does not.
+//
+// Parameters:
+//   - `t`: the test harness.
+//   - `name`: the tool's name.
+//
+// Returns:
+//   - `string`: the prefix the tool was installed into.
+//   - `SelfInstallInfo`: the descriptor it was installed with.
+func installToolIntoTempPrefix(t *testing.T, name string) (string, SelfInstallInfo) {
+
+	t.Helper()
+
 	sandbox := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(sandbox, "config"))
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(sandbox, "cache"))
@@ -331,14 +350,25 @@ func installIntoTempPrefix(t *testing.T) (string, SelfInstallInfo) {
 	t.Setenv("XDG_STATE_HOME", filepath.Join(sandbox, "state"))
 
 	prefix := filepath.Join(sandbox, "prefix")
-	info := SelfInstallInfo{Name: "selftest", Version: "1.0.0"}
+	info := SelfInstallInfo{Name: name, Version: "1.0.0"}
 
-	rootCmd := &cobra.Command{Use: "selftest"}
+	rootCmd := &cobra.Command{Use: name}
 	if err := runSelfInstall(rootCmd, prefix, info, installFlags{Shells: []string{"bash"}}); err != nil {
 		t.Fatalf("runSelfInstall: %v", err)
 	}
 
 	return prefix, info
+}
+
+// TestRunSelfInstall_CreatesNoLayerDirectories is #1030: installing writ registers no layer, and leaves nothing where
+// the layers go for writ to mistake for one. `writ repo set` makes the layers directory when it registers a layer.
+func TestRunSelfInstall_CreatesNoLayerDirectories(t *testing.T) {
+
+	installToolIntoTempPrefix(t, "writ")
+
+	if _, err := os.Lstat(devlore.WritLayersDir()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("installing writ left %s behind (Lstat: %v); want nothing there", devlore.WritLayersDir(), err)
+	}
 }
 
 // TestRunSelfInstall_LaysOutThePrefix proves an install produces the tree it claims to, on every platform.

@@ -42,6 +42,10 @@ func registerLayers(t *testing.T, names []string, projects map[string][]string) 
 				t.Fatal(err)
 			}
 		}
+		// A layer is a git working tree (#1030).
+		if err := os.MkdirAll(filepath.Join(repository, ".git"), 0o755); err != nil {
+			t.Fatal(err)
+		}
 		if err := os.Symlink(repository, filepath.Join(devlore.WritLayersDir(), LayerOrder[i])); err != nil {
 			t.Fatal(err)
 		}
