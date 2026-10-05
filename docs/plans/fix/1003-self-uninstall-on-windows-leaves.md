@@ -107,18 +107,23 @@ Two layers, one shared by every platform and one for Windows alone.
 
 ### Phase 3: The shared fix (Requirements 1, 2)
 
-- [ ] `removeRecordedFiles` reports a reason per file; the manifest is rewritten to what remains and deleted only
-      when nothing does; the summary names each group. `make test`, `make vet-all`, `make lint-all`, `star lint go`
-      pass; `gofmt -l` is empty
+- [x] `removeRecordedFiles` reports a reason per file (changed / refused / unreadable); the manifest is rewritten to
+      what remains and deleted only when nothing does; the summary names each group. The two Phase 2 unit tests pass.
+      `make test` (108 ok), `make vet-all`, `make lint-all`, `star lint go` pass; `gofmt -l` is empty
 
 ### Phase 4: The Windows deletion (Requirement 3)
 
-- [ ] `self uninstall` schedules the running image's deletion through `cmd.exe`, hidden and detached, and keeps it
-      recorded. The PowerShell gate and the Windows scenario pass
+- [x] `self uninstall` schedules the running image's deletion through `cmd.exe` (hidden, detached, a retry-until-
+      unlocked loop), leaves it out of the in-place removal, and keeps it recorded. `deferRunningImageDeletion` is a
+      `//go:build windows` file; a `!windows` stub returns false, so Unix removes the image inline. Cross-compiles for
+      windows and passes `make lint-all`/`star lint go`. Not run on a Windows host here: the Windows scenario proves
+      it at the pull request's two Windows legs (as #1029's Windows behaviour was proved)
 
 ### Phase 5: The documents (Requirement 5)
 
-- [ ] The help, the guide, and the regenerated reference
+- [x] `self uninstall`'s help says what it removes, what it keeps and why, and that on Windows the program goes once
+      the command exits; the confirmation prompt matches. The CLI reference does not carry the subcommand's long
+      help, so `make regenerate` is a no-op; the getting-started guide has no uninstall section to correct
 
 ### Phase 6: Merge
 

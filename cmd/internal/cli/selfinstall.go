@@ -229,9 +229,14 @@ func newUninstallCmd(_ *cobra.Command, info SelfInstallInfo) *cobra.Command {
 		Short: "Remove " + info.Name + " and supporting files",
 		Long: `Remove ` + info.Name + ` and all files installed by "self install".
 
-Reads the installation manifest and removes only files that have not been
-modified since installation. Modified files are skipped and reported.
-Empty directories left behind are cleaned up.
+Reads the installation manifest and removes the files it records. A file
+changed since it was installed is kept, in case it is your own edit; a file
+that cannot be removed is kept and named for its reason. Empty directories
+left behind are cleaned up. The manifest is kept until nothing it records is
+left, so a later run can finish what one could not.
+
+On Windows the running program cannot delete itself, so it is removed once
+this command exits.
 
 Example:
   ` + info.Name + ` self uninstall           # resolves prefix from binary location
@@ -253,7 +258,7 @@ Example:
 
 			if !force {
 				Note("This will remove %s from %s.", info.Name, prefix)
-				Note("Modified files will be preserved.")
+				Note("A file you have changed since installing it is kept.")
 				Print("Continue? [y/N] ")
 				reader := bufio.NewReader(os.Stdin)
 				answer, err := reader.ReadString('\n')
@@ -574,7 +579,8 @@ func retireSupersededFiles(
 		return nil, nil
 	}
 
-	return removeRecordedFiles(prefixRoot, superseded)
+	removed, kept := removeRecordedFiles(prefixRoot, superseded)
+	return removed, keptPaths(prefixRoot, kept)
 }
 
 // printRetirementSummary reports what an install retired from the record it replaced.
@@ -609,16 +615,36 @@ func printRetirementSummary(removed, skipped []string) {
 // Uninstall
 // =============================================================================
 
-// removeRecordedFiles removes the files a record names, sparing anything that has changed since it
-// was written.
+// keepReason is why a recorded file was not removed. It is what separates a file this program must not touch from
+// one it simply could not, so the summary can say which (#1003).
+type keepReason int
+
+const (
+	// keepChanged: the file's content no longer matches what was recorded, so it may be the operator's own edit.
+	keepChanged keepReason = iota
+	// keepRefused: the filesystem refused the delete -- a permission on the prefix, or a running image on Windows.
+	keepRefused
+	// keepUnreadable: the file's hash could not be computed, so the guard above cannot be judged.
+	keepUnreadable
+)
+
+// keptFile is a recorded file that was not removed, and why.
+type keptFile struct {
+	Entry  manifestEntry
+	Reason keepReason
+}
+
+// removeRecordedFiles removes the files a record names, sparing anything that has changed since it was written, and
+// reporting why it kept each file it did not remove.
 //
-// The hash guard is the whole point: a file whose content no longer matches what was recorded may be
-// the operator's own edit, and deleting it would destroy work this program did not do. Such a file is
-// left and reported rather than removed, and so is one the filesystem refuses. A file already gone is
-// neither -- it is simply nothing to do.
+// The hash guard is the whole point: a file whose content no longer matches what was recorded may be the operator's
+// own edit, and deleting it would destroy work this program did not do. Such a file is kept as keepChanged. A file
+// the filesystem refuses is kept as keepRefused, and one whose hash cannot be computed as keepUnreadable -- distinct
+// from a changed file, so the caller names each for what it is rather than calling them all "modified". A file
+// already gone is nothing to do.
 //
-// Shared by `self uninstall`, which passes the whole record, and by an install retiring the part of a
-// previous record it no longer owns (#933).
+// Shared by `self uninstall`, which passes the record, and by an install retiring the part of a previous record it no
+// longer owns (#933).
 //
 // Parameters:
 //   - `prefixRoot`: the installation prefix the entries are relative to.
@@ -626,9 +652,8 @@ func printRetirementSummary(removed, skipped []string) {
 //
 // Returns:
 //   - `removed`: the absolute paths removed.
-//   - `skipped`: the absolute paths left in place -- changed since they were written, unreadable, or
-//     refused by the filesystem.
-func removeRecordedFiles(prefixRoot fsroot.Dir, entries []manifestEntry) (removed, skipped []string) {
+//   - `kept`: the files left in place, each with its reason.
+func removeRecordedFiles(prefixRoot fsroot.Dir, entries []manifestEntry) (removed []string, kept []keptFile) {
 
 	for _, entry := range entries {
 		path := prefixRoot.NewPath(entry.Path)
@@ -639,19 +664,17 @@ func removeRecordedFiles(prefixRoot fsroot.Dir, entries []manifestEntry) (remove
 			if os.IsNotExist(err) {
 				continue
 			}
-			Warn("Cannot read %s: %v (skipping)", path.Abs(), err)
-			skipped = append(skipped, path.Abs())
+			kept = append(kept, keptFile{Entry: entry, Reason: keepUnreadable})
 			continue
 		}
 
 		if currentHash != entry.SHA256 {
-			skipped = append(skipped, path.Abs())
+			kept = append(kept, keptFile{Entry: entry, Reason: keepChanged})
 			continue
 		}
 
 		if err := prefixRoot.Remove(path); err != nil {
-			Warn("Failed to remove %s: %v", path.Abs(), err)
-			skipped = append(skipped, path.Abs())
+			kept = append(kept, keptFile{Entry: entry, Reason: keepRefused})
 			continue
 		}
 		removed = append(removed, path.Abs())
@@ -660,10 +683,27 @@ func removeRecordedFiles(prefixRoot fsroot.Dir, entries []manifestEntry) (remove
 	// Clean up empty directories left behind.
 	cleanEmptyDirs(prefixRoot, entries)
 
-	return removed, skipped
+	return removed, kept
 }
 
-// runSelfUninstall removes files recorded in the manifest.
+// keptPaths is the absolute path of each kept file, in order -- for a caller that reports paths without their
+// reasons, such as the install retire summary.
+func keptPaths(prefixRoot fsroot.Dir, kept []keptFile) []string {
+
+	paths := make([]string, len(kept))
+	for i, k := range kept {
+		paths[i] = prefixRoot.NewPath(k.Entry.Path).Abs()
+	}
+	return paths
+}
+
+// runSelfUninstall removes the files the manifest records, keeps the manifest while any remain, and names a file it
+// could not remove by its reason (#1003).
+//
+// The running image is the one file this cannot simply delete on Windows, which refuses to delete a mapped image.
+// There its deletion is deferred past this process's exit (deferRunningImageDeletion), it is left out of the
+// in-place removal, and it stays recorded until a run confirms it gone. Elsewhere it deletes in place like any other
+// file, so nothing is deferred.
 func runSelfUninstall(prefix string, info SelfInstallInfo) (err error) {
 
 	// One root for the whole uninstall, matching runSelfInstall (#405, phase 2b).
@@ -679,12 +719,32 @@ func runSelfUninstall(prefix string, info SelfInstallInfo) (err error) {
 			manifestPath(prefix, info.Name), info.Name, err)
 	}
 
-	removed, skipped := removeRecordedFiles(prefixRoot, m.Files)
+	// The running image, deferred only where the platform must (Windows). deferred is what this will not remove in
+	// place: its deletion is scheduled and unconfirmed, so it stays recorded.
+	toRemove := m.Files
+	var deferred []manifestEntry
+	if running, found := runningImageEntry(prefixRoot, m.Files); found && deferRunningImageDeletion(prefixRoot, running) {
+		toRemove = excludeEntry(m.Files, running)
+		deferred = append(deferred, running)
+	}
 
-	// Remove the manifest itself (best-effort).
-	mPath := prefixRoot.NewPath(relativeManifestPath(info.Name))
-	_ = os.Remove(mPath.Abs())                                                   //nolint:errcheck // best-effort cleanup
-	_ = removeIfEmpty(prefixRoot, prefixRoot.NewPath(filepath.Dir(mPath.Rel()))) //nolint:errcheck // best-effort cleanup
+	removed, kept := removeRecordedFiles(prefixRoot, toRemove)
+
+	// What is still on disk: the files kept, plus the deferred running image. The manifest records exactly this, so a
+	// later run can finish; it is deleted only when nothing remains.
+	remaining := make([]manifestEntry, 0, len(kept)+len(deferred))
+	for _, k := range kept {
+		remaining = append(remaining, k.Entry)
+	}
+	remaining = append(remaining, deferred...)
+
+	if len(remaining) == 0 {
+		mPath := prefixRoot.NewPath(relativeManifestPath(info.Name))
+		_ = os.Remove(mPath.Abs())                                                   //nolint:errcheck // best-effort cleanup
+		_ = removeIfEmpty(prefixRoot, prefixRoot.NewPath(filepath.Dir(mPath.Rel()))) //nolint:errcheck // best-effort cleanup
+	} else if err := rewriteManifest(prefixRoot, info.Name, m.Version, remaining); err != nil {
+		Warn("Could not update the manifest at %s: %v", manifestPath(prefix, info.Name), err)
+	}
 
 	// Run post-uninstall hooks.
 	for _, hook := range info.PostUninstallHooks {
@@ -699,8 +759,25 @@ func runSelfUninstall(prefix string, info SelfInstallInfo) (err error) {
 		removeDevloreCache(info.Name)
 	}
 
-	// Print summary.
-	Success("Uninstalled %s from %s", info.Name, prefix)
+	printUninstallSummary(info.Name, prefix, removed, kept, deferred)
+
+	return nil
+}
+
+// printUninstallSummary reports what the uninstall removed, what it kept and why, and the running image whose
+// deletion it scheduled for after this process exits (#1003).
+//
+// Parameters:
+//   - `toolName`: the tool uninstalled.
+//   - `prefix`: the installation prefix.
+//   - `removed`: the absolute paths removed.
+//   - `kept`: the files left in place, each with its reason.
+//   - `deferred`: the recorded entries whose deletion was scheduled past this process's exit (the running image on
+//     Windows).
+func printUninstallSummary(toolName, prefix string, removed []string, kept []keptFile, deferred []manifestEntry) {
+
+	Success("Uninstalled %s from %s", toolName, prefix)
+
 	if len(removed) > 0 {
 		Note("")
 		Note("Removed %d file(s):", len(removed))
@@ -708,15 +785,121 @@ func runSelfUninstall(prefix string, info SelfInstallInfo) (err error) {
 			Note("  %s", f)
 		}
 	}
-	if len(skipped) > 0 {
+
+	for _, group := range []struct {
+		reason  keepReason
+		heading string
+	}{
+		{keepChanged, "Left %d file(s) changed since they were installed:"},
+		{keepRefused, "Could not remove %d file(s) (access denied or in use):"},
+		{keepUnreadable, "Could not read %d file(s) to check them, so left them:"},
+	} {
+		paths := keptForReason(kept, group.reason)
+		if len(paths) == 0 {
+			continue
+		}
 		Note("")
-		Note("Skipped %d modified file(s):", len(skipped))
-		for _, f := range skipped {
+		Note(group.heading, len(paths))
+		for _, f := range paths {
 			Note("  %s", f)
 		}
 	}
 
-	return nil
+	if len(deferred) > 0 {
+		Note("")
+		Note("The running program is removed once it exits:")
+		for _, entry := range deferred {
+			Note("  %s", filepath.Join(prefix, entry.Path))
+		}
+	}
+}
+
+// keptForReason is the prefix-relative path of each kept file with the given reason, for the summary.
+func keptForReason(kept []keptFile, reason keepReason) []string {
+
+	var paths []string
+	for _, k := range kept {
+		if k.Reason == reason {
+			paths = append(paths, k.Entry.Path)
+		}
+	}
+	return paths
+}
+
+// runningImageEntry finds the recorded entry that is this process's own executable, by [os.SameFile] rather than by
+// comparing paths -- a prefix reached through a link names the same file another way, as installBinary matches it.
+//
+// Parameters:
+//   - `prefixRoot`: the installation prefix.
+//   - `entries`: the recorded files.
+//
+// Returns:
+//   - `manifestEntry`: the running image's entry, when one of the recorded files is it.
+//   - `bool`: whether one was found.
+func runningImageEntry(prefixRoot fsroot.Dir, entries []manifestEntry) (manifestEntry, bool) {
+
+	self, err := os.Executable()
+	if err != nil {
+		return manifestEntry{}, false
+	}
+	selfInfo, err := os.Stat(self)
+	if err != nil {
+		return manifestEntry{}, false
+	}
+
+	for _, entry := range entries {
+		info, err := os.Stat(prefixRoot.NewPath(entry.Path).Abs())
+		if err == nil && os.SameFile(selfInfo, info) {
+			return entry, true
+		}
+	}
+	return manifestEntry{}, false
+}
+
+// excludeEntry returns `entries` without the one whose path matches `remove`.
+func excludeEntry(entries []manifestEntry, remove manifestEntry) []manifestEntry {
+
+	kept := make([]manifestEntry, 0, len(entries))
+	for _, entry := range entries {
+		if entry.Path != remove.Path {
+			kept = append(kept, entry)
+		}
+	}
+	return kept
+}
+
+// rewriteManifest writes the manifest to record exactly `entries`, with the hashes already recorded -- not
+// recomputed, so a kept file that has changed or cannot be read is still recorded, which is the point of keeping it.
+//
+// Parameters:
+//   - `prefixRoot`: the installation prefix.
+//   - `toolName`: the tool.
+//   - `version`: the version the manifest carries, unchanged from the one read.
+//   - `entries`: the files to record.
+//
+// Returns:
+//   - `error`: the manifest could not be written.
+func rewriteManifest(prefixRoot fsroot.Dir, toolName, version string, entries []manifestEntry) error {
+
+	m := manifest{
+		Tool:      toolName,
+		Version:   version,
+		Prefix:    prefixRoot.Name(),
+		Installed: time.Now().UTC().Format(time.RFC3339),
+		Files:     entries,
+	}
+
+	data, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	mPath := prefixRoot.NewPath(relativeManifestPath(toolName))
+	if err := prefixRoot.MkdirAll(prefixRoot.NewPath(filepath.Dir(mPath.Rel())), 0o750); err != nil {
+		return err
+	}
+
+	return prefixRoot.WriteFile(mPath, append(data, '\n'), 0o600)
 }
 
 // removeDevloreConfig removes tool-specific config from the XDG config directory.
