@@ -36,6 +36,7 @@ func setupLayer(t *testing.T, withConfig bool) (string, *age.X25519Identity) {
 
 	tree := filepath.Join(base, "personal")
 	mustMkdirAll(t, filepath.Join(tree, "Home", "demo"))
+	mustMkdirAll(t, filepath.Join(tree, ".git")) // a layer is a git working tree (#1030)
 
 	identity, err := age.GenerateX25519Identity()
 	if err != nil {
@@ -123,6 +124,24 @@ func TestExecuteEncrypt_RefusesOutsideLayer(t *testing.T) {
 	mustWriteFile(t, outside, "credential: hello\n")
 
 	_, err := ExecuteEncrypt(context.Background(), &EncryptConfig{Files: []string{outside}})
+	if err == nil || !strings.Contains(err.Error(), "writ repo set") {
+		t.Fatalf("expected containment refusal naming writ repo set, got %v", err)
+	}
+}
+
+// TestExecuteEncrypt_EmptyLayerDirectoryIsNoLayer is #1030: a file in the empty directory an earlier `self install`
+// left where a layer goes lies in no layer, and is refused as any file outside every layer is.
+func TestExecuteEncrypt_EmptyLayerDirectoryIsNoLayer(t *testing.T) {
+
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	empty := filepath.Join(devlore.WritLayersDir(), "base")
+	mustMkdirAll(t, empty)
+	inside := filepath.Join(empty, "loose.yaml")
+	mustWriteFile(t, inside, "credential: hello\n")
+
+	_, err := ExecuteEncrypt(context.Background(), &EncryptConfig{Files: []string{inside}})
 	if err == nil || !strings.Contains(err.Error(), "writ repo set") {
 		t.Fatalf("expected containment refusal naming writ repo set, got %v", err)
 	}

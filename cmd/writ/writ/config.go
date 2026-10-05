@@ -5,7 +5,6 @@ package writ
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"slices"
 
@@ -15,9 +14,9 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
 	devconfig "github.com/NobleFactor/devlore-cli/cmd/internal/config"
-	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/adopt"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/identity"
+	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/layer"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/segment"
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
@@ -251,11 +250,17 @@ func parseAdoptConfig(cmd *cobra.Command, args []string) (*AdoptConfig, error) {
 		return nil, cli.ExitWith(cli.ExitUsage, err)
 	}
 
-	// Resolve layer path
-	cfg.LayerPath = filepath.Join(devlore.WritLayersDir(), cfg.Layer)
-	if _, err := os.Stat(cfg.LayerPath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("layer %q does not exist at %s\nRun 'writ self install' to create layers", cfg.Layer, cfg.LayerPath)
+	// Resolve layer path. Only a registered layer is adopted into; `writ repo set` is what registers one (#1030).
+	registration := layer.Read(cfg.Layer)
+	if registration.State != layer.Registered {
+		standing := "not registered"
+		if registration.State != layer.Unregistered {
+			standing = string(registration.State)
+		}
+		return nil, fmt.Errorf("layer %q is %s; register it with writ repo set %s <working-tree-root>|<repository-url>",
+			cfg.Layer, standing, cfg.Layer)
 	}
+	cfg.LayerPath = registration.Path
 	// A registered layer is a symlink into its repository, and the confined run root refuses to write through an
 	// absolute symlink ("path escapes from parent"), so adopt plans against the repository itself -- which is also
 	// what the record must name, since links target the origin (#931; found on both VMs 2026-09-23).

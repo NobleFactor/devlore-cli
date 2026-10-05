@@ -3,7 +3,7 @@ title: "Windows native permissions: enforce restrictive modes, route every mutat
 issue: https://github.com/NobleFactor/devlore-cli/issues/405
 status: in progress
 created: 2026-08-13
-updated: 2026-08-18
+updated: 2026-10-04
 ---
 
 # Plan: Windows native permissions
@@ -1164,10 +1164,13 @@ missing-joiner smell corrected everywhere else on 2026-08-16.
 
 - [ ] The two anchors move to `cmd/writ/writ`, where all eight call sites already live, as variadic
       `LayersDir(elem ...string)` / `ReposDir(elem ...string)` over `devlore.DataPath`.
-- [ ] `selfinstall.go`'s `toolName != "writ"` branch and `initWritLayers` go with them. That branch is
+- [x] `selfinstall.go`'s `toolName != "writ"` branch and `initWritLayers` go with them. That branch is
       the reason the accessors sit in `devlore` at all: the shared CLI package creates writ's
       directories, so moving the accessors without moving the creation would make `cmd/internal/cli`
-      import a specific tool — a worse inversion than the one being fixed.
+      import a specific tool — a worse inversion than the one being fixed. **Done by #1030 (2026-10-04),
+      by deletion rather than a move:** `self install` creates no layer directories, since an empty one
+      read as a registered layer; `writ repo set` creates what it needs. Nothing in `cmd/internal/cli`
+      names writ's layers now, so the anchors are free to move.
 - [ ] Nothing else command-specific enters `devlore` — the four base accessors, the man page
       directory, and the three completion directories are the whole of what is genuinely shared.
 

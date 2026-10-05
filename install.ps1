@@ -8,16 +8,16 @@
 
 .DESCRIPTION
     Installs lore, star and writ into -Prefix (default ~/.local), then registers each layer given with
-    writ repo set, base first. A layer not given is skipped and named at the end. Never asks. Running the
-    same command again is safe: it is also how to recover from a failure.
+    writ repo set, base first. A layer not given is skipped and named at the end, unless writ already has it
+    registered. Never asks. Running the same command again is safe: it is also how to recover from a failure.
 
     Nothing is installed that is not verified. The archive is checked against the release's checksums file
     before anything is extracted, and refused when it cannot be: when the release has no checksums file, when
     the file has no line for the archive, or when the two disagree. Both files are downloaded from the
     release's public links, the checksums file first.
 
-    Runs on Windows PowerShell 5.1 and PowerShell 7, on Windows, macOS and Linux. The installer is served
-    by the DevLore site's develop environment, from which devlore is released today.
+    Runs on Windows, under Windows PowerShell 5.1 and PowerShell 7; on Linux and macOS, install.sh installs. The
+    installer is served by the DevLore site's develop environment, from which devlore is released today.
 
     Environment: $env:DEVLORE_VERSION picks a release tag (default: the newest release, pre-releases
     included); $env:DEVLORE_TOOLS picks all, writ, lore or star (default: all); $env:GH_TOKEN, optional,
@@ -76,7 +76,8 @@ if ($Help) {
     Write-Information -InformationAction Continue "Usage: install.ps1 [-Prefix <dir>] [-Base <loc>] [-Team <loc>] [-Personal <loc>]"
     Write-Information -InformationAction Continue ''
     Write-Information -InformationAction Continue "Installs lore, star and writ into <prefix> (default ~/.local), then registers each layer given"
-    Write-Information -InformationAction Continue "with writ repo set, base first. A layer not given is skipped and named at the end. Never asks."
+    Write-Information -InformationAction Continue "with writ repo set, base first. A layer not given is skipped and named at the end, unless writ"
+    Write-Information -InformationAction Continue "already has it registered. Never asks."
     Write-Information -InformationAction Continue `
         "The archive is verified against the release's checksums file first, and refused if it cannot be."
     Write-Information -InformationAction Continue ''
@@ -183,29 +184,21 @@ function Write-Fatal {
     throw $Message
 }
 
-# Detect OS
+# Detect OS. install.ps1 installs on Windows, and install.sh on Linux and macOS; neither serves the other's (#1032).
 #
-# Windows PowerShell 5.1 has no $IsWindows, $IsMacOS or $IsLinux, and under Set-StrictMode a variable that
-# does not exist is an error, so the edition is read first: Desktop is 5.1, which runs on Windows alone.
-# The automatic variables are consulted only on Core, where they exist.
+# Windows PowerShell 5.1 has no $IsWindows, and under Set-StrictMode a variable that does not exist is an error, so the
+# edition is read first: Desktop is 5.1, which runs on Windows alone. $IsWindows is consulted only on Core, where it
+# exists.
 function Get-OSName {
     [CmdletBinding()]
     [OutputType([string])]
     param()
 
-    if ($PSVersionTable.PSEdition -ne 'Core') {
+    if ($PSVersionTable.PSEdition -ne 'Core' -or $IsWindows) {
         return "windows"
     }
-    if ($IsWindows) {
-        return "windows"
-    } elseif ($IsMacOS) {
-        return "darwin"
-    } elseif ($IsLinux) {
-        return "linux"
-    } else {
-        $description = [System.Runtime.InteropServices.RuntimeInformation]::OSDescription
-        Write-Fatal "Unsupported operating system: $description"
-    }
+
+    Write-Fatal "This script requires Windows."
 }
 
 # Detect architecture. The releases publish amd64 and arm64 only.
@@ -595,15 +588,19 @@ function Save-ReleaseFile {
     }
 }
 
-# Run a native command with $ErrorActionPreference at 'Continue' for its duration.
+# Run a program outside PowerShell's streams, its stderr narration going to the information stream.
 #
-# Windows PowerShell 5.1 turns each line a native command writes to stderr into an error record whenever a caller has
-# redirected the error stream (`*>&1 | Tee-Object`, `2>&1`), and this script's 'Stop' makes the first such line fatal.
-# lore, star and writ narrate on stderr, so a user who logged the install lost it at the first progress line (found by
-# the installers' CI, #950). PowerShell 7.2 and later leave native stderr alone. The exit code decides: every caller
-# checks $LASTEXITCODE after this returns.
+# PowerShell wraps each line a program writes to stderr in an error record whenever it carries the stream, which it
+# does whenever a caller has redirected the install (`*>&1 | Tee-Object`, `2>&1`); Windows PowerShell 5.1 then applies
+# this script's 'Stop' to the record, so the first line of lore's, star's or writ's narration ended the install (found
+# by the installers' CI, #950). So no program this script runs has its streams carried by PowerShell (#1029): the
+# operating system redirects them, .NET's Process class reads them, and each line of stderr goes to Write-Information
+# as the program prints it, beside this script's own messages. stdout is returned as text, a string a line.
+# $LASTEXITCODE is the program's exit status, which every caller checks. The program runs in this session's working
+# directory, so a relative path it is given resolves where it was typed.
 function Invoke-NativeCommand {
     [CmdletBinding()]
+    [OutputType([string])]
     param(
         [Parameter(Mandatory)]
         [string]
@@ -614,8 +611,76 @@ function Invoke-NativeCommand {
         $ArgumentList
     )
 
-    $ErrorActionPreference = 'Continue'
-    & $FilePath @ArgumentList
+    $program = Get-Command -Name $FilePath -CommandType Application -ErrorAction Stop | Select-Object -First 1
+    $utf8 = New-Object -TypeName System.Text.UTF8Encoding -ArgumentList $false
+
+    $startInfo = New-Object -TypeName System.Diagnostics.ProcessStartInfo
+    $startInfo.FileName = $program.Path
+    $startInfo.WorkingDirectory = (Get-Location -PSProvider FileSystem).ProviderPath
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+    $startInfo.StandardOutputEncoding = $utf8
+    $startInfo.StandardErrorEncoding = $utf8
+
+    # PowerShell 7's .NET passes each argument as it is; Windows PowerShell 5.1's takes one command line, quoted as
+    # Windows splits it.
+    if ($startInfo.PSObject.Properties['ArgumentList']) {
+        foreach ($argument in $ArgumentList) {
+            $startInfo.ArgumentList.Add($argument)
+        }
+    }
+    else {
+        $startInfo.Arguments = ($ArgumentList | ForEach-Object { ConvertTo-CommandLineArgument -Argument $_ }) -join ' '
+    }
+
+    $process = [System.Diagnostics.Process]::Start($startInfo)
+
+    try {
+        # stdout is drained while stderr is read, so a program that fills one pipe never waits on the other.
+        $stdout = $process.StandardOutput.ReadToEndAsync()
+        $line = $process.StandardError.ReadLine()
+
+        while ($null -ne $line) {
+            Write-Information -InformationAction Continue $line
+            $line = $process.StandardError.ReadLine()
+        }
+
+        $process.WaitForExit()
+        Set-Variable -Name LASTEXITCODE -Value $process.ExitCode -Scope Global
+        $text = $stdout.GetAwaiter().GetResult()
+    }
+    finally {
+        $process.Dispose()
+    }
+
+    if ($text) {
+        $text.TrimEnd("`r", "`n") -split "`r?`n"
+    }
+}
+
+# Quote one argument for a Windows command line, as Windows splits one back into arguments: an argument with no space,
+# tab or quote stands as it is; any other is quoted, its quotes escaped, and the backslashes before a quote, or before
+# the closing quote, doubled.
+function ConvertTo-CommandLineArgument {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)]
+        [AllowEmptyString()]
+        [string]
+        $Argument
+    )
+
+    if ($Argument -and $Argument -notmatch '[\s"]') {
+        return $Argument
+    }
+
+    $escaped = $Argument -replace '(\\*)"', '$1$1\"'
+    $escaped = $escaped -replace '(\\+)$', '$1$1'
+
+    return "`"$escaped`""
 }
 
 # Verify checksum
@@ -724,11 +789,8 @@ function Main {
 
     Write-Info "Version: $Version"
 
-    # Determine archive extension
-    $ext = if ($os -eq "windows") { "zip" } else { "tar.gz" }
-
     # Build asset names
-    $archiveName = "devlore-cli_${Version}_${os}_${arch}.${ext}"
+    $archiveName = "devlore-cli_${Version}_${os}_${arch}.zip"
     $checksumsName = "devlore-cli_${Version}_checksums.txt"
 
     # Create temp directory
@@ -762,20 +824,12 @@ function Main {
         #
         # The archive holds the products at its root and star's extensions under share/ (#903). The products move
         # to pkg/bin so that each one's `self install` finds pkg/share at <exeDir>/../share, the path star copies
-        # its extensions from. A native command's exit code is checked, because try/catch never sees it.
+        # its extensions from.
         Write-Info "Extracting..."
         $pkg = Join-Path $tmpDir "pkg"
         $pkgBin = Join-Path $pkg "bin"
         New-Item -ItemType Directory -Path $pkgBin -Force | Out-Null
-        if ($ext -eq "zip") {
-            Expand-Archive -Path $archivePath -DestinationPath $pkg -Force
-        } else {
-            # tar.gz -- PowerShell 7+ on macOS/Linux has tar available
-            Invoke-NativeCommand -FilePath tar -ArgumentList @('--extract', '--gzip', '--file', $archivePath, '--directory', $pkg)
-            if ($LASTEXITCODE -ne 0) {
-                Write-Fatal "tar exited $LASTEXITCODE extracting $archiveName"
-            }
-        }
+        Expand-Archive -Path $archivePath -DestinationPath $pkg -Force
 
         # Create install directory
         if (-not (Test-Path $installDir)) {
@@ -798,17 +852,11 @@ function Main {
 
             $toolPath = Join-Path $pkgBin $file.Name
             Move-Item -LiteralPath $file.FullName -Destination $toolPath -Force
-            if ($os -ne "windows") {
-                Invoke-NativeCommand -FilePath chmod -ArgumentList @('+x', $toolPath)
-                if ($LASTEXITCODE -ne 0) {
-                    Write-Fatal "chmod exited $LASTEXITCODE on $product"
-                }
-            }
 
             Write-Info "Installing $product..."
             Push-Location $pkg
             try {
-                Invoke-NativeCommand -FilePath $toolPath -ArgumentList @('self', 'install', $Prefix, '--unattended')
+                $null = Invoke-NativeCommand -FilePath $toolPath -ArgumentList @('self', 'install', $Prefix, '--unattended')
                 if ($LASTEXITCODE -ne 0) {
                     Write-Fatal "$product self install failed"
                 }
@@ -826,20 +874,41 @@ function Main {
         # working directory, so a relative location resolves where it was typed. writ's output is its own, and so are
         # its errors: a failure ends the run, and running the same command again is the recovery. --unattended is
         # writ's contract for a run nobody is there to answer.
-        $writPath = Join-Path $installDir $(if ($os -eq "windows") { "writ.exe" } else { "writ" })
+        $writPath = Join-Path $installDir "writ.exe"
         $layers = [ordered]@{ base = $Base; team = $Team; personal = $Personal }
         $registered = @()
+        $held = @()
         $skipped = @()
 
         foreach ($layer in $layers.Keys) {
             $location = $layers[$layer]
             if (-not $location) {
-                $skipped += $layer
+                # A layer not given is skipped unless the writ just installed already has it registered (#1029). A
+                # writ this run didn't install, or that can't answer, leaves it skipped. --filter, not a --jq select:
+                # Windows PowerShell 5.1 strips the double quotes inside a native command's arguments.
+                $root = ''
+                if (Test-Path -LiteralPath $writPath -PathType Leaf) {
+                    try {
+                        $root = (Invoke-NativeCommand -FilePath $writPath -ArgumentList @('repo', 'list',
+                                '--filter', "layer=$layer", '--filter', 'state=registered', '--jq', '.[].root',
+                                '--output', 'value') | Out-String).Trim()
+                        if ($LASTEXITCODE -ne 0) {
+                            $root = ''
+                        }
+                    } catch {
+                        $root = ''
+                    }
+                }
+                if ($root) {
+                    $held += $layer
+                } else {
+                    $skipped += $layer
+                }
                 continue
             }
 
             Write-Info "Registering ${layer}: $location"
-            Invoke-NativeCommand -FilePath $writPath -ArgumentList @('repo', 'set', $layer, $location, '--unattended')
+            $null = Invoke-NativeCommand -FilePath $writPath -ArgumentList @('repo', 'set', $layer, $location, '--unattended')
             if ($LASTEXITCODE -ne 0) {
                 Write-Fatal "writ repo set $layer exited $LASTEXITCODE"
             }
@@ -853,6 +922,9 @@ function Main {
         if ($registered.Count -gt 0) {
             Write-Success "Registered: $($registered -join ' ')"
         }
+        if ($held.Count -gt 0) {
+            Write-Success "Already registered: $($held -join ' ')"
+        }
         Write-Information -InformationAction Continue ''
 
         # Check if install dir is in PATH
@@ -860,23 +932,15 @@ function Main {
         if ($installDir -notin $pathDirs) {
             Write-Warn "$installDir is not in your PATH"
             Write-Information -InformationAction Continue ''
-            if ($os -eq "windows") {
-                Write-Information -InformationAction Continue "Add it to your PATH (run as Administrator):"
-                Write-Information -InformationAction Continue ''
-                Write-Information -InformationAction Continue "  [Environment]::SetEnvironmentVariable('Path',"
-                Write-Information -InformationAction Continue "    `"$installDir;`" + [Environment]::GetEnvironmentVariable('Path', 'User'), 'User')"
-                Write-Information -InformationAction Continue ''
-                Write-Information -InformationAction Continue "Or add to your PowerShell profile (`$PROFILE):"
-                Write-Information -InformationAction Continue ''
-                Write-Information -InformationAction Continue "  `$env:PATH = `"$installDir;`$env:PATH`""
-                Write-Information -InformationAction Continue ''
-            } else {
-                Write-Information -InformationAction Continue "Add it to your shell profile:"
-                Write-Information -InformationAction Continue ''
-                Write-Information -InformationAction Continue "  # For PowerShell (`$PROFILE)"
-                Write-Information -InformationAction Continue "  `$env:PATH = `"$installDir`:`$env:PATH`""
-                Write-Information -InformationAction Continue ''
-            }
+            Write-Information -InformationAction Continue "Add it to your PATH (run as Administrator):"
+            Write-Information -InformationAction Continue ''
+            Write-Information -InformationAction Continue "  [Environment]::SetEnvironmentVariable('Path',"
+            Write-Information -InformationAction Continue "    `"$installDir;`" + [Environment]::GetEnvironmentVariable('Path', 'User'), 'User')"
+            Write-Information -InformationAction Continue ''
+            Write-Information -InformationAction Continue "Or add to your PowerShell profile (`$PROFILE):"
+            Write-Information -InformationAction Continue ''
+            Write-Information -InformationAction Continue "  `$env:PATH = `"$installDir;`$env:PATH`""
+            Write-Information -InformationAction Continue ''
         }
 
         # Verify installation

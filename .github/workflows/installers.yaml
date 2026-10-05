@@ -1,9 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# The installers, run as a user runs them, on every platform they serve (#950, #965). Its own workflow: ci.yaml is
-# the quality gate's, and these jobs have nothing to build. The tests are scripts, and run by hand too:
-# scripts/Test-InstallScript.sh for install.sh and scripts/Test-InstallScript.ps1 for install.ps1. Each installs the
-# newest release into a scratch account, so what a pull request tests is its own installer against what users get.
+# The installers, run as a user runs them, on every platform they serve (#950, #965), on every pull request (#1031).
+# Its own workflow: ci.yaml is the quality gate's. The tests are scripts, and run by hand too:
+# scripts/Test-InstallScript.sh for install.sh and scripts/Test-InstallScript.ps1 for install.ps1. Each installs from a
+# faux channel (#1031): a stand-in for GitHub whose release carries this commit's lore, star and writ, so a pull request
+# tests its own installers against its own programs. The release's archives are built once, here, off Windows, by the
+# release job's own target, and every installer job serves them; no installer job builds anything.
 name: Installers
 
 on:
@@ -12,31 +14,50 @@ on:
       - develop
       - main
       - 'release/*'
-    paths:
-      - install.sh
-      - install.ps1
-      - scripts/Test-InstallScript.sh
-      - scripts/Test-InstallScript.ps1
-      - .github/workflows/installers.yaml
-      - .github/workflows/release.yaml
   pull_request:
     branches:
       - develop
       - main
       - 'release/*'
-    paths:
-      - install.sh
-      - install.ps1
-      - scripts/Test-InstallScript.sh
-      - scripts/Test-InstallScript.ps1
-      - .github/workflows/installers.yaml
-      - .github/workflows/release.yaml
 
 permissions:
   contents: read
 
+env:
+  # The tag the suites' faux channel publishes under, scripts/Test-InstallScript.sh's and .ps1's fixture tag: the
+  # archives are named for it, and the programs report it as their version.
+  FAUX_TAG: v0.0.0-test.1002
+
 jobs:
+  faux-channel:
+    name: faux channel (build)
+    # Every platform's archive and the checksums file, as the release job builds them, on the release job's runner.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # As release.yaml checks out, so the build is the release job's.
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+
+      - name: Build the release
+        run: make dist DEVLORE_VERSION="$FAUX_TAG"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: faux-channel
+          path: dist/
+          retention-days: 1
+          if-no-files-found: error
+
   install-sh:
+    needs: faux-channel
     name: install.sh (${{ matrix.platform }})
     # The runners of ci.yaml's scenario matrix, one for each archive install.sh fetches. On macOS the test runs the
     # installer with macOS's own tools, whatever the image adds to PATH.
@@ -56,13 +77,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: faux-channel
+          path: ${{ runner.temp }}/faux-channel
+
       - name: Test install.sh
         env:
-          # The installer sends it to GitHub's API, which then allows the job more than 60 requests an hour.
+          # The installer sends it to the faux channel's API, as it would to GitHub's.
           GH_TOKEN: ${{ github.token }}
+          DEVLORE_TEST_DIST: ${{ runner.temp }}/faux-channel
         run: scripts/Test-InstallScript.sh
 
   install-sh-macports:
+    needs: faux-channel
     name: install.sh (darwin-arm64, MacPorts)
     # macOS with MacPorts' GNU tools first on PATH, as on the owner's Macs (#1002): every tool the installer calls
     # resolves to its GNU version, where install-sh's macOS legs run it with macOS's own.
@@ -72,6 +100,11 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: faux-channel
+          path: ${{ runner.temp }}/faux-channel
 
       - name: Install MacPorts
         env:
@@ -91,13 +124,15 @@ jobs:
 
       - name: Test install.sh
         env:
-          # The installer sends it to GitHub's API, which then allows the job more than 60 requests an hour.
+          # The installer sends it to the faux channel's API, as it would to GitHub's.
           GH_TOKEN: ${{ github.token }}
           PATH: /opt/local/libexec/gnubin:/opt/local/bin:/opt/local/sbin:/usr/bin:/bin
+          DEVLORE_TEST_DIST: ${{ runner.temp }}/faux-channel
         # --keep-path: the installer runs with this PATH, not macOS's own tools.
         run: scripts/Test-InstallScript.sh --keep-path
 
   install-ps1:
+    needs: faux-channel
     name: install.ps1 (${{ matrix.platform }})
     # Both Windows runners, under both editions: Windows PowerShell 5.1 is what a fresh Windows machine has (#948).
     strategy:
@@ -110,10 +145,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/download-artifact@v4
+        with:
+          name: faux-channel
+          path: ${{ runner.temp }}/faux-channel
+
       - name: Test install.ps1 under Windows PowerShell 5.1
         shell: powershell
         env:
           GH_TOKEN: ${{ github.token }}
+          DEVLORE_TEST_DIST: ${{ runner.temp }}/faux-channel
         run: ./scripts/Test-InstallScript.ps1
 
       - name: Test install.ps1 under PowerShell 7
@@ -122,4 +163,5 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          DEVLORE_TEST_DIST: ${{ runner.temp }}/faux-channel
         run: ./scripts/Test-InstallScript.ps1

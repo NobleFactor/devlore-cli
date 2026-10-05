@@ -16,7 +16,8 @@ usage() {
 Usage: install.sh [--prefix=<dir>] [--base=<loc>] [--team=<loc>] [--personal=<loc>]
 
 Installs lore, star and writ into <prefix> (default ~/.local), then registers each layer given with
-writ repo set, base first. A layer not given is skipped and named at the end. Never asks.
+writ repo set, base first. A layer not given is skipped and named at the end, unless writ already has it
+registered. Never asks. Runs on Linux and macOS; on Windows, install.ps1 installs.
 
 The release's archive is verified against its checksums file, with sha256sum or shasum, before anything is
 extracted. An archive that can't be verified is not installed: a release without the checksums file, a checksums
@@ -121,13 +122,13 @@ error() {
     exit 1
 }
 
-# Detect OS
+# Detect OS. install.sh installs on Linux and macOS, and install.ps1 on Windows; neither serves the other's (#1032). The
+# refusal is Declare-BashScript's require_nix's.
 detect_os() {
     case "$(uname -s)" in
         Linux*) echo "linux" ;;
         Darwin*) echo "darwin" ;;
-        MINGW* | MSYS* | CYGWIN*) echo "windows" ;;
-        *) error "Unsupported operating system: $(uname -s)" ;;
+        *) error "This script requires Linux or macOS (Darwin)." ;;
     esac
 }
 
@@ -366,8 +367,7 @@ main() {
     info "Detected platform: ${os}/${arch}"
 
     # Create temp directory, which holds what GitHub sends from here on; cleanup, trapped at script scope, removes it on
-    # every exit. mktemp, rm, mkdir, awk, date and unzip keep their short options: macOS's BSD tools have no long forms,
-    # and Info-ZIP has none anywhere.
+    # every exit. mktemp, rm, mkdir, awk and date keep their short options: macOS's BSD tools have no long forms.
     TMP_DIR=$(mktemp -d)
 
     # Resolve version
@@ -382,14 +382,8 @@ main() {
     fi
     info "Version: $VERSION"
 
-    # Determine archive extension
-    local ext="tar.gz"
-    if [[ "$os" == "windows" ]]; then
-        ext="zip"
-    fi
-
     # Build asset names
-    local archive_name="devlore-cli_${VERSION}_${os}_${arch}.${ext}"
+    local archive_name="devlore-cli_${VERSION}_${os}_${arch}.tar.gz"
     local checksums_name="devlore-cli_${VERSION}_checksums.txt"
 
     # Download the checksums file, then the archive, each by its public link (#1008). An archive the release gives no
@@ -419,11 +413,7 @@ main() {
     info "Extracting..."
     local pkg="${TMP_DIR}/pkg"
     mkdir -p "${pkg}/bin"
-    if [[ "$ext" == "tar.gz" ]]; then
-        tar --extract --gzip --file "${TMP_DIR}/${archive_name}" --directory "${pkg}"
-    else
-        unzip -q "${TMP_DIR}/${archive_name}" -d "${pkg}"
-    fi
+    tar --extract --gzip --file "${TMP_DIR}/${archive_name}" --directory "${pkg}"
 
     # Install binaries
     #
@@ -436,7 +426,7 @@ main() {
     for file in "${pkg}"/*; do
         [[ -f "$file" ]] || continue
         name="${file##*/}"
-        product="${name%.exe}"
+        product="$name"
         [[ "$TOOLS" == "all" || "$TOOLS" == "$product" ]] || continue
         mv "$file" "${pkg}/bin/${name}"
         chmod +x "${pkg}/bin/${name}"
@@ -454,12 +444,10 @@ main() {
     # a failure ends the run, and running the same command again is the recovery. --unattended is writ's contract
     # for a run nobody is there to answer.
     local writ="${INSTALL_DIR}/writ"
-    if [[ "$os" == "windows" ]]; then
-        writ="${writ}.exe"
-    fi
     local registered=()
+    local held=()
     local skipped=()
-    local layer location
+    local layer location root
     for layer in base team personal; do
         case "$layer" in
             base) location="$BASE" ;;
@@ -467,7 +455,18 @@ main() {
             *) location="$PERSONAL" ;;
         esac
         if [[ -z "$location" ]]; then
-            skipped+=("$layer")
+            # A layer not given is skipped unless the writ just installed already has it registered (#1029). A writ
+            # this run didn't install, or that can't answer, leaves it skipped.
+            root=""
+            if [[ -x "$writ" ]]; then
+                root=$("$writ" repo list --filter "layer=${layer}" --filter state=registered --jq '.[].root' \
+                    --output value 2>/dev/null) || root=""
+            fi
+            if [[ -n "$root" ]]; then
+                held+=("$layer")
+            else
+                skipped+=("$layer")
+            fi
             continue
         fi
         info "Registering ${layer}: ${location}"
@@ -481,6 +480,9 @@ main() {
     success "Location: ${INSTALL_DIR}"
     if [[ ${#registered[@]} -gt 0 ]]; then
         success "Registered: ${registered[*]}"
+    fi
+    if [[ ${#held[@]} -gt 0 ]]; then
+        success "Already registered: ${held[*]}"
     fi
     echo
 
