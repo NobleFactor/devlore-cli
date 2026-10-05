@@ -141,8 +141,8 @@ the install. At `f30c2092`, `Invoke-NativeCommand` works around it by switching 
 powershell leaves us alone"; "when we run ANY standard program from install.ps1 we ALWAYS use the Process object and
 redirect stderr to the PowerShell information stream"; and no separate issue.
 
-- `Invoke-NativeCommand` starts every program `install.ps1` runs (`tar`, `chmod`, each program's `self install`,
-  `writ repo list`, `writ repo set`) with .NET's `Process` class, stdout and stderr redirected by the operating system.
+- `Invoke-NativeCommand` starts every program `install.ps1` runs (each program's `self install`, `writ repo list`,
+  `writ repo set`) with .NET's `Process` class, stdout and stderr redirected by the operating system.
 - Each line of the program's stderr goes to `Write-Information` as the program prints it. Its stdout is returned to
   the caller as text; only `writ repo list`'s is used, and the other callers discard it.
 - The program runs in the user's working directory, so a relative layer location resolves where it was typed, and
@@ -150,6 +150,24 @@ redirect stderr to the PowerShell information stream"; and no separate issue.
 - The `Continue` workaround goes.
 - **The test:** `Invoke-FixtureInstall` counts the error records in what it captures with every stream redirected, and
   the layer cases expect none.
+
+### Requirement 8: Each installer serves one platform family
+
+Ruled 2026-10-04, while #1032 was in CI: "get rid of chmod +x in install.ps1. it is forbidden. there is no concept of
+the executable bit on windows. tar is also outlawed in install.ps1"; "we make no guarantees that install works on macOS
+and Linux. i withdraw the requirement"; and each refuses as Declare-BashScript's `require_nix` does ("Yes").
+
+- `install.ps1` installs on Windows alone: the `.zip`, unpacked by `Expand-Archive`. Its `tar` and `chmod` calls and
+  every macOS and Linux path go. Anywhere else it refuses, before anything is downloaded: "This script requires
+  Windows."
+- `install.sh` installs on Linux and macOS alone: the `.tar.gz`. Its Git Bash, MSYS and Cygwin path, with `unzip` and
+  `.exe`, goes. Anywhere else it refuses, before anything is downloaded, with `require_nix`'s words: "This script
+  requires Linux or macOS (Darwin)."
+- Each installer's help says where the other installs.
+- **The tests:** the bash suite runs `install.sh` with `uname` reporting Git Bash's `MINGW64_NT` and expects the
+  refusal. Off Windows the PowerShell suite checks the refusal and nothing else; its other checks run on Windows, as CI
+  runs them.
+- Windows building, which this exposed as unfinished, is #1033's chore, not this lane's.
 
 ## Implementation Phases
 
@@ -178,12 +196,15 @@ redirect stderr to the PowerShell information stream"; and no separate issue.
       workflow runs on every pull request, its one build job on Linux and no installer job building anything.
       Proven here against `make dist` for every platform (89 s): bash 246 checks under bash 5 and 3.2, pwsh 79
 
-### Phase 5: Both installers (Requirements 1, 5, 7)
+### Phase 5: Both installers (Requirements 1, 5, 7, 8)
 
 - [x] `install.sh` and `install.ps1` ask writ about each layer not given, and `install.ps1` runs every program
       outside PowerShell's streams (Requirement 7). Both suites pass: bash 5 and bash 3.2 (246 checks), and pwsh 7
       (79). The PowerShell gate (4 checked, 0 with findings) and `star lint shell` pass; the workflow parses. Windows
       PowerShell 5.1 runs in CI
+- [x] Each installer serves one platform family (Requirement 8): bash 249 checks under bash 5 and bash 3.2, the
+      Windows refusal among them; off Windows the PowerShell suite's refusal check passes, and its Windows checks run
+      in CI. The PowerShell gate (4 checked, 0 with findings) and `star lint shell` pass
 
 ### Phase 6: The documents (Requirement 6)
 

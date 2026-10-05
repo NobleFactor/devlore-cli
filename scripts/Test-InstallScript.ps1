@@ -1012,6 +1012,29 @@ $block = [scriptblock]::Create((Get-Content -Raw -LiteralPath $installer))
 $savedVersion = $env:DEVLORE_VERSION
 $savedToken = $env:GH_TOKEN
 
+# --- Off Windows, the one check: install.ps1 installs on Windows alone, and refuses anywhere else (#1032) ---
+
+if (-not $onWindows) {
+    $prefix = Use-Account -Name 'not-windows'
+    $message = ''
+    try {
+        & $block -Prefix $prefix
+    } catch {
+        $message = $_.Exception.Message
+    }
+    Test-Expectation -Description 'off Windows: refused, "This script requires Windows."' `
+        -Condition ($message -ceq 'This script requires Windows.' -and -not (Test-Path -LiteralPath $prefix)) `
+        -Detail "message: $message"
+    Remove-Item -LiteralPath $scratch -Recurse -Force
+
+    if ($script:failures -gt 0) {
+        Write-Information -InformationAction Continue "$($script:failures) check(s) failed"
+        exit 1
+    }
+    Write-Information -InformationAction Continue 'every check passed (off Windows, the refusal is all there is to check)'
+    exit 0
+}
+
 try {
     # --- The faux channel (#1031): its release carries this checkout's programs, and every install below is from it ---
 

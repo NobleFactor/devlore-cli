@@ -16,8 +16,8 @@
     the file has no line for the archive, or when the two disagree. Both files are downloaded from the
     release's public links, the checksums file first.
 
-    Runs on Windows PowerShell 5.1 and PowerShell 7, on Windows, macOS and Linux. The installer is served
-    by the DevLore site's develop environment, from which devlore is released today.
+    Runs on Windows, under Windows PowerShell 5.1 and PowerShell 7; on Linux and macOS, install.sh installs. The
+    installer is served by the DevLore site's develop environment, from which devlore is released today.
 
     Environment: $env:DEVLORE_VERSION picks a release tag (default: the newest release, pre-releases
     included); $env:DEVLORE_TOOLS picks all, writ, lore or star (default: all); $env:GH_TOKEN, optional,
@@ -184,29 +184,21 @@ function Write-Fatal {
     throw $Message
 }
 
-# Detect OS
+# Detect OS. install.ps1 installs on Windows, and install.sh on Linux and macOS; neither serves the other's (#1032).
 #
-# Windows PowerShell 5.1 has no $IsWindows, $IsMacOS or $IsLinux, and under Set-StrictMode a variable that
-# does not exist is an error, so the edition is read first: Desktop is 5.1, which runs on Windows alone.
-# The automatic variables are consulted only on Core, where they exist.
+# Windows PowerShell 5.1 has no $IsWindows, and under Set-StrictMode a variable that does not exist is an error, so the
+# edition is read first: Desktop is 5.1, which runs on Windows alone. $IsWindows is consulted only on Core, where it
+# exists.
 function Get-OSName {
     [CmdletBinding()]
     [OutputType([string])]
     param()
 
-    if ($PSVersionTable.PSEdition -ne 'Core') {
+    if ($PSVersionTable.PSEdition -ne 'Core' -or $IsWindows) {
         return "windows"
     }
-    if ($IsWindows) {
-        return "windows"
-    } elseif ($IsMacOS) {
-        return "darwin"
-    } elseif ($IsLinux) {
-        return "linux"
-    } else {
-        $description = [System.Runtime.InteropServices.RuntimeInformation]::OSDescription
-        Write-Fatal "Unsupported operating system: $description"
-    }
+
+    Write-Fatal "This script requires Windows."
 }
 
 # Detect architecture. The releases publish amd64 and arm64 only.
@@ -797,11 +789,8 @@ function Main {
 
     Write-Info "Version: $Version"
 
-    # Determine archive extension
-    $ext = if ($os -eq "windows") { "zip" } else { "tar.gz" }
-
     # Build asset names
-    $archiveName = "devlore-cli_${Version}_${os}_${arch}.${ext}"
+    $archiveName = "devlore-cli_${Version}_${os}_${arch}.zip"
     $checksumsName = "devlore-cli_${Version}_checksums.txt"
 
     # Create temp directory
@@ -835,20 +824,12 @@ function Main {
         #
         # The archive holds the products at its root and star's extensions under share/ (#903). The products move
         # to pkg/bin so that each one's `self install` finds pkg/share at <exeDir>/../share, the path star copies
-        # its extensions from. A native command's exit code is checked, because try/catch never sees it.
+        # its extensions from.
         Write-Info "Extracting..."
         $pkg = Join-Path $tmpDir "pkg"
         $pkgBin = Join-Path $pkg "bin"
         New-Item -ItemType Directory -Path $pkgBin -Force | Out-Null
-        if ($ext -eq "zip") {
-            Expand-Archive -Path $archivePath -DestinationPath $pkg -Force
-        } else {
-            # tar.gz -- PowerShell 7+ on macOS/Linux has tar available
-            $null = Invoke-NativeCommand -FilePath tar -ArgumentList @('--extract', '--gzip', '--file', $archivePath, '--directory', $pkg)
-            if ($LASTEXITCODE -ne 0) {
-                Write-Fatal "tar exited $LASTEXITCODE extracting $archiveName"
-            }
-        }
+        Expand-Archive -Path $archivePath -DestinationPath $pkg -Force
 
         # Create install directory
         if (-not (Test-Path $installDir)) {
@@ -871,12 +852,6 @@ function Main {
 
             $toolPath = Join-Path $pkgBin $file.Name
             Move-Item -LiteralPath $file.FullName -Destination $toolPath -Force
-            if ($os -ne "windows") {
-                $null = Invoke-NativeCommand -FilePath chmod -ArgumentList @('+x', $toolPath)
-                if ($LASTEXITCODE -ne 0) {
-                    Write-Fatal "chmod exited $LASTEXITCODE on $product"
-                }
-            }
 
             Write-Info "Installing $product..."
             Push-Location $pkg
@@ -899,7 +874,7 @@ function Main {
         # working directory, so a relative location resolves where it was typed. writ's output is its own, and so are
         # its errors: a failure ends the run, and running the same command again is the recovery. --unattended is
         # writ's contract for a run nobody is there to answer.
-        $writPath = Join-Path $installDir $(if ($os -eq "windows") { "writ.exe" } else { "writ" })
+        $writPath = Join-Path $installDir "writ.exe"
         $layers = [ordered]@{ base = $Base; team = $Team; personal = $Personal }
         $registered = @()
         $held = @()
@@ -957,23 +932,15 @@ function Main {
         if ($installDir -notin $pathDirs) {
             Write-Warn "$installDir is not in your PATH"
             Write-Information -InformationAction Continue ''
-            if ($os -eq "windows") {
-                Write-Information -InformationAction Continue "Add it to your PATH (run as Administrator):"
-                Write-Information -InformationAction Continue ''
-                Write-Information -InformationAction Continue "  [Environment]::SetEnvironmentVariable('Path',"
-                Write-Information -InformationAction Continue "    `"$installDir;`" + [Environment]::GetEnvironmentVariable('Path', 'User'), 'User')"
-                Write-Information -InformationAction Continue ''
-                Write-Information -InformationAction Continue "Or add to your PowerShell profile (`$PROFILE):"
-                Write-Information -InformationAction Continue ''
-                Write-Information -InformationAction Continue "  `$env:PATH = `"$installDir;`$env:PATH`""
-                Write-Information -InformationAction Continue ''
-            } else {
-                Write-Information -InformationAction Continue "Add it to your shell profile:"
-                Write-Information -InformationAction Continue ''
-                Write-Information -InformationAction Continue "  # For PowerShell (`$PROFILE)"
-                Write-Information -InformationAction Continue "  `$env:PATH = `"$installDir`:`$env:PATH`""
-                Write-Information -InformationAction Continue ''
-            }
+            Write-Information -InformationAction Continue "Add it to your PATH (run as Administrator):"
+            Write-Information -InformationAction Continue ''
+            Write-Information -InformationAction Continue "  [Environment]::SetEnvironmentVariable('Path',"
+            Write-Information -InformationAction Continue "    `"$installDir;`" + [Environment]::GetEnvironmentVariable('Path', 'User'), 'User')"
+            Write-Information -InformationAction Continue ''
+            Write-Information -InformationAction Continue "Or add to your PowerShell profile (`$PROFILE):"
+            Write-Information -InformationAction Continue ''
+            Write-Information -InformationAction Continue "  `$env:PATH = `"$installDir;`$env:PATH`""
+            Write-Information -InformationAction Continue ''
         }
 
         # Verify installation

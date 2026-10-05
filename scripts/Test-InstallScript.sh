@@ -235,6 +235,23 @@ expect "an unknown argument: exits 1" "$output" is "$status" 1
 expect "an unknown argument: named, with the usage" "$output" \
     grep --quiet --fixed-strings "unknown argument: --bsae=x" "$output"
 
+# Windows, as Git Bash reports it: install.ps1 installs there, and install.sh refuses (#1032).
+mkdir -p "${scratch}/windows-uname"
+cat >"${scratch}/windows-uname/uname" <<'EOF'
+#!/bin/sh
+case "$1" in
+    -m) echo x86_64 ;;
+    *) echo MINGW64_NT-10.0-26100 ;;
+esac
+EOF
+chmod +x "${scratch}/windows-uname/uname"
+output="${scratch}/windows.out"
+install_pipe windows "$output" PATH="${scratch}/windows-uname:${installer_path}" --
+expect "on Windows (Git Bash): exits 1" "$output" is "$status" 1
+expect "on Windows (Git Bash): says it requires Linux or macOS" "$output" \
+    grep --quiet --fixed-strings "This script requires Linux or macOS (Darwin)." "$output"
+expect "on Windows (Git Bash): refused before any download" "$output" absent "Fetching" "$output"
+
 # --- An archive that can't be verified is refused, against a stand-in for GitHub (#1002, #1008) ---
 #
 # The fake curl answers install.sh as GitHub does, from the fixtures under FAKE_GITHUB:
