@@ -568,6 +568,10 @@ dist-all: ## Build distribution archives for PLATFORM (default: every supported 
 	# travels at share/devlore/star/extensions, where star looks for them under the prefix (#918), and where the
 	# installers put them by running each product's own `self install`.
 	# Only tracked files are packed, so a dirty checkout cannot leak into an archive.
+	#
+	# dist/ is emptied first, so everything in it is this run's: `checksums` hashes every file it finds there, and a
+	# checksums file or an archive left by an earlier run would be listed with this run's (#1034).
+	rm -rf dist
 	mkdir -p dist
 	extensions=$$(git ls-files star/extensions)
 	for platform in $(call select,all); do

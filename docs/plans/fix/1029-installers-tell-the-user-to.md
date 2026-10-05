@@ -1,7 +1,7 @@
 ---
 title: "The installers don't tell the user to register a layer writ already has, writ doesn't call an empty directory a layer, and the installers are tested against the programs beside them"
 issue: https://github.com/NobleFactor/devlore-cli/issues/1029
-status: active
+status: complete
 created: 2026-10-04
 updated: 2026-10-04
 ---
@@ -216,9 +216,14 @@ and Linux. i withdraw the requirement"; and each refuses as Declare-BashScript's
 
 - [ ] PR script written, shown, and handed over; its `git add` list proven with `git add --dry-run`. The PR resolves
       #1029, #1030 and #1031
-- [ ] After the merge: the Installers workflow ran on the pull request; the site serves the merged installers; and an
+- [x] After the merge: the Installers workflow ran on the pull request; the site serves the merged installers; and an
       install on this machine through the published one-liner prints `Already registered: base team personal` and no
-      "skipped" line
+      "skipped" line. Merged 2026-10-05 as #1032 (`6f600d68`); the Installers workflow's build job and all seven legs
+      passed on it, both Windows legs among them. The Release run's upload timed out (HTTP 408), published nothing,
+      and was rerun, publishing `v0.1.0-dev.20261005021254`. On DANOBLE-UD24-1, the site's installers matched
+      `develop` byte for byte, and `curl -fsSL .../install.sh | bash` installed that release, build `6f600d68`, after
+      "Checksum verified", printing `Already registered: base team personal` and no skipped line. Closed in #1034's
+      pull request
 
 ## Out of Scope
 

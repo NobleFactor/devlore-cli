@@ -1,7 +1,7 @@
 ---
 title: "make dist empties dist/ before it builds"
 issue: https://github.com/NobleFactor/devlore-cli/issues/1034
-status: draft
+status: active
 created: 2026-10-04
 updated: 2026-10-04
 ---
@@ -25,8 +25,9 @@ with the new ones. The release job checks out clean, so no published release is 
 
 - `dist-all` removes `dist/` before it creates it, after the host build that proves the version stamp, so every
   archive and the checksums file in `dist/` are this run's.
-- `make dist` run twice makes the same set of files, and its checksums file has one line for each archive this run
-  built and nothing else.
+- `make dist` run twice makes the same set of files, and each run's checksums file has one line for each archive that
+  run built and nothing else. (First written as "makes the same files": the archives are not byte for byte the same,
+  because every build stamps its time into the binaries, `BUILD_DATE` from `date -u` at `Makefile:58`, by design.)
 - `dist-clean` stays, for removing `dist/` without building.
 
 ### Requirement 2: Lane 24's plan closes
@@ -39,16 +40,18 @@ with the new ones. The release job checks out clean, so no published release is 
 
 ### Phase 1: Commit the plan
 
-- [ ] This plan committed on `chore/1034-make-dist-run-twice-makes-a`, and reviewed with the owner
+- [x] This plan committed on `chore/1034-make-dist-run-twice-makes-a` (`2e599716`), and approved 2026-10-04:
+      "Approved. Go"
 
 ### Phase 2: The fix (Requirement 1)
 
-- [ ] `dist-all` empties `dist/`. Proven: with a stale archive and checksums file left in `dist/`,
-      `make dist PLATFORM=<host>` twice leaves one archive and a checksums file with its one line, the same both runs
+- [x] `dist-all` empties `dist/`. Proven: with a stale `plan9_amd64` archive and checksums file left in `dist/`,
+      `make dist PLATFORM=linux/arm64` twice leaves one archive and a checksums file with its one line, each run.
+      Before the fix the first run listed the checksums file itself (`e3b0c442…`) and the stale archive
 
 ### Phase 3: The documents (Requirement 2)
 
-- [ ] Lane 24's plan
+- [x] Lane 24's plan, ticked and `complete`
 
 ### Phase 4: Merge
 
