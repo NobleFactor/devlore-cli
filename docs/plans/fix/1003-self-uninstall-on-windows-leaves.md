@@ -99,8 +99,11 @@ Two layers, one shared by every platform and one for Windows alone.
 
 ### Phase 2: The tests, failing (Requirements 1, 3, 4)
 
-- [ ] The Go test of the reasons, and the uninstall scenario on Windows and Unix, failing against `71dc125b` for the
-      reasons stated: the running `.exe` and the manifest are left, and a refused file reads as "modified"
+- [x] The Go test of the reasons, and the uninstall scenario, failing against `71dc125b`. `cmd/internal/cli`:
+      a refused file is reported "modified", and the manifest is removed while that file remains (both fail now;
+      Unix-only, since the setup refuses a delete through directory permissions, skipped as root). `cmd/scenario`:
+      `self uninstall` run from the installed copy, so the running image is the file removed -- the Windows case the
+      existing scenario misses by running the built binary. It polls for a deletion deferred past the process's exit
 
 ### Phase 3: The shared fix (Requirements 1, 2)
 
