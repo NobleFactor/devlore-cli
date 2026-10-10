@@ -96,7 +96,9 @@ they cannot verify ([#1002](https://github.com/NobleFactor/devlore-cli/issues/10
   functions, made by hand from the helper as it is today and made again by hand when it needs a newer one, and carries
   none of the helper's checks for bash 5.3 or GNU `getopt`
   ([#1037](https://github.com/NobleFactor/devlore-cli/issues/1037)). Its status for each cause is the helper's, from
-  the set in § 9.
+  the set in § 9. It takes `--prefix`, `--base`, `--team` and `--personal` as `--option value` or as
+  `--option=value`, in a few lines that run on bash 3.2, and refuses by name one given last with no value
+  ([#1038](https://github.com/NobleFactor/devlore-cli/issues/1038)).
 - **`install.ps1`, on Windows,** runs with what ships there: Windows PowerShell 5.1, and PowerShell 7 alike, in one
   code path. Ruled 2026-09-24, reversing #798's third ruling, which had it install PowerShell 7 first: the installer
   uses what is known to be on the box, Windows PowerShell 5.1, and installs nothing but devlore

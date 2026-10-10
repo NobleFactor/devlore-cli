@@ -1,5 +1,5 @@
 ---
-title: "install.sh and two repository tools narrate and trap with copies of Declare-BashScript's functions, and install.sh takes both option forms"
+title: "install.sh and two tools carry Declare-BashScript's functions, and install.sh takes both option forms"
 issue: https://github.com/NobleFactor/devlore-cli/issues/1037
 status: active
 created: 2026-10-09
@@ -208,7 +208,14 @@ double-quoted one when the path itself holds a back quote. No test pins either s
 
 ### Phase 5: The suite and the documents (Requirement 5)
 
-- [ ] The suite's new cases, and the documents.
+- [x] The suite's new cases, and the documents. Done 2026-10-10: the suite checks each option given last with no
+  value (64, named, refused before any download), `--base` in the space form, an architecture other than amd64 and
+  arm64 (78), a self install that fails (70, a prefix whose `bin` is not writable), an archive with no program
+  `DEVLORE_TOOLS` names (65), and `--prefix`, `--personal` and `--team` in the space form installing and registering
+  what the `=` form does, `--prefix=` too; every message it checks is in the helper's form. It passed all 288 of its
+  checks on this Mac, `install.sh` under macOS's own bash and tools. The getting-started guide shows both forms of
+  each bash flag; the command-line design's § 2 says `install.sh` takes both and refuses a value-less option by name,
+  and its status page records the revisions of § 2 and § 9.
 
 ### Phase 6: Verification
 
@@ -232,6 +239,8 @@ double-quoted one when the path itself holds a back quote. No test pins either s
 | `Makefile` | Modify | Requirement 6 |
 | `cmd/writ/writ/migrate/session.go` | Modify | Requirement 6: the two formats v2.14.0 flags |
 | `docs/architecture/10-command-line-interface.md` | Modify | The installers' requirements, and `install.sh`'s statuses in § 9 |
+| `docs/architecture/10-command-line-interface.status.md` | Modify | The revision note for § 2 and § 9 |
+| `docs/guides/getting-started.md` | Modify | Requirement 5: both forms of each bash flag |
 | `docs/plans/chore/1037-install-sh-embeds-declare.md` | Create | This plan |
 
 ## Out of Scope

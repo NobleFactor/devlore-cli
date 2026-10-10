@@ -301,14 +301,25 @@ install_pipe() {
         "$installer_bash" -s -- "$@" >"$output" 2>&1 || status=$?
 }
 
-# root_of <account> <layer>: the root writ reports for a layer in that account, by the writ installed there.
+# root_of <account> <layer> [writ]: the root writ reports for a layer in that account, by the writ installed there,
+# in the default prefix unless another writ is named.
 root_of() {
     local environment=()
     while IFS= read -r setting; do
         environment+=("$setting")
     done < <(account_env "$1")
-    env "${environment[@]}" "${scratch}/$1/home/.local/bin/writ" repo list \
+    env "${environment[@]}" "${3:-${scratch}/$1/home/.local/bin/writ}" repo list \
         --jq ".[] | select(.layer == \"$2\") | .root" --output value 2>/dev/null || true
+}
+
+# said <form> <message>: the line install.sh prints for the message in the helper's form (#1037): note's [+],
+# success's ✔ in green, or error's ✘ in red.
+said() {
+    case "$1" in
+        note) printf '[install.sh] [+] %s' "$2" ;;
+        success) printf '[install.sh] [\033[32m%s\033[0m] %s' "$Heavy_check_mark" "$2" ;;
+        *) printf '[install.sh] [\033[31m%s\033[0m] %s' "$Heavy_ballot" "$2" ;;
+    esac
 }
 
 # line_from_end <n> <file>: the nth line from the end.
@@ -373,16 +384,36 @@ tools_only() {
 
 # --- Refusals, before any network call ---
 
+tools_refusal="--base, --team and --personal register layers with writ, which DEVLORE_TOOLS=lore does not install"
+
 output="${scratch}/tools.out"
 install_pipe tools "$output" DEVLORE_TOOLS=lore -- --base="$repo"
 expect "DEVLORE_TOOLS=lore with --base: exits ${EX_USAGE}" "$output" is "$status" "$EX_USAGE"
+expect "DEVLORE_TOOLS=lore with --base: says why" "$output" holds "$output" "$(said error "$tools_refusal")"
 expect "DEVLORE_TOOLS=lore with --base: refused before any download" "$output" absent "Fetching" "$output"
+
+# The space form (#1038): --base takes the next argument as its value, so the refusal is the layer's, not an unknown
+# argument's.
+output="${scratch}/tools-space.out"
+install_pipe tools-space "$output" DEVLORE_TOOLS=lore -- --base "$repo"
+expect "DEVLORE_TOOLS=lore with --base <loc>: exits ${EX_USAGE}" "$output" is "$status" "$EX_USAGE"
+expect "DEVLORE_TOOLS=lore with --base <loc>: says why" "$output" holds "$output" "$(said error "$tools_refusal")"
 
 output="${scratch}/argument.out"
 install_pipe argument "$output" -- --bsae=x
 expect "an unknown argument: exits ${EX_USAGE}" "$output" is "$status" "$EX_USAGE"
 expect "an unknown argument: named, with the usage" "$output" \
-    grep --quiet --fixed-strings "unknown argument: --bsae=x" "$output"
+    holds "$output" "$(said error "unknown argument: --bsae=x")" "Usage: install.sh"
+
+# An option given last with no value is refused by name (#1038).
+for option in --prefix --base --team --personal; do
+    output="${scratch}/valueless-${option#--}.out"
+    install_pipe "valueless-${option#--}" "$output" -- --personal="$repo" "$option"
+    expect "${option} given last with no value: exits ${EX_USAGE}" "$output" is "$status" "$EX_USAGE"
+    expect "${option} given last with no value: named" "$output" \
+        holds "$output" "$(said error "${option} needs a value")"
+    expect "${option} given last with no value: refused before any download" "$output" absent "Fetching" "$output"
+done
 
 # Windows, as Git Bash reports it: install.ps1 installs there, and install.sh refuses (#1032).
 mkdir -p "${scratch}/windows-uname"
@@ -398,8 +429,25 @@ output="${scratch}/windows.out"
 install_pipe windows "$output" PATH="${scratch}/windows-uname:${installer_path}" --
 expect "on Windows (Git Bash): exits ${EX_CONFIG}" "$output" is "$status" "$EX_CONFIG"
 expect "on Windows (Git Bash): says it requires Linux or macOS" "$output" \
-    grep --quiet --fixed-strings "This script requires Linux or macOS (Darwin)." "$output"
+    holds "$output" "$(said error "This script requires Linux or macOS (Darwin).")"
 expect "on Windows (Git Bash): refused before any download" "$output" absent "Fetching" "$output"
+
+# An architecture the releases don't publish (#1037).
+mkdir -p "${scratch}/riscv-uname"
+cat >"${scratch}/riscv-uname/uname" <<'EOF'
+#!/bin/sh
+case "$1" in
+    -m) echo riscv64 ;;
+    *) echo Linux ;;
+esac
+EOF
+chmod +x "${scratch}/riscv-uname/uname"
+output="${scratch}/riscv.out"
+install_pipe riscv "$output" PATH="${scratch}/riscv-uname:${installer_path}" --
+expect "on riscv64: exits ${EX_CONFIG}" "$output" is "$status" "$EX_CONFIG"
+expect "on riscv64: names the architecture" "$output" \
+    holds "$output" "$(said error "Unsupported architecture: riscv64")"
+expect "on riscv64: refused before any download" "$output" absent "Fetching" "$output"
 
 # --- An archive that can't be verified is refused, against a stand-in for GitHub (#1002, #1008) ---
 #
@@ -829,14 +877,14 @@ against() {
 }
 
 # refused <account> <what> <fixture> <status> <message> [VAR=value ...]: install.sh, against the fixture, exits with
-# the status its cause has (#1037), prints the message, and extracts and installs nothing.
+# the status its cause has (#1037), prints the message in error's form, and extracts and installs nothing.
 refused() {
     local account="$1" what="$2" fixture="$3" expected="$4" message="$5"
     shift 5
     local output="${scratch}/${account}.out"
     against "$fixture" "$account" "$output" ${@+"$@"}
     expect "${what}: exits ${expected}" "$output" is "$status" "$expected"
-    expect "${what}: says \"${message}\"" "$output" holds "$output" "$message"
+    expect "${what}: says \"${message}\"" "$output" holds "$output" "$(said error "$message")"
     expect "${what}: extracts nothing" "$output" absent "Extracting" "$output"
     expect "${what}: installs nothing" "$output" missing "${scratch}/${account}/home/.local/bin"
 }
@@ -880,15 +928,17 @@ api_asked() {
     grep --fixed-strings -- "${api}/" "$1" || true
 }
 
-# installs <account> <what> <fixture> [VAR=value ...]: install.sh, against the fixture, exits 0, says it verified the
-# archive, installs the archive's programs, and downloaded both files by their public links.
+# installs <account> <what> <fixture> [VAR=value ...]: install.sh, against the fixture, exits 0, narrates in the
+# helper's form and says it verified the archive, installs the archive's programs, and downloaded both files by their
+# public links.
 installs() {
     local account="$1" what="$2" fixture="$3"
     shift 3
     local output="${scratch}/${account}.out"
     against "$fixture" "$account" "$output" ${@+"$@"}
     expect "${what}: exits 0" "$output" is "$status" 0
-    expect "${what}: says Checksum verified" "$output" holds "$output" "Checksum verified"
+    expect "${what}: narrates in note's form" "$output" holds "$output" "$(said note "Version: ${fixture_tag}")"
+    expect "${what}: says Checksum verified" "$output" holds "$output" "$(said success "Checksum verified")"
     expect "${what}: installs its programs" "$output" test -x "${scratch}/${account}/home/.local/bin/writ"
     expect "${what}: downloads both files by their public links" "${scratch}/${account}.requests" \
         by_link "${scratch}/${account}.requests"
@@ -935,6 +985,42 @@ expect "no flags: verified the archive" "$output" holds "$output" "Checksum veri
 expect "no flags: the three skipped layers are last" "$output" is "$(tail -n 6 "$output" | grep --count '^skipped: ')" 3
 expect "no flags: personal's command is the last line" "$output" \
     is "$(line_from_end 1 "$output")" "  writ repo set personal <working-tree-root>|<repository-url>"
+
+# --- The space form (#1038): each option takes the next argument as its value, as the = form does ---
+
+output="${scratch}/space.out"
+prefix="${scratch}/space/home/opt"
+team_clone="${scratch}/space/home/.local/share/devlore/writ/repos/noblefactor-ops"
+against "${github}/verified" space "$output" -- --prefix "$prefix" --personal "$repo" --team "$team_url"
+expect "the space form: exits 0" "$output" is "$status" 0
+expect "the space form: --prefix <dir> installs there" "$output" test -x "${prefix}/bin/writ"
+expect "the space form: --personal <loc> registers the checkout" "$output" \
+    is "$(root_of space personal "${prefix}/bin/writ")" "$repo"
+expect "the space form: --team <loc> registers the team's clone" "$output" \
+    is "$(root_of space team "${prefix}/bin/writ")" "$team_clone"
+
+# --- A self install that fails (#1037): the prefix's bin is not writable, as /usr/local/bin is without sudo ---
+#
+# Run as root, the bin is writable after all, and these checks fail.
+
+output="${scratch}/self-install.out"
+prefix="${scratch}/self-install/home/read-only"
+mkdir -p "${prefix}/bin"
+chmod 555 "${prefix}/bin"
+against "${github}/verified" self-install "$output" -- --prefix="$prefix"
+chmod 755 "${prefix}/bin"
+expect "a self install that fails: exits ${EX_SOFTWARE}" "$output" is "$status" "$EX_SOFTWARE"
+expect "a self install that fails: names the program" "$output" \
+    holds "$output" "$(said error "lore self install failed")"
+
+# --- An archive with no program DEVLORE_TOOLS names (#1037) ---
+
+output="${scratch}/no-program.out"
+against "${github}/verified" no-program "$output" DEVLORE_TOOLS=nosuch
+expect "DEVLORE_TOOLS=nosuch: exits ${EX_DATAERR}" "$output" is "$status" "$EX_DATAERR"
+expect "DEVLORE_TOOLS=nosuch: says so" "$output" \
+    holds "$output" "$(said error "No binaries found in archive for DEVLORE_TOOLS=nosuch")"
+expect "DEVLORE_TOOLS=nosuch: installs nothing" "$output" missing "${scratch}/no-program/home/.local/bin/writ"
 
 # The one list of cases both installers' tests run, each check named by its case's number in the plan
 # (docs/plans/fix/1002-installers-install-an-archive.md, Requirement 6), then install.sh's own case, then the checks of

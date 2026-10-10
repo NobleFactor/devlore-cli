@@ -31,7 +31,8 @@ the DevLore site's develop environment, from which devlore is released today.
 On macOS and Linux:
 
 ```bash
-curl --fail --silent --show-error --location https://delightful-grass-0ac0a4c1e-develop.westus2.6.azurestaticapps.net/install.sh |
+curl --fail --silent --show-error --location \
+  https://delightful-grass-0ac0a4c1e-develop.westus2.6.azurestaticapps.net/install.sh |
   bash -s -- --base=<path-or-url> --team=<path-or-url> --personal=<path-or-url>
 ```
 
@@ -57,12 +58,13 @@ irm https://delightful-grass-0ac0a4c1e-develop.westus2.6.azurestaticapps.net/ins
 
 | bash | PowerShell | Environment | Layer |
 | --- | --- | --- | --- |
-| `--base=<loc>` | `-Base <loc>` | `DEVLORE_BASE` | base |
-| `--team=<loc>` | `-Team <loc>` | `DEVLORE_TEAM` | team |
-| `--personal=<loc>` | `-Personal <loc>` | `DEVLORE_PERSONAL` | personal |
+| `--base <loc>` or `--base=<loc>` | `-Base <loc>` | `DEVLORE_BASE` | base |
+| `--team <loc>` or `--team=<loc>` | `-Team <loc>` | `DEVLORE_TEAM` | team |
+| `--personal <loc>` or `--personal=<loc>` | `-Personal <loc>` | `DEVLORE_PERSONAL` | personal |
 
 - Each is optional. A location is a working-tree root or a repository URL, as `writ repo set` takes it; an
-  SSH URL clones over SSH. A flag wins over its variable.
+  SSH URL clones over SSH. A flag wins over its variable. In bash, each flag takes its value after a space or an
+  `=`.
 - The installer never asks. A layer you don't give is skipped, and the run's last lines name the
   `writ repo set` command that registers it later. A layer writ already has is not skipped: the
   summary names it as already registered.

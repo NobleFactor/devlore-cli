@@ -89,7 +89,10 @@ every merge, pointing at 5.1. **Revised 2026-09-28 (#847), again:** §3.1 record
 fetched build, replacing each program's record; the suite; a running binary replaced by a rename; the two channels,
 `develop` and `release`, and their stamp; what decides a run (`--from`, `--channel`, `DEVLORE_VERSION`,
 `self.channel`, the stamp), with `--prerelease` and `self.prerelease`; `GH_TOKEN`. §11 points at it as the ladder
-followed rung for rung.
+followed rung for rung. **Revised 2026-10-09 and 2026-10-10 (#1037, #1038):** §2 gains "The installers": each runs
+with what ships with its operating system, `install.sh` with macOS's bash 3.2 and own tools; `install.sh` narrates
+and traps with copies of Declare-BashScript's functions, made by hand, and takes each option as `--option value` or
+`--option=value`. §9 names `install.sh`'s exit statuses, the helper's, one for each cause.
 
 ## Document discrepancies
 
