@@ -3,7 +3,7 @@ title: "install.sh and two repository tools narrate and trap with copies of Decl
 issue: https://github.com/NobleFactor/devlore-cli/issues/1037
 status: active
 created: 2026-10-09
-updated: 2026-10-09
+updated: 2026-10-10
 ---
 
 # Plan: install.sh and two repository tools on Declare-BashScript
@@ -120,12 +120,14 @@ for its cause, as ruled:
 | --- | --- |
 | 64 `EX_USAGE` | an unknown option; an option given last with no value; a layer given while `DEVLORE_TOOLS` leaves out writ |
 | 65 `EX_DATAERR` | the checksums file has no line for the archive; a checksum mismatch; an archive with no program `DEVLORE_TOOLS` names |
-| 69 `EX_UNAVAILABLE` | curl missing; neither sha256sum nor shasum; GitHub refuses a request, or has no such release or none at all |
+| 69 `EX_UNAVAILABLE` | curl missing; neither sha256sum nor shasum; GitHub refuses a request, serves a file by another name, or has no such release or none at all |
 | 70 `EX_SOFTWARE` | a program's `self install` fails |
 | 75 `EX_TEMPFAIL` | GitHub's rate limit is used up; the message says when to run again |
-| 78 `EX_CONFIG` | an operating system other than Linux and macOS; an architecture other than amd64 and arm64 | The narration moves to stderr in the helper's form, `[install.sh] [+] ...`, colored whether or not stderr
-is a terminal, as the helper's is; the PATH advice and the next steps stay plain lines on stdout. A message that relied
-on `echo -e` to break its lines is written as separate lines.
+| 78 `EX_CONFIG` | an operating system other than Linux and macOS; an architecture other than amd64 and arm64 |
+
+The narration moves to stderr in the helper's form, `[install.sh] [+] ...`, colored whether or not stderr is a
+terminal, as the helper's is; the PATH advice and the next steps stay plain lines on stdout. A message that relied on
+`echo -e` to break its lines is written as separate lines.
 
 ### Requirement 2: both option forms (#1038)
 
@@ -195,7 +197,14 @@ double-quoted one when the path itself holds a back quote. No test pins either s
 
 ### Phase 4: install.sh (Requirements 1, 2 and 4)
 
-- [ ] The narration, the trap and both option forms, run under `/bin/bash` 3.2.57 and bash 5.3.
+- [x] The narration, the trap and both option forms, run under `/bin/bash` 3.2.57 and bash 5.3, and the suite's checks
+  of each refusal expecting its status. Done 2026-10-10: `install.sh` carries the five functions as c942f54 has them,
+  with the six statuses it exits with; every `info`, `warn` and `error` converted, a status passed on through each
+  command substitution, the mismatch's two checksums on lines of their own; shfmt and shellcheck clean at the gate's
+  settings, and no line over 120 columns. Under `/bin/bash` 3.2.57 and bash 5.3.20 alike: `--help` exits 0, an option
+  given last with no value 64 naming it, an unknown option 64, both forms of each option parsed, no curl 69. The
+  suite's `refused` and `refused_before_archive` take the status, its three direct checks expect 64, 64 and 78, and
+  it passed all 249 of its checks on this Mac, `install.sh` under macOS's own bash and tools.
 
 ### Phase 5: The suite and the documents (Requirement 5)
 

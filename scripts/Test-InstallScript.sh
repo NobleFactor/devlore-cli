@@ -11,9 +11,13 @@ set -o errexit -o errtrace -o nounset -o pipefail
 # Declare-BashScript's functions and constants this suite uses, as NobleFactor/noblefactor-ops c942f54 has them,
 # copied by hand: nothing here sources the helper (#1037). Copy them again when this suite needs a newer one.
 
-readonly EX_USAGE=64    # command line usage error
-readonly EX_NOINPUT=66  # cannot open input
-readonly EX_SOFTWARE=70 # internal software error
+readonly EX_USAGE=64       # command line usage error
+readonly EX_DATAERR=65     # data format error
+readonly EX_NOINPUT=66     # cannot open input
+readonly EX_UNAVAILABLE=69 # service unavailable (missing dependency)
+readonly EX_SOFTWARE=70    # internal software error
+readonly EX_TEMPFAIL=75    # temp failure; user is invited to retry
+readonly EX_CONFIG=78      # configuration error (unsupported platform)
 readonly Heavy_ballot='✘' Heavy_check_mark='✔'
 script_name="$(basename "$0")" && readonly script_name
 
@@ -371,12 +375,12 @@ tools_only() {
 
 output="${scratch}/tools.out"
 install_pipe tools "$output" DEVLORE_TOOLS=lore -- --base="$repo"
-expect "DEVLORE_TOOLS=lore with --base: exits 1" "$output" is "$status" 1
+expect "DEVLORE_TOOLS=lore with --base: exits ${EX_USAGE}" "$output" is "$status" "$EX_USAGE"
 expect "DEVLORE_TOOLS=lore with --base: refused before any download" "$output" absent "Fetching" "$output"
 
 output="${scratch}/argument.out"
 install_pipe argument "$output" -- --bsae=x
-expect "an unknown argument: exits 1" "$output" is "$status" 1
+expect "an unknown argument: exits ${EX_USAGE}" "$output" is "$status" "$EX_USAGE"
 expect "an unknown argument: named, with the usage" "$output" \
     grep --quiet --fixed-strings "unknown argument: --bsae=x" "$output"
 
@@ -392,7 +396,7 @@ EOF
 chmod +x "${scratch}/windows-uname/uname"
 output="${scratch}/windows.out"
 install_pipe windows "$output" PATH="${scratch}/windows-uname:${installer_path}" --
-expect "on Windows (Git Bash): exits 1" "$output" is "$status" 1
+expect "on Windows (Git Bash): exits ${EX_CONFIG}" "$output" is "$status" "$EX_CONFIG"
 expect "on Windows (Git Bash): says it requires Linux or macOS" "$output" \
     grep --quiet --fixed-strings "This script requires Linux or macOS (Darwin)." "$output"
 expect "on Windows (Git Bash): refused before any download" "$output" absent "Fetching" "$output"
@@ -824,14 +828,14 @@ against() {
         ${settings[@]+"${settings[@]}"} -- ${@+"$@"}
 }
 
-# refused <account> <what> <fixture> <message> [VAR=value ...]: install.sh, against the fixture, exits 1, prints the
-# message, and extracts and installs nothing.
+# refused <account> <what> <fixture> <status> <message> [VAR=value ...]: install.sh, against the fixture, exits with
+# the status its cause has (#1037), prints the message, and extracts and installs nothing.
 refused() {
-    local account="$1" what="$2" fixture="$3" message="$4"
-    shift 4
+    local account="$1" what="$2" fixture="$3" expected="$4" message="$5"
+    shift 5
     local output="${scratch}/${account}.out"
     against "$fixture" "$account" "$output" ${@+"$@"}
-    expect "${what}: exits 1" "$output" is "$status" 1
+    expect "${what}: exits ${expected}" "$output" is "$status" "$expected"
     expect "${what}: says \"${message}\"" "$output" holds "$output" "$message"
     expect "${what}: extracts nothing" "$output" absent "Extracting" "$output"
     expect "${what}: installs nothing" "$output" missing "${scratch}/${account}/home/.local/bin"
@@ -846,8 +850,8 @@ unasked() {
         { [[ -z "$id" ]] || ! grep --quiet --line-regexp --fixed-strings -- "${api}/releases/assets/${id}" "$2"; }
 }
 
-# refused_before_archive <account> <what> <fixture> <message> [VAR=value ...]: refused, and the archive, which the
-# fixture's release has, was never downloaded: the checksums file, and the archive's line in it, come first
+# refused_before_archive <account> <what> <fixture> <status> <message> [VAR=value ...]: refused, and the archive,
+# which the fixture's release has, was never downloaded: the checksums file, and the archive's line in it, come first
 # (Requirement 1).
 refused_before_archive() {
     local account="$1" what="$2" fixture="$3"
@@ -947,23 +951,25 @@ rate_limit+=" documentation for more details.)"
 for layout in indented one-line; do
     json="(${layout} JSON)"
     refused_before_archive "${layout}.no-checksums" "case 1 ${json}: no checksums file in the release" \
-        "${github}/no-checksums" "$no_checksums"
-    refused_before_archive "${layout}.no-line" "case 2 ${json}: no line for the archive" "${github}/no-line" "$no_line"
+        "${github}/no-checksums" "$EX_UNAVAILABLE" "$no_checksums"
+    refused_before_archive "${layout}.no-line" "case 2 ${json}: no line for the archive" "${github}/no-line" \
+        "$EX_DATAERR" "$no_line"
     refused_before_archive "${layout}.contains" "case 3 ${json}: a line only for ${fixture_archive}.sig" \
-        "${github}/contains" "$no_line"
+        "${github}/contains" "$EX_DATAERR" "$no_line"
     refused_before_archive "${layout}.pattern" "case 4 ${json}: a line that matches only as a pattern, a dot replaced" \
-        "${github}/pattern" "$no_line"
+        "${github}/pattern" "$EX_DATAERR" "$no_line"
     refused_before_archive "${layout}.line-case" "case 5 ${json}: a line naming the archive in another case" \
-        "${github}/line-case" "$no_line"
-    refused "${layout}.mismatch" "case 6 ${json}: a mismatch" "${github}/mismatch" "Checksum verification failed"
+        "${github}/line-case" "$EX_DATAERR" "$no_line"
+    refused "${layout}.mismatch" "case 6 ${json}: a mismatch" "${github}/mismatch" "$EX_DATAERR" \
+        "Checksum verification failed"
     expect "case 6 ${json}: a mismatch: names both hashes" "${scratch}/${layout}.mismatch.out" \
         holds "${scratch}/${layout}.mismatch.out" "Expected: ${wrong_sum}" "Actual:   ${archive_sum}"
     refused_before_archive "${layout}.refused-checksums" "case 7 ${json}: the checksums file's download refused" \
-        "${github}/refused-checksums" "$no_checksums"
+        "${github}/refused-checksums" "$EX_UNAVAILABLE" "$no_checksums"
     refused "${layout}.refused-archive" "case 8 ${json}: the archive's download refused" "${github}/refused-archive" \
-        "$no_archive"
+        "$EX_UNAVAILABLE" "$no_archive"
     refused "${layout}.no-archive" "case 9 ${json}: no archive for ${os}/${arch} in the release" \
-        "${github}/no-archive" "$no_archive"
+        "${github}/no-archive" "$EX_UNAVAILABLE" "$no_archive"
     description="case 9 ${json}: no archive for ${os}/${arch} in the release: asks GitHub's API nothing,"
     description+=" the checksums file having shown the release exists"
     expect "$description" \
@@ -971,18 +977,18 @@ for layout in indented one-line; do
     refusal="Could not download ${fixture_archive} from release ${fixture_tag}:"
     refusal+=" GitHub served $(upper "$fixture_archive"), a file by another name"
     refused "${layout}.archive-case" "case 10 ${json}: the archive published under a name in another case" \
-        "${github}/archive-case" "$refusal"
+        "${github}/archive-case" "$EX_UNAVAILABLE" "$refusal"
     installs "${layout}.near-checksums" \
         "case 11 ${json}: a look-alike of the checksums file, a dot replaced, listed first" "${github}/near-checksums"
     installs "${layout}.near-archive" "case 11 ${json}: a look-alike of the archive, a dot replaced, listed first" \
         "${github}/near-archive"
-    refused "${layout}.no-release" "case 12 ${json}: no release" "${github}/no-release" \
+    refused "${layout}.no-release" "case 12 ${json}: no release" "${github}/no-release" "$EX_UNAVAILABLE" \
         "Could not determine the latest release of NobleFactor/devlore-cli: GitHub lists none" DEVLORE_VERSION=
     # The rate limit says when to run again (Requirement 3b): the reset as a clock time and in minutes, and, only when
     # GH_TOKEN is unset, that setting it raises the limit. Each sentence is checked as the whole line.
     clock=$(rate_limited)
-    refused "${layout}.rate-limited" "case 12 ${json}: a rate limit" "${github}/rate-limited" "$rate_limit" \
-        DEVLORE_VERSION= GH_TOKEN=
+    refused "${layout}.rate-limited" "case 12 ${json}: a rate limit" "${github}/rate-limited" "$EX_TEMPFAIL" \
+        "$rate_limit" DEVLORE_VERSION= GH_TOKEN=
     refusal="GitHub's API limit for this address is used up. It resets at ${clock} (in 23 minutes); run the installer"
     refusal+=" again after that. Setting GH_TOKEN raises the limit."
     expect "case 12 ${json}: a rate limit: says when to run again, and that GH_TOKEN raises the limit" \
@@ -990,7 +996,7 @@ for layout in indented one-line; do
         "${scratch}/${layout}.rate-limited.out"
     clock=$(rate_limited)
     refused "${layout}.rate-limited-token" "case 12 ${json}: a rate limit, with GH_TOKEN set" "${github}/rate-limited" \
-        "$rate_limit" DEVLORE_VERSION= GH_TOKEN=fixture-token
+        "$EX_TEMPFAIL" "$rate_limit" DEVLORE_VERSION= GH_TOKEN=fixture-token
     refusal="GitHub's API limit for your token is used up. It resets at ${clock} (in 23 minutes); run the installer"
     refusal+=" again after that."
     expect "case 12 ${json}: a rate limit, with GH_TOKEN set: says when to run again, and nothing of GH_TOKEN" \
@@ -1003,10 +1009,11 @@ for layout in indented one-line; do
     refusal+=" GitHub served $(upper "$fixture_checksums"), a file by another name"
     refused_before_archive "${layout}.checksums-case" \
         "case 14 ${json}: the checksums file published under a name in another case" "${github}/checksums-case" \
-        "$refusal"
+        "$EX_UNAVAILABLE" "$refusal"
     refused_before_archive "${layout}.bom" "case 15 ${json}: the archive's line behind a byte-order mark" \
-        "${github}/bom" "$no_line"
+        "${github}/bom" "$EX_DATAERR" "$no_line"
     refused "${layout}.no-tag" "case 16 ${json}: a pinned DEVLORE_VERSION that names no release" "${github}/verified" \
+        "$EX_UNAVAILABLE" \
         "Could not fetch release ${no_tag} of NobleFactor/devlore-cli: GitHub answered HTTP 404: Not Found" \
         DEVLORE_VERSION="$no_tag"
     description="case 16 ${json}: a pinned DEVLORE_VERSION that names no release: asks GitHub's API for it only after"
@@ -1016,11 +1023,11 @@ for layout in indented one-line; do
         "${download}/${no_tag}/devlore-cli_${no_tag}_checksums.txt" "${api}/releases/tags/${no_tag}"
 
     refused "${layout}.no-sha256" "install.sh's own case ${json}: neither sha256sum nor shasum" "${github}/verified" \
-        "Neither sha256sum nor shasum found, so ${fixture_archive} cannot be verified" \
+        "$EX_UNAVAILABLE" "Neither sha256sum nor shasum found, so ${fixture_archive} cannot be verified" \
         PATH="${fake_bin}:${github}/tools"
 
     refused "${layout}.no-curl" "Requirement 3a ${json}: no curl, with wget where this machine has it" \
-        "${github}/verified" "curl not found" PATH="${github}/no-curl"
+        "${github}/verified" "$EX_UNAVAILABLE" "curl not found" PATH="${github}/no-curl"
     description="Requirement 3a ${json}: a pinned DEVLORE_VERSION that names a release: asks GitHub's API nothing"
     description+=" (case 13's plain run)"
     expect "$description" \
