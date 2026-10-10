@@ -220,14 +220,24 @@ double-quoted one when the path itself holds a back quote. No test pins either s
 ### Phase 6: Verification
 
 - [ ] `make check` clean on this Mac, and CI green on the pull request, every installers leg.
-- [ ] The suite on this Mac, with macOS's own tools and with MacPorts' (`--keep-path`), and on danoble-ud24-1.local.
-- [ ] This branch's `install.sh`, piped into bash on danoble-ud24-1.local under a scratch HOME, installs the newest
-  release from GitHub and registers nothing.
+- [x] The suite on this Mac, with macOS's own tools and with MacPorts' (`--keep-path`), and on danoble-ud24-1.local.
+  Done 2026-10-10, all 288 checks each time: on this Mac under macOS's own bash 3.2.57 and tools, and with MacPorts'
+  first; on danoble-ud24-1.local (bash 5.3.9, GNU tools) against this branch's linux/arm64 archive from `make dist`,
+  in a copy of that machine's own clone. danoble-wd11-3, back up and asked for by the owner: the suite does not run
+  there, as `install.sh` serves no Windows, but piped into Git Bash (bash 5.3.15) `install.sh` refuses a value-less
+  `--prefix` with 64, takes `--base x` in the space form, and refuses the platform with 78 before any download.
+- [x] This branch's `install.sh`, piped into bash on danoble-ud24-1.local under a scratch HOME, installs the newest
+  release from GitHub and registers nothing. Done 2026-10-10: exit 0; v0.1.0-dev.20261005182840 installed, its
+  checksum verified, `writ --version` naming it; base, team and personal unregistered; TMPDIR left empty; the next
+  steps and the three skipped layers last, both streams merged where they start.
 
 ### Phase 7: Acceptance and closure
 
 - [ ] The pull request, the merge and `git close-branch`; lanes 62 and 64 marked on #916, and #1037 and #1038 closed;
   #1020 records this bump, and lane 35's row says the next one is the monthly chore's.
+
+Phase 6's CI box and this one close with the pull request itself, after this plan's last commit, so the plan stays
+active until the next devlore-cli pull request ticks them, as plan 289's were.
 
 ## Files
 
