@@ -1,7 +1,7 @@
 ---
-title: "install.sh narrates and traps as Declare-BashScript does and takes both option forms; two repository tools embed the helper"
+title: "install.sh and two repository tools narrate and trap with copies of Declare-BashScript's functions, and install.sh takes both option forms"
 issue: https://github.com/NobleFactor/devlore-cli/issues/1037
-status: draft
+status: active
 created: 2026-10-09
 updated: 2026-10-09
 ---
@@ -32,6 +32,17 @@ owner's rulings:
 - golangci-lint, 2026-10-09. MacPorts had moved this Mac to v2.14.0 against the pin, v2.13.2: "Let the commit script
   install 2.13.2 for all uses on this machine." v2.13.2 then could not read this Mac's Go 1.27.2; told that v2.14.0
   ships for every platform and that CI's install fetches it: "It seems it must be time to update to 2.14 everywhere".
+- The two tools' CI, 2026-10-09. Told that the installers' runners ship bash 5.2 and 3.2, so the suite embedding the
+  whole helper would stop on every one, and offered newer runners and Homebrew's `bash` and `gnu-getopt` for the suite
+  (1) or the two tools carrying only what runs on bash 3.2 (2): "1." Moot since the next two rulings: nothing carries
+  the whole helper, so neither tool needs bash 5.3 or GNU `getopt`, and CI stays as it is.
+- The copies, 2026-10-09. Asked where a generator and drift check for them should live: "Whoa! I think we need to
+  abandon this work. the helper functions we need can be updated manually as needed." Read as the generator alone,
+  and the two tools were still to carry the whole helper.
+- The copies, 2026-10-10. Asked how a tool should carry the whole helper: "WE RULED THE EMBEDDING OUT". Then: "WE SAID
+  THAT YOU WERE GOING TO DO THIS "MANUALLY", WHERE MANUALLY MEANS WE GET A 50-FIRST-DATES RENDERING OF WHAT IS HERE
+  TODAY." Told that each script then gets copies of today's helper functions, made by hand and made again by hand
+  when it needs a newer one, keeping its own option parsing: "That sounds right".
 
 ## Goals
 
@@ -39,9 +50,10 @@ owner's rulings:
    what ships with macOS: its bash 3.2 and its own tools.
 2. `install.sh` takes `--prefix`, `--base`, `--team` and `--personal` as `--option value` and as `--option=value`, and
    refuses by name an option given last with no value.
-3. `scripts/Test-InstallScript.sh` and `packaging/macports/generate-portfile.sh` embed the helper whole, and parse,
-   narrate and trap through it.
-4. Every embedded copy comes from one pinned commit of the helper, and `make check` fails when one drifts from it.
+3. `scripts/Test-InstallScript.sh` and `packaging/macports/generate-portfile.sh` narrate and trap with copies of the
+   helper's functions, keep their own option parsing, and run where they run today.
+4. Every copy is the helper's functions as they are today, made by hand, and made again by hand when a script needs a
+   newer one.
 5. golangci-lint is v2.14.0 everywhere the tree is linted: CI, this Mac, danoble-ud24-1.local and danoble-wd11-3.
 
 ## The installers' requirements
@@ -86,7 +98,7 @@ Measured 2026-10-09 on Danoble-MBP-A.
 | The helper | NobleFactor/noblefactor-ops c942f54, 367 lines. Stops with 78 on a bash older than 5.3 and on a `getopt` that isn't GNU's; then sets `errexit`, `errtrace`, `nounset` and `pipefail`, turns on `inherit_errexit`, and parses its consumer's options with GNU `getopt`. Its `error`, `note`, `success`, `Set-Traps` and `on_error_or_interrupt` use nothing newer than bash 3.0, and read `script_name`, `Heavy_ballot` and `Heavy_check_mark`. |
 | Its handler under bash 3.2 | Run with the helper's own five functions and a failure inside a function: bash 3.2.57 stops with status 1 and reports `at line 43: ((BASH_SUBSHELL == 0))`, a command of the handler's own; bash 5.3.20 reports `at line 44: false`. |
 | `scripts/Test-InstallScript.sh` | 903 lines, written to run on bash 3.2. Runs `install.sh` as `curl ... \| bash`, on macOS under `/bin/bash` with macOS's own tools, reading its stdout and stderr together (line 152). Expects every refusal to exit 1 (lines 229, 234, 250 and 690) and matches `error: unknown argument`. Traps `rm -rf "$scratch"` (line 67). |
-| Its CI | `installers.yaml` runs it on `macos-latest`, `macos-15-intel`, `ubuntu-latest` and `ubuntu-24.04-arm`, and on `macos-latest` with MacPorts' GNU tools first on PATH. Which bash each runner finds first, and which Ubuntu `ubuntu-latest` is today, are not verified; Ubuntu 24.04 ships bash 5.2. |
+| Its CI | `installers.yaml` runs it on `macos-latest`, `macos-15-intel`, `ubuntu-latest` and `ubuntu-24.04-arm`, and on `macos-latest` with MacPorts' GNU tools first on PATH. GitHub's image manifests: `ubuntu-latest` is Ubuntu 24.04 and, like `ubuntu-24.04-arm`, ships bash 5.2.21; `macos-latest` is macOS 26 and `macos-15-intel` macOS 15, both bash 3.2.57; `ubuntu-26.04` and `ubuntu-26.04-arm` ship bash 5.3.9. No manifest lists a GNU `getopt`; Ubuntu's base system carries util-linux's. |
 | golangci-lint | Pinned at v2.13.2 (`Makefile:479`), which CI installs; CI's last green lint, 2026-10-05, ran it on Go 1.27.1. This Mac: Go 1.27.2 from MacPorts; MacPorts' golangci-lint v2.14.0 was uninstalled and v2.13.2 put in `/usr/local/bin` on 2026-10-09, and v2.13.2 cannot read Go 1.27.2's standard library ("export data version 5 is greater than maximum supported version 4"). danoble-ud24-1.local: v2.13.2 in `~/.local/bin`, Go 1.26.0. danoble-wd11-3: v2.13.2 from WinGet (`GolangCI.golangci-lint`, 2.14.0 available), Go 1.27.0. v2.14.0, released 2026-09-24, ships for macOS, Linux and Windows on amd64 and arm64, and moves `golang.org/x/tools` from 0.49.0 to 0.50.0. |
 | `packaging/macports/generate-portfile.sh` | 48 lines, `set -euo pipefail`, traps `rm -f "$TMPFILE"`. GoReleaser's after hook (`.goreleaser.yaml:17`): it writes the MacPorts Portfile for each release GoReleaser makes. GoReleaser is staged for the releases to come and kept correct by `verify-ldflags`; until then `release.yaml` builds with `make dist` (`Makefile:522`). |
 
@@ -121,32 +133,30 @@ The loop takes each of the four as `--option value` or `--option=value`. An opti
 `error` and the usage status, naming it: `--prefix needs a value`. `-h` and `--help` print the usage, which shows both
 forms. A few lines that run on bash 3.2, and no general parser.
 
-### Requirement 3: the two tools embed the helper whole (#1037)
+### Requirement 3: the two tools carry the helper's functions (#1037)
 
-Each carries the helper's text verbatim in a here-document that it sources with its own options:
-`source /dev/stdin "$0" "<long options>" "<short options>" "$@" <<'DECLARE_BASHSCRIPT'`. Each parses with the helper's
-loop, narrates with `note`, `success` and `error`, and states its cleanup with `Set-Traps`. `Test-InstallScript.sh`
-still runs `install.sh` under `/bin/bash` and macOS's own tools on macOS; the suite itself then needs bash 5.3 and GNU
-`getopt`, and so does `generate-portfile.sh` wherever GoReleaser runs it (Open Question 1). Sourcing a here-document
-is proven on bash 5.3 before either file changes; if it fails, the text goes inline after a `set --` that gives the
-helper the same arguments.
+`Test-InstallScript.sh` and `generate-portfile.sh` each carry the same copies as `install.sh` (Requirement 1): the
+helper's `note`, `success`, `error`, `on_error_or_interrupt` and `Set-Traps`, with the `EX_` statuses and the two
+markers they read. Each narrates with `note`, `success` and `error` in place of its own messages, and states its
+cleanup with `Set-Traps` in place of its own trap. Each keeps its own option parsing; neither carries the helper's
+checks for bash 5.3 or GNU `getopt`, its shell options or its parser, so each runs where it runs today, and CI stays as
+it is. On bash 3.2 the handler stops a tool with the failing status, and its message names one of the handler's own
+commands and lines, as for `install.sh`.
 
-### Requirement 4: one pin, one generator, one check (#1037)
+### Requirement 4: the copies are made by hand (#1037)
 
-- **The pin.** `DECLARE_BASHSCRIPT_COMMIT` in the `Makefile`, today `c942f54985c06f4ce767e872bbe389e967df9bba`. It is
-  the one fact; there is no vendored copy to keep beside it.
-- **The generator.** `make embed-helper` fetches the helper at the pin from its public URL and writes it into the two
-  tools' here-documents, and its five functions, statuses and markers into `install.sh`, between marker lines that
-  name the commit.
-- **The check.** `make check-embedded-helper`, which `make check` runs, generates the same into a scratch tree and
-  fails on any difference, naming the file. It needs the network, as CI has.
+Every copy is the helper's functions as NobleFactor/noblefactor-ops c942f54 has them today, copied by hand: no pin, no
+generator, no drift check, and nothing that sources or carries the whole helper, as ruled. When the helper changes
+and a script needs the change, its functions are copied again by hand. A comment above each script's copies names the
+helper and the commit they came from.
 
 ### Requirement 5: tests and documents
 
 - `Test-InstallScript.sh` proves both forms and the value-less refusal for each option, the new narration, and each
   status in Requirement 1's table, still running `install.sh` under macOS's bash 3.2.
 - `install.sh`'s usage, and every document that shows its options or quotes its messages, say what it does now.
-- The command-line design's § 2 states both installers' requirements, as the section above does.
+- The command-line design's § 2 states both installers' requirements, as the section above does, and its § 9
+  `install.sh`'s statuses.
 
 ### Requirement 6: golangci-lint v2.14.0 everywhere (part of #1020)
 
@@ -162,39 +172,43 @@ double-quoted one when the path itself holds a back quote. No test pins either s
 
 ### Phase 1: The plan
 
-- [ ] This plan, committed on `chore/1037-install-sh-embeds-declare` and reviewed with the owner, its questions
-  settled. star's last known good build was taken when the worktree opened, 2026-10-09 (`build/star.lkg`).
+- [x] This plan, committed on `chore/1037-install-sh-embeds-declare` and reviewed with the owner, its questions
+  settled. star's last known good build was taken when the worktree opened, 2026-10-09 (`build/star.lkg`). Committed
+  as 6c3fec48; approved 2026-10-09: "approved. let's go."
 
 ### Phase 2: golangci-lint v2.14.0 everywhere (Requirement 6)
 
-- [ ] The pin moved and committed with this plan, the tree clean under it in `make check` on this Mac, and v2.14.0 on
-  this Mac, danoble-ud24-1.local and danoble-wd11-3.
+- [x] The pin moved and committed with this plan, the tree clean under it in `make check` on this Mac, and v2.14.0 on
+  this Mac, danoble-ud24-1.local and danoble-wd11-3. Done 2026-10-09: 6c3fec48, with the two `%#q` formats; `make
+  check` clean, its 108 test packages passing; v2.14.0 in `/usr/local/bin` here, in `~/.local/bin` on
+  danoble-ud24-1.local, and from WinGet on danoble-wd11-3, each reporting 2.14.0.
 
-### Phase 3: The generator and the check (Requirement 4)
+### Phase 3: The two tools (Requirements 3 and 4)
 
-- [ ] `make embed-helper` and `make check-embedded-helper`, with `make check` calling the second; the here-document
-  form proven first.
+- [x] Both carry copies of the helper's functions in place of their own messages and traps, keep their own option
+  parsing, and still run where they run today. Done 2026-10-10: the five functions byte-identical to c942f54's, each
+  tool with only the statuses it uses; shfmt and shellcheck clean at the gate's settings; both refuse a usage error
+  with 64 under bash 5.3.20 and macOS's 3.2.57; `generate-portfile.sh` wrote the Portfile for
+  v0.1.0-dev.20261005182840; the suite passed all 249 of its checks on this Mac, `install.sh` under macOS's own bash
+  and tools. The suite's 13 old lines over 120 columns are wrapped, every string they hold proven unchanged; one line
+  of fixture data, GitHub's own rate-limit message, stays as GitHub sends it.
 
-### Phase 4: The two tools (Requirement 3)
-
-- [ ] Both embed the helper and move onto its parsing, narration and traps, with the CI Open Question 1 settles.
-
-### Phase 5: install.sh (Requirements 1 and 2)
+### Phase 4: install.sh (Requirements 1, 2 and 4)
 
 - [ ] The narration, the trap and both option forms, run under `/bin/bash` 3.2.57 and bash 5.3.
 
-### Phase 6: The suite and the documents (Requirement 5)
+### Phase 5: The suite and the documents (Requirement 5)
 
 - [ ] The suite's new cases, and the documents.
 
-### Phase 7: Verification
+### Phase 6: Verification
 
 - [ ] `make check` clean on this Mac, and CI green on the pull request, every installers leg.
 - [ ] The suite on this Mac, with macOS's own tools and with MacPorts' (`--keep-path`), and on danoble-ud24-1.local.
 - [ ] This branch's `install.sh`, piped into bash on danoble-ud24-1.local under a scratch HOME, installs the newest
   release from GitHub and registers nothing.
 
-### Phase 8: Acceptance and closure
+### Phase 7: Acceptance and closure
 
 - [ ] The pull request, the merge and `git close-branch`; lanes 62 and 64 marked on #916, and #1037 and #1038 closed;
   #1020 records this bump, and lane 35's row says the next one is the monthly chore's.
@@ -206,25 +220,22 @@ double-quoted one when the path itself holds a back quote. No test pins either s
 | `install.sh` | Modify | Requirements 1 and 2 |
 | `scripts/Test-InstallScript.sh` | Modify | Requirements 3 and 5 |
 | `packaging/macports/generate-portfile.sh` | Modify | Requirement 3 |
-| `Makefile` | Modify | Requirements 4 and 6 |
+| `Makefile` | Modify | Requirement 6 |
 | `cmd/writ/writ/migrate/session.go` | Modify | Requirement 6: the two formats v2.14.0 flags |
-| `.github/workflows/installers.yaml` | Modify | Open Question 1 |
-| `docs/architecture/10-command-line-interface.md` | Modify | The installers' requirements, in the design |
+| `docs/architecture/10-command-line-interface.md` | Modify | The installers' requirements, and `install.sh`'s statuses in § 9 |
 | `docs/plans/chore/1037-install-sh-embeds-declare.md` | Create | This plan |
 
 ## Out of Scope
 
 - `install.ps1`, which is PowerShell, and NobleFactor/noblefactor-ops#262's counterpart to the helper.
 - The helper's own handler under bash 3.2: the owner ruled the helper in or out by bash version, and it is out there.
-- #1037's first Done-when bullet, each of the three embedding the helper as NobleFactor/noblefactor-ops#268 left it,
-  holds for the two tools. For `install.sh`, the owner's rulings since name its narration, its handler and its options,
-  and require it to run with what ships with macOS; the whole helper would stop it on macOS's bash 3.2.
+- A pin, generator or drift check for the copies, and any file sourcing or carrying the whole helper: ruled out
+  2026-10-09 and 2026-10-10.
+- #1037's first Done-when bullet, each of the three embedding the helper as NobleFactor/noblefactor-ops#268 left it:
+  the rulings since replace it with copies of the helper's functions, made by hand.
+- The installers' CI: with no file carrying the whole helper, neither tool needs bash 5.3 or GNU `getopt`, and
+  `installers.yaml` stays as it is.
 
 ## Open Questions
 
-1. **The CI the two tools then need.** The suite, and `generate-portfile.sh` wherever GoReleaser runs it, would require
-   bash 5.3 and GNU `getopt`. **Recommended:** `installers.yaml`'s Linux legs move to `ubuntu-26.04` and its arm
-   runner, whose label is not verified, and its macOS legs install Homebrew's `bash` and `gnu-getopt` for the suite
-   alone, while `install.sh` still runs under `/bin/bash` and macOS's own tools there; the job that runs GoReleaser,
-   when releases use it, gives `generate-portfile.sh` the same. The cost: `install.sh` is no longer tested on Ubuntu
-   24.04.
+None. Each was settled on 2026-10-09; the rulings are at the top of this plan.

@@ -92,9 +92,11 @@ they cannot verify ([#1002](https://github.com/NobleFactor/devlore-cli/issues/10
   runs with what ships there: `/bin/bash` 3.2 and macOS's own tools, bsdtar, BSD grep, sed and awk, shasum and curl;
   nothing it does needs a newer bash, a GNU tool or GNU `getopt`. The owner, 2026-10-09: "How many times must I say
   that install.sh MUST run with what ships with macOS?!" On Linux it runs with the distribution's bash and core tools,
-  and curl, which it names when missing. It sources nothing; it narrates and traps as Declare-BashScript does by
-  carrying the helper's functions that run on bash 3.2, and none of its checks for bash 5.3 or GNU `getopt`
-  ([#1037](https://github.com/NobleFactor/devlore-cli/issues/1037)).
+  and curl, which it names when missing. It sources nothing: it narrates and traps with copies of Declare-BashScript's
+  functions, made by hand from the helper as it is today and made again by hand when it needs a newer one, and carries
+  none of the helper's checks for bash 5.3 or GNU `getopt`
+  ([#1037](https://github.com/NobleFactor/devlore-cli/issues/1037)). Its status for each cause is the helper's, from
+  the set in § 9.
 - **`install.ps1`, on Windows,** runs with what ships there: Windows PowerShell 5.1, and PowerShell 7 alike, in one
   code path. Ruled 2026-09-24, reversing #798's third ruling, which had it install PowerShell 7 first: the installer
   uses what is known to be on the box, Windows PowerShell 5.1, and installs nothing but devlore
@@ -822,6 +824,9 @@ keep that promise.
 
 **The suite reports the BSD sysexits set** — the same thirteen `Declare-BashScript` defines for the shell
 scripts beside these programs, so a status means one thing across the whole toolchain (ruled 2026-09-12).
+`install.sh` stops with the same set, one status for each cause: 64 for usage, 65 for an archive it cannot verify, 69
+for a missing tool or a refusal from GitHub, 70 for a failed `self install`, 75 for GitHub's spent rate limit, and 78
+for an unsupported platform (ruled 2026-10-09, [#1037](https://github.com/NobleFactor/devlore-cli/issues/1037)).
 
 Two codes sit outside that set and carry the most traffic:
 

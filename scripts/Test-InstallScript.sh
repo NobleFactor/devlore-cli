@@ -6,7 +6,113 @@
 # Test-InstallScript.sh - Run install.sh as a user does, in a scratch account, and check what it did
 # for documentation: Test-InstallScript.sh --help
 
-set -o errexit -o nounset -o pipefail
+set -o errexit -o errtrace -o nounset -o pipefail
+
+# Declare-BashScript's functions and constants this suite uses, as NobleFactor/noblefactor-ops c942f54 has them,
+# copied by hand: nothing here sources the helper (#1037). Copy them again when this suite needs a newer one.
+
+readonly EX_USAGE=64    # command line usage error
+readonly EX_NOINPUT=66  # cannot open input
+readonly EX_SOFTWARE=70 # internal software error
+readonly Heavy_ballot='✘' Heavy_check_mark='✔'
+script_name="$(basename "$0")" && readonly script_name
+
+# Set-Traps sends ERR, HUP, INT and TERM to on_error_or_interrupt, and EXIT to the cleanup function a script names.
+#
+# A script calls it once, after its cleanup function is defined and before its arguments are parsed: an early exit
+# with EXIT naming a function not yet defined fails with "command not found". A script with nothing to undo calls it
+# with no argument (#268).
+#
+# Parameters:
+#   - `$1`: the name of the cleanup function EXIT runs; optional.
+#
+# Returns:
+#   - 0.
+# shellcheck disable=SC2120 # The cleanup is optional: a script with nothing to undo calls Set-Traps bare (#289).
+function Set-Traps {
+    trap 'on_error_or_interrupt ERR' ERR
+    trap 'on_error_or_interrupt HUP' HUP
+    trap 'on_error_or_interrupt INT' INT
+    trap 'on_error_or_interrupt TERM' TERM
+    # shellcheck disable=SC2064 # The cleanup's name is expanded now, by design: it is what EXIT runs.
+    if [[ -n ${1:-} ]]; then trap "$1" EXIT; fi
+}
+
+# error prints a message to stderr in the helper's error form, and ends the script with the given status unless it is 0.
+#
+# The form is `[<script name>] [✘] <message>`, the ✘ in red. A status of 0 makes the message a warning: it is printed,
+# and the script carries on.
+#
+# Parameters:
+#   - `$1`: the exit status; 0 prints the message and returns.
+#   - `${@:2}`: the message, its words joined by spaces.
+#
+# Returns:
+#   - 0 when `$1` is 0; otherwise it does not return: the script exits with `$1`.
+function error {
+    local rc=$1
+    shift 1
+    printf '[%s] [\033[31m%s\033[0m] %s\n' "$script_name" "$Heavy_ballot" "$*" >&2
+    if ((rc != 0)); then
+        exit "$rc"
+    fi
+}
+
+# note prints an informational message to stderr in the helper's form, unless SILENT is set.
+#
+# The form is `[<script name>] [+] <message>`.
+#
+# Parameters:
+#   - `$@`: the message, its words joined by spaces.
+#
+# Returns:
+#   - 0.
+function note {
+    if [[ -n ${SILENT:-} ]]; then
+        return
+    fi
+    printf "[%s] [+] %s\n" "$script_name" "$*" >&2
+}
+
+# on_error_or_interrupt reports a failure or a signal that ends the script, once, in error's own form (#268).
+#
+# A failure the script tolerates, under set +o errexit, ends nothing and goes unreported. Inside a subshell, the shell
+# that started it reports the failure when the command holding the subshell fails. A signal ends the script with 128
+# plus its number, so the EXIT trap's cleanup runs. Set-Traps installs it; a script does not call it itself.
+#
+# Parameters:
+#   - `$1`: the trapped event: ERR, HUP, INT or TERM.
+#
+# Returns:
+#   - 0 for a failure under set +o errexit; otherwise it does not return: a subshell exits with the failure's status,
+#     unreported, and the script exits with the failing command's status, or 128 plus the signal's number.
+function on_error_or_interrupt {
+    local status=$? event=$1
+
+    case $event in
+        ERR)
+            [[ $- == *e* ]] || return 0
+            ((BASH_SUBSHELL == 0)) || exit "$status"
+            error "$status" "exited with status ${status} at line ${BASH_LINENO[0]}: ${BASH_COMMAND}"
+            ;;
+        HUP | INT | TERM)
+            error $((128 + $(kill -l "$event"))) "interrupted by SIG${event}"
+            ;;
+    esac
+}
+
+# success prints a success message to stderr in the helper's form.
+#
+# The form is `[<script name>] [✔] <message>`, the ✔ in green.
+#
+# Parameters:
+#   - `$@`: the message, its words joined by spaces.
+#
+# Returns:
+#   - 0.
+function success {
+    printf '[%s] [\033[32m%s\033[0m] %s\n' "$script_name" "$Heavy_check_mark" "$*" >&2
+}
 
 usage() {
     cat <<'EOF'
@@ -15,8 +121,9 @@ Usage: scripts/Test-InstallScript.sh [--keep-path] [--help]
 Runs the checkout's install.sh the way a user does, piped into bash, in a scratch account: HOME, the XDG homes and
 TMPDIR are under one temporary directory, so this machine's own installation and layer registrations are never
 touched. On macOS the installer runs under /bin/bash with PATH=/usr/bin:/bin:/usr/sbin:/sbin, which is macOS's own
-bash 3.2, bsdtar, BSD grep and sed, and shasum, whatever else is installed. Prints PASS or FAIL for each check, with
-the installer's output under each failure, and exits 1 if any check failed.
+bash 3.2, bsdtar, BSD grep and sed, and shasum, whatever else is installed. Reports each check passed or failed on
+stderr, in Declare-BashScript's form, with the installer's output under each failure, and exits 1 if any check failed.
+It exits 64 on a usage error, 66 when DEVLORE_TEST_DIST lacks this platform's archive, and 70 when make dist fails.
 
 Every install runs against a faux channel (#1031): a stand-in for GitHub, a fake curl first on PATH, that answers the
 installer from releases made here. Its release carries this checkout's lore, star and writ, as `make dist` builds and
@@ -40,6 +147,22 @@ Environment:
 EOF
 }
 
+# The suite's scratch directory, made once the arguments are parsed; cleanup removes it on every way out.
+scratch=""
+
+# cleanup removes the suite's scratch directory, whichever way the suite ends.
+#
+# Parameters:
+#   - none.
+#
+# Returns:
+#   - 0.
+function cleanup {
+    [[ -z "${scratch}" ]] || rm -rf "${scratch}"
+}
+
+Set-Traps cleanup
+
 keep_path=false
 for arg in "$@"; do
     case "$arg" in
@@ -49,9 +172,8 @@ for arg in "$@"; do
             exit 0
             ;;
         *)
-            printf 'error: unknown argument: %s\n\n' "$arg" >&2
             usage >&2
-            exit 1
+            error $EX_USAGE "unknown argument: ${arg}"
             ;;
     esac
 done
@@ -64,7 +186,6 @@ team_url="https://github.com/NobleFactor/noblefactor-ops.git"
 
 # mktemp, rm, mkdir, tail, ln, wc and awk keep their short options: macOS's BSD tools have no long forms.
 scratch=$(cd "$(mktemp -d)" && pwd -P)
-trap 'rm -rf "$scratch"' EXIT
 
 case "$(uname -s)" in
     Darwin*)
@@ -91,22 +212,46 @@ esac
 
 failures=0
 
+# pass reports a check that passed, in success's form.
+#
+# Parameters:
+#   - `$1`: the check's description.
+#
+# Returns:
+#   - 0.
 pass() {
-    printf 'PASS %s\n' "$1"
+    success "$1"
 }
 
-# fail <description> [<file>]: counts the failure and shows the file, which holds what the installer printed.
+# fail reports a check that failed, in error's form as a warning, counts it, and shows the file it names.
+#
+# The file holds what the installer printed; it goes to stderr, under the report, between two marker lines.
+#
+# Parameters:
+#   - `$1`: the check's description.
+#   - `$2`: the file to show; optional.
+#
+# Returns:
+#   - 0.
 fail() {
-    printf 'FAIL %s\n' "$1"
+    error 0 "$1"
     failures=$((failures + 1))
     if [[ -n "${2:-}" && -f "$2" ]]; then
-        printf -- '---- %s\n' "${2#"$scratch"/}"
-        cat "$2"
-        printf -- '----\n'
+        printf -- '---- %s\n' "${2#"$scratch"/}" >&2
+        cat "$2" >&2
+        printf -- '----\n' >&2
     fi
 }
 
-# expect <description> <file> <command...>: PASS when the command succeeds, else FAIL with the file shown.
+# expect reports a check: passed when its command succeeds, else failed with its file shown.
+#
+# Parameters:
+#   - `$1`: the check's description.
+#   - `$2`: the file to show if it fails.
+#   - `${@:3}`: the command that decides it.
+#
+# Returns:
+#   - 0.
 expect() {
     local what="$1" show="$2"
     shift 2
@@ -274,7 +419,8 @@ download="https://github.com/NobleFactor/devlore-cli/releases/download"
 fixture_tag="v0.0.0-test.1002"
 fixture_archive="devlore-cli_${fixture_tag}_${os}_${arch}.tar.gz"
 fixture_checksums="devlore-cli_${fixture_tag}_checksums.txt"
-archives=(darwin_amd64.tar.gz darwin_arm64.tar.gz linux_amd64.tar.gz linux_arm64.tar.gz windows_amd64.zip windows_arm64.zip)
+archives=(darwin_amd64.tar.gz darwin_arm64.tar.gz linux_amd64.tar.gz linux_arm64.tar.gz windows_amd64.zip
+    windows_arm64.zip)
 github="${scratch}/github"
 fake_bin="${github}/bin"
 files="${github}/files"
@@ -425,19 +571,17 @@ chmod +x "${fake_bin}/curl"
 # without it, this suite builds this platform's. The other archives are never downloaded, so any bytes do.
 dist="${DEVLORE_TEST_DIST:-}"
 if [[ -z "$dist" ]]; then
-    printf 'Building the faux channel: make dist PLATFORM=%s/%s DEVLORE_VERSION=%s\n' "$os" "$arch" "$fixture_tag"
+    note "Building the faux channel: make dist PLATFORM=${os}/${arch} DEVLORE_VERSION=${fixture_tag}"
     if ! make -C "$repo" dist PLATFORM="${os}/${arch}" DEVLORE_VERSION="$fixture_tag" >"${scratch}/dist.out" 2>&1; then
-        cat "${scratch}/dist.out"
-        printf 'error: make dist failed, so there is no release to install from\n' >&2
-        exit 1
+        cat "${scratch}/dist.out" >&2
+        error $EX_SOFTWARE "make dist failed, so there is no release to install from"
     fi
     dist="${repo}/dist"
 fi
 for built in "$fixture_archive" "$fixture_checksums"; do
     if [[ ! -f "${dist}/${built}" ]]; then
-        printf 'error: %s has no %s: it holds no make dist DEVLORE_VERSION=%s for this platform\n' "$dist" "$built" \
-            "$fixture_tag" >&2
-        exit 1
+        error $EX_NOINPUT "${dist} has no ${built}:" \
+            "it holds no make dist DEVLORE_VERSION=${fixture_tag} for this platform"
     fi
 done
 cp "${dist}/${fixture_archive}" "${files}/${fixture_archive}"
@@ -796,7 +940,9 @@ no_line="${fixture_checksums} has no line for ${fixture_archive}, so the archive
 no_checksums="Could not download ${fixture_checksums} from release ${fixture_tag}: GitHub answered HTTP 404: Not Found"
 no_archive="Could not download ${fixture_archive} from release ${fixture_tag}: GitHub answered HTTP 404: Not Found"
 no_tag="v0.0.0-test.no-such-release"
-rate_limit="Could not list the releases of NobleFactor/devlore-cli: GitHub answered HTTP 403: API rate limit exceeded for 203.0.113.7. (But here's the good news: Authenticated requests get a higher rate limit. Check out the documentation for more details.)"
+rate_limit="Could not list the releases of NobleFactor/devlore-cli: GitHub answered HTTP 403: API rate limit exceeded"
+rate_limit+=" for 203.0.113.7. (But here's the good news: Authenticated requests get a higher rate limit. Check out the"
+rate_limit+=" documentation for more details.)"
 
 for layout in indented one-line; do
     json="(${layout} JSON)"
@@ -816,13 +962,16 @@ for layout in indented one-line; do
         "${github}/refused-checksums" "$no_checksums"
     refused "${layout}.refused-archive" "case 8 ${json}: the archive's download refused" "${github}/refused-archive" \
         "$no_archive"
-    refused "${layout}.no-archive" "case 9 ${json}: no archive for ${os}/${arch} in the release" "${github}/no-archive" \
-        "$no_archive"
-    expect "case 9 ${json}: no archive for ${os}/${arch} in the release: asks GitHub's API nothing, the checksums file having shown the release exists" \
+    refused "${layout}.no-archive" "case 9 ${json}: no archive for ${os}/${arch} in the release" \
+        "${github}/no-archive" "$no_archive"
+    description="case 9 ${json}: no archive for ${os}/${arch} in the release: asks GitHub's API nothing,"
+    description+=" the checksums file having shown the release exists"
+    expect "$description" \
         "${scratch}/${layout}.no-archive.requests" is "$(api_asked "${scratch}/${layout}.no-archive.requests")" ""
+    refusal="Could not download ${fixture_archive} from release ${fixture_tag}:"
+    refusal+=" GitHub served $(upper "$fixture_archive"), a file by another name"
     refused "${layout}.archive-case" "case 10 ${json}: the archive published under a name in another case" \
-        "${github}/archive-case" \
-        "Could not download ${fixture_archive} from release ${fixture_tag}: GitHub served $(upper "$fixture_archive"), a file by another name"
+        "${github}/archive-case" "$refusal"
     installs "${layout}.near-checksums" \
         "case 11 ${json}: a look-alike of the checksums file, a dot replaced, listed first" "${github}/near-checksums"
     installs "${layout}.near-archive" "case 11 ${json}: a look-alike of the archive, a dot replaced, listed first" \
@@ -834,42 +983,53 @@ for layout in indented one-line; do
     clock=$(rate_limited)
     refused "${layout}.rate-limited" "case 12 ${json}: a rate limit" "${github}/rate-limited" "$rate_limit" \
         DEVLORE_VERSION= GH_TOKEN=
+    refusal="GitHub's API limit for this address is used up. It resets at ${clock} (in 23 minutes); run the installer"
+    refusal+=" again after that. Setting GH_TOKEN raises the limit."
     expect "case 12 ${json}: a rate limit: says when to run again, and that GH_TOKEN raises the limit" \
-        "${scratch}/${layout}.rate-limited.out" grep --quiet --line-regexp --fixed-strings -- \
-        "GitHub's API limit for this address is used up. It resets at ${clock} (in 23 minutes); run the installer again after that. Setting GH_TOKEN raises the limit." \
+        "${scratch}/${layout}.rate-limited.out" grep --quiet --line-regexp --fixed-strings -- "$refusal" \
         "${scratch}/${layout}.rate-limited.out"
     clock=$(rate_limited)
     refused "${layout}.rate-limited-token" "case 12 ${json}: a rate limit, with GH_TOKEN set" "${github}/rate-limited" \
         "$rate_limit" DEVLORE_VERSION= GH_TOKEN=fixture-token
+    refusal="GitHub's API limit for your token is used up. It resets at ${clock} (in 23 minutes); run the installer"
+    refusal+=" again after that."
     expect "case 12 ${json}: a rate limit, with GH_TOKEN set: says when to run again, and nothing of GH_TOKEN" \
-        "${scratch}/${layout}.rate-limited-token.out" grep --quiet --line-regexp --fixed-strings -- \
-        "GitHub's API limit for your token is used up. It resets at ${clock} (in 23 minutes); run the installer again after that." \
+        "${scratch}/${layout}.rate-limited-token.out" grep --quiet --line-regexp --fixed-strings -- "$refusal" \
         "${scratch}/${layout}.rate-limited-token.out"
     installs "${layout}.verified" "case 13 ${json}: plain lines" "${github}/verified"
     installs "${layout}.verified-crlf" "case 13 ${json}: CRLF lines" "${github}/verified-crlf"
     installs "${layout}.verified-star" "case 13 ${json}: <hash> *<name> lines" "${github}/verified-star"
+    refusal="Could not download ${fixture_checksums} from release ${fixture_tag}:"
+    refusal+=" GitHub served $(upper "$fixture_checksums"), a file by another name"
     refused_before_archive "${layout}.checksums-case" \
         "case 14 ${json}: the checksums file published under a name in another case" "${github}/checksums-case" \
-        "Could not download ${fixture_checksums} from release ${fixture_tag}: GitHub served $(upper "$fixture_checksums"), a file by another name"
-    refused_before_archive "${layout}.bom" "case 15 ${json}: the archive's line behind a byte-order mark" "${github}/bom" \
-        "$no_line"
+        "$refusal"
+    refused_before_archive "${layout}.bom" "case 15 ${json}: the archive's line behind a byte-order mark" \
+        "${github}/bom" "$no_line"
     refused "${layout}.no-tag" "case 16 ${json}: a pinned DEVLORE_VERSION that names no release" "${github}/verified" \
         "Could not fetch release ${no_tag} of NobleFactor/devlore-cli: GitHub answered HTTP 404: Not Found" \
         DEVLORE_VERSION="$no_tag"
-    expect "case 16 ${json}: a pinned DEVLORE_VERSION that names no release: asks GitHub's API for it only after its checksums file's link answers 404" \
+    description="case 16 ${json}: a pinned DEVLORE_VERSION that names no release: asks GitHub's API for it only after"
+    description+=" its checksums file's link answers 404"
+    expect "$description" \
         "${scratch}/${layout}.no-tag.requests" asked "${scratch}/${layout}.no-tag.requests" \
         "${download}/${no_tag}/devlore-cli_${no_tag}_checksums.txt" "${api}/releases/tags/${no_tag}"
 
     refused "${layout}.no-sha256" "install.sh's own case ${json}: neither sha256sum nor shasum" "${github}/verified" \
-        "Neither sha256sum nor shasum found, so ${fixture_archive} cannot be verified" PATH="${fake_bin}:${github}/tools"
+        "Neither sha256sum nor shasum found, so ${fixture_archive} cannot be verified" \
+        PATH="${fake_bin}:${github}/tools"
 
     refused "${layout}.no-curl" "Requirement 3a ${json}: no curl, with wget where this machine has it" \
         "${github}/verified" "curl not found" PATH="${github}/no-curl"
-    expect "Requirement 3a ${json}: a pinned DEVLORE_VERSION that names a release: asks GitHub's API nothing (case 13's plain run)" \
+    description="Requirement 3a ${json}: a pinned DEVLORE_VERSION that names a release: asks GitHub's API nothing"
+    description+=" (case 13's plain run)"
+    expect "$description" \
         "${scratch}/${layout}.verified.requests" is "$(api_asked "${scratch}/${layout}.verified.requests")" ""
     installs "${layout}.token" "Requirement 3a ${json}: the newest release, with GH_TOKEN set" "${github}/verified" \
         DEVLORE_VERSION= GH_TOKEN=fixture-token
-    expect "Requirement 3a ${json}: the newest release, with GH_TOKEN set: asks GitHub's API for the newest release's tag alone" \
+    description="Requirement 3a ${json}: the newest release, with GH_TOKEN set: asks GitHub's API for the newest"
+    description+=" release's tag alone"
+    expect "$description" \
         "${scratch}/${layout}.token.requests" \
         is "$(api_asked "${scratch}/${layout}.token.requests")" "${api}/releases?per_page=1"
     expect "Requirement 3a ${json}: the newest release, with GH_TOKEN set: sends it to GitHub's API" \
@@ -897,7 +1057,6 @@ status=0
 expect "the guide's checksum line (${checksum_check}) verifies ${fixture_archive}" "$output" is "$status" 0
 
 if [[ $failures -gt 0 ]]; then
-    printf '%s check(s) failed\n' "$failures"
-    exit 1
+    error 1 "${failures} check(s) failed"
 fi
-printf 'every check passed\n'
+success "every check passed"
