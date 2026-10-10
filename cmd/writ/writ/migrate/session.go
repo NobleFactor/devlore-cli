@@ -163,7 +163,7 @@ func (s *Session) runAnalysis() *console.Step {
 	return &console.Step{
 		Type:     console.StepProgress,
 		Title:    "Analyzing",
-		Content:  fmt.Sprintf("Analyzing `%s`...", s.opts.SourceRoot),
+		Content:  fmt.Sprintf("Analyzing %#q...", s.opts.SourceRoot),
 		Progress: 100,
 	}
 }
@@ -559,7 +559,7 @@ func (s *Session) executeStep() *console.Step {
 	}
 
 	if receiptPath != "" {
-		s.aiResponse = fmt.Sprintf("Migration complete. Receipt saved to:\n`%s`", receiptPath)
+		s.aiResponse = fmt.Sprintf("Migration complete. Receipt saved to:\n%#q", receiptPath)
 	} else {
 		s.aiResponse = "Migration complete."
 	}
