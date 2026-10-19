@@ -1,9 +1,9 @@
 ---
 title: "make dist empties dist/ before it builds"
 issue: https://github.com/NobleFactor/devlore-cli/issues/1034
-status: active
+status: complete
 created: 2026-10-04
-updated: 2026-10-04
+updated: 2026-10-19
 ---
 
 # Plan: make dist empties dist/ before it builds
@@ -55,8 +55,10 @@ with the new ones. The release job checks out clean, so no published release is 
 
 ### Phase 4: Merge
 
-- [ ] PR script written, shown, and handed over. The PR resolves #1034
-- [ ] After the merge, the Release run publishes a checksums file with one line for each of the six archives
+- [x] PR script written, shown, and handed over. The PR resolves #1034: merged as #1035 (`71dc125b`)
+- [x] After the merge, the Release run publishes a checksums file with one line for each of the six archives. It does:
+      `v0.1.0-dev.20261005063209`, the first release after the merge, and the newest, `v0.1.0-dev.20261010200947`,
+      checked 2026-10-19: seven assets, and a checksums file listing the six archives and nothing else
 
 ## Out of Scope
 

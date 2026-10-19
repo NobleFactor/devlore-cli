@@ -144,8 +144,11 @@ made exclusive of `--unattended` at `:112`, and nothing else names it. A prompt 
 
 ### Phase 4: The documents and the stale plans (Requirements 5, 6)
 
-- [ ] The help; § 10 and § 16; the eight plans
-- [ ] `--interactive` removed (Requirement 7); a test that `--interactive` is an unknown flag, exit 64
+- [x] The help; § 10 and § 16, and the status document; the eight plans, each ticked with its evidence: 948, 952, 956,
+      958 and 1034 complete; 1029's PR box ticked; 947 and 1003 active on what they still owe (#83, #339 and #990; #1045)
+- [x] `--interactive` removed (Requirement 7); a test that `--interactive` is an unknown flag, exit 64. `make test`,
+      `make vet-all`, `make lint-all`, `make build` and `star lint go` pass; `gofmt -l` is empty. `star lint markdown`
+      cannot run here (`markdownlint-cli2` is not installed), and CI runs no Markdown lint
 
 ### Phase 5: Merge
 

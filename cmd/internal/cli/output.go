@@ -121,8 +121,8 @@ func isUsageError(err error) bool {
 
 		// Cobra's three flag-group refusals (`flag_groups.go`). A group is a usage rule -- these flags
 		// together, this one of them, not both -- so breaking one is a usage error like any other. Found
-		// 2026-09-18 measuring `--interactive --unattended`, which exited 1 where §9 says 64; the pair has
-		// been marked mutually exclusive on the shared root since long before that measurement.
+		// 2026-09-18 measuring a mutually exclusive pair, which exited 1 where §9 says 64; `self upgrade`'s
+		// `--from` beside `--channel` is one today.
 		"are set they must all be set",
 		"are set none of the others can be",
 		"is required",

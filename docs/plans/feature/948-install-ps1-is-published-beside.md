@@ -1,9 +1,9 @@
 ---
 title: "install.ps1 is published beside install.sh, and runs on Windows PowerShell 5.1 — what a fresh Windows machine has"
 issue: https://github.com/NobleFactor/devlore-cli/issues/948
-status: active
+status: complete
 created: 2026-09-24
-updated: 2026-09-24
+updated: 2026-10-19
 ---
 
 # Plan: install.ps1 is published, and runs on 5.1
@@ -92,9 +92,12 @@ unchanged (lane 2 adds the layer flags).
 - [x] Under pwsh 7.x on DANOBLE-UD24-1 (linux/arm64): the body ran against a scratch prefix,
       `DEVLORE_TOOLS=writ`, pre-release `v0.1.0-dev.20260924074819`, checksum verified, and
       `<prefix>/bin/writ --version` reported build `d54626d2`; nothing outside the prefix was written
-- [ ] Under Windows PowerShell 5.1 on a Windows machine (DANOBLE-WD11-3), both invocation forms, against a
+- [x] Under Windows PowerShell 5.1 on a Windows machine (DANOBLE-WD11-3), both invocation forms, against a
       scratch prefix: the products install and answer `--version`. This is rule 11's live-path test and it
-      cannot run here; it is the owner's, or a Windows job's, and this box stays open until it has
+      cannot run here; it is the owner's, or a Windows job's, and this box stays open until it has. Met by a Windows
+      job (found 2026-10-19 auditing #949): the Installers workflow (#984, #1031) runs `scripts/Test-InstallScript.ps1`
+      under `powershell` (5.1) and `pwsh` on `windows-latest` and `windows-11-arm`, the script-block form and
+      `irm | iex` both, and passed on `4d18e48c`
 - [x] `release.yaml` parses as YAML; the sync step's shell block, extracted with the `${{ }}` expressions
       replaced, passes `bash -n`; shellcheck's one real finding is the pre-existing SC2164 on `cd website`,
       not this change's
@@ -107,9 +110,14 @@ unchanged (lane 2 adds the layer flags).
 ### Phase 4: Merge, publish, converge
 
 - [x] PR script written, shown, and handed over
-- [ ] After the merge: the next pre-release's sync opens the site PR carrying both scripts; when it merges,
+- [x] After the merge: the next pre-release's sync opens the site PR carrying both scripts; when it merges,
       `curl -sI https://devlore.noblefactor.com/install.ps1` answers 200 and the body matches the
-      repository's. Until a release runs, this box stays open and the plan `active`
+      repository's. Until a release runs, this box stays open and the plan `active`. Met on the develop environment,
+      the site devlore releases from (ruled 2026-09-26; `devlore.noblefactor.com` serves `main`, kept frozen): on
+      2026-10-19 its `install.ps1` answered anonymously and matched `develop`'s byte for byte
+
+> **2026-10-19:** Goal 2's "on Windows, macOS and Linux" was overtaken by #1032, which made `install.ps1` serve Windows
+> alone; and Out of Scope's "a Windows CI job ... is its own work" by #1031, whose Installers workflow is that job.
 
 ## Out of Scope
 
