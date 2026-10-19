@@ -1,0 +1,176 @@
+---
+title: "self uninstall --unattended takes the default and removes nothing; no answer is No, as docker's prompts do"
+issue: https://github.com/NobleFactor/devlore-cli/issues/1005
+status: approved
+created: 2026-10-19
+updated: 2026-10-19
+---
+
+# Plan: self uninstall answers to --unattended, and no answer is No
+
+Lane 28 of #949. One pull request, ruled 2026-10-19: "we'll do one pr per lane unless we discover a blocking issue along
+the way." It also carries the stale plans #949's audit found, ruled the same day to be ticked "in the next devlore-cli
+pull request" (#1060's plan rows).
+
+## Summary
+
+`self uninstall` asks "Continue? [y/N]" unless `--force` is given. The global `--unattended` ("no prompts, sensible
+defaults") is read by nothing, so `self uninstall --unattended` still asks, and with no input it fails with
+`failed to read input: EOF`. Ruled 2026-10-01 on #1005: "--unattended takes the default and aborts." This plan makes it
+so, and makes a prompt with no answer mean No, as docker's do. Ruled 2026-10-19, after the prior art was looked up:
+"Let's do what docker does." 
+
+## Current State
+
+At `4d18e48c` (`cmd/internal/cli/selfinstall.go`):
+
+| What | Where | Today |
+| --- | --- | --- |
+| The prompt | `:259-273` | asked whenever `--force` is absent, read from stdin whether or not it is a terminal |
+| `--unattended` | `root.go:111` | declared on every program's root, bound into viper as `<program>.unattended` by `BindFlags`, read by nothing (`grep`) |
+| No input | `:264-267` | `failed to read input: EOF`, exit 1, naming no flag |
+| `--force` | `:279` | skips the prompt and removes |
+
+The design, `docs/architecture/10-command-line-interface.md` § 10: "Prompt only when stdin is a TTY. A non-interactive
+invocation that would prompt fails instead, naming the flag that would have supplied the answer." And of an
+interactive command without a terminal: "`--unattended` runs on defaults".
+
+## Goals
+
+1. `self uninstall --unattended` asks nothing, removes nothing, and says so, as answering No does.
+2. The prompt reads its answer from stdin, terminal or not, as docker's does; no answer, an empty line or end of input,
+   is No, not an error.
+3. `--force` removes without asking, as today, whatever else is given.
+
+## Requirements
+
+### Requirement 1: --unattended takes the default
+
+- The command reads `--unattended` the one way options are read, `viper.GetBool(<program> + ".unattended")`, as
+  `self upgrade` reads `--dry-run` (`selfupgrade.go:312`).
+- Under it, with no `--force`, nothing is read from stdin and nothing is removed. It narrates that the uninstall was
+  not confirmed, so nothing was removed, and that `--force` removes without asking. Exit 0, as a No is.
+
+### Requirement 2: No answer is No
+
+What docker does, looked up 2026-10-19: `prompt.Confirm` (docker/cli `internal/prompt/prompt.go`) reads one line from
+stdin with no terminal check, and end of input leaves the answer false; `docker system prune` then returns its
+`cancelledErr` (`cli/command/system/prune.go`), which `errdefs.IsCanceled` recognizes, so `main`
+(`cmd/docker/docker.go`) prints nothing more and exits 0.
+
+- The prompt still reads its answer from stdin whether or not it is a terminal, so `echo y | writ self uninstall`
+  keeps working.
+- End of input, or a read that fails, is No: nothing is removed, the command says it aborted, and it exits 0, as an
+  `n` does today. Today it fails with `failed to read input: EOF`, exit 1.
+
+### Requirement 2a: The design says so
+
+`docs/architecture/10-command-line-interface.md` § 10 says "Prompt only when stdin is a TTY. A non-interactive
+invocation that would prompt fails instead". A confirmation is ruled otherwise: § 10 states that a confirmation reads
+its answer from stdin, terminal or not, as docker's do, that no answer is No, and that `--force` answers yes and
+`--unattended` takes the default; § 16 lists it among the divergences from clig.dev, which says the opposite.
+
+### Requirement 3: --force wins
+
+- `--force` beside `--unattended` removes without asking: `--force` is the answer, and `--unattended` only supplies
+  one when none is given (ruled: "`--force` still removes without asking").
+
+### Requirement 4: The tests
+
+- Unit, in `cmd/internal/cli`, driving the `self uninstall` command against an installed scratch prefix:
+  - `--unattended`: every recorded file and the manifest remain; stdin is never read (a reader that fails the test
+    when read); exit 0; the narration names `--force`.
+  - no flag, stdin at end of input: every file remains; exit 0; the narration says it aborted.
+  - no flag, `y` on stdin that is not a terminal: the files are removed.
+  - `--force --unattended`: the files are removed.
+  - no flag, `n` on stdin: nothing removed, as today.
+- They fail against `4d18e48c` first.
+
+### Requirement 5: The documents
+
+- `self uninstall`'s help says what `--unattended` does here, and that no answer is No. The CLI reference is
+  regenerated by the build, never edited.
+
+### Requirement 6: The stale plans (#1060's rows, ruled 2026-10-19)
+
+Each plan's open boxes ticked where #949's audit found them met, citing the evidence, and its status set to what its
+boxes say:
+
+| Plan | Becomes |
+| --- | --- |
+| `docs/plans/feature/948-install-ps1-is-published-beside.md` | complete; its overtaken Goal 2 and Out of Scope noted (#1032, #1031) |
+| `docs/plans/fix/952-devlore-docs-writes-a-subcommand.md` | complete |
+| `docs/plans/feature/956-docs-sync-publishes-the.md` | complete |
+| `docs/plans/fix/958-install-sh-exits-1-after-a.md` | complete |
+| `docs/plans/fix/947-self-upgrade-fetches-nothing-it.md` | its convergence box ticked; stays active on the follow-ups to #83, #339 and #990 |
+| `docs/plans/fix/1029-installers-tell-the-user-to.md` | its PR box ticked |
+| `docs/plans/chore/1034-make-dist-run-twice-makes-a.md` | complete |
+| `docs/plans/fix/1003-self-uninstall-on-windows-leaves.md` | its Phase 1 and PR boxes ticked; stays active, its live box owed to #1045 |
+
+### Requirement 7: `--interactive` goes
+
+Ruled 2026-10-19, asked whether it is needed: "I don't see the need for interactive", then "delete it in lane 28's PR".
+Nothing reads it: it is declared at `cmd/internal/cli/root.go:110` ("Force interactive mode (prompts, rich output)") and
+made exclusive of `--unattended` at `:112`, and nothing else names it. A prompt now always reads its answer from stdin
+(Requirement 2), and colour and paging answer to the environment (§ 10), so there is nothing for it to force.
+
+- The flag and its exclusion rule go from the shared root, so every program loses it; the generated CLI reference
+  follows.
+- `cmd/internal/cli/output.go:124`'s comment, which cites `--interactive --unattended` as the measurement that found
+  cobra's flag-group refusals, cites a group that remains: `self upgrade`'s `--from` beside `--channel`
+  (`selfinstall.go:208`). The refusal patterns themselves stay.
+- `docs/plans/feature/743-star-adoption.md:94`, a complete plan, lists it among the shared root's flags as they were;
+  it gets a dated note.
+
+## Implementation Phases
+
+### Phase 1: Commit the plan
+
+- [x] This plan committed on `fix/1005-self-uninstall-unattended-still`, and reviewed with the owner: approved
+      2026-10-19, "approved. commit the plan and go"
+
+### Phase 2: The tests, failing (Requirement 4)
+
+- [ ] The five cases, run against `4d18e48c`: `--unattended` and end of input fail for the reasons stated; the others
+      pass today and hold the behaviour this change keeps
+
+### Phase 3: The command (Requirements 1 to 3)
+
+- [ ] `self uninstall` reads `--unattended`, takes end of input as No, and lets `--force` win; the tests pass.
+      `make test`, `make vet-all`, `make lint-all`, `star lint go` pass; `gofmt -l` is empty
+
+### Phase 4: The documents and the stale plans (Requirements 5, 6)
+
+- [ ] The help; § 10 and § 16; the eight plans
+- [ ] `--interactive` removed (Requirement 7); a test that `--interactive` is an unknown flag, exit 64
+
+### Phase 5: Merge
+
+- [ ] PR script written, shown, and handed over. The PR resolves #1005
+- [ ] After the merge, on this machine, from the official build in a scratch prefix: `self uninstall --unattended`
+      and `self uninstall < /dev/null` each leave the install as it was and exit 0
+
+## Files to Create/Modify
+
+| File | Action | Purpose |
+| --- | --- | --- |
+| `cmd/internal/cli/selfinstall.go` | Modify | `newUninstallCmd`'s confirmation, and its help |
+| `cmd/internal/cli/selfuninstall_confirm_test.go` | Create | Requirement 4 |
+| `docs/architecture/10-command-line-interface.md` | Modify | Requirement 2a |
+| `cmd/internal/cli/root.go`, `cmd/internal/cli/output.go`, `docs/plans/feature/743-star-adoption.md` | Modify | Requirement 7 |
+| the eight plans above | Modify | Requirement 6 |
+
+## Out of Scope
+
+- **`--force` read through viper** with every other command's own flags: #1054, lane 39.
+- **`--dry-run`** on `self uninstall`: #1004, lane 27.
+
+## Decisions
+
+- **D1. The unattended abort exits 0,** as a No does, and as docker's declined prompt does (Requirement 2). apt
+  (`--assume-no` prints `Abort.` and exits 1) and terraform (`-input=false` fails) do otherwise; ruled docker's way.
+- **D2. No new prompt package.** The prompt stays where it is; `--unattended` and end of input are added to it.
+
+## Open Questions
+
+- [x] **`--interactive`** is read by nothing anywhere. Ruled 2026-10-19: "delete it in lane 28's PR" (Requirement 7).
