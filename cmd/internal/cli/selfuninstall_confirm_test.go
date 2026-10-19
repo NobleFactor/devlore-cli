@@ -125,7 +125,7 @@ func TestSelfUninstall_NoAnswerIsNo(t *testing.T) {
 	}
 }
 
-// TestSelfUninstall_AnswerOnAPipe holds the behaviour docker's prompts keep: the answer is read from stdin whether or
+// TestSelfUninstall_AnswerOnAPipe holds the behavior docker's prompts keep: the answer is read from stdin whether or
 // not it is a terminal, so `echo y | <tool> self uninstall` removes the install.
 func TestSelfUninstall_AnswerOnAPipe(t *testing.T) {
 
@@ -169,7 +169,7 @@ func TestSelfUninstall_ForceWinsOverUnattended(t *testing.T) {
 	}
 }
 
-// TestRoot_InteractiveIsGone is #1005's Requirement 7 (ruled 2026-10-19, "delete it in lane 28's PR"): nothing read
+// TestRoot_InteractiveIsGone is #1005's Requirement 7 (ruled 2026-10-19, "Delete it in lane 28's pull request."): nothing read
 // `--interactive`, so the shared root no longer declares it, and giving it is a usage error, exit 64.
 func TestRoot_InteractiveIsGone(t *testing.T) {
 

@@ -8,8 +8,8 @@ updated: 2026-10-19
 
 # Plan: self uninstall answers to --unattended, and no answer is No
 
-Lane 28 of #949. One pull request, ruled 2026-10-19: "we'll do one pr per lane unless we discover a blocking issue along
-the way." It also carries the stale plans #949's audit found, ruled the same day to be ticked "in the next devlore-cli
+Lane 28 of #949. One pull request, ruled 2026-10-19: "We will deliver one pull request per lane, unless we discover a blocking issue
+along the way." It also carries the stale plans #949's audit found, ruled the same day to be ticked "in the next devlore-cli
 pull request" (#1060's plan rows).
 
 ## Summary
@@ -18,7 +18,7 @@ pull request" (#1060's plan rows).
 defaults") is read by nothing, so `self uninstall --unattended` still asks, and with no input it fails with
 `failed to read input: EOF`. Ruled 2026-10-01 on #1005: "--unattended takes the default and aborts." This plan makes it
 so, and makes a prompt with no answer mean No, as docker's do. Ruled 2026-10-19, after the prior art was looked up:
-"Let's do what docker does." 
+"Follow Docker's behavior." 
 
 ## Current State
 
@@ -73,7 +73,7 @@ its answer from stdin, terminal or not, as docker's do, that no answer is No, an
 ### Requirement 3: --force wins
 
 - `--force` beside `--unattended` removes without asking: `--force` is the answer, and `--unattended` only supplies
-  one when none is given (ruled: "`--force` still removes without asking").
+  one when none is given (#1005's resolution: "`--force` still removes without asking").
 
 ### Requirement 4: The tests
 
@@ -109,7 +109,7 @@ boxes say:
 
 ### Requirement 7: `--interactive` goes
 
-Ruled 2026-10-19, asked whether it is needed: "I don't see the need for interactive", then "delete it in lane 28's PR".
+Ruled 2026-10-19, asked whether it is needed: "I see no need for `--interactive`," then "Delete it in lane 28's pull request."
 Nothing reads it: it is declared at `cmd/internal/cli/root.go:110` ("Force interactive mode (prompts, rich output)") and
 made exclusive of `--unattended` at `:112`, and nothing else names it. A prompt now always reads its answer from stdin
 (Requirement 2), and colour and paging answer to the environment (§ 10), so there is nothing for it to force.
@@ -127,19 +127,19 @@ made exclusive of `--unattended` at `:112`, and nothing else names it. A prompt 
 ### Phase 1: Commit the plan
 
 - [x] This plan committed on `fix/1005-self-uninstall-unattended-still`, and reviewed with the owner: approved
-      2026-10-19, "approved. commit the plan and go"
+      2026-10-19, "Approved. Commit the plan and proceed."
 
 ### Phase 2: The tests, failing (Requirement 4)
 
 - [x] The five cases, run against `4d18e48c`: `--unattended` and end of input fail for the reasons stated; the others
-      pass today and hold the behaviour this change keeps. `make test`, 2026-10-19: `--unattended` read the piped `y` and
+      pass today and hold the behavior this change keeps. `make test`, 2026-10-19: `--unattended` read the piped `y` and
       removed the install and its manifest; end of input failed with `failed to read input: EOF`; and Requirement 7's
       `--interactive` test failed, the flag still accepted. Answered `y` and `n` on a pipe, and `--force --unattended`,
       pass. Nothing else failed
 
 ### Phase 3: The command (Requirements 1 to 3)
 
-- [ ] `self uninstall` reads `--unattended`, takes end of input as No, and lets `--force` win; the tests pass.
+- [x] `self uninstall` reads `--unattended`, takes end of input as No, and lets `--force` win; the tests pass.
       `make test`, `make vet-all`, `make lint-all`, `star lint go` pass; `gofmt -l` is empty
 
 ### Phase 4: The documents and the stale plans (Requirements 5, 6)
@@ -176,4 +176,4 @@ made exclusive of `--unattended` at `:112`, and nothing else names it. A prompt 
 
 ## Open Questions
 
-- [x] **`--interactive`** is read by nothing anywhere. Ruled 2026-10-19: "delete it in lane 28's PR" (Requirement 7).
+- [x] **`--interactive`** is read by nothing anywhere. Ruled 2026-10-19: "Delete it in lane 28's pull request." (Requirement 7).
