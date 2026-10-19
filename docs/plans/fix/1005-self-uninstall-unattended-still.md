@@ -1,7 +1,7 @@
 ---
 title: "self uninstall --unattended takes the default and removes nothing; no answer is No, as docker's prompts do"
 issue: https://github.com/NobleFactor/devlore-cli/issues/1005
-status: approved
+status: active
 created: 2026-10-19
 updated: 2026-10-19
 ---
@@ -131,8 +131,11 @@ made exclusive of `--unattended` at `:112`, and nothing else names it. A prompt 
 
 ### Phase 2: The tests, failing (Requirement 4)
 
-- [ ] The five cases, run against `4d18e48c`: `--unattended` and end of input fail for the reasons stated; the others
-      pass today and hold the behaviour this change keeps
+- [x] The five cases, run against `4d18e48c`: `--unattended` and end of input fail for the reasons stated; the others
+      pass today and hold the behaviour this change keeps. `make test`, 2026-10-19: `--unattended` read the piped `y` and
+      removed the install and its manifest; end of input failed with `failed to read input: EOF`; and Requirement 7's
+      `--interactive` test failed, the flag still accepted. Answered `y` and `n` on a pipe, and `--force --unattended`,
+      pass. Nothing else failed
 
 ### Phase 3: The command (Requirements 1 to 3)
 
