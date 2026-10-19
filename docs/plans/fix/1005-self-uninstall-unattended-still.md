@@ -152,7 +152,7 @@ made exclusive of `--unattended` at `:112`, and nothing else names it. A prompt 
 
 ### Phase 5: Merge
 
-- [ ] PR script written, shown, and handed over. The PR resolves #1005
+- [x] PR script written, shown, and handed over. The PR resolves #1005
 - [ ] After the merge, on this machine, from the official build in a scratch prefix: `self uninstall --unattended`
       and `self uninstall < /dev/null` each leave the install as it was and exit 0
 
