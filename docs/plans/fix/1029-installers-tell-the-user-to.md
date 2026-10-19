@@ -3,7 +3,7 @@ title: "The installers don't tell the user to register a layer writ already has,
 issue: https://github.com/NobleFactor/devlore-cli/issues/1029
 status: complete
 created: 2026-10-04
-updated: 2026-10-04
+updated: 2026-10-19
 ---
 
 # Plan: the installers, writ's layers, and the installers tested against the programs beside them
@@ -214,7 +214,7 @@ and Linux. i withdraw the requirement"; and each refuses as Declare-BashScript's
 
 ### Phase 7: Merge
 
-- [ ] PR script written, shown, and handed over; its `git add` list proven with `git add --dry-run`. The PR resolves
+- [x] PR script written, shown, and handed over; its `git add` list proven with `git add --dry-run`. The PR resolves
       #1029, #1030 and #1031
 - [x] After the merge: the Installers workflow ran on the pull request; the site serves the merged installers; and an
       install on this machine through the published one-liner prints `Already registered: base team personal` and no

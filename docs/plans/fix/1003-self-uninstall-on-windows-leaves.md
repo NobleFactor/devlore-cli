@@ -1,9 +1,9 @@
 ---
 title: "self uninstall finishes on Windows, keeps its record, and names a file it could not remove by its reason"
 issue: https://github.com/NobleFactor/devlore-cli/issues/1003
-status: draft
+status: active
 created: 2026-10-05
-updated: 2026-10-05
+updated: 2026-10-19
 ---
 
 # Plan: self uninstall finishes on Windows, and tells the truth about what it left
@@ -95,7 +95,7 @@ Two layers, one shared by every platform and one for Windows alone.
 
 ### Phase 1: Commit the plan
 
-- [ ] This plan committed on `fix/1003-self-uninstall-on-windows-leaves`, and reviewed with the owner
+- [x] This plan committed on `fix/1003-self-uninstall-on-windows-leaves`, and reviewed with the owner
 
 ### Phase 2: The tests, failing (Requirements 1, 3, 4)
 
@@ -127,9 +127,15 @@ Two layers, one shared by every platform and one for Windows alone.
 
 ### Phase 6: Merge
 
-- [ ] PR script written, shown, and handed over. The PR resolves #1003
+- [x] PR script written, shown, and handed over. The PR resolves #1003: merged as #1036 (`0283bd77`)
 - [ ] After the merge, an install and uninstall on a Windows machine through the published installer leaves nothing
       behind (owed until a Windows machine is at hand; the Windows CI scenario stands in meanwhile)
+
+> **2026-10-19 (#949's audit):** the last box stays open. The Windows CI scenario never stood in: `make test-scenario`
+> runs `-run TestSelfInstallScenario`, which `TestSelfUninstallFromInstalledCopyScenario` does not match, so it has
+> never run. And on Windows, from the installed copy, the uninstall leaves the manifest recording the deleted `.exe`
+> (D5 below), which the scenario's own last check refuses. Both are #1045, lane 31 of #949, whose pull request closes
+> this box.
 
 ## Out of Scope
 

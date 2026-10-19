@@ -92,7 +92,11 @@ fetched build, replacing each program's record; the suite; a running binary repl
 followed rung for rung. **Revised 2026-10-09 and 2026-10-10 (#1037, #1038):** §2 gains "The installers": each runs
 with what ships with its operating system, `install.sh` with macOS's bash 3.2 and own tools; `install.sh` narrates
 and traps with copies of Declare-BashScript's functions, made by hand, and takes each option as `--option value` or
-`--option=value`. §9 names `install.sh`'s exit statuses, the helper's, one for each cause.
+`--option=value`. §9 names `install.sh`'s exit statuses, the helper's, one for each cause. **Revised 2026-10-19
+(#1005):** §10 makes a confirmation the exception to "prompt only when stdin is a TTY": it reads its answer from
+stdin, terminal or not, as docker's do; no answer is No; `--force` answers yes; `--unattended` takes the default, No;
+declining exits 0. §16 records it as a divergence from clig.dev. The shared root no longer declares
+`--interactive`, which nothing read.
 
 ## Document discrepancies
 

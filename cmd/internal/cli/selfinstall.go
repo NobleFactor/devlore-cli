@@ -20,6 +20,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/cobra/doc"
+	"github.com/spf13/viper"
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
@@ -238,13 +239,18 @@ left, so a later run can finish what one could not.
 On Windows the running program cannot delete itself, so it is removed once
 this command exits.
 
+It asks before removing anything, and reads the answer from standard input,
+whether or not that is a terminal. Only y or yes removes; any other answer,
+or none, removes nothing. --force removes without asking. --unattended asks
+nothing and takes the default, No, so it removes nothing.
+
 Example:
   ` + info.Name + ` self uninstall           # resolves prefix from binary location
   ` + info.Name + ` self uninstall ~/.local
   ` + info.Name + ` self uninstall --force    # skip confirmation prompt
 `,
 		Args: cobra.MaximumNArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			var prefix string
 			if len(args) > 0 {
 				prefix = expandTilde(args[0])
@@ -256,15 +262,22 @@ Example:
 				prefix = resolved
 			}
 
+			// --force is the answer. Without it, --unattended takes the prompt's default, No, and asks nothing (ruled
+			// 2026-10-01 on #1005). Otherwise the answer is read from stdin, terminal or not, and no answer is No, as
+			// docker's prompts do (ruled 2026-10-19).
 			if !force {
+				if viper.GetBool(info.Name + ".unattended") {
+					Note("Not confirmed: --unattended takes the default, No, so nothing was removed from %s.", prefix)
+					Note("--force removes without asking.")
+					return nil
+				}
+
 				Note("This will remove %s from %s.", info.Name, prefix)
 				Note("A file you have changed since installing it is kept.")
 				Print("Continue? [y/N] ")
-				reader := bufio.NewReader(os.Stdin)
-				answer, err := reader.ReadString('\n')
-				if err != nil {
-					return fmt.Errorf("failed to read input: %w", err)
-				}
+
+				// A read that ends early, or fails, leaves what it read, which is no answer at all or less than a yes.
+				answer, _ := bufio.NewReader(cmd.InOrStdin()).ReadString('\n') //nolint:errcheck // no answer is No
 				answer = strings.TrimSpace(strings.ToLower(answer))
 				if answer != "y" && answer != "yes" {
 					Note("Aborted.")

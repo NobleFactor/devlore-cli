@@ -877,6 +877,11 @@ paragraph above -- an exit-code-2 error names the flag or the subcommand, and th
 
 - Prompt only when stdin is a TTY. A non-interactive invocation that would prompt fails instead, naming the
   flag that would have supplied the answer.
+- **A confirmation is the exception** (ruled 2026-10-19, #1005: "Follow Docker's behavior."). A yes-or-no question
+  before a destructive step reads its answer from stdin whether or not stdin is a terminal, so `echo y | ...`
+  answers it; only `y` or `yes` confirms, and no answer, an empty line or end of input, is No. `--force` answers
+  yes without asking. `--unattended` asks nothing and takes the default, No. Declining, by answer or by
+  `--unattended`, changes nothing and exits 0, as docker's declined prompts do. `self uninstall` is the first.
 - Color and progress indicators only when stderr is a TTY, and never in the result stream.
 - `--silent` suppresses narration. It never suppresses the result, and never changes the exit code.
 
@@ -1380,5 +1385,10 @@ only argument-taking format.
 **A third stream.** clig.dev describes two streams. This suite has three, because a workflow engine produces
 durable artifacts that are neither the answer to a question nor progress narration. Documents go to the store
 (§6), and no clig.dev guidance is contradicted by their existence — it simply does not cover them.
+
+**A confirmation reads a piped answer.** clig.dev says "If `stdin` is not an interactive terminal, skip prompting
+and just require those flags/args", as `gh` and the Azure CLI do. This suite's confirmations do as docker's do
+instead (§10, ruled 2026-10-19): the answer is read from stdin whether or not it is a terminal, and no answer is
+No. A script that pipes `y` keeps working, and a script that pipes nothing changes nothing.
 
 Everything else follows clig.dev, and where this document is silent, clig.dev is the answer.

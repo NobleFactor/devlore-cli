@@ -106,10 +106,8 @@ func NewRootCmd(cfg RootConfig) *cobra.Command {
 	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "Verbose output")
 	AddSilentFlag(rootCmd)
 
-	// Deployment mode flags (ADR-033)
-	rootCmd.PersistentFlags().Bool("interactive", false, "Force interactive mode (prompts, rich output)")
+	// Nobody is there to answer: every prompt takes its default (#1005).
 	rootCmd.PersistentFlags().Bool("unattended", false, "Force unattended mode (no prompts, sensible defaults)")
-	rootCmd.MarkFlagsMutuallyExclusive("interactive", "unattended")
 
 	// Model configuration flags
 	// Resolution order: CLI flags → Environment → Config file → Keystore (api-key only)

@@ -3,7 +3,7 @@ title: "self upgrade fetches the newest build on its channel, verifies it, and u
 issue: https://github.com/NobleFactor/devlore-cli/issues/947
 status: active
 created: 2026-09-30
-updated: 2026-10-01
+updated: 2026-10-19
 ---
 
 # Plan: self upgrade fetches, verifies and upgrades the suite
@@ -315,10 +315,13 @@ channel with no release names the channel; a failed child names its program.
 ### Phase 7: Merge
 
 - [x] PR script written, shown, and handed over. The PR resolves #947
-- [ ] After the merge, DANOBLE-UD24-1 takes the develop pre-release built from the merge through the site's
+- [x] After the merge, DANOBLE-UD24-1 takes the develop pre-release built from the merge through the site's
       `install.sh` (a build before this one fetches nothing): `writ --version` names `(develop)`, and the release's tag
       is at the merge commit. On the pre-release after that, `writ self upgrade` on this machine moves `lore`, `star`
-      and `writ` to it, and a second run is a no-op
+      and `writ` to it, and a second run is a no-op. Done as #949's lane 20 records: converged 2026-10-01 on
+      `v0.1.0-dev.20261001193326`, tagged at the merge commit, `(develop)` named; on 2026-10-05 `writ self upgrade`
+      moved the three from build `6f600d68` to `0283bd77` (`v0.1.0-dev.20261005182840`), and a second run downloaded
+      nothing
 - [ ] The follow-up issues filed (see Out of Scope), and #83 and #339 amended: their `auto-upgrade.channel`
       (`stable` / `preview`) and "latest LKG" give way to the two channels
 
@@ -333,9 +336,9 @@ channel with no release names the channel; a failed child names its program.
 - **The installers' checksums,** still warn-and-skip and matched by regular expression (`install.sh:297-311`,
   `install.ps1:384-400`): #1002, lane 23 of #949.
 - **`self uninstall` on Windows from the installed copy** can't remove the running `.exe`, counts it as "modified",
-  and then deletes the manifest (`selfinstall.go:594-597`, `:628`, `:653-658`): #1003, lane 24 of #949.
-- **`self install` ignores `--dry-run`** (it writes the tree), and so does `self uninstall`: #1004, lane 25 of #949.
-- **`self uninstall --unattended` still prompts** (`selfinstall.go:187-201`): #1005, lane 26 of #949.
+  and then deletes the manifest (`selfinstall.go:594-597`, `:628`, `:653-658`): #1003, lane 26 of #949.
+- **`self install` ignores `--dry-run`** (it writes the tree), and so does `self uninstall`: #1004, lane 27 of #949.
+- **`self uninstall --unattended` still prompts** (`selfinstall.go:187-201`): #1005, lane 28 of #949.
 - **Every manifest records every man page in `share/man/man1`:** #780.
 
 ## Decisions
