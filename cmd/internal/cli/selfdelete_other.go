@@ -9,14 +9,16 @@ import "github.com/NobleFactor/devlore-cli/pkg/fsroot"
 
 // deferRunningImageDeletion never defers on a non-Windows platform: unlinking a running binary succeeds here -- the
 // directory entry goes at once, the inode lingers until the process exits -- so the running image is removed in place
-// like any other recorded file. It always returns false, so the caller removes it inline (#1003).
+// like any other recorded file. It always returns false, so the caller removes it inline (#1003), and the manifest
+// with the rest.
 //
 // Parameters:
 //   - `prefixRoot`: the installation prefix (unused here).
 //   - `running`: the running image's recorded entry (unused here).
+//   - `manifest`: the manifest to delete once the image is gone (unused here).
 //
 // Returns:
 //   - `bool`: always false.
-func deferRunningImageDeletion(_ fsroot.Dir, _ manifestEntry) bool {
+func deferRunningImageDeletion(_ fsroot.Dir, _ manifestEntry, _ string) bool {
 	return false
 }

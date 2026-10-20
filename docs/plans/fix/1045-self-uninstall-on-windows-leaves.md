@@ -81,7 +81,10 @@ gone finishes the uninstall.
 
 ### Phase 3: The manifest on Windows (Requirement 2)
 
-- [ ] `deferRunningImageDeletion` takes the manifest to delete when the image is all that remains
+- [x] `deferRunningImageDeletion` takes the manifest to delete when the image is all that remains. `runSelfUninstall`
+      removes every other recorded file first, so what the image leaves behind is known when its deletion is scheduled;
+      where nothing defers it, it is removed in place after them. `make vet-all`, `make test` and `make test-scenario`
+      green here
 - [ ] On danoble-wd11-3: the scenario fails at `83e6b965` and passes with the fix
 
 ### Phase 4: Merge

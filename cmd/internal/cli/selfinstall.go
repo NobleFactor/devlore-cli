@@ -732,9 +732,11 @@ func keptPaths(prefixRoot fsroot.Dir, kept []keptFile) []string {
 // could not remove by its reason (#1003).
 //
 // The running image is the one file this cannot simply delete on Windows, which refuses to delete a mapped image.
-// There its deletion is deferred past this process's exit (deferRunningImageDeletion), it is left out of the
-// in-place removal, and it stays recorded until a run confirms it gone. Elsewhere it deletes in place like any other
-// file, so nothing is deferred.
+// There its deletion is deferred past this process's exit (deferRunningImageDeletion), after every other recorded file
+// is removed, and it stays recorded until it is gone. When it is all that remains, the deferred deletion takes the
+// manifest with it once the image is gone (#1045), so nothing is left behind; when other files were kept, the manifest
+// stays recording them and the image, and a later run, finding the image gone, counts it removed. Elsewhere the image
+// deletes in place like any other file, so nothing is deferred.
 func runSelfUninstall(prefix string, info SelfInstallInfo) (err error) {
 
 	// One root for the whole uninstall, matching runSelfInstall (#405, phase 2b).
@@ -750,16 +752,32 @@ func runSelfUninstall(prefix string, info SelfInstallInfo) (err error) {
 			manifestPath(prefix, info.Name), info.Name, err)
 	}
 
-	// The running image, deferred only where the platform must (Windows). deferred is what this will not remove in
-	// place: its deletion is scheduled and unconfirmed, so it stays recorded.
-	toRemove := m.Files
-	var deferred []manifestEntry
-	if running, found := runningImageEntry(prefixRoot, m.Files); found && deferRunningImageDeletion(prefixRoot, running) {
-		toRemove = excludeEntry(m.Files, running)
-		deferred = append(deferred, running)
+	// Every recorded file but the running image goes first, so that what the image's deletion leaves behind is known
+	// before it is scheduled.
+	running, found := runningImageEntry(prefixRoot, m.Files)
+	others := m.Files
+	if found {
+		others = excludeEntry(m.Files, running)
 	}
+	removed, kept := removeRecordedFiles(prefixRoot, others)
 
-	removed, kept := removeRecordedFiles(prefixRoot, toRemove)
+	// The running image, deferred only where the platform must (Windows). deferred is what this will not remove in
+	// place: its deletion is scheduled and unconfirmed, so it stays recorded. When nothing else was kept, the manifest
+	// goes with it once it is gone. Where nothing defers it, or the deferral cannot start, it is removed in place.
+	var deferred []manifestEntry
+	if found {
+		manifestWithImage := ""
+		if len(kept) == 0 {
+			manifestWithImage = relativeManifestPath(info.Name)
+		}
+		if deferRunningImageDeletion(prefixRoot, running, manifestWithImage) {
+			deferred = append(deferred, running)
+		} else {
+			imageRemoved, imageKept := removeRecordedFiles(prefixRoot, []manifestEntry{running})
+			removed = append(removed, imageRemoved...)
+			kept = append(kept, imageKept...)
+		}
+	}
 
 	// What is still on disk: the files kept, plus the deferred running image. The manifest records exactly this, so a
 	// later run can finish; it is deleted only when nothing remains.

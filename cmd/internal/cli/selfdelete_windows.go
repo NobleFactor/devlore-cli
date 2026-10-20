@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"syscall"
 
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
@@ -33,6 +34,11 @@ const (
 // the image and the delete succeeds, then stops; a cap bounds a process that never exits. ping, not timeout, is the
 // pause: timeout fails without a console, which is exactly this detached case.
 //
+// When manifest names one, the image was all the uninstall left, and the loop deletes the manifest once the image is
+// gone, then the manifest's directory if it is empty: only cmd.exe knows when the image goes, since the process that
+// scheduled it has exited (#1045). When the image is never deleted, the cap reached, the manifest stays recording it,
+// so a later run can finish.
+//
 // It returns true when cmd.exe was started, so the caller leaves the running image out of its own in-place removal.
 // It returns false only when cmd.exe could not be started; the caller then tries the delete in place, which fails and
 // is reported and kept recorded, and a later run -- no longer the running image -- removes the file.
@@ -40,21 +46,30 @@ const (
 // Parameters:
 //   - `prefixRoot`: the installation prefix the entry is relative to.
 //   - `running`: the running image's recorded entry.
+//   - `manifest`: the manifest to delete once the image is gone, relative to the prefix; empty to keep it.
 //
 // Returns:
 //   - `bool`: whether cmd.exe took ownership of the deletion.
-func deferRunningImageDeletion(prefixRoot fsroot.Dir, running manifestEntry) bool {
+func deferRunningImageDeletion(prefixRoot fsroot.Dir, running manifestEntry, manifest string) bool {
 
-	// The path is quoted here, with literal quote characters, rather than with %q in the format: %q applies Go's
+	// Each path is quoted here, with literal quote characters, rather than with %q in the format: %q applies Go's
 	// escaping, which would double the backslashes in a Windows path.
 	quoted := `"` + prefixRoot.NewPath(running.Path).Abs() + `"`
 
+	// What the loop does once the image is gone: stop, or first delete the manifest and its directory if empty.
+	whenGone := "exit"
+	if manifest != "" {
+		manifestPath := prefixRoot.NewPath(manifest).Abs()
+		whenGone = fmt.Sprintf(`(del /f /q "%s" 2>nul & rmdir "%s" 2>nul & exit)`, manifestPath,
+			filepath.Dir(manifestPath))
+	}
+
 	// The outer quote pair wraps the whole command; cmd /c strips it (the command holds special characters, so the
-	// inner quotes around the path are preserved). %%i is a literal %i on the command line -- doubling is fmt's, not
+	// inner quotes around the paths are preserved). %%i is a literal %i on the command line -- doubling is fmt's, not
 	// cmd's.
 	commandLine := fmt.Sprintf(
-		`cmd.exe /c "for /l %%i in (1,1,%d) do (del /f /q %s 2>nul & if not exist %s exit & ping -n 2 127.0.0.1 >nul)"`,
-		deleteRetries, quoted, quoted,
+		`cmd.exe /c "for /l %%i in (1,1,%d) do (del /f /q %s 2>nul & if not exist %s %s & ping -n 2 127.0.0.1 >nul)"`,
+		deleteRetries, quoted, quoted, whenGone,
 	)
 
 	// context.Background(): the child is detached and must outlive this process, so its lifetime is not tied to a
