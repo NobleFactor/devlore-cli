@@ -976,6 +976,25 @@ expect "layers, no flags: skips base alone" "$run3" is "$(count "skipped: " "$ru
 expect "layers, no flags: the skipped base is last" "$run3" \
     is "$(line_from_end 2 "$run3")" "skipped: base; to register it later:"
 
+# --- Every layer registered (#1050): base too, a working tree made here with git init, all a path layer needs. Then no
+# flags names all three as registered, skips none, and ends with the documentation line: no next step ---
+
+base_root="${scratch}/base-layer"
+git init --quiet "$base_root"
+run4="${scratch}/layers.run4"
+against "${github}/verified" layers "$run4" -- --base="$base_root"
+expect "every layer: base given, exits 0" "$run4" is "$status" 0
+expect "every layer: base given, registers it" "$run4" is "$(root_of layers base)" "$base_root"
+run5="${scratch}/layers.run5"
+against "${github}/verified" layers "$run5"
+expect "every layer, no flags: exits 0" "$run5" is "$status" 0
+expect "every layer, no flags: names all three as already registered" "$run5" \
+    holds "$run5" "Already registered: base team personal"
+expect "every layer, no flags: skips none" "$run5" is "$(count "skipped: " "$run5")" 0
+expect "every layer, no flags: gives no next step" "$run5" absent "Next steps:" "$run5"
+expect "every layer, no flags: ends with the documentation line" "$run5" \
+    is "$(line_from_end 1 "$run5")" "$(said note "Documentation: https://github.com/NobleFactor/devlore-cli#readme")"
+
 # --- No flags: nothing registered, and the three skipped layers are the last lines ---
 
 output="${scratch}/none.out"

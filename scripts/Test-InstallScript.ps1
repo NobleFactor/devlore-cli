@@ -1164,6 +1164,43 @@ try {
         -Condition ($skippedLines.Count -eq 1 -and $skippedLines[0] -eq 'skipped: base; to register it later:') `
         -Detail $result.Output
 
+    # --- The PATH advice (#1050): a fixture install is on no PATH, so the summary says how to add it, needing no
+    # administrator, and to open a new terminal ---
+
+    Test-Expectation -Description 'script-block form, no flags: the PATH advice asks for no administrator' `
+        -Condition (-not $result.Output.Contains('Administrator')) -Detail $result.Output
+    Test-Expectation -Description 'script-block form, no flags: the PATH advice says to open a new terminal' `
+        -Condition ($result.Output.Contains('then open a new terminal: this one keeps the PATH it started with.')) `
+        -Detail $result.Output
+
+    # --- Every layer registered (#1050): base too, a working tree made here with git init, all a path layer needs.
+    # Then no flags names all three as registered, skips none, and ends with the documentation line: no next step ---
+
+    $baseRoot = Join-Path $scratch 'base-layer'
+    New-Item -ItemType Directory -Path $baseRoot -Force | Out-Null
+    & git init --quiet $baseRoot
+    Test-Expectation -Description 'every layer: git init makes the base layer' -Condition ($LASTEXITCODE -eq 0) `
+        -Detail "git init exited $LASTEXITCODE"
+
+    $result = Invoke-FixtureInstall -Name 'layers' -Line @($listed) -Arguments @{ Base = $baseRoot }
+    Test-Expectation -Description 'every layer: base given, registers it, and the next step is writ deploy' `
+        -Condition (-not $result.Message -and $result.Output.Contains('Registered: base') -and
+            $result.Output.Contains("Next steps:`n  writ deploy")) `
+        -Detail "message: $($result.Message)`n$($result.Output)"
+
+    $result = Invoke-FixtureInstall -Name 'layers' -Line @($listed)
+    $summary = @($result.Output -split "`n" | Where-Object { $_.Trim() -and $result.Verbose -notcontains $_ })
+    Test-Expectation -Description 'every layer, no flags: names all three as already registered' `
+        -Condition (-not $result.Message -and $result.Output.Contains('Already registered: base team personal')) `
+        -Detail "message: $($result.Message)`n$($result.Output)"
+    Test-Expectation -Description 'every layer, no flags: skips none and gives no next step' `
+        -Condition (-not ($result.Output -match '(?m)^skipped: ') -and -not $result.Output.Contains('Next steps:')) `
+        -Detail $result.Output
+    Test-Expectation -Description 'every layer, no flags: ends with the documentation line' `
+        -Condition ($summary.Count -gt 0 -and
+            $summary[-1].Trim() -eq 'Documentation: https://github.com/NobleFactor/devlore-cli#readme') `
+        -Detail $result.Output
+
     # --- -Help gives the usage on the output stream and returns ---
 
     $null = Use-Account -Name 'help'

@@ -160,9 +160,10 @@ does. A run that changed no layer ends with the documentation line.
 
 ### Phase 3: Next steps (Requirement 3) and the every-layer case (Requirement 4)
 
-- [ ] "Next steps:" only with a step
-- [ ] Both suites' every-layer-registered case: the `install.sh` suite here; the `install.ps1` suite on danoble-wd11-3
-      under 5.1 and 7, where its new checks fail against `844a947f`'s `install.ps1` and pass with the fix
+- [x] "Next steps:" only with a step
+- [x] Both suites' every-layer-registered case, and the `install.ps1` suite's checks of the PATH advice: the `install.sh`
+      suite here, every check passed; the `install.ps1` suite on danoble-wd11-3, 92 passed under 5.1 and 92 under 7,
+      and against `844a947f`'s `install.ps1` its four new checks of the summary failed, the rest passed
 
 ### Phase 4: Documentation (Requirement 5)
 

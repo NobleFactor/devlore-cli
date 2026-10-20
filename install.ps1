@@ -1245,8 +1245,14 @@ function Install-DevLore {
 
             Write-Output -InputObject ''
             Write-Output -InputObject "Documentation: https://github.com/NobleFactor/devlore-cli#readme"
-            Write-Output -InputObject ''
-            Write-Output -InputObject "Next steps:"
+
+            # Next steps only when there is one: a layer registered, to deploy, or a layer skipped, to register. A run
+            # that changed no layer ends with the documentation line, as install.sh's does (#1050).
+            if ($registered.Count -gt 0 -or $skipped.Count -gt 0) {
+                Write-Output -InputObject ''
+                Write-Output -InputObject "Next steps:"
+            }
+
             if ($registered.Count -gt 0) {
                 Write-Output -InputObject "  writ deploy"
             }
