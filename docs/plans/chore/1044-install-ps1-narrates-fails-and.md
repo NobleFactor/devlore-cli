@@ -147,7 +147,19 @@ fails as the style guide's section 7 says, with the two departures this plan mea
 
 ### Phase 3: The suite (Requirements 4 and 5)
 
-- [ ] `Test-InstallScript.ps1` as Requirements 4 and 5 say; off Windows, here, its one check passes
+- [x] `Test-InstallScript.ps1` as Requirements 4 and 5 say; off Windows, here, its one check passes. Done
+      2026-10-20:
+      - Each of the 19 refusal checks names the record's id, read from the syntax tree to hold six named parameters
+        each.
+      - The stdin check runs, in a child session whose standard input is a file, the installer's own
+        `Invoke-NativeCommand` on a PowerShell reading its standard input to the end. Run here against this change, it
+        read 0 bytes; against the installer at `52011130`, 35, the file's: it tells the two apart.
+      - The fixture runs' capture, tried here on the refusal off Windows, read the record
+        `RequiresWindows,Install-DevLore` with its message and the narration from the verbose stream, nothing from the
+        information stream, and left the suite's error action as it was.
+      - `Test-GitHubItself` sends `Authorization: Bearer`, the one form #1060 settled, which #1101's pull request
+        missed there.
+      - The checks that install run on Windows alone, in the Installers workflow
 
 ### Phase 4: The design (Requirement 6)
 
