@@ -1,7 +1,7 @@
 ---
 title: "self uninstall on Windows leaves its manifest behind, and the scenario that would have caught it never runs"
 issue: https://github.com/NobleFactor/devlore-cli/issues/1045
-status: draft
+status: active
 created: 2026-10-20
 updated: 2026-10-20
 ---
@@ -64,7 +64,9 @@ gone finishes the uninstall.
 
 ### Phase 1: The plan
 
-- [ ] This plan committed on `fix/1045-self-uninstall-on-windows-leaves` and reviewed with the owner
+- [x] This plan committed on `fix/1045-self-uninstall-on-windows-leaves` and reviewed with the owner: approved
+      2026-10-20, each decision ruled on its own (D1: "Yes, the Go test under make test"; D2: "Yes, cmd.exe deletes the
+      manifest")
 
 ### Phase 2: Every scenario runs (Requirement 1)
 
