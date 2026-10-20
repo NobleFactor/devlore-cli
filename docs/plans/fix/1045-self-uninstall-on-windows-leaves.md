@@ -85,7 +85,9 @@ gone finishes the uninstall.
       removes every other recorded file first, so what the image leaves behind is known when its deletion is scheduled;
       where nothing defers it, it is removed in place after them. `make vet-all`, `make test` and `make test-scenario`
       green here
-- [ ] On danoble-wd11-3: the scenario fails at `83e6b965` and passes with the fix
+- [x] On danoble-wd11-3: the scenario fails without the fix and passes with it. `make test-scenario`, 2026-10-20: at
+      `1e910ac1` (the scenario run, the fix not yet in), "lore left its manifest behind after uninstall", and star's
+      and writ's; at `6fd484c6`, every scenario passes, `TestSelfUninstallFromInstalledCopyScenario` (9.09s) among them
 
 ### Phase 4: Merge
 
