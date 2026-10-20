@@ -53,6 +53,8 @@
     $env:DEVLORE_BASE = '<loc>'; irm https://delightful-grass-0ac0a4c1e-develop.westus2.6.azurestaticapps.net/install.ps1 | iex
 #>
 
+using namespace System.Linq
+
 #Requires -Version 5.1
 
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
@@ -768,6 +770,186 @@ function Get-ListedChecksum {
 # Main
 # -------------------------------------------------------------------
 
+# Get-CommandOnPersistentPath gets a program as Get-Command does, from the PATH a new terminal searches.
+#
+# A new terminal searches the machine and user PATH stored in the registry, not this session's. The folders are the
+# machine PATH's entries, then the user PATH's, each as written. An empty entry goes, as Windows skips it; a repeat
+# stays, since searching a folder again changes no answer. A name with an extension is searched for as written; a name
+# without one, with each extension of the machine's PATHEXT in turn, in each folder before the next. A folder is
+# searched with Get-ChildItem -LiteralPath, since -Path reads [...] in its name as a wildcard. As Get-Command does, it
+# writes a non-terminating error for each name it finds nothing for.
+#
+# Parameters:
+#   - `Name`: Each program's name, with or without its extension; taken from the pipeline too.
+#   - `All`: Get every copy, in the order a new terminal finds them, not the first alone.
+#
+# Returns:
+#   - System.Management.Automation.ApplicationInfo: Get-Command's description of each copy found.
+function Get-CommandOnPersistentPath {
+    [CmdletBinding()]
+    [OutputType([System.Management.Automation.ApplicationInfo])]
+    param(
+        [Parameter(Mandatory, ValueFromPipeline)]
+        [String[]]
+        $Name,
+
+        [Switch]
+        $All
+    )
+
+    begin {
+
+        $folders =
+            ([Environment]::GetEnvironmentVariable('Path', [EnvironmentVariableTarget]::Machine) -split ';') +
+            ([Environment]::GetEnvironmentVariable('Path', [EnvironmentVariableTarget]::User) -split ';') |
+                Where-Object { $_ }
+
+        # Each of PATHEXT's extensions, keyed without case, to its place in PATHEXT: a folder's files are taken in that
+        # order. ToDictionary throws on a repeated extension.
+
+        $pathExt = [Environment]::GetEnvironmentVariable('PATHEXT', [EnvironmentVariableTarget]::Machine)
+        $ordered = [String[]] ($pathExt -split ';' | Where-Object { $_ })
+
+        $pathExtensions = [Enumerable]::ToDictionary(
+            [Enumerable]::Range(0, $ordered.Length),
+            [Func[Int32, String]] { param($i) $ordered[$i] },
+            [System.StringComparer]::OrdinalIgnoreCase)
+    }
+
+    process {
+
+        foreach ($commandName in $Name) {
+
+            if ([System.IO.Path]::HasExtension($commandName)) {
+                $filter = $commandName
+                $extensions = New-Object `
+                    -TypeName 'System.Collections.Generic.Dictionary[String, Int32]' `
+                    -ArgumentList ([System.StringComparer]::OrdinalIgnoreCase)
+                $extensions[[System.IO.Path]::GetExtension($commandName)] = 0
+            }
+            else {
+                $filter = "$commandName.*"
+                $extensions = $pathExtensions
+            }
+
+            $found = $false
+
+            foreach ($folder in $folders) {
+
+                # A folder's files are taken in PATHEXT's order; a file whose extension PATHEXT lacks, writ.exe.config
+                # for writ.*, is not a program.
+
+                $files = Get-ChildItem -LiteralPath $folder -Filter $filter -File -ErrorAction Ignore |
+                    Where-Object { $extensions.ContainsKey($_.Extension) } |
+                    Sort-Object -Property { $extensions[$_.Extension] }
+
+                foreach ($file in $files) {
+
+                    Get-Command -Name $file.FullName -CommandType Application -ErrorAction Ignore
+                    $found = $true
+
+                    if (-not $All) {
+                        break
+                    }
+                }
+
+                if ($found -and -not $All) {
+                    break
+                }
+            }
+
+            if (-not $found) {
+
+                $exception = New-Object `
+                    -TypeName System.Management.Automation.CommandNotFoundException `
+                    -ArgumentList "The term '$commandName' is not recognized as a program on the persistent PATH."
+
+                $record = New-Object `
+                    -TypeName System.Management.Automation.ErrorRecord `
+                    -ArgumentList (
+                        $exception,
+                        'CommandNotFoundOnPersistentPath',
+                        [System.Management.Automation.ErrorCategory]::ObjectNotFound,
+                        $commandName)
+
+                $PSCmdlet.WriteError($record)
+            }
+        }
+    }
+}
+
+# Get-FileIdentity gets the identity of the file a path names: its volume's serial number and its file ID.
+#
+# Two paths name the same file exactly when their identities are equal, whatever links lie between: a hard link shares
+# its file's ID, and opening a symbolic link or a path through a junction opens its target. The identity comes from
+# GetFileInformationByHandleEx's FileIdInfo, whose 128-bit ID holds on ReFS as well as NTFS.
+#
+# Parameters:
+#   - `LiteralPath`: The file's path, taken as written.
+#
+# Returns:
+#   - String: The volume serial number and the file ID, in hexadecimal, as `<volume>:<file ID>`.
+function Get-FileIdentity {
+    [CmdletBinding()]
+    [OutputType([String])]
+    param(
+        [Parameter(Mandatory)]
+        [String]
+        $LiteralPath
+    )
+
+    if (-not ('DevLore.FileIdentity' -as [Type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.IO;
+using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
+
+namespace DevLore
+{
+    public static class FileIdentity
+    {
+        [StructLayout(LayoutKind.Sequential)]
+        private struct FileIdInfo
+        {
+            public ulong VolumeSerialNumber;
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 16)]
+            public byte[] FileId;
+        }
+
+        // FILE_INFO_BY_HANDLE_CLASS.FileIdInfo.
+        private const int FileIdInfoClass = 18;
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool GetFileInformationByHandleEx(
+            SafeFileHandle file, int infoClass, out FileIdInfo info, uint size);
+
+        public static string Of(string path)
+        {
+            using (var stream = new FileStream(path, FileMode.Open, FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete))
+            {
+                FileIdInfo info;
+
+                if (!GetFileInformationByHandleEx(stream.SafeFileHandle, FileIdInfoClass, out info,
+                    (uint) Marshal.SizeOf(typeof(FileIdInfo))))
+                {
+                    throw new Win32Exception(Marshal.GetLastWin32Error());
+                }
+
+                return info.VolumeSerialNumber.ToString("x16") + ":" +
+                    BitConverter.ToString(info.FileId).Replace("-", "");
+            }
+        }
+    }
+}
+'@
+    }
+
+    [DevLore.FileIdentity]::Of($LiteralPath)
+}
+
 # The installer's work, as the PowerShell style guide's section 7 has a script do it (#1044). It notes its caller's
 # error action, sets Stop for its own work, and runs that work inside try and catch. The catch puts the caller's error
 # action back and reports the error with $PSCmdlet.WriteError, so a caller who continues on error continues, one who
@@ -974,27 +1156,90 @@ function Install-DevLore {
             }
             Write-Output -InputObject ''
 
-            # Check if install dir is in PATH
-            $pathDirs = $env:PATH -split [System.IO.Path]::PathSeparator
-            if ($installDir -notin $pathDirs) {
-                Write-Warning -Message "$installDir is not in your PATH"
-                Write-Output -InputObject ''
-                Write-Output -InputObject "Add it to your PATH (run as Administrator):"
-                Write-Output -InputObject ''
-                Write-Output -InputObject "  [Environment]::SetEnvironmentVariable('Path',"
-                Write-Output -InputObject "    `"$installDir;`" + [Environment]::GetEnvironmentVariable('Path', 'User'), 'User')"
-                Write-Output -InputObject ''
-                Write-Output -InputObject "Or add to your PowerShell profile (`$PROFILE):"
-                Write-Output -InputObject ''
-                Write-Output -InputObject "  `$env:PATH = `"$installDir;`$env:PATH`""
-                Write-Output -InputObject ''
+            # Whether a new terminal would run what was installed (#1050). A new terminal searches the PATH stored in
+            # the registry, which this session's need not match, so the copies on it are asked for, in the order it
+            # finds them, and each is compared with the installed file by identity, not by name: a link reaches the
+            # same file by another path. writ is asked about, or the first program installed when writ was not.
+            $program = $installed[0]
+
+            if ($installed -contains 'writ') {
+                $program = 'writ'
             }
 
-            # Verify installation
-            if ($installDir -in $pathDirs) {
+            $programPath = Join-Path -Path $installDir -ChildPath "$program.exe"
+            $programIdentity = Get-FileIdentity -LiteralPath $programPath
+            $copies = @(Get-CommandOnPersistentPath -Name $program -All -ErrorAction Ignore)
+            $oursAt = -1
+
+            for ($i = 0; $i -lt $copies.Count -and $oursAt -lt 0; $i++) {
+
+                # A copy that cannot be read is not the installed file, which this run just read.
+                try {
+                    if ((Get-FileIdentity -LiteralPath $copies[$i].Source) -eq $programIdentity) {
+                        $oursAt = $i
+                    }
+                }
+                catch {
+                    Write-Verbose -Message "Could not read $($copies[$i].Source): $($_.Exception.Message)"
+                }
+            }
+
+            if ($oursAt -eq 0) {
                 Write-Output -InputObject "Verify installation:"
+
                 foreach ($tool in $installed) {
                     Write-Output -InputObject "  $tool --version"
+                }
+            }
+            else {
+                $userAdvice = $true
+
+                if ($copies.Count -eq 0) {
+                    Write-Warning -Message "$installDir is not on your PATH"
+                }
+                else {
+                    $first = $copies[0].Source
+
+                    if ($oursAt -gt 0) {
+                        Write-Warning -Message "$first comes before $programPath on your PATH, so $program runs it"
+                    }
+                    else {
+                        Write-Warning -Message "$installDir is not on your PATH, and $first is, so $program runs it"
+                    }
+
+                    # A copy in a machine PATH folder comes before every user PATH folder, so no change to the user
+                    # PATH can put the install directory ahead of it.
+                    $firstFolder = (Split-Path -Path $first -Parent).TrimEnd('\')
+                    $machinePath = [Environment]::GetEnvironmentVariable('Path', [EnvironmentVariableTarget]::Machine)
+                    $machineFolders = $machinePath -split ';' |
+                        Where-Object { $_ } |
+                        ForEach-Object { $_.TrimEnd('\') }
+
+                    if ($machineFolders -contains $firstFolder) {
+                        $userAdvice = $false
+                        Write-Output -InputObject ''
+                        Write-Output -InputObject `
+                            "$first is on the machine PATH, which a new terminal searches before yours."
+                        Write-Output -InputObject `
+                            "Remove it, or put $installDir first in the machine PATH, as an administrator."
+                        Write-Output -InputObject ''
+                    }
+                }
+
+                if ($userAdvice) {
+                    Write-Output -InputObject ''
+                    Write-Output -InputObject "Add it to your PATH:"
+                    Write-Output -InputObject ''
+                    Write-Output -InputObject "  [Environment]::SetEnvironmentVariable('Path',"
+                    Write-Output -InputObject `
+                        "    `"$installDir;`" + [Environment]::GetEnvironmentVariable('Path', 'User'), 'User')"
+                    Write-Output -InputObject ''
+                    Write-Output -InputObject "then open a new terminal: this one keeps the PATH it started with."
+                    Write-Output -InputObject ''
+                    Write-Output -InputObject "Or, for PowerShell alone, add to your profile (`$PROFILE):"
+                    Write-Output -InputObject ''
+                    Write-Output -InputObject "  `$env:PATH = `"$installDir;`$env:PATH`""
+                    Write-Output -InputObject ''
                 }
             }
 

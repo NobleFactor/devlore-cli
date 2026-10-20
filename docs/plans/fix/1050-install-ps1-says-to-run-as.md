@@ -147,9 +147,16 @@ does. A run that changed no layer ends with the documentation line.
 
 ### Phase 2: The PATH check (Requirements 1 and 2)
 
-- [ ] `Get-CommandOnPersistentPath` in `install.ps1`, and the advice that follows it
-- [ ] By hand on danoble-wd11-3 under 5.1 and 7, as Requirement 4 says; the suite off Windows here, and on
-      danoble-wd11-3 under 5.1
+- [x] `Get-CommandOnPersistentPath` in `install.ps1`, and the advice that follows it; ruled 2026-10-20 to call it with
+      `-All` and compare each copy with the installed file by identity, `Get-FileIdentity`: the volume serial number
+      and 128-bit file ID of `GetFileInformationByHandleEx`'s `FileIdInfo`, so a hard link, a symbolic link and a
+      junction each name the installed file, and a copy does not. A copy in a machine PATH folder gets the advice
+      that it needs an administrator (ruled "A")
+- [x] By hand on danoble-wd11-3 under 5.1 and 7, the installer's own block against the real PATH: installed where the
+      PATH finds it, and a hard link to that copy, verify; a copy off the PATH behind writ on the user PATH, the user
+      advice; a `cmd` copy behind `System32`'s, and `klist` in `System32` behind the Zulu JDK's, the machine advice.
+      The suite on danoble-wd11-3, 85 passed under 5.1 and 85 under 7; off Windows here, the refusal; the
+      organization's PowerShell gate, 4 checked, none with findings
 
 ### Phase 3: Next steps (Requirement 3) and the every-layer case (Requirement 4)
 
