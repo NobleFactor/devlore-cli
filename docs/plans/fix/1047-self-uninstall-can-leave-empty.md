@@ -55,9 +55,9 @@ shown before the fix lands.
 
 ### Phase 3: Merge
 
-- [ ] The gate: CI's quality gate locally, `make test-race`, `make test-scenario`, all finished green before the PR
-      script is called ready
-- [ ] PR script written, shown, and handed over; the PR resolves #1047
+- [x] The gate: CI's quality gate locally, `make test-race`, `make test-scenario`, all finished green before the PR
+      script is called ready, 2026-10-20
+- [x] PR script written, shown, and handed over; the PR resolves #1047
 - [ ] CI on the pull request, every leg; nothing acts on the checks while the script's gate watches them
 
 ## Files to Create/Modify
