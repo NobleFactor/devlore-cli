@@ -130,10 +130,29 @@ Design row names them. The pull request says `Part of #1100`; it does not resolv
 
 ### Phase 3: The console (Requirements 1 and 3)
 
-- [ ] Bubble Tea, Bubbles and Lip Gloss v2; `console.go`, `model.go`, `styles.go` on the v2 APIs
-- [ ] Tests for what changed: each key a step handles, by `tea.KeyPressMsg`; `View().AltScreen` true under `Run` and
-      false under `RunInline`; the style chosen from a `tea.BackgroundColorMsg`
-- [ ] `writ migrate` run in a scratch home, in a terminal: starts, renders, resizes, takes input, cancels with ctrl+c
+- [x] Bubble Tea, Bubbles and Lip Gloss v2; `console.go`, `model.go`, `styles.go` on the v2 APIs. `go.mod` holds no
+      Charm v1 module and no termenv, not even indirectly
+- [x] Tests for what changed: each key a step handles, by `tea.KeyPressMsg` (`TestModel_Keys`, `TestModel_Cancel`);
+      `View().AltScreen` true under `Run` and false under `RunInline` (`TestConsole_AltScreen`); the style chosen from
+      a `tea.BackgroundColorMsg` (`TestModel_StyleFollowsBackground`); a resize (`TestModel_Resizes`)
+- [x] ~~`writ migrate` run in a scratch home, in a terminal~~. `writ migrate` refuses to run without an AI model
+      provider, and none is local here, so a run sends the scratch directory's analysis to an outside service. Ruled
+      2026-10-20, offered that or a test: "Program-level test." `TestConsole_RunsAProgram` runs a real Bubble Tea v2
+      program through `RunInline` on the bytes a terminal sends (`y`, `abc`, return) and checks the session's
+      responses; `TestConsole_CtrlCCancels` sends `\x03`. What a step renders stays `TestModelView`'s: v2 renders by
+      frame, and scripted keys are read before the first. `make test` green twice and `make test-race` green
+
+**Found along the way, and fixed here.** All three are in the console as committed at `65c8b40f`, not made by the
+move; the program-level tests found them.
+
+- An input step never took typing. `Update` sent every key to `handleKey`, and `handleInputKey` acted on enter
+  alone, so no character reached the text input: `TestConsole_RunsAProgram` responded `""` where it typed `abc`.
+  Every other key now goes to the text input.
+- A message arriving after the session ended dereferenced a nil step (`m.step.Type` in `Update`): the program
+  panicked. The step is checked first.
+- `renderStep` returned a command that read `m.step` and `m.renderer` on Bubble Tea's command goroutine while the
+  next update wrote them: `make test-race` reported the race. The step now renders in the update that asks for it,
+  and the `stepRenderedMsg` round trip is gone.
 
 ### Phase 4: The specification (Requirement 4)
 

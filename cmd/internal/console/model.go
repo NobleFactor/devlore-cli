@@ -7,11 +7,11 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/charmbracelet/bubbles/spinner"
-	"github.com/charmbracelet/bubbles/textinput"
-	tea "github.com/charmbracelet/bubbletea"
-	"github.com/charmbracelet/glamour"
-	"github.com/charmbracelet/lipgloss"
+	"charm.land/bubbles/v2/spinner"
+	"charm.land/bubbles/v2/textinput"
+	tea "charm.land/bubbletea/v2"
+	"charm.land/glamour/v2"
+	"charm.land/lipgloss/v2"
 )
 
 // Model is the Bubble Tea model for interactive sessions.
@@ -30,12 +30,45 @@ type Model struct {
 	spinner       spinner.Model
 	selectedIndex int
 
-	// Markdown renderer
+	// Markdown renderer, in glamour's style for the terminal's background
 	renderer *glamour.TermRenderer
+	style    string
+	wrap     int
+
+	// altScreen is whether the session runs on the alternate screen: [Console.Run] sets it, and
+	// [Console.RunInline] does not.
+	altScreen bool
 
 	// State
 	quitting bool
 	err      error
+}
+
+// darkStyle and lightStyle are glamour's style sheets for a dark and a light background. Dark is glamour's own
+// default, and the console's until the terminal answers [tea.RequestBackgroundColor].
+const (
+	darkStyle  = "dark"
+	lightStyle = "light"
+)
+
+// newRenderer builds the markdown renderer for a style and a wrap width.
+//
+// Parameters:
+//   - `style`: glamour's style sheet, [darkStyle] or [lightStyle].
+//   - `width`: the column text wraps at.
+//
+// Returns:
+//   - `*glamour.TermRenderer`: the renderer, or nil when it cannot be built, in which case steps render as plain
+//     text.
+func newRenderer(style string, width int) *glamour.TermRenderer {
+	renderer, err := glamour.NewTermRenderer(
+		glamour.WithStylePath(style),
+		glamour.WithWordWrap(width),
+	)
+	if err != nil {
+		return nil
+	}
+	return renderer
 }
 
 // NewModel creates a new console model for the given session.
@@ -47,20 +80,14 @@ func NewModel(session Session) *Model {
 	sp := spinner.New()
 	sp.Spinner = spinner.Dot
 
-	renderer, err := glamour.NewTermRenderer(
-		glamour.WithAutoStyle(),
-		glamour.WithWordWrap(80),
-	)
-	if err != nil {
-		renderer = nil
-	}
-
 	return &Model{
 		session:   session,
 		styles:    DefaultStyles(),
 		textInput: ti,
 		spinner:   sp,
-		renderer:  renderer,
+		renderer:  newRenderer(darkStyle, 80),
+		style:     darkStyle,
+		wrap:      80,
 		width:     80,
 		height:    24,
 	}
@@ -75,8 +102,9 @@ func (m *Model) Init() tea.Cmd {
 		return tea.Quit
 	}
 
+	m.renderStep()
 	return tea.Batch(
-		m.renderStep(),
+		tea.RequestBackgroundColor,
 		m.initInputForStep(),
 	)
 }
@@ -84,37 +112,55 @@ func (m *Model) Init() tea.Cmd {
 // Update handles messages.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	case tea.KeyPressMsg:
 		return m.handleKey(msg)
+
+	case tea.BackgroundColorMsg:
+		m.setStyle(msg.IsDark())
+		return m, nil
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		cmd := m.renderStep()
-		return m, cmd
+		m.renderStep()
+		return m, nil
 
 	case spinner.TickMsg:
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
 		return m, cmd
-
-	case stepRenderedMsg:
-		m.rendered = string(msg)
-		return m, nil
 	}
 
-	// Update input components
+	// Update input components. A session that has ended has no step, and messages still arrive after it.
 	var cmd tea.Cmd
-	if m.step.Type == StepInput {
+	if m.step != nil && m.step.Type == StepInput {
 		m.textInput, cmd = m.textInput.Update(msg)
 	}
 	return m, cmd
 }
 
+// setStyle renders in glamour's dark or light style, by the terminal's background, and renders the current step
+// again when the style changes.
+//
+// Parameters:
+//   - `dark`: whether the terminal's background is dark.
+func (m *Model) setStyle(dark bool) {
+	style := lightStyle
+	if dark {
+		style = darkStyle
+	}
+	if style == m.style {
+		return
+	}
+	m.style = style
+	m.renderer = newRenderer(style, m.wrap)
+	m.renderStep()
+}
+
 // handleKey processes keyboard input.
-func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
-	case tea.KeyCtrlC, tea.KeyEsc:
+func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "ctrl+c", "esc":
 		m.quitting = true
 		return m, tea.Quit
 	}
@@ -135,7 +181,7 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case StepProgress:
 		return m, nil
 	case StepComplete, StepError:
-		if msg.Type == tea.KeyEnter {
+		if msg.Code == tea.KeyEnter {
 			m.quitting = true
 			return m, tea.Quit
 		}
@@ -144,14 +190,14 @@ func (m *Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *Model) handleInfoKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if msg.Type == tea.KeyEnter || msg.Type == tea.KeySpace {
+func (m *Model) handleInfoKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if msg.Code == tea.KeyEnter || msg.Code == tea.KeySpace {
 		return m.advance("")
 	}
 	return m, nil
 }
 
-func (m *Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+func (m *Model) handleConfirmKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "y", "Y":
 		return m.advance("yes")
@@ -166,8 +212,8 @@ func (m *Model) handleConfirmKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *Model) handleSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	switch msg.Type {
+func (m *Model) handleSelectKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch msg.Code {
 	case tea.KeyUp:
 		if m.selectedIndex > 0 {
 			m.selectedIndex--
@@ -186,15 +232,19 @@ func (m *Model) handleSelectKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *Model) handleInputKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if msg.Type == tea.KeyEnter {
+func (m *Model) handleInputKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if msg.Code == tea.KeyEnter {
 		value := m.textInput.Value()
 		if value == "" && m.step.Default != "" {
 			value = m.step.Default
 		}
 		return m.advance(value)
 	}
-	return m, nil
+
+	// Every other key is typing, and the text input takes it.
+	var cmd tea.Cmd
+	m.textInput, cmd = m.textInput.Update(msg)
+	return m, cmd
 }
 
 // advance processes a response and moves to the next step.
@@ -212,10 +262,8 @@ func (m *Model) advance(response string) (tea.Model, tea.Cmd) {
 	}
 
 	m.selectedIndex = 0
-	return m, tea.Batch(
-		m.renderStep(),
-		m.initInputForStep(),
-	)
+	m.renderStep()
+	return m, m.initInputForStep()
 }
 
 // initInputForStep prepares input components for the current step.
@@ -238,28 +286,34 @@ func (m *Model) initInputForStep() tea.Cmd {
 	return nil
 }
 
-// stepRenderedMsg carries rendered markdown content.
-type stepRenderedMsg string
-
-// renderStep renders the current step's markdown content.
-func (m *Model) renderStep() tea.Cmd {
-	return func() tea.Msg {
-		if m.step == nil || m.step.Content == "" {
-			return stepRenderedMsg("")
-		}
-		if m.renderer == nil {
-			return stepRenderedMsg(m.step.Content)
-		}
+// renderStep renders the current step's markdown content into [Model.rendered].
+//
+// It renders in the update that calls it, not in a command: Bubble Tea runs commands on goroutines of their own,
+// and a command reading the model races the next update writing it.
+func (m *Model) renderStep() {
+	switch {
+	case m.step == nil || m.step.Content == "":
+		m.rendered = ""
+	case m.renderer == nil:
+		m.rendered = m.step.Content
+	default:
 		rendered, err := m.renderer.Render(m.step.Content)
 		if err != nil {
-			return stepRenderedMsg(m.step.Content)
+			rendered = m.step.Content
 		}
-		return stepRenderedMsg(rendered)
+		m.rendered = rendered
 	}
 }
 
-// View renders the model.
-func (m *Model) View() string {
+// View renders the model, on the alternate screen when [Model.altScreen] says so.
+func (m *Model) View() tea.View {
+	view := tea.NewView(m.content())
+	view.AltScreen = m.altScreen
+	return view
+}
+
+// content renders the model's text.
+func (m *Model) content() string {
 	if m.quitting && m.step == nil {
 		return ""
 	}
@@ -422,12 +476,9 @@ func (m *Model) SetStyles(styles *Styles) {
 func (m *Model) WithWidth(width int) *Model {
 	m.width = width
 	if m.renderer != nil {
-		r, err := glamour.NewTermRenderer(
-			glamour.WithAutoStyle(),
-			glamour.WithWordWrap(width-4),
-		)
-		if err == nil {
+		if r := newRenderer(m.style, width-4); r != nil {
 			m.renderer = r
+			m.wrap = width - 4
 		}
 	}
 	return m
