@@ -212,7 +212,9 @@ the move; the program-level tests found them.
 - [x] #1060's plans ticked. Six of the eight were already closed by #1061 (lane 28). 947's last box needed
       #83 and #339 amended and a comment on #990, done 2026-10-20; the plan is complete. 1003's last box stays open
       by #949's 2026-10-19 audit, on #1045 (lane 31), the Windows scenario that never runs
-- [ ] #1060's code references and issue text current
+- [ ] #1060's code references and issue text current. `selfupgrade_archive.go:268` and its test cite
+      `install.sh:557-579`, where the layout is now (done); #947's plan's lane numbers for #1002 to #1005 already match
+      #949 (23, 26, 27, 28); the banners and #1004's text remain
 - [ ] #1060's one authorization form, with the installer suites green
 
 ### Phase 6: Merge

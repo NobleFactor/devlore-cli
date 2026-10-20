@@ -3,7 +3,7 @@ title: "self upgrade fetches the newest build on its channel, verifies it, and u
 issue: https://github.com/NobleFactor/devlore-cli/issues/947
 status: complete
 created: 2026-09-30
-updated: 2026-10-19
+updated: 2026-10-20
 ---
 
 # Plan: self upgrade fetches, verifies and upgrades the suite
