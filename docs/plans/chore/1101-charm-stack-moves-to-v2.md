@@ -208,7 +208,7 @@ the move; the program-level tests found them.
       `docs/plans/star-gen-receiver/phase-2.md` and `phase-3.md` are noblefactor-ops's pull request #65, and stay
 - [x] `configuration.md`'s Open questions gain the flag-mapping question, and a new section, Requirements carried,
       the repeatable flag; `9-star-extensions.md` § Flag Resolution opens with a not-built note
-- [ ] Lane 28's plan closed
+- [x] Lane 28's plan closed: its last box ticked, its status complete
 - [ ] #1060's plans ticked
 - [ ] #1060's code references and issue text current
 - [ ] #1060's one authorization form, with the installer suites green
