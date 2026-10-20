@@ -49,8 +49,9 @@ shown before the fix lands.
 
 ### Phase 2: The fix (Requirements 1 and 2)
 
-- [ ] The test, failing at `720b3db6`
-- [ ] Deepest first, and the test passing; `make test` green
+- [x] The test, failing at `720b3db6`: "share/a was emptied by the uninstall and is still there" (2026-10-20)
+- [x] Deepest first, and the test passing; `make test` green. Sorted with `slices.SortFunc`, which the file already
+      uses
 
 ### Phase 3: Merge
 

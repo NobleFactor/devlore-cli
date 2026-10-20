@@ -888,3 +888,63 @@ func TestRetireSupersededFiles_FirstInstallHasNothingToRetire(t *testing.T) {
 		t.Errorf("removed = %v, skipped = %v; a first install has no record to retire", removed, skipped)
 	}
 }
+
+// TestCleanEmptyDirs_RemovesEveryEmptiedDirectory pins that an uninstall removes every directory it emptied, and no
+// other (#1047).
+//
+// cleanEmptyDirs tried the recorded files' directories in a map's order, and a parent tried before its child was not
+// empty yet, was skipped, and was never tried again. A chain six directories deep came out whole only when its
+// directories happened to come up deepest first, one order in 720. Here the chain, a branch beside it, and a directory
+// holding a file the manifest does not record: the first two must go, the third must stay, and so must every directory
+// above it.
+func TestCleanEmptyDirs_RemovesEveryEmptiedDirectory(t *testing.T) {
+
+	prefix := t.TempDir()
+	recorded := []string{
+		filepath.Join("share", "a", "b", "c", "d", "e", "f", "chain.txt"),
+		filepath.Join("share", "a", "branch", "leaf.txt"),
+	}
+	unrecorded := filepath.Join("share", "kept", "mine.txt")
+
+	for _, relative := range append(append([]string{}, recorded...), unrecorded) {
+		path := filepath.Join(prefix, relative)
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+			t.Fatalf("make %s: %v", filepath.Dir(path), err)
+		}
+		if err := os.WriteFile(path, []byte(relative), 0o600); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+	}
+
+	// The uninstall removes the recorded files, then cleans the directories they leave.
+	entries := make([]manifestEntry, 0, len(recorded))
+	for _, relative := range recorded {
+		if err := os.Remove(filepath.Join(prefix, relative)); err != nil {
+			t.Fatalf("remove %s: %v", relative, err)
+		}
+		entries = append(entries, manifestEntry{Path: relative})
+	}
+
+	root, err := OpenTree(prefix)
+	if err != nil {
+		t.Fatalf("OpenTree: %v", err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+
+	cleanEmptyDirs(root, entries)
+
+	for _, relative := range []string{
+		filepath.Join("share", "a"),
+		filepath.Join("share", "a", "b", "c", "d", "e", "f"),
+		filepath.Join("share", "a", "branch"),
+	} {
+		if _, err := os.Stat(filepath.Join(prefix, relative)); !os.IsNotExist(err) {
+			t.Errorf("%s was emptied by the uninstall and is still there (stat: %v)", relative, err)
+		}
+	}
+	for _, relative := range []string{"share", filepath.Join("share", "kept"), unrecorded} {
+		if _, err := os.Stat(filepath.Join(prefix, relative)); err != nil {
+			t.Errorf("%s holds a file the manifest does not record, and is gone: %v", relative, err)
+		}
+	}
+}
