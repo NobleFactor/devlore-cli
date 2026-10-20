@@ -429,6 +429,8 @@ test-race: generate ## Run tests with race detector (TAGS=all|integration|e2e|""
 	go test $(if $(_TAGS),-tags '$(_TAGS)') $$(go list ./... | grep -v '/pkg/op/provider$$') -count=1 $$race_flags -timeout 120s
 
 test-scenario: build ## Run every scenario: the real binaries driven end to end in a sandbox
+	# Every scenario is named here: TestScenarioTargetRunsEveryScenario (cmd/scenario), under `make test`, fails for one
+	# that is not (#1045).
 	# The writ-deploy scenario (docs/plans/writ-deploy-scenario.md) — writ's alone.
 	WRIT_SCENARIO_RUN=1 go test -run TestWritDeployScenario -v -count=1 -timeout 600s ./cmd/writ
 	# The layer-journey scenario (docs/plans/feature/855-layer-move-scenario.md): self install, repo set,
@@ -436,6 +438,8 @@ test-scenario: build ## Run every scenario: the real binaries driven end to end 
 	WRIT_SCENARIO_RUN=1 go test -run TestWritLayerJourneyScenario -v -count=1 -timeout 900s ./cmd/writ
 	# Self install / uninstall, once per tool. Belongs to no single command, so it lives in cmd/scenario.
 	DEVLORE_SCENARIO_RUN=1 go test -run TestSelfInstallScenario -v -count=1 -timeout 600s ./cmd/scenario
+	# Self uninstall from the installed copy (#1003, #1045): the running image is the file removed, deferred on Windows.
+	DEVLORE_SCENARIO_RUN=1 go test -run TestSelfUninstallFromInstalledCopyScenario -v -count=1 -timeout 600s ./cmd/scenario
 	# Self upgrade (docs/plans/fix/947-self-upgrade-fetches-nothing-it.md): the three, installed from build/, upgraded
 	# by the installed writ to a release the test builds and packs itself, then again, which changes nothing.
 	DEVLORE_SCENARIO_RUN=1 go test -run TestSelfUpgradeScenario -v -count=1 -timeout 600s ./cmd/scenario
