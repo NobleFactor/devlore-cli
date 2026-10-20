@@ -206,7 +206,8 @@ the move; the program-level tests found them.
       `gh.exempt`
 - [x] The links to devlore-cli#65 name noblefactor-ops#317: the six, and no other remains. The two "PR #65" in
       `docs/plans/star-gen-receiver/phase-2.md` and `phase-3.md` are noblefactor-ops's pull request #65, and stay
-- [ ] `configuration.md`'s Open questions and `9-star-extensions.md`'s note
+- [x] `configuration.md`'s Open questions gain the flag-mapping question, and a new section, Requirements carried,
+      the repeatable flag; `9-star-extensions.md` § Flag Resolution opens with a not-built note
 - [ ] Lane 28's plan closed
 - [ ] #1060's plans ticked
 - [ ] #1060's code references and issue text current

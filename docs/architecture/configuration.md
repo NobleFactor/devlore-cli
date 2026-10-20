@@ -984,3 +984,17 @@ From the comparison, the concrete refinements layered onto star's proven registr
 - **`show` and `sync` for all four?** (asked 2026-09-02) — `star`'s two extension commands are star's alone today.
   `show`, the resolved view, is what every program's users ask for; whether it joins the shared set, and whether
   `sync` stays star's, is open. Tracked under #441.
+- **An extension command's flags, and the keys and variables they map to** (ruled 2026-10-19) — the unification
+  rolls an extension's section up through every source, but says nothing of how a star extension *command's* flag maps
+  to a key in that section or to an environment variable. `9-star-extensions.md` § Flag Resolution maps them its own
+  way (`STAR_<COMMAND>_<FLAG>`, `<command>.<flag>`), and star builds neither: an extension's flag comes from the command
+  line alone (`cmd/star/extension/command.go:68`). Ruled: a design question, resolved before coding on the unified
+  configuration starts. Found by noblefactor-ops#253, whose `--repo` will gain its environment and configuration rungs
+  once this is designed and built.
+
+## Requirements carried
+
+- **Repeatable flags** (ruled 2026-10-19) — a flag given more than once accumulates its values: `--repo a --repo b`.
+  Star's extension flags have no list type (`bool`, `string`, `int`, `glob`: `cmd/star/extension/extension.go:162`), so
+  star gh's `--repo` takes one comma-separated value for now ("For now, it is not repeatable."). Designed with the
+  unified configuration.
