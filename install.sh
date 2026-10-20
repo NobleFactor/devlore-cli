@@ -234,10 +234,11 @@ TOOLS="${DEVLORE_TOOLS:-all}"
 # GitHub authentication (optional). The repository is public; a token only lifts the API's anonymous rate limit, and is
 # sent to the API alone, never to a download link.
 # Per https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api
-# Note: Use "token" not "Bearer" for OAuth tokens from gh auth
+# Sent as "Authorization: Bearer", the form GitHub's documentation uses and the one every token accepts ("Authenticating
+# to the REST API": a JSON web token must use Bearer), and the form self upgrade sends.
 AUTH_HEADER=""
 if [[ -n "${GH_TOKEN:-}" ]]; then
-    AUTH_HEADER="Authorization: token ${GH_TOKEN}"
+    AUTH_HEADER="Authorization: Bearer ${GH_TOKEN}"
 fi
 
 # Detect OS. install.sh installs on Linux and macOS, and install.ps1 on Windows; neither serves the other's (#1032). The

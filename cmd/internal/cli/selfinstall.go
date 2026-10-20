@@ -29,45 +29,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/schema"
 )
 
-// =============================================================================
-// Types
-// =============================================================================
-
-// SelfInstallInfo contains metadata needed for self-installation.
-type SelfInstallInfo struct {
-	Name               string                  // Tool name (e.g., "lore", "writ", "star")
-	Version            string                  // Semantic version (e.g., "0.4.0"), set via ldflags
-	Channel            string                  // Channel the build follows ("develop", "release"), set via ldflags
-	Prerelease         bool                    // Whether the build takes its channel's pre-releases, set via ldflags
-	ManHeader          ManHeader               // Man page header metadata
-	ConfigInfo         *ConfigInfo             // Config schema and defaults (nil to skip config init)
-	PostInstallHooks   []func(string) []string // Hooks run after install; return installed file paths (relative to prefix)
-	PostUninstallHooks []func(string) error    // Hooks run after uninstall
-}
-
-// manifest records every file installed by self install/upgrade.
-type manifest struct {
-	Tool      string          `json:"tool"`
-	Version   string          `json:"version"`
-	Prefix    string          `json:"prefix"`
-	Installed string          `json:"installed"`
-	Files     []manifestEntry `json:"files"`
-}
-
-// manifestEntry records one installed file.
-type manifestEntry struct {
-	Path   string `json:"path"`   // Relative to prefix
-	SHA256 string `json:"sha256"` // Hex-encoded SHA-256
-}
-
-// installFlags holds the flag values for self install.
-type installFlags struct {
-	Shells []string
-}
-
-// =============================================================================
-// Command Construction
-// =============================================================================
+// region EXPORTED FUNCTIONS
 
 // NewSelfCmd creates the "self" command group with install, upgrade, and uninstall subcommands.
 func NewSelfCmd(rootCmd *cobra.Command, info SelfInstallInfo) *cobra.Command {
@@ -82,6 +44,81 @@ func NewSelfCmd(rootCmd *cobra.Command, info SelfInstallInfo) *cobra.Command {
 
 	return selfCmd
 }
+
+// CopyDir recursively copies a directory tree from the host filesystem into `dstRoot`.
+//
+// Used by post-install hooks — `cmd/star` copies its extensions this way — so the destination root is
+// supplied by the hook rather than constructed here (#405, phase 2b).
+//
+// Parameters:
+//   - `dstRoot`: the tree the destination belongs to, opened by the caller.
+//   - `src`: the source directory, outside the root.
+//   - `dst`: the destination within `dstRoot`.
+//
+// Returns:
+//   - `error`: non-nil when the source cannot be read or any destination cannot be written.
+func CopyDir(dstRoot fsroot.Dir, src string, dst fsroot.Path) error {
+	src = filepath.Clean(src)
+
+	srcInfo, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	if !srcInfo.IsDir() {
+		return fmt.Errorf("%s is not a directory", src)
+	}
+
+	// Perm(), not Mode(): a directory's Mode carries fs.ModeDir, which os.Mkdir silently discards but
+	// [os.Root.Mkdir] rejects as an unsupported file mode. Only the permission bits are the caller's to ask for.
+	if err := dstRoot.MkdirAll(dst, srcInfo.Mode().Perm()); err != nil {
+		return err
+	}
+
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		srcPath := filepath.Join(src, entry.Name())
+		dstPath := dstRoot.NewPath(dst.Rel(), entry.Name())
+
+		if entry.IsDir() {
+			if err := CopyDir(dstRoot, srcPath, dstPath); err != nil {
+				return err
+			}
+		} else {
+			if err := copyFile(dstRoot, srcPath, dstPath); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// CollectFiles returns all file paths under dir, relative to base.
+func CollectFiles(base, dir string) []string {
+	var files []string
+	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error { //nolint:errcheck // errors handled inside callback
+		if err != nil || d.IsDir() {
+			return err
+		}
+		rel, err := filepath.Rel(base, path)
+		if err != nil {
+			return err
+		}
+		files = append(files, rel)
+		return nil
+	})
+	return files
+}
+
+// endregion
+
+// region HELPER FUNCTIONS
+
+// region Command construction
 
 // newInstallCmd creates the "self install" subcommand.
 func newInstallCmd(rootCmd *cobra.Command, info SelfInstallInfo) *cobra.Command {
@@ -294,9 +331,9 @@ Example:
 	return cmd
 }
 
-// =============================================================================
-// Install / Upgrade
-// =============================================================================
+// endregion
+
+// region Install and upgrade
 
 // runSelfInstall installs the running program into `prefix` and replaces the tool's record of what it owns there.
 //
@@ -624,28 +661,9 @@ func printRetirementSummary(removed, skipped []string) {
 	}
 }
 
-// =============================================================================
-// Uninstall
-// =============================================================================
+// endregion
 
-// keepReason is why a recorded file was not removed. It is what separates a file this program must not touch from
-// one it simply could not, so the summary can say which (#1003).
-type keepReason int
-
-const (
-	// keepChanged: the file's content no longer matches what was recorded, so it may be the operator's own edit.
-	keepChanged keepReason = iota
-	// keepRefused: the filesystem refused the delete -- a permission on the prefix, or a running image on Windows.
-	keepRefused
-	// keepUnreadable: the file's hash could not be computed, so the guard above cannot be judged.
-	keepUnreadable
-)
-
-// keptFile is a recorded file that was not removed, and why.
-type keptFile struct {
-	Entry  manifestEntry
-	Reason keepReason
-}
+// region Uninstall
 
 // removeRecordedFiles removes the files a record names, sparing anything that has changed since it was written, and
 // reporting why it kept each file it did not remove.
@@ -956,9 +974,9 @@ func removeDevloreCache(toolName string) {
 	_ = removeIfEmpty(cacheRoot, cacheRoot.NewPath(".")) //nolint:errcheck // best-effort cleanup
 }
 
-// =============================================================================
-// Manifest
-// =============================================================================
+// endregion
+
+// region Manifest
 
 // writeManifest writes the installation manifest.
 func writeManifest(prefixRoot fsroot.Dir, toolName, version string, relativePaths []string) error {
@@ -993,9 +1011,9 @@ func writeManifest(prefixRoot fsroot.Dir, toolName, version string, relativePath
 	return prefixRoot.WriteFile(mPath, append(data, '\n'), 0o600)
 }
 
-// =============================================================================
-// Prefix Resolution
-// =============================================================================
+// endregion
+
+// region Prefix resolution
 
 // defaultPrefix returns the default installation prefix (~/.local).
 func defaultPrefix() string {
@@ -1034,9 +1052,9 @@ func expandTilde(path string) string {
 	return path
 }
 
-// =============================================================================
-// Binary Installation
-// =============================================================================
+// endregion
+
+// region Binary installation
 
 // installBinary places `source` at `bin/<name>` in `prefixRoot`, unless it is already the file there.
 //
@@ -1077,9 +1095,9 @@ func installBinary(prefixRoot fsroot.Dir, source, name string) (string, error) {
 	return installed.Abs(), nil
 }
 
-// =============================================================================
-// Man Pages
-// =============================================================================
+// endregion
+
+// region Man pages
 
 // installManPagesTo generates and installs man pages into `dir` within `prefixRoot`.
 func installManPagesTo(rootCmd *cobra.Command, prefixRoot fsroot.Dir, dir fsroot.Path, header ManHeader) ([]string, error) {
@@ -1116,9 +1134,9 @@ func installManPagesTo(rootCmd *cobra.Command, prefixRoot fsroot.Dir, dir fsroot
 	return files, nil
 }
 
-// =============================================================================
-// Shell Completions
-// =============================================================================
+// endregion
+
+// region Shell completions
 
 // shellCompletionPath returns the installation path and filename for a shell's completion file.
 func shellCompletionPath(shell, cmdName string) (relPath, filename string) {
@@ -1240,9 +1258,9 @@ func hasMan() bool {
 	return err == nil
 }
 
-// =============================================================================
-// Config and Cache
-// =============================================================================
+// endregion
+
+// region Config and cache
 
 // initDevloreConfig creates the unified devlore config structure.
 func initDevloreConfig(info SelfInstallInfo) (paths []string, err error) {
@@ -1304,9 +1322,9 @@ func initDevloreCache(toolName string) (path string, err error) {
 	return cacheDir.Abs(), nil
 }
 
-// =============================================================================
-// File Helpers
-// =============================================================================
+// endregion
+
+// region File helpers
 
 // copyFile copies a file from `src` on the host filesystem to `dst` within `dstRoot`.
 //
@@ -1338,75 +1356,6 @@ func copyFile(dstRoot fsroot.Dir, src string, dst fsroot.Path) error {
 	}
 
 	return nil
-}
-
-// CopyDir recursively copies a directory tree from the host filesystem into `dstRoot`.
-//
-// Used by post-install hooks — `cmd/star` copies its extensions this way — so the destination root is
-// supplied by the hook rather than constructed here (#405, phase 2b).
-//
-// Parameters:
-//   - `dstRoot`: the tree the destination belongs to, opened by the caller.
-//   - `src`: the source directory, outside the root.
-//   - `dst`: the destination within `dstRoot`.
-//
-// Returns:
-//   - `error`: non-nil when the source cannot be read or any destination cannot be written.
-func CopyDir(dstRoot fsroot.Dir, src string, dst fsroot.Path) error {
-	src = filepath.Clean(src)
-
-	srcInfo, err := os.Stat(src)
-	if err != nil {
-		return err
-	}
-	if !srcInfo.IsDir() {
-		return fmt.Errorf("%s is not a directory", src)
-	}
-
-	// Perm(), not Mode(): a directory's Mode carries fs.ModeDir, which os.Mkdir silently discards but
-	// [os.Root.Mkdir] rejects as an unsupported file mode. Only the permission bits are the caller's to ask for.
-	if err := dstRoot.MkdirAll(dst, srcInfo.Mode().Perm()); err != nil {
-		return err
-	}
-
-	entries, err := os.ReadDir(src)
-	if err != nil {
-		return err
-	}
-
-	for _, entry := range entries {
-		srcPath := filepath.Join(src, entry.Name())
-		dstPath := dstRoot.NewPath(dst.Rel(), entry.Name())
-
-		if entry.IsDir() {
-			if err := CopyDir(dstRoot, srcPath, dstPath); err != nil {
-				return err
-			}
-		} else {
-			if err := copyFile(dstRoot, srcPath, dstPath); err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
-}
-
-// CollectFiles returns all file paths under dir, relative to base.
-func CollectFiles(base, dir string) []string {
-	var files []string
-	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error { //nolint:errcheck // errors handled inside callback
-		if err != nil || d.IsDir() {
-			return err
-		}
-		rel, err := filepath.Rel(base, path)
-		if err != nil {
-			return err
-		}
-		files = append(files, rel)
-		return nil
-	})
-	return files
 }
 
 // fileSHA256 computes the SHA-256 hash of a file.
@@ -1477,3 +1426,62 @@ func removeIfEmpty(root fsroot.Dir, dir fsroot.Path) error {
 
 	return nil
 }
+
+// endregion
+
+// endregion
+
+// region SUPPORTING TYPES
+
+// SelfInstallInfo contains metadata needed for self-installation.
+type SelfInstallInfo struct {
+	Name               string                  // Tool name (e.g., "lore", "writ", "star")
+	Version            string                  // Semantic version (e.g., "0.4.0"), set via ldflags
+	Channel            string                  // Channel the build follows ("develop", "release"), set via ldflags
+	Prerelease         bool                    // Whether the build takes its channel's pre-releases, set via ldflags
+	ManHeader          ManHeader               // Man page header metadata
+	ConfigInfo         *ConfigInfo             // Config schema and defaults (nil to skip config init)
+	PostInstallHooks   []func(string) []string // Hooks run after install; return installed file paths (relative to prefix)
+	PostUninstallHooks []func(string) error    // Hooks run after uninstall
+}
+
+// manifest records every file installed by self install/upgrade.
+type manifest struct {
+	Tool      string          `json:"tool"`
+	Version   string          `json:"version"`
+	Prefix    string          `json:"prefix"`
+	Installed string          `json:"installed"`
+	Files     []manifestEntry `json:"files"`
+}
+
+// manifestEntry records one installed file.
+type manifestEntry struct {
+	Path   string `json:"path"`   // Relative to prefix
+	SHA256 string `json:"sha256"` // Hex-encoded SHA-256
+}
+
+// installFlags holds the flag values for self install.
+type installFlags struct {
+	Shells []string
+}
+
+// keepReason is why a recorded file was not removed. It is what separates a file this program must not touch from
+// one it simply could not, so the summary can say which (#1003).
+type keepReason int
+
+const (
+	// keepChanged: the file's content no longer matches what was recorded, so it may be the operator's own edit.
+	keepChanged keepReason = iota
+	// keepRefused: the filesystem refused the delete -- a permission on the prefix, or a running image on Windows.
+	keepRefused
+	// keepUnreadable: the file's hash could not be computed, so the guard above cannot be judged.
+	keepUnreadable
+)
+
+// keptFile is a recorded file that was not removed, and why.
+type keptFile struct {
+	Entry  manifestEntry
+	Reason keepReason
+}
+
+// endregion

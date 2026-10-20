@@ -8,7 +8,8 @@ import (
 	"io"
 	"os"
 
-	tea "github.com/charmbracelet/bubbletea"
+	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/colorprofile"
 )
 
 // Console manages interactive terminal sessions.
@@ -45,17 +46,12 @@ func (c *Console) WithStyles(s *Styles) *Console {
 	return c
 }
 
-// Run executes an interactive session.
+// Run executes an interactive session on the alternate screen.
 // Returns the session's result after completion, or an error.
 func (c *Console) Run(session Session) (any, error) {
-	model := NewModel(session)
-	model.SetStyles(c.styles)
+	model := c.newModel(session, true)
 
-	p := tea.NewProgram(model,
-		tea.WithInput(c.input),
-		tea.WithOutput(c.output),
-		tea.WithAltScreen(),
-	)
+	p := tea.NewProgram(model, c.programOptions()...)
 
 	finalModel, err := p.Run()
 	if err != nil {
@@ -80,13 +76,9 @@ func (c *Console) Run(session Session) (any, error) {
 // RunInline executes a session without alternate screen.
 // Useful for simpler interactions that don't need full-screen mode.
 func (c *Console) RunInline(session Session) (any, error) {
-	model := NewModel(session)
-	model.SetStyles(c.styles)
+	model := c.newModel(session, false)
 
-	p := tea.NewProgram(model,
-		tea.WithInput(c.input),
-		tea.WithOutput(c.output),
-	)
+	p := tea.NewProgram(model, c.programOptions()...)
 
 	finalModel, err := p.Run()
 	if err != nil {
@@ -108,43 +100,98 @@ func (c *Console) RunInline(session Session) (any, error) {
 	return session.Result(), nil
 }
 
+// newModel returns the model for a session, in the console's styles.
+//
+// Parameters:
+//   - `session`: the session the model runs.
+//   - `altScreen`: whether the session runs on the alternate screen.
+//
+// Returns:
+//   - `*Model`: the model.
+func (c *Console) newModel(session Session, altScreen bool) *Model {
+	model := NewModel(session)
+	model.SetStyles(c.styles)
+	model.altScreen = altScreen
+	return model
+}
+
 // Styles returns the console's styles.
 func (c *Console) Styles() *Styles {
 	return c.styles
 }
 
+// programOptions returns the options of the console's Bubble Tea program: its input and output, and under
+// `NO_COLOR` the color profile without color.
+//
+// Returns:
+//   - `[]tea.ProgramOption`: the options.
+func (c *Console) programOptions() []tea.ProgramOption {
+	options := []tea.ProgramOption{tea.WithInput(c.input), tea.WithOutput(c.output)}
+	if noColor() {
+		options = append(options, tea.WithColorProfile(colorprofile.Ascii))
+	}
+	return options
+}
+
+// colorWriter returns the console's output behind a writer that adapts color to the terminal.
+//
+// Lip Gloss v2 renders full color and leaves downsampling to the writer. Outside a Bubble Tea program, which
+// downsamples itself, the console's own writes go through colorprofile, which detects the terminal. Under
+// `NO_COLOR` the profile is Ascii, set rather than detected: see [noColor].
+//
+// Returns:
+//   - `io.Writer`: the output, downsampled for the terminal it reaches.
+func (c *Console) colorWriter() io.Writer {
+	w := colorprofile.NewWriter(c.output, os.Environ())
+	if noColor() {
+		w.Profile = colorprofile.Ascii
+	}
+	return w
+}
+
+// noColor reports whether `NO_COLOR` is set and not empty, no-color.org's rule and §10's.
+//
+// colorprofile honors only a value [strconv.ParseBool] reads as true (`env.go:116` at v0.4.3), so `NO_COLOR=yes`
+// would keep color; termenv, under Lip Gloss v1, honored any value. The console decides it here instead.
+//
+// Returns:
+//   - `bool`: whether color is off.
+func noColor() bool {
+	return os.Getenv("NO_COLOR") != ""
+}
+
 // Print outputs styled text without a session.
 func (c *Console) Print(text string) {
 	//nolint:errcheck // diagnose-ignored-error: console write; see docs/architecture/2.8-eventing-infrastructure.md
-	_, _ = fmt.Fprint(c.output, text)
+	_, _ = fmt.Fprint(c.colorWriter(), text)
 }
 
 // PrintStyled outputs text with the given style.
 func (c *Console) PrintStyled(text string, style func(string) string) {
 	//nolint:errcheck // diagnose-ignored-error: console write; see docs/architecture/2.8-eventing-infrastructure.md
-	_, _ = fmt.Fprint(c.output, style(text))
+	_, _ = fmt.Fprint(c.colorWriter(), style(text))
 }
 
 // Success prints a success message.
 func (c *Console) Success(msg string) {
 	//nolint:errcheck // diagnose-ignored-error: console write; see docs/architecture/2.8-eventing-infrastructure.md
-	_, _ = fmt.Fprintln(c.output, c.styles.Success.Render("✓ "+msg))
+	_, _ = fmt.Fprintln(c.colorWriter(), c.styles.Success.Render("✓ "+msg))
 }
 
 // Warning prints a warning message.
 func (c *Console) Warning(msg string) {
 	//nolint:errcheck // diagnose-ignored-error: console write; see docs/architecture/2.8-eventing-infrastructure.md
-	_, _ = fmt.Fprintln(c.output, c.styles.Warning.Render("⚠ "+msg))
+	_, _ = fmt.Fprintln(c.colorWriter(), c.styles.Warning.Render("⚠ "+msg))
 }
 
 // Error prints an error message.
 func (c *Console) Error(msg string) {
 	//nolint:errcheck // diagnose-ignored-error: console write; see docs/architecture/2.8-eventing-infrastructure.md
-	_, _ = fmt.Fprintln(c.output, c.styles.Error.Render("✗ "+msg))
+	_, _ = fmt.Fprintln(c.colorWriter(), c.styles.Error.Render("✗ "+msg))
 }
 
 // Info prints an info message.
 func (c *Console) Info(msg string) {
 	//nolint:errcheck // diagnose-ignored-error: console write; see docs/architecture/2.8-eventing-infrastructure.md
-	_, _ = fmt.Fprintln(c.output, c.styles.Highlighted.Render("ℹ "+msg))
+	_, _ = fmt.Fprintln(c.colorWriter(), c.styles.Highlighted.Render("ℹ "+msg))
 }

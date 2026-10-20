@@ -1,9 +1,9 @@
 ---
 title: "self uninstall --unattended takes the default and removes nothing; no answer is No, as docker's prompts do"
 issue: https://github.com/NobleFactor/devlore-cli/issues/1005
-status: active
+status: complete
 created: 2026-10-19
-updated: 2026-10-19
+updated: 2026-10-20
 ---
 
 # Plan: self uninstall answers to --unattended, and no answer is No
@@ -153,8 +153,10 @@ made exclusive of `--unattended` at `:112`, and nothing else names it. A prompt 
 ### Phase 5: Merge
 
 - [x] PR script written, shown, and handed over. The PR resolves #1005
-- [ ] After the merge, on this machine, from the official build in a scratch prefix: `self uninstall --unattended`
-      and `self uninstall < /dev/null` each leave the install as it was and exit 0
+- [x] After the merge, on this machine, from the official build in a scratch prefix: `self uninstall --unattended`
+      and `self uninstall < /dev/null` each leave the install as it was and exit 0. Met 2026-10-19 against
+      `v0.1.0-dev.20261019221709` (build `65c8b40f`), in a scratch prefix and account: both left the install as it was
+      and exited 0, and `--interactive` exits 64. Ticked in #1101's pull request, devlore-cli's next
 
 ## Files to Create/Modify
 

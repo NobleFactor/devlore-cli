@@ -1002,6 +1002,18 @@ What decided it is that the suite already disagreed with itself:
 A convention honored by accident in one place and ignored in two is worse than either consistent answer, and
 honoring it costs one environment check per path.
 
+**Since the Charm stack moved to v2 (2026-10-20, #1101),** both tables above are history: termenv and Lip Gloss v1
+are gone. Each path now makes its own check, `NO_COLOR` set and not empty:
+
+| Path | Under `NO_COLOR` |
+| --- | --- |
+| `cmd/internal/console` | color off: its writes go through colorprofile v0.4.3's writer, and its Bubble Tea program takes `tea.WithColorProfile`, both set to Ascii (`noColor`, `console.go`) |
+| `--output terminal` | color off: glamour v2 renders full color, and the rendering goes through a colorprofile writer set to Ascii (`TerminalFormatter.Format`) |
+
+The console decides rather than leaving it to colorprofile's detection, because colorprofile honors only a value
+`strconv.ParseBool` reads as true (`env.go:116` at v0.4.3): `NO_COLOR=yes` would keep color, where termenv honored
+any value (`termenv.go:69` at v0.16.0).
+
 **It suppresses color, not styling.** no-color.org's FAQ: the variable "only signals the user's intention
 regarding adding ANSI color to text output." Under `NO_COLOR`, `--output terminal` keeps bold, italic and
 underline. A caller who wants no escape codes at all asks for `markdown`.

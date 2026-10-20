@@ -10,10 +10,10 @@ import (
 	"os"
 	"regexp"
 
-	"github.com/charmbracelet/glamour"
-	"github.com/charmbracelet/glamour/ansi"
-	"github.com/charmbracelet/glamour/styles"
-	"github.com/muesli/termenv"
+	"charm.land/glamour/v2"
+	"charm.land/glamour/v2/ansi"
+	"charm.land/glamour/v2/styles"
+	"github.com/charmbracelet/colorprofile"
 )
 
 // TerminalFormatter renders a value as a document laid out for a terminal: bold, italic, color, word wrap, and
@@ -27,14 +27,14 @@ import (
 // becomes italic, a code span loses its backticks. That is what separates this from glamour's own `notty`
 // style, which keeps every marker, and from `markdown`, which is the source.
 //
-// Nothing is probed. glamour's color profile defaults to TrueColor rather than asking the terminal, and the
-// style is fixed rather than glamour's `auto`, which reads the terminal's background. So the bytes are the same
-// piped, redirected, or on a TTY -- §7's rule that a rendering does not change when it is observed. A caller who
-// wants no escape codes asks for `markdown`.
+// Nothing is probed. glamour emits full color whatever the terminal is, and the style is fixed rather than read
+// from the terminal's background. So the bytes are the same piped, redirected, or on a TTY -- §7's rule that a
+// rendering does not change when it is observed. A caller who wants no escape codes asks for `markdown`.
 //
 // `NO_COLOR` is honored, because it is an input rather than a probe. Set and not empty, it drops every color and
-// keeps every attribute: no-color.org's rule suppresses color, not bold, italic, or underline. §10 of the
-// specification records why the suite honors a convention no standards body stands behind.
+// keeps every attribute: no-color.org's rule suppresses color, not bold, italic, or underline. The rendering goes
+// through a [colorprofile.Writer] whose profile is set to Ascii, not detected. §10 of the specification records
+// why the suite honors a convention no standards body stands behind.
 type TerminalFormatter struct {
 
 	// WordWrap is the column text wraps at. Zero means [terminalWordWrap]. Fixed rather than read from the
@@ -92,16 +92,8 @@ func (f TerminalFormatter) Format(value any, w io.Writer) error {
 		wordWrap = terminalWordWrap
 	}
 
-	// TrueColor is glamour's own default, named here so that nothing downstream is left to guess. Ascii is
-	// termenv's profile without color: it answers every color with none and leaves the attributes alone.
-	profile := termenv.TrueColor
-	if f.NoColor {
-		profile = termenv.Ascii
-	}
-
 	renderer, err := glamour.NewTermRenderer(
 		glamour.WithStyles(terminalStyle()),
-		glamour.WithColorProfile(profile),
 		glamour.WithWordWrap(wordWrap),
 	)
 	if err != nil {
@@ -111,6 +103,12 @@ func (f TerminalFormatter) Format(value any, w io.Writer) error {
 	rendered, err := renderer.RenderBytes(document.Bytes())
 	if err != nil {
 		return fmt.Errorf("result.TerminalFormatter: render the document: %w", err)
+	}
+
+	// glamour renders full color. Ascii is colorprofile's profile without color: it drops every color and leaves
+	// the attributes alone.
+	if f.NoColor {
+		w = &colorprofile.Writer{Forward: w, Profile: colorprofile.Ascii}
 	}
 
 	_, err = w.Write(trimPadding(rendered))
@@ -184,8 +182,8 @@ func trimPadding(rendered []byte) []byte {
 // | table         | box-drawn; links collected under it          |
 // | link          | its text, then the URL, underlined           |
 //
-// A code block needs nothing special under `NO_COLOR`. Chroma writes its own escape codes, but glamour only
-// hands the block to chroma when the color profile is not Ascii, and otherwise renders it plain.
+// A code block needs nothing special under `NO_COLOR`. glamour always hands the block to chroma, whose colors the
+// Ascii writer in [TerminalFormatter.Format] drops with every other color.
 //
 // Returns:
 //   - `ansi.StyleConfig`: the style sheet.

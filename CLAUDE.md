@@ -5,11 +5,11 @@
 **At the start of EVERY session and after EVERY compact:**
 1. Read this file (`CLAUDE.md`) in full
 2. Read `~/.claude/CLAUDE.md` (root instructions)
-3. Review issue #65: https://github.com/NobleFactor/devlore-cli/issues/65
+3. Review NobleFactor/noblefactor-ops#317, the record of agents' errors of judgment: https://github.com/NobleFactor/noblefactor-ops/issues/317
 
 ## Error Tracking
 
-All errors of judgment are tracked in **issue #65**. Before completing any task, consult this issue and follow the verification checklist.
+All errors of judgment are tracked in **NobleFactor/noblefactor-ops#317**. Before completing any task, consult this issue and follow the verification checklist.
 
 ## Governing Principle
 
@@ -33,7 +33,7 @@ Before completing any task:
 - [ ] Verify no stub functions return success without implementation
 - [ ] Verify removed comments have corresponding code removal
 - [ ] Run tests to confirm rejection of old formats/signatures
-- [ ] Consult issue #65 for known error patterns
+- [ ] Consult NobleFactor/noblefactor-ops#317 for known error patterns
 
 ## Build and Test
 

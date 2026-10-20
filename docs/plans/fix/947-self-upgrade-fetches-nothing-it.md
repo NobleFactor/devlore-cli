@@ -1,9 +1,9 @@
 ---
 title: "self upgrade fetches the newest build on its channel, verifies it, and upgrades every devlore program in the prefix"
 issue: https://github.com/NobleFactor/devlore-cli/issues/947
-status: active
+status: complete
 created: 2026-09-30
-updated: 2026-10-19
+updated: 2026-10-20
 ---
 
 # Plan: self upgrade fetches, verifies and upgrades the suite
@@ -322,8 +322,10 @@ channel with no release names the channel; a failed child names its program.
       `v0.1.0-dev.20261001193326`, tagged at the merge commit, `(develop)` named; on 2026-10-05 `writ self upgrade`
       moved the three from build `6f600d68` to `0283bd77` (`v0.1.0-dev.20261005182840`), and a second run downloaded
       nothing
-- [ ] The follow-up issues filed (see Out of Scope), and #83 and #339 amended: their `auto-upgrade.channel`
-      (`stable` / `preview`) and "latest LKG" give way to the two channels
+- [x] The follow-up issues filed (see Out of Scope), and #83 and #339 amended: their `auto-upgrade.channel`
+      (`stable` / `preview`) and "latest LKG" give way to the two channels. Done 2026-10-20 in #1101's pull request
+      (#1060): #1002 to #1005 and #780 were filed and are lanes 23 to 28 of #949; #83 and #339 each open with a dated
+      amendment naming the two channels; the comment on #990 carries the self-copy truncation
 
 ## Out of Scope
 
