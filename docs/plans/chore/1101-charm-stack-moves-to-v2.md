@@ -209,7 +209,9 @@ the move; the program-level tests found them.
 - [x] `configuration.md`'s Open questions gain the flag-mapping question, and a new section, Requirements carried,
       the repeatable flag; `9-star-extensions.md` § Flag Resolution opens with a not-built note
 - [x] Lane 28's plan closed: its last box ticked, its status complete
-- [ ] #1060's plans ticked
+- [x] #1060's plans ticked. Six of the eight were already closed by #1061 (lane 28). 947's last box needed
+      #83 and #339 amended and a comment on #990, done 2026-10-20; the plan is complete. 1003's last box stays open
+      by #949's 2026-10-19 audit, on #1045 (lane 31), the Windows scenario that never runs
 - [ ] #1060's code references and issue text current
 - [ ] #1060's one authorization form, with the installer suites green
 
