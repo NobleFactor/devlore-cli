@@ -163,7 +163,7 @@ fails as the style guide's section 7 says, with the two departures this plan mea
 
 ### Phase 4: The design (Requirement 6)
 
-- [ ] § 2's `install.ps1` bullet
+- [x] § 2's `install.ps1` bullet: how it speaks and fails, and the two measured departures (D1, D2)
 
 ### Phase 5: Merge
 

@@ -103,6 +103,15 @@ they cannot verify ([#1002](https://github.com/NobleFactor/devlore-cli/issues/10
   code path. Ruled 2026-09-24, reversing #798's third ruling, which had it install PowerShell 7 first: the installer
   uses what is known to be on the box, Windows PowerShell 5.1, and installs nothing but devlore
   ([948-install-ps1-is-published-beside.md](../plans/feature/948-install-ps1-is-published-beside.md)).
+  It speaks and fails as the PowerShell style guide's section 7 says
+  ([#1044](https://github.com/NobleFactor/devlore-cli/issues/1044)): what it is doing on the verbose stream, a warning
+  on the warning stream, its results (the usage, the summary, the PATH advice and the next steps) on the output
+  stream, and nothing on the information stream or the host. A failure is an error record of its own, with an id and
+  a category, reported under its caller's error action, and the program it runs reads a closed standard input. Two
+  departures from the guide's example, each measured: the catch is a function's, `Install-DevLore`, because under
+  `irm | iex` the script has no `$PSCmdlet`, so an error names that function; and only a run as a file exits 1 after a
+  failure, since in the script-block and `irm | iex` forms `exit` would end the user's session
+  ([#965](https://github.com/NobleFactor/devlore-cli/issues/965)).
 
 ## 3. Command grammar
 
