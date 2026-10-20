@@ -71,8 +71,10 @@ child's input encoding is UTF-8 with its preamble again afterwards.
 
 ### Phase 3: Merge
 
-- [ ] The gate: CI's quality gate locally, the suite off Windows, `make test-race`, `make test-scenario`
-- [ ] PR script written, shown, and handed over; the PR resolves #1104
+- [x] The gate: CI's quality gate locally, the suite off Windows, `make test-race`, `make test-scenario`, 2026-10-20
+- [x] PR script written, shown, and handed over; the PR resolves #1104. Its gate also reads every check run for the
+      head commit from GitHub's API, the latest attempt of each, and refuses to merge unless each succeeded: run on
+      #1103's head, it names both failed `install.ps1` legs
 - [ ] CI on the pull request, every leg: the `install.ps1` legs under 5.1 and 7 on amd64 and arm64. Nothing acts on the
       checks while the script's gate watches them (NobleFactor/noblefactor-ops#317, 2026-10-20)
 
