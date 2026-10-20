@@ -6,6 +6,8 @@ package console
 import (
 	"image/color"
 	"io"
+	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -418,7 +420,8 @@ func TestModel_Resizes(t *testing.T) {
 // and keeps the text. colorprofile alone would honor only a value strconv.ParseBool reads as true.
 //
 // CLICOLOR_FORCE keeps color on a writer that is not a terminal, so the color has something to lose; the first case
-// shows it is there without NO_COLOR.
+// shows it is there without NO_COLOR. Which color codes appear is the terminal's: 256-color where TERM says so, the
+// 16 colors where TERM is unset, as on CI's runners.
 func TestConsole_NoColorAnyValue(t *testing.T) {
 	t.Setenv("CLICOLOR_FORCE", "1")
 	for _, testCase := range []struct {
@@ -434,11 +437,37 @@ func TestConsole_NoColorAnyValue(t *testing.T) {
 		t.Setenv("NO_COLOR", testCase.value)
 		var output strings.Builder
 		New().WithOutput(&output).Success("done")
-		if got := strings.Contains(output.String(), "\x1b[38"); got != testCase.color {
+		if got := hasColor(output.String()); got != testCase.color {
 			t.Errorf("NO_COLOR=%q: colored = %v, want %v: %q", testCase.value, got, testCase.color, output.String())
 		}
 		if !strings.Contains(output.String(), "done") {
 			t.Errorf("NO_COLOR=%q: the message lost its text: %q", testCase.value, output.String())
 		}
 	}
+}
+
+// sgrSequence matches one SGR escape sequence and captures its parameters.
+var sgrSequence = regexp.MustCompile(`\x1b\[([0-9;]*)m`)
+
+// hasColor reports whether any SGR sequence in s sets a color: a foreground or background in the 8, bright 8, 256 or
+// true colors (30-38, 40-48, 90-97, 100-107). Bold, italic and the other attributes are not color.
+//
+// Parameters:
+//   - `s`: rendered output.
+//
+// Returns:
+//   - `bool`: whether s sets any color.
+func hasColor(s string) bool {
+	for _, match := range sgrSequence.FindAllStringSubmatch(s, -1) {
+		for _, parameter := range strings.Split(match[1], ";") {
+			code, err := strconv.Atoi(parameter)
+			if err != nil {
+				continue
+			}
+			if code >= 30 && code <= 38 || code >= 40 && code <= 48 || code >= 90 && code <= 97 || code >= 100 && code <= 107 {
+				return true
+			}
+		}
+	}
+	return false
 }

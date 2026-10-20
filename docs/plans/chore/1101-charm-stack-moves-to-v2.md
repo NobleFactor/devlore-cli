@@ -233,6 +233,11 @@ the move; the program-level tests found them.
       `star lint go`, `make lint-all`, `star lint shell`, `star lint starlark`, `Test-PowerShell.ps1`, `make check`,
       `make test-race` and `make test-scenario`
 - [x] PR script written, shown, and handed over; the PR resolves #1101 and #1060, and is part of #1100
+- [ ] CI on the pull request, every leg. The first run (2026-10-20) failed `TestConsole_NoColorAnyValue` on the
+      darwin-arm64, linux-amd64 and linux-arm64 test legs: the test recognized color only as `\x1b[38` (256 colors),
+      and CI's runners, with no `TERM`, get colorprofile's 16 colors (`\x1b[92m`). The console was right; the test now
+      reads each SGR sequence for any color code (30-38, 40-48, 90-97, 100-107). `make test` green with `TERM` and
+      `COLORTERM` unset and with them set; with the `NO_COLOR` check disabled and `TERM` unset, it fails as it should
 
 ## Files to Create/Modify
 
