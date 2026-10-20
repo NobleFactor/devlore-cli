@@ -136,9 +136,14 @@ fails as the style guide's section 7 says, with the two departures this plan mea
 
 ### Phase 2: `install.ps1` (Requirements 1 to 3)
 
-- [ ] Streams, errors and native programs as Requirements 1 to 3 say
-- [ ] Off Windows, here: each of the three forms refuses with `RequiresWindows`, the session going on in two and the
-      file exiting 1; `Test-PowerShell.ps1` (PSScriptAnalyzer and the shebang rule) clean
+- [x] Streams, errors and native programs as Requirements 1 to 3 say. The record builder is `ConvertTo-InstallerError`:
+      PSScriptAnalyzer reads `New-` as changing state and asks for ShouldProcess, and it changes none
+- [x] Off Windows, here: each of the three forms refuses with `RequiresWindows`, the session going on in two and the
+      file exiting 1; `Test-PowerShell.ps1` (PSScriptAnalyzer and the shebang rule) clean. Run 2026-10-20, PowerShell
+      7.4.6: as a file, exit 1, and `-Help` exit 0 with the usage on the output stream; the script-block form with
+      `-Verbose` shows the narration, reports `RequiresWindows`, and the session goes on; under `irm | iex` the session
+      goes on and the caller's `$ErrorActionPreference` is unchanged; a caller at `Stop` catches
+      `RequiresWindows,Install-DevLore`; one at `SilentlyContinue` sees nothing and `$Error` keeps the record
 
 ### Phase 3: The suite (Requirements 4 and 5)
 
