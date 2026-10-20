@@ -212,10 +212,16 @@ the move; the program-level tests found them.
 - [x] #1060's plans ticked. Six of the eight were already closed by #1061 (lane 28). 947's last box needed
       #83 and #339 amended and a comment on #990, done 2026-10-20; the plan is complete. 1003's last box stays open
       by #949's 2026-10-19 audit, on #1045 (lane 31), the Windows scenario that never runs
-- [ ] #1060's code references and issue text current. `selfupgrade_archive.go:268` and its test cite
-      `install.sh:557-579`, where the layout is now (done); #947's plan's lane numbers for #1002 to #1005 already match
-      #949 (23, 26, 27, 28); the banners and #1004's text remain
-- [ ] #1060's one authorization form, with the installer suites green
+- [x] #1060's code references and issue text current. `selfupgrade_archive.go:268` and its test cite
+      `install.sh:557-579`, where the layout is now; #947's plan's lane numbers for #1002 to #1005 already match #949
+      (23, 26, 27, 28); `selfinstall.go` is laid out in the style guide's regions (EXPORTED FUNCTIONS, HELPER
+      FUNCTIONS with a Sentence-case sub-region per former banner, SUPPORTING TYPES last), checked to hold the same
+      declarations and the same non-blank lines; #1004 was already amended 2026-10-19 (no layer directories; lines
+      cited at `4d18e48c`)
+- [x] #1060's one authorization form, `Authorization: Bearer`: `install.sh` and `install.ps1` send it, as `self
+      upgrade` does, and their comment that OAuth tokens need `token` is replaced by GitHub's documentation.
+      `scripts/Test-InstallScript.sh` with `GH_TOKEN` set: every check passed, 2026-10-20. `install.ps1` serves
+      Windows alone (#1032); its suite runs in the Installers workflow's Windows legs on the pull request
 
 ### Phase 6: Merge
 

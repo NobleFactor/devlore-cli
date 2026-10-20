@@ -113,7 +113,8 @@ $Personal = if ($Personal) { $Personal } elseif ($env:DEVLORE_PERSONAL) { $env:D
 # GitHub authentication (optional). The repository is public; a token only lifts the API's anonymous rate limit, and is
 # sent to the API alone, never to a download link.
 # Per https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api
-# Note: Use "token" not "Bearer" for OAuth tokens from gh auth
+# Sent as "Authorization: Bearer", the form GitHub's documentation uses and the one every token accepts ("Authenticating
+# to the REST API": a JSON web token must use Bearer), and the form self upgrade sends.
 $AuthToken = $env:GH_TOKEN
 
 # -------------------------------------------------------------------
@@ -222,7 +223,7 @@ function Get-ApiHeader {
     param([string]$Accept = "application/vnd.github+json")
     $headers = @{ Accept = $Accept }
     if ($AuthToken) {
-        $headers["Authorization"] = "token $AuthToken"
+        $headers["Authorization"] = "Bearer $AuthToken"
     }
     return $headers
 }
