@@ -97,6 +97,11 @@ gone finishes the uninstall.
       same text, so the Windows run at `6fd484c6` holds; `make lint-all`, `make vet-all` and `make test` green after
 - [x] PR script written, shown, and handed over; the PR resolves #1045
 - [ ] CI on the pull request, every leg; nothing acts on the checks while the script's gate watches them
+      - The first run (#1106, 2026-10-20) failed `scenario (windows-arm64)`: for writ alone, the image, and so the
+        manifest, was still there when the scenario looked, which it did for about ten seconds, while cmd.exe retries
+        for about two minutes; lore and star passed there, and windows-amd64 passed. Ruled 2026-10-20: "Yes, make the
+        wait match the retry cap." The scenario waits for the image up to 130 seconds, the cap and a margin, and returns
+        as soon as it is gone (0.41s here); the rest, gone by then, 10 seconds
 
 ## Files to Create/Modify
 
