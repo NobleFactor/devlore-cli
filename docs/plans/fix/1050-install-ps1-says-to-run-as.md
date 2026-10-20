@@ -130,13 +130,18 @@ does. A run that changed no layer ends with the documentation line.
   need only be one: `validateWorkingTree`, `cmd/writ/writ/repo_cmd.go`), then run with no layer given: all three named
   as already registered, none skipped, no "Next steps:", the documentation line last.
 
-### Requirement 5: Both PowerShell files are documented as section 10 says
+### Requirement 5: Both PowerShell files are documented as section 10 says, and laid out as sections 4 and 9 say
 
 - `install.ps1`'s comment-based help stays the script's entry point. Each of its functions, `Install-DevLore`
   included, takes a Go-style header (D3).
 - Each of the suite's functions, the two it defines inside `Invoke-FixtureInstall` included, takes a Go-style header.
-- Every other comment in both is `#` full sentences filled to column 120; `SilentlyContinue` becomes `Ignore`; a line
-  past 120 columns is broken unless it is an address that cannot be.
+- Every other comment in both is `#` full sentences filled to column 120, and a comment that only narrates the
+  statement after it goes; `SilentlyContinue` becomes `Ignore`; a line past 120 columns is broken unless it is an
+  address that cannot be: the help's two examples, which a user copies whole.
+- Found doing it, and fixed as found: both files break sections 4 and 9 as well. A control structure lacks its blank
+  line before or after, `catch`, `finally` and `else` sit on their closing brace's line, `if` is used as a one-line
+  expression, and two functions (`Get-ApiHeader`, `Test-Checksum`) take their parameters on one line with no blank
+  line after. Each is laid out as the guide says; a checker built on PowerShell's parser finds none left.
 
 ## Implementation Phases
 
@@ -161,13 +166,15 @@ does. A run that changed no layer ends with the documentation line.
 ### Phase 3: Next steps (Requirement 3) and the every-layer case (Requirement 4)
 
 - [x] "Next steps:" only with a step
-- [x] Both suites' every-layer-registered case, and the `install.ps1` suite's checks of the PATH advice: the `install.sh`
-      suite here, every check passed; the `install.ps1` suite on danoble-wd11-3, 92 passed under 5.1 and 92 under 7,
-      and against `844a947f`'s `install.ps1` its four new checks of the summary failed, the rest passed
+- [x] Both suites' every-layer-registered case, and the `install.ps1` suite's checks of the PATH advice: the
+      `install.sh` suite here, every check passed; the `install.ps1` suite on danoble-wd11-3, 92 passed under 5.1 and
+      92 under 7, and against `844a947f`'s `install.ps1` its four new checks of the summary failed, the rest passed
 
 ### Phase 4: Documentation (Requirement 5)
 
-- [ ] `install.ps1`'s and the suite's headers and comments; `make powershell` and both suites again
+- [x] `install.ps1`'s and the suite's headers, comments and layout; the organization's PowerShell gate, 4 checked, none
+      with findings; the `install.ps1` suite on danoble-wd11-3, 92 passed under 5.1 and 92 under 7; the PATH advice by
+      hand again, as Phase 2 ran it, unchanged
 
 ### Phase 5: Merge
 

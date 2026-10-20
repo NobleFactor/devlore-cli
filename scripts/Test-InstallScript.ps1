@@ -72,7 +72,11 @@ $teamUrl = 'https://github.com/NobleFactor/noblefactor-ops.git'
 # Windows PowerShell 5.1 has no $IsWindows, and under Set-StrictMode a variable that does not exist is an error, so
 # the edition is read first: Desktop is 5.1, which runs on Windows alone.
 $onWindows = ($PSVersionTable.PSEdition -ne 'Core') -or $IsWindows
-$writName = if ($onWindows) { 'writ.exe' } else { 'writ' }
+$writName = 'writ'
+
+if ($onWindows) {
+    $writName = 'writ.exe'
+}
 
 # This process's own executable, so a child session is the same edition as this one.
 $shell = [System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
@@ -170,6 +174,13 @@ $script:failures = 0
 # Helper functions
 ###########
 
+# Write-Pass writes a passed check's line, "PASS <description>".
+#
+# Parameters:
+#   - `Description`: What the check checked.
+#
+# Returns:
+#   - String: The line.
 function Write-Pass {
     [CmdletBinding()]
     param(
@@ -181,6 +192,14 @@ function Write-Pass {
     Write-Output -InputObject "PASS $Description"
 }
 
+# Write-Fail writes a failed check's line, "FAIL <description>", and its detail, and counts the failure.
+#
+# Parameters:
+#   - `Description`: What the check checked.
+#   - `Detail`: What the check saw, written between two lines of dashes when given.
+#
+# Returns:
+#   - String: The line, then the detail's lines.
 function Write-Fail {
     [CmdletBinding()]
     param(
@@ -194,6 +213,7 @@ function Write-Fail {
 
     $script:failures++
     Write-Output -InputObject "FAIL $Description"
+
     if ($Detail) {
         Write-Output -InputObject '----'
         Write-Output -InputObject $Detail
@@ -201,8 +221,18 @@ function Write-Fail {
     }
 }
 
-# ConvertTo-SuiteError: a refusal of the suite's own, as an error record with an id and a category, so the main block's
-# catch reports it with the suite's name and its id, not as a thrown string (the style guide's section 7).
+# ConvertTo-SuiteError makes an error record of the suite's own, for a refusal.
+#
+# The record carries an id and a category, so the main block's catch reports it with the suite's name and its id, not as
+# a thrown string (the style guide's section 7).
+#
+# Parameters:
+#   - `Message`: What was refused, and why.
+#   - `Id`: The record's error id.
+#   - `Category`: The record's error category.
+#
+# Returns:
+#   - System.Management.Automation.ErrorRecord: The record, whose exception is an InvalidOperationException.
 function ConvertTo-SuiteError {
     [CmdletBinding()]
     [OutputType([System.Management.Automation.ErrorRecord])]
@@ -225,7 +255,15 @@ function ConvertTo-SuiteError {
     return New-Object -TypeName System.Management.Automation.ErrorRecord -ArgumentList $exception, $Id, $Category, $null
 }
 
-# Test-Expectation: PASS when the condition holds, else FAIL with the detail shown.
+# Test-Expectation writes a check's result: PASS when its condition holds, and FAIL with its detail when not.
+#
+# Parameters:
+#   - `Description`: What the check checks.
+#   - `Condition`: Whether the check holds.
+#   - `Detail`: What to show when it does not.
+#
+# Returns:
+#   - String: The check's lines, as Write-Pass and Write-Fail write them.
 function Test-Expectation {
     [CmdletBinding()]
     param(
@@ -243,13 +281,21 @@ function Test-Expectation {
 
     if ($Condition) {
         Write-Pass -Description $Description
-    } else {
+    }
+    else {
         Write-Fail -Description $Description -Detail $Detail
     }
 }
 
-# Use-Account: points this process's XDG homes and temporary directory at a scratch account, which the installer
-# and the writ it runs inherit. Returns the account's prefix.
+# Use-Account points this process's XDG homes and temporary directory at a scratch account.
+#
+# The installer, and the writ it runs, inherit them.
+#
+# Parameters:
+#   - `Name`: The account's directory name under the scratch directory.
+#
+# Returns:
+#   - String: The account's prefix, where an install into it goes.
 function Use-Account {
     [CmdletBinding()]
     [OutputType([string])]
@@ -272,7 +318,14 @@ function Use-Account {
     return (Join-Path $account 'prefix')
 }
 
-# Get-LayerRoot: the root writ reports for a layer, by the writ given.
+# Get-LayerRoot gets the root a writ reports for a layer, or '' when it reports none.
+#
+# Parameters:
+#   - `Writ`: The writ to ask.
+#   - `Layer`: The layer's name.
+#
+# Returns:
+#   - String: The layer's root, or ''.
 function Get-LayerRoot {
     [CmdletBinding()]
     [OutputType([string])]
@@ -289,19 +342,29 @@ function Get-LayerRoot {
     if (-not (Test-Path -LiteralPath $Writ)) {
         return ''
     }
+
     # writ leaves root out of an unregistered layer, and under strict mode reading a missing property throws, so the
     # property is looked up rather than read: a layer that failed to register is a FAIL with its detail, not a crash.
     $registrations = ((& $Writ repo list) -join "`n") | ConvertFrom-Json
+
     foreach ($registration in $registrations) {
         $root = $registration.PSObject.Properties['root']
+
         if ($registration.layer -eq $Layer -and $root) {
             return [string]$root.Value
         }
     }
+
     return ''
 }
 
-# Get-Registration: every registration writ reports, as one string to compare runs by.
+# Get-Registration gets every registration a writ reports, as one string to compare runs by.
+#
+# Parameters:
+#   - `Writ`: The writ to ask.
+#
+# Returns:
+#   - String: `writ repo list`'s output, or '' when the writ is not there.
 function Get-Registration {
     [CmdletBinding()]
     [OutputType([string])]
@@ -314,12 +377,22 @@ function Get-Registration {
     if (-not (Test-Path -LiteralPath $Writ)) {
         return ''
     }
+
     return ((& $Writ repo list) -join "`n")
 }
 
-# Invoke-Child: runs this edition of PowerShell as a separate process with the arguments given, its output streams
-# redirected by the operating system into files, so no stream becomes an error record in this session, and its
-# standard input read from -InputFile when one is given. Returns the exit code and everything the child printed.
+# Invoke-Child runs this edition of PowerShell as a separate process with the arguments given.
+#
+# Its output streams are redirected by the operating system into files, so no stream becomes an error record in this
+# session, and its standard input is read from -InputFile when one is given.
+#
+# Parameters:
+#   - `Name`: The run's name, which names its files under the scratch directory.
+#   - `ArgumentList`: The arguments PowerShell is given.
+#   - `InputFile`: A file to read standard input from.
+#
+# Returns:
+#   - PSCustomObject: `ExitCode`, and `Output`, everything the child printed.
 function Invoke-Child {
     [CmdletBinding()]
     [OutputType([pscustomobject])]
@@ -351,7 +424,13 @@ function Invoke-Child {
     }
 }
 
-# ConvertTo-EncodedCommand: a command for -EncodedCommand, which takes it as base64 UTF-16 and needs no quoting.
+# ConvertTo-EncodedCommand encodes a command for -EncodedCommand, which takes it as base64 UTF-16 and needs no quoting.
+#
+# Parameters:
+#   - `Command`: The command.
+#
+# Returns:
+#   - String: The command, encoded.
 function ConvertTo-EncodedCommand {
     [CmdletBinding()]
     [OutputType([string])]
@@ -364,11 +443,15 @@ function ConvertTo-EncodedCommand {
     return [System.Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($Command))
 }
 
-# Initialize-FixtureArchive: the faux channel's archive for this platform (#1031): this checkout's lore, star and writ,
-# as `make dist` builds and packs them for a release, named for the fixtures' tag, so the installer under test installs
-# the programs under test. In CI, one job builds them for every platform, off Windows, and $env:DEVLORE_TEST_DIST names
-# them. Without it, off Windows, this suite builds this platform's; on Windows it refuses, since Windows builds
-# nothing and needs neither tar nor zip. Returns the archive's path.
+# Initialize-FixtureArchive gets the faux channel's archive for this platform (#1031), building it when it must.
+#
+# The archive holds this checkout's lore, star and writ, as `make dist` builds and packs them for a release, named for
+# the fixtures' tag, so the installer under test installs the programs under test. In CI, one job builds them for every
+# platform, off Windows, and $env:DEVLORE_TEST_DIST names them. Without it, off Windows, this suite builds this
+# platform's; on Windows it refuses, since Windows builds nothing and needs neither tar nor zip.
+#
+# Returns:
+#   - String: The archive's path.
 function Initialize-FixtureArchive {
     [CmdletBinding()]
     [OutputType([string])]
@@ -411,14 +494,25 @@ function Initialize-FixtureArchive {
     return $archive
 }
 
-# Get-GitHubRefusal: the error record this edition's web cmdlets throw when GitHub refuses a request, carrying the
-# status, the content type, the headers and the body where they carry them. GitHub's API refuses with its JSON, the
-# message under "message", and -Documentation is its documentation_url; GitHub's download host refuses with the message
-# alone, in plain text. -Header is any more headers GitHub sends, as its API sends x-ratelimit-* with a rate limit. PowerShell 7 throws an HttpResponseException holding the response, with the body in ErrorDetails, JSON
-# re-indented after a newline. Windows PowerShell 5.1 throws a WebException holding the response, with the body as
-# sent; the response here is a DevLoreFixtureResponse, which carries the status and the content type as an
-# HttpWebResponse does. So the installer reads GitHub's status and message from these stand-ins on both editions, and
+# Get-GitHubRefusal makes the error record this edition's web cmdlets throw when GitHub refuses a request.
+#
+# The record carries the status, the content type, the headers and the body where the cmdlets carry them. GitHub's API
+# refuses with its JSON, the message under "message" and its documentation_url; GitHub's download host refuses with the
+# message alone, in plain text. PowerShell 7 throws an HttpResponseException holding the response, with the body in
+# ErrorDetails, JSON re-indented after a newline. Windows PowerShell 5.1 throws a WebException holding the response,
+# with the body as sent; the response here is a DevLoreFixtureResponse, which carries the status and the content type as
+# an HttpWebResponse does. So the installer reads GitHub's status and message from these stand-ins on both editions, and
 # the same sentence is checked on both.
+#
+# Parameters:
+#   - `Status`: The HTTP status GitHub refuses with.
+#   - `Message`: GitHub's message.
+#   - `Documentation`: The API's documentation_url; without it, the refusal is the download host's, in plain text.
+#   - `Header`: Any more headers GitHub sends, as its API sends x-ratelimit-* with a rate limit (default: none).
+#   - `Command`: The cmdlet that throws it, which the record names.
+#
+# Returns:
+#   - System.Management.Automation.ErrorRecord: The record.
 function Get-GitHubRefusal {
     [CmdletBinding()]
     [OutputType([System.Management.Automation.ErrorRecord])]
@@ -495,7 +589,13 @@ function Get-GitHubRefusal {
     return $record
 }
 
-# Get-ClockTime: a time in seconds since the epoch as this machine's clock shows it, HH:mm, whatever the culture.
+# Get-ClockTime gets a time as this machine's clock shows it, HH:mm, whatever the culture.
+#
+# Parameters:
+#   - `Seconds`: The time, in seconds since the epoch.
+#
+# Returns:
+#   - String: The time, HH:mm.
 function Get-ClockTime {
     [CmdletBinding()]
     [OutputType([string])]
@@ -509,7 +609,13 @@ function Get-ClockTime {
     return $local.ToString('HH:mm', [System.Globalization.CultureInfo]::InvariantCulture)
 }
 
-# Get-LookAlikeName: the name given, but for an X in place of its last dot: a name a pattern would take for it (#1002).
+# Get-LookAlikeName gets a name a pattern would take for the one given: an X in place of its last dot (#1002).
+#
+# Parameters:
+#   - `Name`: The name.
+#
+# Returns:
+#   - String: The look-alike.
 function Get-LookAlikeName {
     [CmdletBinding()]
     [OutputType([string])]
@@ -523,25 +629,38 @@ function Get-LookAlikeName {
     return $Name.Substring(0, $dot) + 'X' + $Name.Substring($dot + 1)
 }
 
-# Invoke-FixtureInstall: runs the installer in this session against the fixture release. The release carries the files
-# of -Before first, by name and file, then, when -Line is given, a checksums file of those lines (under -ChecksumsAs,
-# default its own name, written in -Encoding, default UTF-8 with no byte-order mark), then an archive for every
-# platform: this platform's under -ArchiveAs, default its own name, or none with -NoArchive. GitHub lists the files
-# named in -Refuse but answers their links with 404. -Lookup says how the installer finds the release: Tag, the
-# fixture's tag in DEVLORE_VERSION; NoSuchTag, a tag GitHub has no release for in DEVLORE_VERSION; Latest, NoRelease or
-# RateLimited, no DEVLORE_VERSION, and GitHub answers the newest-release lookup with the fixture release, with no
-# release or with its rate limit, which resets 23 minutes after it is asked. GH_TOKEN is -Token, or unset. Returns the
-# installer's error record's id and message (empty when it finished), every address it asked GitHub for, in order, those
-# it sent GH_TOKEN with, everything it printed, what it wrote to the verbose stream, how many records it wrote to the
-# information stream, the scratch account's prefix, and the reset of the last
-# rate limit GitHub answered with, in seconds since the epoch, or 0. The installer runs with -Verbose unless -Quiet is
-# given.
+# Invoke-FixtureInstall runs the installer in this session against the fixture release.
 #
 # The stand-ins for GitHub are functions defined here, so they shadow the cmdlets for this run and no other: a command
 # is found by walking out from the scope that calls it, and the installer runs in a scope inside this one. Each answers
 # only the request the installer makes, as it makes it, and anything else as GitHub answers an unknown address. The
-# variables they read are named fixture*: a variable is found the same way, so one the installer also names would be
-# the installer's.
+# variables they read are named fixture*: a variable is found the same way, so one the installer also names would be the
+# installer's.
+#
+# Parameters:
+#   - `Name`: The scratch account's name.
+#   - `Line`: The lines of a checksums file for the release to carry; without them, it carries none.
+#   - `Newline`: What ends each of those lines (default: "`n").
+#   - `ArchiveAs`: The name this platform's archive goes under (default: its own name).
+#   - `ChecksumsAs`: The name the checksums file goes under (default: its own name).
+#   - `Encoding`: The checksums file's encoding (default: UTF-8 with no byte-order mark).
+#   - `Before`: Files the release carries before every other, each by name and file.
+#   - `NoArchive`: The release carries no archive for this platform.
+#   - `Refuse`: Files GitHub lists but answers with 404.
+#   - `Lookup`: How the installer finds the release: Tag, the fixture's tag in DEVLORE_VERSION; NoSuchTag, a tag GitHub
+#     has no release for; Latest, NoRelease or RateLimited, no DEVLORE_VERSION, and GitHub answers the newest-release
+#     lookup with the fixture release, with no release, or with its rate limit, which resets 23 minutes after it is
+#     asked (default: Tag).
+#   - `Token`: GH_TOKEN for the run; without it, GH_TOKEN is unset.
+#   - `Arguments`: The installer's parameters, by name (default: none).
+#   - `Quiet`: The installer runs without -Verbose.
+#
+# Returns:
+#   - PSCustomObject: `Message` and `ErrorId`, the installer's error record's, empty when it finished; `Requests`, every
+#     address it asked GitHub for, in order, and `Tokens`, those it sent GH_TOKEN with; `Output`, everything it printed;
+#     `Errors`, its error records; `Verbose`, what it wrote to the verbose stream; `Information`, how many records it
+#     wrote to the information stream; `Prefix`, the scratch account's prefix; and `Reset`, the reset of the last rate
+#     limit GitHub answered with, in seconds since the epoch, or 0.
 function Invoke-FixtureInstall {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidOverwritingBuiltInCmdlets', '',
         Justification = 'Shadowing Invoke-RestMethod and Invoke-WebRequest is the point: the functions stand in for
@@ -642,7 +761,17 @@ function Invoke-FixtureInstall {
     $fixtureRelease = [pscustomobject]@{ tag_name = $fixtureTag; assets = $fixtureAssets }
     $fixtureLookup = $Lookup
 
-    # GitHub's API: the newest release, and a release by its tag, which only the fixture's tag names.
+    # Invoke-RestMethod answers the installer's requests of GitHub's API, as GitHub would.
+    #
+    # It answers two: the newest release, and a release by its tag, which only the fixture's tag names.
+    #
+    # Parameters:
+    #   - `Uri`: The address asked for.
+    #   - `Headers`: The request's headers.
+    #   - `UseBasicParsing`: Taken, as the cmdlet takes it, and ignored.
+    #
+    # Returns:
+    #   - PSCustomObject: The release, or an array of releases for the list, as Invoke-RestMethod returns GitHub's JSON.
     function Invoke-RestMethod {
         [CmdletBinding()]
         [OutputType([pscustomobject], [object[]])]
@@ -711,9 +840,20 @@ function Invoke-FixtureInstall {
         return , $releases
     }
 
-    # The release's public links, as GitHub's download host answers them: the file whose name matches in any case,
-    # named in the Content-Disposition of the response this edition's cmdlet returns with -PassThru, or 404 and "Not
-    # Found" in plain text.
+    # Invoke-WebRequest answers the release's public links, as GitHub's download host answers them.
+    #
+    # It saves the file whose name matches in any case, named in the Content-Disposition of the response this edition's
+    # cmdlet returns with -PassThru, or refuses with 404 and "Not Found" in plain text.
+    #
+    # Parameters:
+    #   - `Uri`: The link asked for.
+    #   - `Headers`: The request's headers.
+    #   - `OutFile`: Where to save the file.
+    #   - `PassThru`: Return the response, as well as saving the file.
+    #   - `UseBasicParsing`: Taken, as the cmdlet takes it, and ignored.
+    #
+    # Returns:
+    #   - PSCustomObject: The response, with -PassThru.
     function Invoke-WebRequest {
         [CmdletBinding()]
         [OutputType([pscustomobject])]
@@ -856,9 +996,22 @@ function Invoke-FixtureInstall {
     }
 }
 
-# Test-Refusal: two checks of a fixture run that must be refused. "<case>: <expected>" passes when the installer
-# reported an error record of its own whose id is -Id, with exactly -Message, and stopped before it extracted or
-# installed anything. "<case>: asks GitHub for ..." is Test-Request's, of the addresses in -Requests.
+# Test-Refusal checks a fixture run that must be refused, with two checks.
+#
+# "<case>: <expected>" passes when the installer reported an error record of its own whose id is -Id, with exactly
+# -Message, and stopped before it extracted or installed anything. "<case>: asks GitHub for ..." is Test-Request's, of
+# the addresses in -Requests.
+#
+# Parameters:
+#   - `Case`: The case's name.
+#   - `Expected`: What the case expects, for the first check's name.
+#   - `Result`: The run, as Invoke-FixtureInstall returns it.
+#   - `Message`: The refusal's message, exactly.
+#   - `Id`: The refusal's error id.
+#   - `Requests`: The addresses the run must ask GitHub for, in order.
+#
+# Returns:
+#   - String: The checks' lines.
 function Test-Refusal {
     [CmdletBinding()]
     param(
@@ -896,9 +1049,21 @@ function Test-Refusal {
     Test-Request -Case $Case -Result $Result -Requests $Requests
 }
 
-# Test-Verified: two checks of a fixture run that must install. "<case>: <expected>" passes when the run finished, said
-# on the verbose stream that it verified the checksum, and installed the writ it verified, whose version is the release's (#1031). "<case>: asks GitHub for ..." is Test-Request's: by
-# default the checksums file's link, then the archive's.
+# Test-Verified checks a fixture run that must install, with two checks.
+#
+# "<case>: <expected>" passes when the run finished, said on the verbose stream that it verified the checksum, and
+# installed the writ it verified, whose version is the release's (#1031). "<case>: asks GitHub for ..." is
+# Test-Request's.
+#
+# Parameters:
+#   - `Case`: The case's name.
+#   - `Expected`: What the case expects, for the first check's name.
+#   - `Result`: The run, as Invoke-FixtureInstall returns it.
+#   - `Requests`: The addresses the run must ask GitHub for, in order (default: the checksums file's link, then the
+#     archive's).
+#
+# Returns:
+#   - String: The checks' lines.
 function Test-Verified {
     [CmdletBinding()]
     param(
@@ -932,7 +1097,13 @@ function Test-Verified {
     Test-Request -Case $Case -Result $Result -Requests $Requests
 }
 
-# Get-RequestName: what an address the installer asked GitHub for is, in words, for the name of a check.
+# Get-RequestName gets what an address the installer asked GitHub for is, in words, for the name of a check.
+#
+# Parameters:
+#   - `Url`: The address.
+#
+# Returns:
+#   - String: Its name.
 function Get-RequestName {
     [CmdletBinding()]
     [OutputType([string])]
@@ -974,11 +1145,20 @@ function Get-RequestName {
     return $what
 }
 
-# Test-Request: PASS when the fixture run asked GitHub for exactly the addresses in -Requests, in that order: each file
-# by its public link, the checksums file before the archive and the archive only once the checksums file has its line
-# (Requirement 1), and GitHub's API only for the newest release's tag, or for the release when a link answered 404
-# before the release was found (#1008). These are the requests install.sh makes in the same case. The check names each
-# by what it is, so its name says what the installer may ask for.
+# Test-Request checks that a fixture run asked GitHub for exactly the addresses given, in that order.
+#
+# Each file is asked for by its public link, the checksums file before the archive, and the archive only once the
+# checksums file has its line (Requirement 1); GitHub's API only for the newest release's tag, or for the release when a
+# link answered 404 before the release was found (#1008). These are the requests install.sh makes in the same case. The
+# check names each by what it is, so its name says what the installer may ask for.
+#
+# Parameters:
+#   - `Case`: The case's name.
+#   - `Result`: The run, as Invoke-FixtureInstall returns it.
+#   - `Requests`: The addresses, in order.
+#
+# Returns:
+#   - String: The check's lines.
 function Test-Request {
     [CmdletBinding()]
     param(
@@ -1011,12 +1191,16 @@ function Test-Request {
         -Detail "asked:    $($Result.Requests -join ', ')`nexpected: $($Requests -join ', ')"
 }
 
-# Test-GitHubItself: two of the installer's own readers of GitHub's answers, against GitHub itself on this edition, so
-# that what the stand-ins model is what this edition's cmdlets give the installer. The newest release's checksums file,
+# Test-GitHubItself checks two of the installer's readers of GitHub's answers against GitHub itself.
+#
+# So what the stand-ins model is what this edition's cmdlets give the installer. The newest release's checksums file,
 # asked for in upper case, comes back under its own name, which Get-ServedName must read; and a file the release lacks
 # is refused with 404 and "Not Found" in plain text, which Get-GitHubAnswer must report. The installer's functions are
 # defined here from its source, and Install-DevLore is not run: the installer has no hook, and run whole it never asks
 # for a name it does not build.
+#
+# Returns:
+#   - String: The checks' lines.
 function Test-GitHubItself {
     [CmdletBinding()]
     param()
@@ -1104,8 +1288,10 @@ try {
         $records = @(& $block -Prefix $prefix -ErrorAction Continue 2>&1 |
                 Where-Object { $_ -is [System.Management.Automation.ErrorRecord] })
         $refusal = @($records | Where-Object { $_.FullyQualifiedErrorId -ceq 'RequiresWindows,Install-DevLore' })
-        Test-Expectation -Description 'off Windows: refused with the record RequiresWindows, "This script requires Windows."' `
-            -Condition ($refusal.Count -eq 1 -and $refusal[0].Exception.Message -ceq 'This script requires Windows.' -and
+        Test-Expectation `
+            -Description 'off Windows: refused with the record RequiresWindows, "This script requires Windows."' `
+            -Condition ($refusal.Count -eq 1 -and
+                $refusal[0].Exception.Message -ceq 'This script requires Windows.' -and
                 -not (Test-Path -LiteralPath $prefix)) `
             -Detail "records:`n$(($records | ForEach-Object { "$($_.FullyQualifiedErrorId): $_" }) -join "`n")"
 
@@ -1113,6 +1299,7 @@ try {
             Write-Output -InputObject "$($script:failures) check(s) failed"
             exit 1
         }
+
         Write-Output -InputObject 'every check passed (off Windows, the refusal is all there is to check)'
         exit 0
     }
@@ -1131,17 +1318,20 @@ try {
     $layerArguments = @{ Personal = $repo; Team = $teamUrl }
     $writ = Join-Path (Join-Path (Join-Path (Join-Path $scratch 'layers') 'prefix') 'bin') $writName
     $runs = @()
+
     foreach ($run in 1, 2) {
         $result = Invoke-FixtureInstall -Name 'layers' -Line @($listed) -Arguments $layerArguments
         Test-Expectation -Description "script-block form: run $run completes" -Condition (-not $result.Message) `
             -Detail "message: $($result.Message)`n$($result.Output)"
-        Test-Expectation -Description "script-block form: run ${run}, every stream redirected, carries no error record" `
+        Test-Expectation `
+            -Description "script-block form: run ${run}, every stream redirected, carries no error record" `
             -Condition ($result.Errors.Count -eq 0) `
             -Detail "error records:`n$($result.Errors -join "`n")`n----`n$($result.Output)"
         Test-Expectation -Description "script-block form: run ${run} writes nothing to the information stream" `
             -Condition ($result.Information -eq 0) -Detail "information records: $($result.Information)"
         $runs += Get-Registration -Writ $writ
     }
+
     $personalRoot = Get-LayerRoot -Writ $writ -Layer 'personal'
     Test-Expectation -Description 'script-block form: personal is the checkout' -Condition ($personalRoot -eq $repo) `
         -Detail "personal: $personalRoot"
@@ -1204,6 +1394,7 @@ try {
     # --- -Help gives the usage on the output stream and returns ---
 
     $null = Use-Account -Name 'help'
+
     try {
         $help = @(& $block -Help 6>&1)
         $helpInformation = @($help | Where-Object { $_ -is [System.Management.Automation.InformationRecord] })
@@ -1211,7 +1402,8 @@ try {
         Test-Expectation -Description '-Help: gives the usage on the output stream and returns' `
             -Condition ($helpText -match 'Usage: install\.ps1' -and $helpInformation.Count -eq 0) `
             -Detail "information records: $($helpInformation.Count)`n$helpText"
-    } catch {
+    }
+    catch {
         Write-Fail -Description '-Help: gives the usage on the output stream and returns' -Detail $_.Exception.Message
     }
 
@@ -1224,27 +1416,35 @@ try {
     $message = ''
     $records = @()
     $caught = ''
+
     try {
         $records = @(& $block -Prefix $prefix -ErrorAction Continue 2>&1 |
                 Where-Object { $_ -is [System.Management.Automation.ErrorRecord] })
 
         try {
             & $block -Prefix $prefix -ErrorAction Stop
-        } catch {
+        }
+        catch {
             $caught = $_.FullyQualifiedErrorId
         }
-    } finally {
+    }
+    finally {
         $env:DEVLORE_VERSION = $savedVersion
     }
+
     $refusal = @($records | Where-Object { $_.FullyQualifiedErrorId -ceq 'GitHubRefused,Install-DevLore' })
+
     if ($refusal.Count -eq 1) {
         $message = $refusal[0].Exception.Message
     }
-    Test-Expectation -Description 'a forced failure: reported as the record GitHubRefused, and the next statement runs' `
+
+    Test-Expectation `
+        -Description 'a forced failure: reported as the record GitHubRefused, and the next statement runs' `
         -Condition ($refusal.Count -eq 1 -and $message.Contains(
             "Could not fetch release $fixtureMissingTag of NobleFactor/devlore-cli")) `
         -Detail "records:`n$(($records | ForEach-Object { "$($_.FullyQualifiedErrorId): $_" }) -join "`n")"
-    Test-Expectation -Description 'a forced failure, its caller stopping on error: the caller''s try catches the record' `
+    Test-Expectation `
+        -Description 'a forced failure, its caller stopping on error: the caller''s try catches the record' `
         -Condition ($caught -ceq 'GitHubRefused,Install-DevLore') -Detail "caught: $caught"
 
     # GitHub itself, not a stand-in: the one refusal whose error record is the edition's own, on every runner, so the
@@ -1345,8 +1545,9 @@ try {
     $clock = Get-ClockTime -Seconds $result.Reset
     Test-Refusal -Case 'case 12: a rate limit, on the latest-release lookup' -Result $result `
         -Expected 'refused, saying so, with GitHub''s message, when to run again, and that GH_TOKEN raises the limit' `
-        -Requests $fixtureNewest -Message ("$rateLimited`nGitHub's API limit for this address is used up. It resets at " +
-            "$clock (in 23 minutes); run the installer again after that. Setting GH_TOKEN raises the limit.") `
+        -Requests $fixtureNewest `
+        -Message ("$rateLimited`nGitHub's API limit for this address is used up. It resets at $clock (in 23 " +
+            "minutes); run the installer again after that. Setting GH_TOKEN raises the limit.") `
         -Id GitHubRefused
 
     $result = Invoke-FixtureInstall -Name 'case-12-rate-limit-token' -Line $neighbor, $listed -Lookup RateLimited `
@@ -1399,24 +1600,25 @@ try {
 
     $result = Invoke-FixtureInstall -Name 'quiet' -Line $neighbor, $listed -Quiet
     Test-Expectation -Description 'a plain run: installs, its results on the output stream, no narration' `
-        -Condition (-not $result.Message -and $result.Output.Contains('Installed: ') -and $result.Verbose.Count -eq 0 -and
-            $result.Information -eq 0) `
+        -Condition (-not $result.Message -and $result.Output.Contains('Installed: ') -and
+            $result.Verbose.Count -eq 0 -and $result.Information -eq 0) `
         -Detail ("message: $($result.Message); verbose records: $($result.Verbose.Count); information records: " +
             "$($result.Information)`n$($result.Output)")
 
     # --- A program the installer runs reads nothing of the installer's standard input (#1044) ---
     #
-    # In a child session whose standard input is a file, the installer's own Invoke-NativeCommand runs this PowerShell
-    # reading its standard input to the end. Closed, as section 7 has it, that input is empty; inherited, it would be the
-    # file's. The child's console input encoding is UTF-8 with a preamble first, which Windows PowerShell 5.1 writes to a
-    # redirected input as a byte-order mark (#1104), so the check finds one on any console, a runner's or an OEM one;
-    # and afterwards it is that encoding again, as the caller had it.
+    # In a child session whose standard input is a file, the installer's own Invoke-NativeCommand runs this
+    # PowerShell reading its standard input to the end. Closed, as section 7 has it, that input is empty; inherited, it
+    # would be the file's. The child's console input encoding is UTF-8 with a preamble first, which Windows PowerShell
+    # 5.1 writes to a redirected input as a byte-order mark (#1104), so the check finds one on any console, a runner's
+    # or an OEM one; and afterwards it is that encoding again, as the caller had it.
 
     $stdinFile = Join-Path $scratch 'stdin.txt'
     Set-Content -LiteralPath $stdinFile -Value 'the installer''s own standard input'
     $probeCommand = @"
 `$parsed = [System.Management.Automation.Language.Parser]::ParseFile('$installer', [ref]`$null, [ref]`$null)
-foreach (`$definition in `$parsed.FindAll({ `$args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] }, `$true)) {
+`$isFunction = { `$args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] }
+foreach (`$definition in `$parsed.FindAll(`$isFunction, `$true)) {
     . ([scriptblock]::Create(`$definition.Extent.Text))
 }
 try {
@@ -1425,9 +1627,11 @@ try {
 catch {
     'no console: the input encoding cannot be set'
 }
-`$read = Invoke-NativeCommand -FilePath '$shell' -ArgumentList @('-NoProfile', '-NonInteractive', '-Command', '[Console]::In.ReadToEnd().Length')
+`$read = Invoke-NativeCommand -FilePath '$shell' ``
+    -ArgumentList @('-NoProfile', '-NonInteractive', '-Command', '[Console]::In.ReadToEnd().Length')
 "stdin read: `$read"
-"input encoding after: `$([Console]::InputEncoding.CodePage), preamble `$([Console]::InputEncoding.GetPreamble().Length)"
+`$after = [Console]::InputEncoding
+"input encoding after: `$(`$after.CodePage), preamble `$(`$after.GetPreamble().Length)"
 "@
     $probe = Invoke-Child -Name 'stdin' -InputFile $stdinFile -ArgumentList @(
         '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand',
@@ -1487,13 +1691,16 @@ catch {
 
     $prefix = Use-Account -Name 'file'
     $env:DEVLORE_VERSION = $fixtureMissingTag
+
     try {
         $failed = Invoke-Child -Name 'file-failure' -ArgumentList @(
             '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', "`"$installer`"", '-Prefix',
             "`"$prefix`"")
-    } finally {
+    }
+    finally {
         $env:DEVLORE_VERSION = $savedVersion
     }
+
     Test-Expectation -Description 'as a file: a failure exits 1' -Condition ($failed.ExitCode -eq 1) `
         -Detail "exit $($failed.ExitCode)`n$($failed.Output)"
     $helped = Invoke-Child -Name 'file-help' -ArgumentList @(
@@ -1523,15 +1730,18 @@ Get-Content -Raw -LiteralPath '$installer' | Invoke-Expression
             'error action unchanged') `
             -Condition ($baseRoot -eq $repo -and $iex.Output -match 'after: session alive; error action Continue') `
             -Detail "base: $baseRoot; exit $($iex.ExitCode)`n$($iex.Output)"
-    } else {
+    }
+    else {
         Write-Output -InputObject 'SKIP irm | iex: it installs into ~/.local, so it runs in CI alone'
     }
-} catch {
+}
+catch {
     $caught = $_
     $ErrorActionPreference = $callerErrorAction
     $PSCmdlet.WriteError($caught)
     exit 1
-} finally {
+}
+finally {
     $env:DEVLORE_VERSION = $savedVersion
     $env:GH_TOKEN = $savedToken
 
@@ -1542,14 +1752,17 @@ Get-Content -Raw -LiteralPath '$installer' | Invoke-Expression
     try {
         foreach ($account in Get-ChildItem -LiteralPath $scratch -Directory -Force) {
             $layers = Join-Path (Join-Path (Join-Path (Join-Path $account.FullName 'data') 'devlore') 'writ') 'layers'
+
             if (Test-Path -LiteralPath $layers) {
                 foreach ($link in Get-ChildItem -LiteralPath $layers -Force) {
                     $link.Delete()
                 }
             }
         }
+
         Remove-Item -LiteralPath $scratch -Recurse -Force
-    } catch {
+    }
+    catch {
         Write-Warning "cleanup: $($_.Exception.Message)"
     }
 }
@@ -1558,4 +1771,5 @@ if ($script:failures -gt 0) {
     Write-Output -InputObject "$($script:failures) check(s) failed"
     exit 1
 }
+
 Write-Output -InputObject 'every check passed'

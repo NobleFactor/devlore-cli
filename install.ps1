@@ -113,13 +113,31 @@ $GitHubApi = "https://api.github.com/repos/$GitHubRepo"
 # A release's files, each by its public link, <tag>/<name>: its browser_download_url, which self upgrade downloads too.
 $GitHubDownload = "https://github.com/$GitHubRepo/releases/download"
 
-$Version = if ($env:DEVLORE_VERSION) { $env:DEVLORE_VERSION } else { "latest" }
-$Tools = if ($env:DEVLORE_TOOLS) { $env:DEVLORE_TOOLS } else { "all" }
+$Version = "latest"
 
-# Each layer's variable is its default; a parameter wins over it (#950).
-$Base = if ($Base) { $Base } elseif ($env:DEVLORE_BASE) { $env:DEVLORE_BASE } else { '' }
-$Team = if ($Team) { $Team } elseif ($env:DEVLORE_TEAM) { $env:DEVLORE_TEAM } else { '' }
-$Personal = if ($Personal) { $Personal } elseif ($env:DEVLORE_PERSONAL) { $env:DEVLORE_PERSONAL } else { '' }
+if ($env:DEVLORE_VERSION) {
+    $Version = $env:DEVLORE_VERSION
+}
+
+$Tools = "all"
+
+if ($env:DEVLORE_TOOLS) {
+    $Tools = $env:DEVLORE_TOOLS
+}
+
+# Each layer's variable is its default; a parameter wins over it (#950). Each parameter is a [string], so a variable
+# that is unset leaves it '', not $null.
+if (-not $Base) {
+    $Base = $env:DEVLORE_BASE
+}
+
+if (-not $Team) {
+    $Team = $env:DEVLORE_TEAM
+}
+
+if (-not $Personal) {
+    $Personal = $env:DEVLORE_PERSONAL
+}
 
 # GitHub authentication (optional). The repository is public; a token only lifts the API's anonymous rate limit, and is
 # sent to the API alone, never to a download link.
@@ -145,9 +163,19 @@ $AuthToken = $env:GH_TOKEN
 # which is what a fresh Windows machine has (#948). The streams carry the distinction the color used to, and each labels
 # its own output.
 
-# A refusal: an error record of the installer's own, with an id and a category, thrown inside Install-DevLore's caught
-# work, so its catch reports it as it reports any other error. A thrown string reaches the caller as "Exception:", its
-# message standing in for an id (the style guide's section 7). New-Object, not ::new: Windows PowerShell 5.1 runs this.
+# ConvertTo-InstallerError makes an error record of the installer's own, for a refusal.
+#
+# The record carries an id and a category, and is thrown inside Install-DevLore's caught work, so its catch reports it
+# as it reports any other error. A thrown string reaches the caller as "Exception:", its message standing in for an id
+# (the style guide's section 7). New-Object, not ::new: Windows PowerShell 5.1 runs this.
+#
+# Parameters:
+#   - `Message`: What was refused, and why.
+#   - `Id`: The record's error id.
+#   - `Category`: The record's error category.
+#
+# Returns:
+#   - System.Management.Automation.ErrorRecord: The record, whose exception is an InvalidOperationException.
 function ConvertTo-InstallerError {
     [CmdletBinding()]
     [OutputType([System.Management.Automation.ErrorRecord])]
@@ -170,11 +198,14 @@ function ConvertTo-InstallerError {
     return New-Object -TypeName System.Management.Automation.ErrorRecord -ArgumentList $exception, $Id, $Category, $null
 }
 
-# Detect OS. install.ps1 installs on Windows, and install.sh on Linux and macOS; neither serves the other's (#1032).
+# Get-OSName gets the platform's name, and refuses every platform but Windows.
 #
-# Windows PowerShell 5.1 has no $IsWindows, and under Set-StrictMode a variable that does not exist is an error, so the
-# edition is read first: Desktop is 5.1, which runs on Windows alone. $IsWindows is consulted only on Core, where it
-# exists.
+# install.ps1 installs on Windows, and install.sh on Linux and macOS; neither serves the other's (#1032). Windows
+# PowerShell 5.1 has no $IsWindows, and under Set-StrictMode a variable that does not exist is an error, so the edition
+# is read first: Desktop is 5.1, which runs on Windows alone. $IsWindows is consulted only on Core, where it exists.
+#
+# Returns:
+#   - String: `windows`.
 function Get-OSName {
     [CmdletBinding()]
     [OutputType([string])]
@@ -188,13 +219,17 @@ function Get-OSName {
         -Message "This script requires Windows.")
 }
 
-# Detect architecture. The releases publish amd64 and arm64 only.
+# Get-ArchName gets the machine's architecture as the releases name it, and refuses any they do not publish.
+#
+# Returns:
+#   - String: `amd64` or `arm64`, the two architectures the releases publish.
 function Get-ArchName {
     [CmdletBinding()]
     [OutputType([string])]
     param()
 
     $arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
+
     switch ($arch) {
         'X64'   { return "amd64" }
         'Arm64' { return "arm64" }
@@ -205,22 +240,41 @@ function Get-ArchName {
     }
 }
 
-# Build common headers for GitHub API requests, authenticated when GH_TOKEN is set
+# Get-ApiHeader gets the headers of a request to GitHub's API, authenticated when GH_TOKEN is set.
+#
+# Parameters:
+#   - `Accept`: The media type asked for (default: `application/vnd.github+json`).
+#
+# Returns:
+#   - Hashtable: The headers, each by its name.
 function Get-ApiHeader {
     [CmdletBinding()]
     [OutputType([hashtable])]
-    param([string]$Accept = "application/vnd.github+json")
+    param(
+        [string]
+        $Accept = "application/vnd.github+json"
+    )
+
     $headers = @{ Accept = $Accept }
+
     if ($AuthToken) {
         $headers["Authorization"] = "Bearer $AuthToken"
     }
+
     return $headers
 }
 
-# The HTTP status GitHub answered a failed request with, or 0 when it never answered. Both editions attach the response
-# to the exception: an HttpWebResponse on Windows PowerShell 5.1, an HttpResponseMessage on PowerShell 7, each with its
-# StatusCode. Every property is looked up rather than read: they differ by edition and by failure, and under
-# Set-StrictMode reading one that does not exist is itself an error.
+# Get-HttpStatus gets the HTTP status GitHub answered a failed request with, or 0 when it never answered.
+#
+# Both editions attach the response to the exception: an HttpWebResponse on Windows PowerShell 5.1, an
+# HttpResponseMessage on PowerShell 7, each with its StatusCode. Every property is looked up rather than read: they
+# differ by edition and by failure, and under Set-StrictMode reading one that does not exist is itself an error.
+#
+# Parameters:
+#   - `ErrorRecord`: The failed request's error record.
+#
+# Returns:
+#   - Int32: The status, or 0.
 function Get-HttpStatus {
     [CmdletBinding()]
     [OutputType([int])]
@@ -245,17 +299,22 @@ function Get-HttpStatus {
     return [int]$statusCode.Value
 }
 
-# What GitHub answered a request that failed, for the error that reports it: "GitHub answered HTTP <status>: <message>",
-# as install.sh words it.
+# Get-GitHubAnswer gets what GitHub answered a failed request, for the error that reports it.
 #
-# GitHub explains a refusal in the body it sends with it: its API in JSON, under "message" ("Not Found", "API rate limit
-# exceeded for ..."), its download host in plain text ("Not Found"). As install.sh reads it, the message is the text's
-# first line when the body is plain text, and otherwise the JSON's "message". The web cmdlets of both editions keep the
-# body in the error record's ErrorDetails, and the content type in the response they attach: an HttpWebResponse's
-# ContentType on Windows PowerShell 5.1, the content's headers of an HttpResponseMessage on PowerShell 7. That message
-# is what the user is shown (#1002): the cmdlet's own, "Response status code does not indicate success" on PowerShell 7
-# and "The remote server returned an error" on Windows PowerShell 5.1, names only the status. A request that never
-# reached GitHub has no answer, so its error is reported as PowerShell words it.
+# The answer is "GitHub answered HTTP <status>: <message>", as install.sh words it. GitHub explains a refusal in the
+# body it sends with it: its API in JSON, under "message" ("Not Found", "API rate limit exceeded for ..."), its download
+# host in plain text ("Not Found"). As install.sh reads it, the message is the text's first line when the body is plain
+# text, and otherwise the JSON's "message". The web cmdlets of both editions keep the body in the error record's
+# ErrorDetails, and the content type in the response they attach: an HttpWebResponse's ContentType on Windows PowerShell
+# 5.1, the content's headers of an HttpResponseMessage on PowerShell 7. That message is what the user is shown (#1002):
+# the cmdlet's own, "Response status code does not indicate success" on PowerShell 7 and "The remote server returned an
+# error" on Windows PowerShell 5.1, names only the status.
+#
+# Parameters:
+#   - `ErrorRecord`: The failed request's error record.
+#
+# Returns:
+#   - String: The answer, or, for a request that never reached GitHub, the error as PowerShell words it.
 function Get-GitHubAnswer {
     [CmdletBinding()]
     [OutputType([string])]
@@ -320,10 +379,18 @@ function Get-GitHubAnswer {
     return $answer
 }
 
-# The value of header Name in the response GitHub refused a request with, or '' when it sent none. Windows PowerShell
-# 5.1 attaches an HttpWebResponse, whose Headers is a WebHeaderCollection; PowerShell 7 an HttpResponseMessage, whose
-# Headers gives a header's values through TryGetValues. Each property is looked up rather than read, as in
-# Get-HttpStatus.
+# Get-ResponseHeader gets a header of the response GitHub refused a request with, or '' when it sent none.
+#
+# Windows PowerShell 5.1 attaches an HttpWebResponse, whose Headers is a WebHeaderCollection; PowerShell 7 an
+# HttpResponseMessage, whose Headers gives a header's values through TryGetValues. Each property is looked up rather
+# than read, as in Get-HttpStatus.
+#
+# Parameters:
+#   - `ErrorRecord`: The refused request's error record.
+#   - `Name`: The header's name.
+#
+# Returns:
+#   - String: The header's first value, or ''.
 function Get-ResponseHeader {
     [CmdletBinding()]
     [OutputType([string])]
@@ -370,11 +437,19 @@ function Get-ResponseHeader {
     return ''
 }
 
-# What to tell the user when GitHub's API has refused a request for its rate limit, or '' when it refused for another
-# reason, as install.sh's rate_limit_message says it. GitHub refuses a spent limit with 403 or 429,
-# x-ratelimit-remaining 0, and x-ratelimit-reset, the time the limit resets in seconds since the epoch, which is said as
-# this machine's clock shows it and in minutes, rounded up. GH_TOKEN raises the limit, which is said when it is unset.
+# Get-RateLimitMessage gets what to tell the user when GitHub's API refused a request for its rate limit.
+#
+# It is '' when GitHub refused for another reason, and is worded as install.sh's rate_limit_message words it. GitHub
+# refuses a spent limit with 403 or 429, x-ratelimit-remaining 0, and x-ratelimit-reset, the time the limit resets in
+# seconds since the epoch, which is said as this machine's clock shows it and in minutes, rounded up. GH_TOKEN raises
+# the limit, which is said when it is unset.
 # Per https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api
+#
+# Parameters:
+#   - `ErrorRecord`: The refused request's error record.
+#
+# Returns:
+#   - String: The message, or ''.
 function Get-RateLimitMessage {
     [CmdletBinding()]
     [OutputType([string])]
@@ -432,14 +507,22 @@ function Get-RateLimitMessage {
     return $message
 }
 
-# Make an API request, authenticated when GH_TOKEN is set, and return GitHub's answer. A refusal is an error saying
-# "Could not <What>", with GitHub's answer, followed, when the refusal is for GitHub's rate limit, by when to run the
-# installer again, as install.sh's api_get says it.
+# Invoke-ApiGet makes a request of GitHub's API, authenticated when GH_TOKEN is set, and returns GitHub's answer.
+#
+# A refusal is an error saying "Could not <What>", with GitHub's answer, followed, when the refusal is for GitHub's rate
+# limit, by when to run the installer again, as install.sh's api_get says it.
 # Per https://docs.github.com/en/rest/releases/releases
 #
-# -UseBasicParsing on every web call: without it Windows PowerShell 5.1 parses responses with the Internet
-# Explorer engine, which hangs on a machine that has never run IE's first-launch dialog. PowerShell 7
-# accepts the switch and ignores it.
+# -UseBasicParsing on every web call: without it Windows PowerShell 5.1 parses responses with the Internet Explorer
+# engine, which hangs on a machine that has never run IE's first-launch dialog. PowerShell 7 accepts the switch and
+# ignores it.
+#
+# Parameters:
+#   - `Url`: The API's address for the request.
+#   - `What`: What the request does, for the error that refuses it: "Could not <What>".
+#
+# Returns:
+#   - PSCustomObject: GitHub's JSON, as Invoke-RestMethod returns it.
 function Invoke-ApiGet {
     [CmdletBinding()]
     param(
@@ -470,10 +553,13 @@ function Invoke-ApiGet {
     }
 }
 
-# Get latest release version from GitHub API: the newest release's tag, or $null when the repository has none
+# Get-LatestVersion gets the tag of the newest release, pre-releases included, or $null when there is none.
+#
+# It lists the releases one to a page, since /releases/latest leaves pre-releases out.
 # Per https://docs.github.com/en/rest/releases/releases#list-releases
-# Uses /releases?per_page=1 to get the most recent release (including prereleases)
-# Note: /releases/latest excludes prereleases, so we use the list endpoint instead
+#
+# Returns:
+#   - String: The tag, or $null.
 function Get-LatestVersion {
     [CmdletBinding()]
     param()
@@ -487,10 +573,14 @@ function Get-LatestVersion {
     return $releases[0].tag_name
 }
 
-# Require release Tag, which is an error, with GitHub's message, when GitHub has no such release. Its JSON is not read:
-# a download link answers 404 alike for a release that doesn't exist and for a file it doesn't have, and this is how a
-# release that doesn't exist is told apart, and reported as that.
+# Assert-Release refuses a release tag GitHub has no release for, with GitHub's message.
+#
+# The release's JSON is not read: a download link answers 404 alike for a release that doesn't exist and for a file it
+# doesn't have, and this is how a release that doesn't exist is told apart, and reported as that.
 # Per https://docs.github.com/en/rest/releases/releases#get-a-release-by-tag-name
+#
+# Parameters:
+#   - `Tag`: The release's tag.
 function Assert-Release {
     [CmdletBinding()]
     param(
@@ -502,9 +592,16 @@ function Assert-Release {
     $null = Invoke-ApiGet -Url "$GitHubApi/releases/tags/$Tag" -What "fetch release $Tag of $GitHubRepo"
 }
 
-# The name of the file GitHub served, from the Content-Disposition of the response a download returned, or '' when it
-# names none. A header's name is matched in any case; PowerShell 7 gives a header's values as an array, Windows
-# PowerShell 5.1 as one string.
+# Get-ServedName gets the name of the file a download served, from its Content-Disposition, or '' if none.
+#
+# A header's name is matched in any case; PowerShell 7 gives a header's values as an array, Windows PowerShell 5.1 as
+# one string.
+#
+# Parameters:
+#   - `Response`: The response the download returned.
+#
+# Returns:
+#   - String: The file's name, or ''.
 function Get-ServedName {
     [CmdletBinding()]
     [OutputType([string])]
@@ -531,14 +628,21 @@ function Get-ServedName {
     return $name
 }
 
-# Download release Tag's file Name, by its public link, to Destination, whose name is the file's. The link is public, so
-# GH_TOKEN is not sent; it redirects to where GitHub keeps the file, and the cmdlet follows it. A refusal is an error
-# naming the file and the release, with GitHub's status and message, which its download host sends as plain text ("Not
-# Found"), unless it is a 404 before the release is found (-ReleaseFound) and GitHub's API has no such release, which
-# Assert-Release reports. That host takes a name in any case, and names the file it served in its Content-Disposition:
-# a file by another name is not this one, and is refused (#1002). -PassThru returns the response, for that header, as
-# well as saving the file.
+# Save-ReleaseFile downloads a file of a release, by its public link, to a destination named as the file is.
+#
+# The link is public, so GH_TOKEN is not sent; it redirects to where GitHub keeps the file, and the cmdlet follows it. A
+# refusal is an error naming the file and the release, with GitHub's status and message, which its download host sends
+# as plain text ("Not Found"), unless it is a 404 before the release is found and GitHub's API has no such release,
+# which Assert-Release reports. That host takes a name in any case, and names the file it served in its
+# Content-Disposition: a file by another name is not this one, and is refused (#1002). -PassThru returns the response,
+# for that header, as well as saving the file.
 # Per https://docs.github.com/en/repositories/releasing-projects-on-github/linking-to-releases
+#
+# Parameters:
+#   - `Name`: The file's name in the release.
+#   - `Tag`: The release's tag.
+#   - `Destination`: The path to save the file to.
+#   - `ReleaseFound`: The release is known to exist, so a 404 is the file's alone.
 function Save-ReleaseFile {
     [CmdletBinding()]
     param(
@@ -581,18 +685,25 @@ function Save-ReleaseFile {
     }
 }
 
-# Run a program outside PowerShell's streams, its stderr narration going to the verbose stream.
+# Invoke-NativeCommand runs a program outside PowerShell's streams, its standard error going to Write-Verbose.
 #
-# PowerShell wraps each line a program writes to stderr in an error record whenever it carries the stream, which it
-# does whenever a caller has redirected the install (`*>&1 | Tee-Object`, `2>&1`); Windows PowerShell 5.1 then applies
-# this script's 'Stop' to the record, so the first line of lore's, star's or writ's narration ended the install (found
-# by the installers' CI, #950). So no program this script runs has its streams carried by PowerShell (#1029): the
-# operating system redirects them, .NET's Process class reads them, and each line of stderr goes to Write-Verbose as the
-# program prints it, beside this script's own narration. stdout is returned as text, a string a line. Its standard input
-# is redirected and closed, so a program that reads it ends rather than waits on a console nobody is typing into (the
-# style guide's section 7).
+# PowerShell wraps each line a program writes to stderr in an error record whenever it carries the stream, which it does
+# whenever a caller has redirected the install (`*>&1 | Tee-Object`, `2>&1`); Windows PowerShell 5.1 then applies this
+# script's 'Stop' to the record, so the first line of lore's, star's or writ's narration ended the install (found by the
+# installers' CI, #950). So no program this script runs has its streams carried by PowerShell (#1029): the operating
+# system redirects them, .NET's Process class reads them, and each line of stderr goes to Write-Verbose as the program
+# prints it, beside this script's own narration. Its standard input is redirected and closed, so a program that reads it
+# ends rather than waits on a console nobody is typing into (the style guide's section 7).
+#
 # $LASTEXITCODE is the program's exit status, which every caller checks. The program runs in this session's working
 # directory, so a relative path it is given resolves where it was typed.
+#
+# Parameters:
+#   - `FilePath`: The program's path, or its name on this session's PATH.
+#   - `ArgumentList`: The program's arguments, each passed to it as it is.
+#
+# Returns:
+#   - String: Each line the program wrote to standard output.
 function Invoke-NativeCommand {
     [CmdletBinding()]
     [OutputType([string])]
@@ -688,9 +799,16 @@ function Invoke-NativeCommand {
     }
 }
 
-# Quote one argument for a Windows command line, as Windows splits one back into arguments: an argument with no space,
-# tab or quote stands as it is; any other is quoted, its quotes escaped, and the backslashes before a quote, or before
-# the closing quote, doubled.
+# ConvertTo-CommandLineArgument quotes an argument for a Windows command line, as Windows splits one.
+#
+# An argument with no space, tab or quote stands as it is; any other is quoted, its quotes escaped, and the backslashes
+# before a quote, or before the closing quote, doubled.
+#
+# Parameters:
+#   - `Argument`: The argument, empty or not.
+#
+# Returns:
+#   - String: The argument as a command line carries it.
 function ConvertTo-CommandLineArgument {
     [CmdletBinding()]
     [OutputType([string])]
@@ -711,18 +829,32 @@ function ConvertTo-CommandLineArgument {
     return "`"$escaped`""
 }
 
-# Verify checksum
+# Test-Checksum refuses a file whose SHA-256 is not the one expected.
+#
+# Parameters:
+#   - `File`: The file's path.
+#   - `Expected`: The SHA-256 the file must have, in hexadecimal, in either case.
 function Test-Checksum {
     [CmdletBinding()]
-    param([string]$File, [string]$Expected)
-    $actual = (Get-FileHash -Path $File -Algorithm SHA256).Hash.ToLower()
+    param(
+        [Parameter(Mandatory)]
+        [string]
+        $File,
+
+        [Parameter(Mandatory)]
+        [string]
+        $Expected
+    )
+
+    $actual = (Get-FileHash -LiteralPath $File -Algorithm SHA256).Hash.ToLower()
+
     if ($actual -ne $Expected.ToLower()) {
         throw (ConvertTo-InstallerError -Id ChecksumMismatch -Category SecurityError `
             -Message "Checksum verification failed!`nExpected: $Expected`nActual:   $actual")
     }
 }
 
-# The SHA-256 a checksums file lists for one file, found by exact name, or $null when no line names it.
+# Get-ListedChecksum gets the SHA-256 a checksums file lists for one file, found by exact name, or $null.
 #
 # A line is 64 hex characters, a space, then a space or '*', then the name, exactly and with case; a trailing carriage
 # return is ignored, and the first line naming the file wins. That is self upgrade's rule (listedChecksum, in
@@ -733,6 +865,13 @@ function Test-Checksum {
 # characters such as a soft hyphen or a zero-width space, and so takes a line naming another file. The file is read as
 # bytes and decoded as UTF-8, as self upgrade reads it: ReadAllText would drop a byte-order mark, and decode UTF-16,
 # taking a line that self upgrade and sha256sum refuse.
+#
+# Parameters:
+#   - `Path`: The checksums file's path.
+#   - `Name`: The file's name, exactly as the checksums file lists it.
+#
+# Returns:
+#   - String: The SHA-256 in lower-case hexadecimal, or $null.
 function Get-ListedChecksum {
     [CmdletBinding()]
     [OutputType([string])]
@@ -765,10 +904,6 @@ function Get-ListedChecksum {
 
     return $null
 }
-
-# -------------------------------------------------------------------
-# Main
-# -------------------------------------------------------------------
 
 # Get-CommandOnPersistentPath gets a program as Get-Command does, from the PATH a new terminal searches.
 #
@@ -950,6 +1085,12 @@ namespace DevLore
     [DevLore.FileIdentity]::Of($LiteralPath)
 }
 
+# -------------------------------------------------------------------
+# Main
+# -------------------------------------------------------------------
+
+# Install-DevLore installs the programs, registers the layers given, and writes the summary.
+#
 # The installer's work, as the PowerShell style guide's section 7 has a script do it (#1044). It notes its caller's
 # error action, sets Stop for its own work, and runs that work inside try and catch. The catch puts the caller's error
 # action back and reports the error with $PSCmdlet.WriteError, so a caller who continues on error continues, one who
@@ -959,6 +1100,9 @@ namespace DevLore
 # The catch is this function's and not the script's (D1): under `irm | iex` the script has no $PSCmdlet, and a function
 # has its own in every form. So an error names Install-DevLore, where section 7's example names the script. The error
 # preference is this function's too (D4): set at script scope, it would change the user's session under `irm | iex`.
+#
+# Returns:
+#   - String: The summary and the next steps, a line at a time, for a person to read.
 function Install-DevLore {
     [CmdletBinding()]
     param()
@@ -973,15 +1117,16 @@ function Install-DevLore {
         # Refused before anything is downloaded (#950).
         if (($Base -or $Team -or $Personal) -and $Tools -ne "all" -and $Tools -ne "writ") {
             throw (ConvertTo-InstallerError -Id LayersNeedWrit -Category InvalidArgument `
-                -Message "-Base, -Team and -Personal register layers with writ, which DEVLORE_TOOLS=$Tools does not install")
+                -Message ("-Base, -Team and -Personal register layers with writ, which DEVLORE_TOOLS=$Tools " +
+                    "does not install"))
         }
 
         # GitHub speaks TLS 1.2 and later. Windows PowerShell 5.1 takes its protocols from the .NET Framework's
         # default, which on an older machine stops at 1.0, so every request fails before it starts. Adding 1.2
         # is a no-op wherever the default already includes it, PowerShell 7 included.
-        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
+        [System.Net.ServicePointManager]::SecurityProtocol =
+            [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
 
-        # Detect platform
         $os = Get-OSName
         $arch = Get-ArchName
         Write-Verbose -Message "Detected platform: $os/$arch"
@@ -992,6 +1137,7 @@ function Install-DevLore {
         if (-not $Prefix) {
             $Prefix = Join-Path $HOME ".local"
         }
+
         $installDir = Join-Path $Prefix "bin"
 
         # Resolve version. $releaseFound says whether GitHub has shown that release $Version exists, by listing it as
@@ -1013,12 +1159,11 @@ function Install-DevLore {
 
         Write-Verbose -Message "Version: $Version"
 
-        # Build asset names
         $archiveName = "devlore-cli_${Version}_${os}_${arch}.zip"
         $checksumsName = "devlore-cli_${Version}_checksums.txt"
 
-        # Create temp directory
-        $tmpDir = Join-Path ([System.IO.Path]::GetTempPath()) "devlore-install-$([System.Guid]::NewGuid().ToString('N'))"
+        $tmpName = "devlore-install-$([System.Guid]::NewGuid().ToString('N'))"
+        $tmpDir = Join-Path ([System.IO.Path]::GetTempPath()) $tmpName
         New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
 
         try {
@@ -1040,13 +1185,11 @@ function Install-DevLore {
             $archivePath = Join-Path $tmpDir $archiveName
             Save-ReleaseFile -Name $archiveName -Tag $Version -Destination $archivePath -ReleaseFound:$releaseFound
 
-            # Verify the archive before anything is extracted
+            # The archive is verified before anything is extracted from it.
             Write-Verbose -Message "Verifying checksum..."
             Test-Checksum -File $archivePath -Expected $expectedChecksum
             Write-Verbose -Message "Checksum verified"
 
-            # Extract archive
-            #
             # The archive holds the products at its root and star's extensions under share/ (#903). The products move
             # to pkg/bin so that each one's `self install` finds pkg/share at <exeDir>/../share, the path star copies
             # its extensions from.
@@ -1056,13 +1199,10 @@ function Install-DevLore {
             New-Item -ItemType Directory -Path $pkgBin -Force | Out-Null
             Expand-Archive -Path $archivePath -DestinationPath $pkg -Force
 
-            # Create install directory
             if (-not (Test-Path $installDir)) {
                 New-Item -ItemType Directory -Path $installDir -Force | Out-Null
             }
 
-            # Install binaries
-            #
             # Every file at the archive root is a product, so this list is the archive's and not a second copy of the
             # Makefile's. Each product installs itself: `self install <prefix>` copies the binary to <prefix>/bin and
             # adds its man pages, completions and, for star, its extensions. A failure means that product is not
@@ -1071,6 +1211,7 @@ function Install-DevLore {
 
             foreach ($file in Get-ChildItem -LiteralPath $pkg -File) {
                 $product = [System.IO.Path]::GetFileNameWithoutExtension($file.Name)
+
                 if ($Tools -ne "all" -and $Tools -ne $product) {
                     continue
                 }
@@ -1080,15 +1221,20 @@ function Install-DevLore {
 
                 Write-Verbose -Message "Installing $product..."
                 Push-Location $pkg
+
                 try {
-                    $null = Invoke-NativeCommand -FilePath $toolPath -ArgumentList @('self', 'install', $Prefix, '--unattended')
+                    $null = Invoke-NativeCommand -FilePath $toolPath `
+                        -ArgumentList @('self', 'install', $Prefix, '--unattended')
+
                     if ($LASTEXITCODE -ne 0) {
                         throw (ConvertTo-InstallerError -Id SelfInstallFailed -Category NotInstalled `
                             -Message "$product self install failed")
                     }
-                } finally {
+                }
+                finally {
                     Pop-Location
                 }
+
                 $installed += $product
             }
 
@@ -1109,37 +1255,47 @@ function Install-DevLore {
 
             foreach ($layer in $layers.Keys) {
                 $location = $layers[$layer]
+
                 if (-not $location) {
                     # A layer not given is skipped unless the writ just installed already has it registered (#1029). A
                     # writ this run didn't install, or that can't answer, leaves it skipped. --filter, not a --jq
                     # select: Windows PowerShell 5.1 strips the double quotes inside a native command's arguments.
                     $root = ''
+
                     if (Test-Path -LiteralPath $writPath -PathType Leaf) {
                         try {
                             $root = (Invoke-NativeCommand -FilePath $writPath -ArgumentList @('repo', 'list',
                                     '--filter', "layer=$layer", '--filter', 'state=registered', '--jq', '.[].root',
                                     '--output', 'value') | Out-String).Trim()
+
                             if ($LASTEXITCODE -ne 0) {
                                 $root = ''
                             }
-                        } catch {
+                        }
+                        catch {
                             $root = ''
                         }
                     }
+
                     if ($root) {
                         $held += $layer
-                    } else {
+                    }
+                    else {
                         $skipped += $layer
                     }
+
                     continue
                 }
 
                 Write-Verbose -Message "Registering ${layer}: $location"
-                $null = Invoke-NativeCommand -FilePath $writPath -ArgumentList @('repo', 'set', $layer, $location, '--unattended')
+                $null = Invoke-NativeCommand -FilePath $writPath `
+                    -ArgumentList @('repo', 'set', $layer, $location, '--unattended')
+
                 if ($LASTEXITCODE -ne 0) {
                     throw (ConvertTo-InstallerError -Id LayerNotRegistered -Category NotInstalled `
                         -Message "writ repo set $layer exited $LASTEXITCODE")
                 }
+
                 $registered += $layer
             }
 
@@ -1148,12 +1304,15 @@ function Install-DevLore {
             Write-Output -InputObject ''
             Write-Output -InputObject "Installed: $($installed -join ' ')"
             Write-Output -InputObject "Location: $installDir"
+
             if ($registered.Count -gt 0) {
                 Write-Output -InputObject "Registered: $($registered -join ' ')"
             }
+
             if ($held.Count -gt 0) {
                 Write-Output -InputObject "Already registered: $($held -join ' ')"
             }
+
             Write-Output -InputObject ''
 
             # Whether a new terminal would run what was installed (#1050). A new terminal searches the PATH stored in
@@ -1256,14 +1415,15 @@ function Install-DevLore {
             if ($registered.Count -gt 0) {
                 Write-Output -InputObject "  writ deploy"
             }
+
             foreach ($layer in $skipped) {
                 Write-Output -InputObject "skipped: $layer; to register it later:"
                 Write-Output -InputObject "  writ repo set $layer <working-tree-root>|<repository-url>"
             }
 
-        } finally {
-            # Clean up temp directory
-            Remove-Item -Path $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        finally {
+            Remove-Item -LiteralPath $tmpDir -Recurse -Force -ErrorAction Ignore
         }
     }
     catch {
