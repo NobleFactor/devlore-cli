@@ -202,7 +202,8 @@ the move; the program-level tests found them.
 
 ### Phase 5: What devlore-cli owed (Requirement 6)
 
-- [ ] `star/config.yaml`'s `gh:` block removed
+- [x] `star/config.yaml`'s `gh:` block removed; nothing else in the tree, plans aside, names `gh.repositories` or
+      `gh.exempt`
 - [ ] The links to devlore-cli#65 name noblefactor-ops#317
 - [ ] `configuration.md`'s Open questions and `9-star-extensions.md`'s note
 - [ ] Lane 28's plan closed
