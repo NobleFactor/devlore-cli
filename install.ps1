@@ -19,6 +19,11 @@
     Runs on Windows, under Windows PowerShell 5.1 and PowerShell 7; on Linux and macOS, install.sh installs. The
     installer is served by the DevLore site's develop environment, from which devlore is released today.
 
+    It speaks through PowerShell's streams, as a cmdlet does: its results on the output stream, a warning on the
+    warning stream, a failure as an error record. What it is doing goes to the verbose stream: give -Verbose, or set
+    $VerbosePreference = 'Continue' before the irm | iex form, to see it. A failure leaves the session open; run as a
+    file, the script exits 1.
+
     Environment: $env:DEVLORE_VERSION picks a release tag (default: the newest release, pre-releases
     included); $env:DEVLORE_TOOLS picks all, writ, lore or star (default: all); $env:GH_TOKEN, optional,
     is sent to GitHub's API alone, which lifts its limit of 60 anonymous requests an hour.
@@ -65,7 +70,9 @@ param(
 )
 
 Set-StrictMode -Version Latest
-$ErrorActionPreference = 'Stop'
+
+# $ErrorActionPreference is set inside Install-DevLore, never here: under `irm | iex` this script runs in the user's own
+# scope, and setting it here would change their session's (#1044, D4).
 
 # Where the DevLore site serves this script. The site releases from develop, so this is its develop environment.
 $InstallersUrl = "https://delightful-grass-0ac0a4c1e-develop.westus2.6.azurestaticapps.net"
@@ -73,23 +80,25 @@ $InstallersUrl = "https://delightful-grass-0ac0a4c1e-develop.westus2.6.azurestat
 # `return`, not `exit`: under `irm | iex` and the script-block form the script is not a file, and `exit` would end
 # the user's PowerShell session (#965). Run as a file, returning still exits 0.
 if ($Help) {
-    Write-Information -InformationAction Continue "Usage: install.ps1 [-Prefix <dir>] [-Base <loc>] [-Team <loc>] [-Personal <loc>]"
-    Write-Information -InformationAction Continue ''
-    Write-Information -InformationAction Continue "Installs lore, star and writ into <prefix> (default ~/.local), then registers each layer given"
-    Write-Information -InformationAction Continue "with writ repo set, base first. A layer not given is skipped and named at the end, unless writ"
-    Write-Information -InformationAction Continue "already has it registered. Never asks."
-    Write-Information -InformationAction Continue `
-        "The archive is verified against the release's checksums file first, and refused if it cannot be."
-    Write-Information -InformationAction Continue ''
-    Write-Information -InformationAction Continue "  -Prefix <dir>     installation prefix (default: ~/.local)"
-    Write-Information -InformationAction Continue "  -Base <loc>       the base layer: a working-tree root or a repository URL (or `$env:DEVLORE_BASE)"
-    Write-Information -InformationAction Continue "  -Team <loc>       the team layer (or `$env:DEVLORE_TEAM)"
-    Write-Information -InformationAction Continue "  -Personal <loc>   the personal layer (or `$env:DEVLORE_PERSONAL)"
-    Write-Information -InformationAction Continue ''
-    Write-Information -InformationAction Continue "Environment: DEVLORE_VERSION (a release tag), DEVLORE_TOOLS (all, writ, lore or star), GH_TOKEN (optional)."
-    Write-Information -InformationAction Continue ''
-    Write-Information -InformationAction Continue "Served by the DevLore site's develop environment, from which devlore is released today:"
-    Write-Information -InformationAction Continue "  & ([scriptblock]::Create((irm $InstallersUrl/install.ps1))) -Base <loc> -Team <loc> -Personal <loc>"
+    Write-Output -InputObject @(
+        "Usage: install.ps1 [-Prefix <dir>] [-Base <loc>] [-Team <loc>] [-Personal <loc>]",
+        '',
+        "Installs lore, star and writ into <prefix> (default ~/.local), then registers each layer given",
+        "with writ repo set, base first. A layer not given is skipped and named at the end, unless writ",
+        "already has it registered. Never asks.",
+        "The archive is verified against the release's checksums file first, and refused if it cannot be.",
+        '',
+        "  -Prefix <dir>     installation prefix (default: ~/.local)",
+        "  -Base <loc>       the base layer: a working-tree root or a repository URL (or `$env:DEVLORE_BASE)",
+        "  -Team <loc>       the team layer (or `$env:DEVLORE_TEAM)",
+        "  -Personal <loc>   the personal layer (or `$env:DEVLORE_PERSONAL)",
+        "  -Verbose          show what the installer is doing as it does it",
+        '',
+        "Environment: DEVLORE_VERSION (a release tag), DEVLORE_TOOLS (all, writ, lore or star), GH_TOKEN (optional).",
+        '',
+        "Served by the DevLore site's develop environment, from which devlore is released today:",
+        "  & ([scriptblock]::Create((irm $InstallersUrl/install.ps1))) -Base <loc> -Team <loc> -Personal <loc>"
+    )
     return
 }
 
@@ -121,68 +130,42 @@ $AuthToken = $env:GH_TOKEN
 # Helpers
 # -------------------------------------------------------------------
 
-# Each level goes to the stream PowerShell already has for it: information, warning, error.
+# Each stream has one use, as the PowerShell style guide's section 7 says (#1044). What the installer is doing goes to
+# Write-Verbose; a warning to Write-Warning; a result, the usage, the summary and the next steps, to the output stream,
+# as text, since a person reads it; a failure is an error record. Nothing goes to the information stream or the host,
+# and no stream is turned on by force: the caller decides what is shown.
 #
-# Write-Host went to none of them. It cannot be captured or redirected, so a user whose install failed
-# could not pipe the run to a file or paste a log -- which for an installer people run under
-# `irm | iex`, and in CI, is exactly when a log matters. Separate streams also let a caller silence
-# warnings and keep progress. A failure ends the script with a terminating error, which a process's stderr
-# captures (`pwsh -File install.ps1 2> err.txt`); an in-session `2>` on the one-liner does not (#965).
+# Write-Host went to none of them. It cannot be captured or redirected, so a user whose install failed could not pipe
+# the run to a file or paste a log -- which for an installer people run under `irm | iex`, and in CI, is exactly when a
+# log matters.
 #
-# `-InformationAction Continue` is on every Write-Information call, so progress appears whatever
-# $InformationPreference the caller's session carries. Write-Warning is visible by default.
-#
-# The color is not replaced. $PSStyle is PowerShell 7.2 and later, and this script must run on Windows
-# PowerShell 5.1, which is what a fresh Windows machine has (#948). ANSI escapes are not reliable there
-# either. The streams carry the distinction the color used to, and Write-Warning and the error record label
-# their own output, so `info:` and `success:` are the only prefixes left.
+# The color is not replaced. $PSStyle is PowerShell 7.2 and later, and this script must run on Windows PowerShell 5.1,
+# which is what a fresh Windows machine has (#948). The streams carry the distinction the color used to, and each labels
+# its own output.
 
-function Write-Info {
+# A refusal: an error record of the installer's own, with an id and a category, thrown inside Install-DevLore's caught
+# work, so its catch reports it as it reports any other error. A thrown string reaches the caller as "Exception:", its
+# message standing in for an id (the style guide's section 7). New-Object, not ::new: Windows PowerShell 5.1 runs this.
+function ConvertTo-InstallerError {
     [CmdletBinding()]
+    [OutputType([System.Management.Automation.ErrorRecord])]
     param(
         [Parameter(Mandatory)]
         [string]
-        $Message
-    )
+        $Message,
 
-    Write-Information -InformationAction Continue "info: $Message"
-}
-
-function Write-Success {
-    [CmdletBinding()]
-    param(
         [Parameter(Mandatory)]
         [string]
-        $Message
-    )
+        $Id,
 
-    Write-Information -InformationAction Continue "success: $Message"
-}
-
-function Write-Warn {
-    [CmdletBinding()]
-    param(
         [Parameter(Mandatory)]
-        [string]
-        $Message
+        [System.Management.Automation.ErrorCategory]
+        $Category
     )
 
-    Write-Warning $Message
-}
+    $exception = New-Object -TypeName System.InvalidOperationException -ArgumentList $Message
 
-function Write-Fatal {
-    [CmdletBinding()]
-    param(
-        [Parameter(Mandatory)]
-        [string]
-        $Message
-    )
-
-    # A terminating error, not `exit`. Under `irm | iex` and the script-block form the script is not a file, so
-    # `exit` would end the user's PowerShell session and take the message with it (#965). The error ends the
-    # script, runs Main's finally, and leaves the session and the message on screen. Run as a file, an uncaught
-    # terminating error still exits 1. It terminates because the script pins $ErrorActionPreference = 'Stop'.
-    throw $Message
+    return New-Object -TypeName System.Management.Automation.ErrorRecord -ArgumentList $exception, $Id, $Category, $null
 }
 
 # Detect OS. install.ps1 installs on Windows, and install.sh on Linux and macOS; neither serves the other's (#1032).
@@ -199,7 +182,8 @@ function Get-OSName {
         return "windows"
     }
 
-    Write-Fatal "This script requires Windows."
+    throw (ConvertTo-InstallerError -Id RequiresWindows -Category InvalidOperation `
+        -Message "This script requires Windows.")
 }
 
 # Detect architecture. The releases publish amd64 and arm64 only.
@@ -212,7 +196,10 @@ function Get-ArchName {
     switch ($arch) {
         'X64'   { return "amd64" }
         'Arm64' { return "arm64" }
-        default { Write-Fatal "Unsupported architecture: $arch" }
+        default {
+            throw (ConvertTo-InstallerError -Id UnsupportedArchitecture -Category NotImplemented `
+                -Message "Unsupported architecture: $arch")
+        }
     }
 }
 
@@ -331,8 +318,8 @@ function Get-GitHubAnswer {
     return $answer
 }
 
-# The value of header Name in the response GitHub refused a request with, or '' when it sent none. Windows PowerShell 5.1
-# attaches an HttpWebResponse, whose Headers is a WebHeaderCollection; PowerShell 7 an HttpResponseMessage, whose
+# The value of header Name in the response GitHub refused a request with, or '' when it sent none. Windows PowerShell
+# 5.1 attaches an HttpWebResponse, whose Headers is a WebHeaderCollection; PowerShell 7 an HttpResponseMessage, whose
 # Headers gives a header's values through TryGetValues. Each property is looked up rather than read, as in
 # Get-HttpStatus.
 function Get-ResponseHeader {
@@ -476,7 +463,8 @@ function Invoke-ApiGet {
             $answer += "`n$limit"
         }
 
-        Write-Fatal "Could not ${What}: $answer"
+        throw (ConvertTo-InstallerError -Id GitHubRefused -Category ConnectionError `
+            -Message "Could not ${What}: $answer")
     }
 }
 
@@ -579,24 +567,28 @@ function Save-ReleaseFile {
             Assert-Release -Tag $Tag
         }
 
-        Write-Fatal "Could not download $Name from release ${Tag}: $(Get-GitHubAnswer -ErrorRecord $failure)"
+        throw (ConvertTo-InstallerError -Id DownloadRefused -Category ConnectionError `
+            -Message "Could not download $Name from release ${Tag}: $(Get-GitHubAnswer -ErrorRecord $failure)")
     }
 
     $served = Get-ServedName -Response $response
 
     if ($served -and -not [string]::Equals($served, $Name, [System.StringComparison]::Ordinal)) {
-        Write-Fatal "Could not download $Name from release ${Tag}: GitHub served $served, a file by another name"
+        throw (ConvertTo-InstallerError -Id ServedOtherFile -Category SecurityError `
+            -Message "Could not download $Name from release ${Tag}: GitHub served $served, a file by another name")
     }
 }
 
-# Run a program outside PowerShell's streams, its stderr narration going to the information stream.
+# Run a program outside PowerShell's streams, its stderr narration going to the verbose stream.
 #
 # PowerShell wraps each line a program writes to stderr in an error record whenever it carries the stream, which it
 # does whenever a caller has redirected the install (`*>&1 | Tee-Object`, `2>&1`); Windows PowerShell 5.1 then applies
 # this script's 'Stop' to the record, so the first line of lore's, star's or writ's narration ended the install (found
 # by the installers' CI, #950). So no program this script runs has its streams carried by PowerShell (#1029): the
-# operating system redirects them, .NET's Process class reads them, and each line of stderr goes to Write-Information
-# as the program prints it, beside this script's own messages. stdout is returned as text, a string a line.
+# operating system redirects them, .NET's Process class reads them, and each line of stderr goes to Write-Verbose as the
+# program prints it, beside this script's own narration. stdout is returned as text, a string a line. Its standard input
+# is redirected and closed, so a program that reads it ends rather than waits on a console nobody is typing into (the
+# style guide's section 7).
 # $LASTEXITCODE is the program's exit status, which every caller checks. The program runs in this session's working
 # directory, so a relative path it is given resolves where it was typed.
 function Invoke-NativeCommand {
@@ -620,6 +612,7 @@ function Invoke-NativeCommand {
     $startInfo.WorkingDirectory = (Get-Location -PSProvider FileSystem).ProviderPath
     $startInfo.UseShellExecute = $false
     $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardInput = $true
     $startInfo.RedirectStandardOutput = $true
     $startInfo.RedirectStandardError = $true
     $startInfo.StandardOutputEncoding = $utf8
@@ -639,12 +632,14 @@ function Invoke-NativeCommand {
     $process = [System.Diagnostics.Process]::Start($startInfo)
 
     try {
+        $process.StandardInput.Close()
+
         # stdout is drained while stderr is read, so a program that fills one pipe never waits on the other.
         $stdout = $process.StandardOutput.ReadToEndAsync()
         $line = $process.StandardError.ReadLine()
 
         while ($null -ne $line) {
-            Write-Information -InformationAction Continue $line
+            Write-Verbose -Message $line
             $line = $process.StandardError.ReadLine()
         }
 
@@ -690,7 +685,8 @@ function Test-Checksum {
     param([string]$File, [string]$Expected)
     $actual = (Get-FileHash -Path $File -Algorithm SHA256).Hash.ToLower()
     if ($actual -ne $Expected.ToLower()) {
-        Write-Fatal "Checksum verification failed!`nExpected: $Expected`nActual:   $actual"
+        throw (ConvertTo-InstallerError -Id ChecksumMismatch -Category SecurityError `
+            -Message "Checksum verification failed!`nExpected: $Expected`nActual:   $actual")
     }
 }
 
@@ -742,232 +738,266 @@ function Get-ListedChecksum {
 # Main
 # -------------------------------------------------------------------
 
-function Main {
+# The installer's work, as the PowerShell style guide's section 7 has a script do it (#1044). It notes its caller's
+# error action, sets Stop for its own work, and runs that work inside try and catch. The catch puts the caller's error
+# action back and reports the error with $PSCmdlet.WriteError, so a caller who continues on error continues, one who
+# silences errors hears nothing though $Error keeps the record, and one who stops on error stops, their own try catching
+# it.
+#
+# The catch is this function's and not the script's (D1): under `irm | iex` the script has no $PSCmdlet, and a function
+# has its own in every form. So an error names Install-DevLore, where section 7's example names the script. The error
+# preference is this function's too (D4): set at script scope, it would change the user's session under `irm | iex`.
+function Install-DevLore {
     [CmdletBinding()]
     param()
 
-    Write-Info "DevLore CLI Installer"
-    Write-Information -InformationAction Continue ''
-
-    # A layer is registered by the writ this run installs, so a run that leaves writ out cannot register one.
-    # Refused before anything is downloaded (#950).
-    if (($Base -or $Team -or $Personal) -and $Tools -ne "all" -and $Tools -ne "writ") {
-        Write-Fatal "-Base, -Team and -Personal register layers with writ, which DEVLORE_TOOLS=$Tools does not install"
-    }
-
-    # GitHub speaks TLS 1.2 and later. Windows PowerShell 5.1 takes its protocols from the .NET Framework's
-    # default, which on an older machine stops at 1.0, so every request fails before it starts. Adding 1.2
-    # is a no-op wherever the default already includes it, PowerShell 7 included.
-    [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
-
-    # Detect platform
-    $os = Get-OSName
-    $arch = Get-ArchName
-    Write-Info "Detected platform: $os/$arch"
-
-    # Default prefix: ~/.local on every platform. XDG conventions hold on Windows too (ruled 2026-09-22, #903), and
-    # star's extension loader looks under ~/.local/share, so a prefix anywhere else installs extensions nothing loads.
-    if (-not $Prefix) {
-        $Prefix = Join-Path $HOME ".local"
-    }
-    $installDir = Join-Path $Prefix "bin"
-
-    # Resolve version. $releaseFound says whether GitHub has shown that release $Version exists, by listing it as the
-    # newest or by serving one of its files. A release DEVLORE_VERSION names is not looked up before its files are
-    # downloaded: GitHub's API is asked for it only when a link answers 404 before then (#1008).
-    $releaseFound = $false
-
-    if ($Version -eq "latest") {
-        Write-Info "Fetching latest version..."
-        $Version = Get-LatestVersion
-
-        if (-not $Version) {
-            Write-Fatal "Could not determine the latest release of ${GitHubRepo}: GitHub lists none"
-        }
-
-        $releaseFound = $true
-    }
-
-    Write-Info "Version: $Version"
-
-    # Build asset names
-    $archiveName = "devlore-cli_${Version}_${os}_${arch}.zip"
-    $checksumsName = "devlore-cli_${Version}_checksums.txt"
-
-    # Create temp directory
-    $tmpDir = Join-Path ([System.IO.Path]::GetTempPath()) "devlore-install-$([System.Guid]::NewGuid().ToString('N'))"
-    New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
+    $callerErrorAction = $ErrorActionPreference
+    $ErrorActionPreference = 'Stop'
 
     try {
-        # Download the checksums file, then the archive, each by its public link (#1008). An archive the release gives
-        # no way to verify is not installed (#1002): as self upgrade does, the archive is downloaded only when the
-        # checksums file has its line.
-        Write-Info "Downloading $checksumsName..."
-        $checksumsPath = Join-Path $tmpDir $checksumsName
-        Save-ReleaseFile -Name $checksumsName -Tag $Version -Destination $checksumsPath -ReleaseFound:$releaseFound
-        $releaseFound = $true
-        $expectedChecksum = Get-ListedChecksum -Path $checksumsPath -Name $archiveName
+        Write-Verbose -Message "DevLore CLI Installer"
 
-        if (-not $expectedChecksum) {
-            Write-Fatal "$checksumsName has no line for $archiveName, so the archive cannot be verified"
+        # A layer is registered by the writ this run installs, so a run that leaves writ out cannot register one.
+        # Refused before anything is downloaded (#950).
+        if (($Base -or $Team -or $Personal) -and $Tools -ne "all" -and $Tools -ne "writ") {
+            throw (ConvertTo-InstallerError -Id LayersNeedWrit -Category InvalidArgument `
+                -Message "-Base, -Team and -Personal register layers with writ, which DEVLORE_TOOLS=$Tools does not install")
         }
 
-        Write-Info "Downloading $archiveName..."
-        $archivePath = Join-Path $tmpDir $archiveName
-        Save-ReleaseFile -Name $archiveName -Tag $Version -Destination $archivePath -ReleaseFound:$releaseFound
+        # GitHub speaks TLS 1.2 and later. Windows PowerShell 5.1 takes its protocols from the .NET Framework's
+        # default, which on an older machine stops at 1.0, so every request fails before it starts. Adding 1.2
+        # is a no-op wherever the default already includes it, PowerShell 7 included.
+        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor [System.Net.SecurityProtocolType]::Tls12
 
-        # Verify the archive before anything is extracted
-        Write-Info "Verifying checksum..."
-        Test-Checksum -File $archivePath -Expected $expectedChecksum
-        Write-Success "Checksum verified"
+        # Detect platform
+        $os = Get-OSName
+        $arch = Get-ArchName
+        Write-Verbose -Message "Detected platform: $os/$arch"
 
-        # Extract archive
-        #
-        # The archive holds the products at its root and star's extensions under share/ (#903). The products move
-        # to pkg/bin so that each one's `self install` finds pkg/share at <exeDir>/../share, the path star copies
-        # its extensions from.
-        Write-Info "Extracting..."
-        $pkg = Join-Path $tmpDir "pkg"
-        $pkgBin = Join-Path $pkg "bin"
-        New-Item -ItemType Directory -Path $pkgBin -Force | Out-Null
-        Expand-Archive -Path $archivePath -DestinationPath $pkg -Force
-
-        # Create install directory
-        if (-not (Test-Path $installDir)) {
-            New-Item -ItemType Directory -Path $installDir -Force | Out-Null
+        # Default prefix: ~/.local on every platform. XDG conventions hold on Windows too (ruled 2026-09-22, #903), and
+        # star's extension loader looks under ~/.local/share, so a prefix anywhere else installs extensions nothing
+        # loads.
+        if (-not $Prefix) {
+            $Prefix = Join-Path $HOME ".local"
         }
+        $installDir = Join-Path $Prefix "bin"
 
-        # Install binaries
-        #
-        # Every file at the archive root is a product, so this list is the archive's and not a second copy of the
-        # Makefile's. Each product installs itself: `self install <prefix>` copies the binary to <prefix>/bin and
-        # adds its man pages, completions and, for star, its extensions. A failure means that product is not
-        # installed, so it is fatal.
-        $installed = @()
+        # Resolve version. $releaseFound says whether GitHub has shown that release $Version exists, by listing it as
+        # the newest or by serving one of its files. A release DEVLORE_VERSION names is not looked up before its files
+        # are downloaded: GitHub's API is asked for it only when a link answers 404 before then (#1008).
+        $releaseFound = $false
 
-        foreach ($file in Get-ChildItem -LiteralPath $pkg -File) {
-            $product = [System.IO.Path]::GetFileNameWithoutExtension($file.Name)
-            if ($Tools -ne "all" -and $Tools -ne $product) {
-                continue
+        if ($Version -eq "latest") {
+            Write-Verbose -Message "Fetching latest version..."
+            $Version = Get-LatestVersion
+
+            if (-not $Version) {
+                throw (ConvertTo-InstallerError -Id NoRelease -Category ObjectNotFound `
+                    -Message "Could not determine the latest release of ${GitHubRepo}: GitHub lists none")
             }
 
-            $toolPath = Join-Path $pkgBin $file.Name
-            Move-Item -LiteralPath $file.FullName -Destination $toolPath -Force
+            $releaseFound = $true
+        }
 
-            Write-Info "Installing $product..."
-            Push-Location $pkg
-            try {
-                $null = Invoke-NativeCommand -FilePath $toolPath -ArgumentList @('self', 'install', $Prefix, '--unattended')
-                if ($LASTEXITCODE -ne 0) {
-                    Write-Fatal "$product self install failed"
+        Write-Verbose -Message "Version: $Version"
+
+        # Build asset names
+        $archiveName = "devlore-cli_${Version}_${os}_${arch}.zip"
+        $checksumsName = "devlore-cli_${Version}_checksums.txt"
+
+        # Create temp directory
+        $tmpDir = Join-Path ([System.IO.Path]::GetTempPath()) "devlore-install-$([System.Guid]::NewGuid().ToString('N'))"
+        New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
+
+        try {
+            # Download the checksums file, then the archive, each by its public link (#1008). An archive the release
+            # gives no way to verify is not installed (#1002): as self upgrade does, the archive is downloaded only when
+            # the checksums file has its line.
+            Write-Verbose -Message "Downloading $checksumsName..."
+            $checksumsPath = Join-Path $tmpDir $checksumsName
+            Save-ReleaseFile -Name $checksumsName -Tag $Version -Destination $checksumsPath -ReleaseFound:$releaseFound
+            $releaseFound = $true
+            $expectedChecksum = Get-ListedChecksum -Path $checksumsPath -Name $archiveName
+
+            if (-not $expectedChecksum) {
+                throw (ConvertTo-InstallerError -Id NoChecksum -Category SecurityError `
+                    -Message "$checksumsName has no line for $archiveName, so the archive cannot be verified")
+            }
+
+            Write-Verbose -Message "Downloading $archiveName..."
+            $archivePath = Join-Path $tmpDir $archiveName
+            Save-ReleaseFile -Name $archiveName -Tag $Version -Destination $archivePath -ReleaseFound:$releaseFound
+
+            # Verify the archive before anything is extracted
+            Write-Verbose -Message "Verifying checksum..."
+            Test-Checksum -File $archivePath -Expected $expectedChecksum
+            Write-Verbose -Message "Checksum verified"
+
+            # Extract archive
+            #
+            # The archive holds the products at its root and star's extensions under share/ (#903). The products move
+            # to pkg/bin so that each one's `self install` finds pkg/share at <exeDir>/../share, the path star copies
+            # its extensions from.
+            Write-Verbose -Message "Extracting..."
+            $pkg = Join-Path $tmpDir "pkg"
+            $pkgBin = Join-Path $pkg "bin"
+            New-Item -ItemType Directory -Path $pkgBin -Force | Out-Null
+            Expand-Archive -Path $archivePath -DestinationPath $pkg -Force
+
+            # Create install directory
+            if (-not (Test-Path $installDir)) {
+                New-Item -ItemType Directory -Path $installDir -Force | Out-Null
+            }
+
+            # Install binaries
+            #
+            # Every file at the archive root is a product, so this list is the archive's and not a second copy of the
+            # Makefile's. Each product installs itself: `self install <prefix>` copies the binary to <prefix>/bin and
+            # adds its man pages, completions and, for star, its extensions. A failure means that product is not
+            # installed, so it is fatal.
+            $installed = @()
+
+            foreach ($file in Get-ChildItem -LiteralPath $pkg -File) {
+                $product = [System.IO.Path]::GetFileNameWithoutExtension($file.Name)
+                if ($Tools -ne "all" -and $Tools -ne $product) {
+                    continue
                 }
-            } finally {
-                Pop-Location
+
+                $toolPath = Join-Path $pkgBin $file.Name
+                Move-Item -LiteralPath $file.FullName -Destination $toolPath -Force
+
+                Write-Verbose -Message "Installing $product..."
+                Push-Location $pkg
+                try {
+                    $null = Invoke-NativeCommand -FilePath $toolPath -ArgumentList @('self', 'install', $Prefix, '--unattended')
+                    if ($LASTEXITCODE -ne 0) {
+                        throw (ConvertTo-InstallerError -Id SelfInstallFailed -Category NotInstalled `
+                            -Message "$product self install failed")
+                    }
+                } finally {
+                    Pop-Location
+                }
+                $installed += $product
             }
-            $installed += $product
-        }
 
-        if ($installed.Count -eq 0) {
-            Write-Fatal "No binaries found in archive for DEVLORE_TOOLS=$Tools"
-        }
+            if ($installed.Count -eq 0) {
+                throw (ConvertTo-InstallerError -Id NoPrograms -Category ObjectNotFound `
+                    -Message "No binaries found in archive for DEVLORE_TOOLS=$Tools")
+            }
 
-        # Register the layers given, base first, with the writ just installed (#950). The call runs in the user's
-        # working directory, so a relative location resolves where it was typed. writ's output is its own, and so are
-        # its errors: a failure ends the run, and running the same command again is the recovery. --unattended is
-        # writ's contract for a run nobody is there to answer.
-        $writPath = Join-Path $installDir "writ.exe"
-        $layers = [ordered]@{ base = $Base; team = $Team; personal = $Personal }
-        $registered = @()
-        $held = @()
-        $skipped = @()
+            # Register the layers given, base first, with the writ just installed (#950). The call runs in the user's
+            # working directory, so a relative location resolves where it was typed. writ's output is its own, and so
+            # are its errors: a failure ends the run, and running the same command again is the recovery. --unattended
+            # is writ's contract for a run nobody is there to answer.
+            $writPath = Join-Path $installDir "writ.exe"
+            $layers = [ordered]@{ base = $Base; team = $Team; personal = $Personal }
+            $registered = @()
+            $held = @()
+            $skipped = @()
 
-        foreach ($layer in $layers.Keys) {
-            $location = $layers[$layer]
-            if (-not $location) {
-                # A layer not given is skipped unless the writ just installed already has it registered (#1029). A
-                # writ this run didn't install, or that can't answer, leaves it skipped. --filter, not a --jq select:
-                # Windows PowerShell 5.1 strips the double quotes inside a native command's arguments.
-                $root = ''
-                if (Test-Path -LiteralPath $writPath -PathType Leaf) {
-                    try {
-                        $root = (Invoke-NativeCommand -FilePath $writPath -ArgumentList @('repo', 'list',
-                                '--filter', "layer=$layer", '--filter', 'state=registered', '--jq', '.[].root',
-                                '--output', 'value') | Out-String).Trim()
-                        if ($LASTEXITCODE -ne 0) {
+            foreach ($layer in $layers.Keys) {
+                $location = $layers[$layer]
+                if (-not $location) {
+                    # A layer not given is skipped unless the writ just installed already has it registered (#1029). A
+                    # writ this run didn't install, or that can't answer, leaves it skipped. --filter, not a --jq
+                    # select: Windows PowerShell 5.1 strips the double quotes inside a native command's arguments.
+                    $root = ''
+                    if (Test-Path -LiteralPath $writPath -PathType Leaf) {
+                        try {
+                            $root = (Invoke-NativeCommand -FilePath $writPath -ArgumentList @('repo', 'list',
+                                    '--filter', "layer=$layer", '--filter', 'state=registered', '--jq', '.[].root',
+                                    '--output', 'value') | Out-String).Trim()
+                            if ($LASTEXITCODE -ne 0) {
+                                $root = ''
+                            }
+                        } catch {
                             $root = ''
                         }
-                    } catch {
-                        $root = ''
                     }
+                    if ($root) {
+                        $held += $layer
+                    } else {
+                        $skipped += $layer
+                    }
+                    continue
                 }
-                if ($root) {
-                    $held += $layer
-                } else {
-                    $skipped += $layer
+
+                Write-Verbose -Message "Registering ${layer}: $location"
+                $null = Invoke-NativeCommand -FilePath $writPath -ArgumentList @('repo', 'set', $layer, $location, '--unattended')
+                if ($LASTEXITCODE -ne 0) {
+                    throw (ConvertTo-InstallerError -Id LayerNotRegistered -Category NotInstalled `
+                        -Message "writ repo set $layer exited $LASTEXITCODE")
                 }
-                continue
+                $registered += $layer
             }
 
-            Write-Info "Registering ${layer}: $location"
-            $null = Invoke-NativeCommand -FilePath $writPath -ArgumentList @('repo', 'set', $layer, $location, '--unattended')
-            if ($LASTEXITCODE -ne 0) {
-                Write-Fatal "writ repo set $layer exited $LASTEXITCODE"
+            # The results: the summary, then the PATH advice and the next steps, on the output stream; its last
+            # lines are the layers skipped.
+            Write-Output -InputObject ''
+            Write-Output -InputObject "Installed: $($installed -join ' ')"
+            Write-Output -InputObject "Location: $installDir"
+            if ($registered.Count -gt 0) {
+                Write-Output -InputObject "Registered: $($registered -join ' ')"
             }
-            $registered += $layer
-        }
-
-        # The summary comes last, after writ's output, and its last lines are the layers skipped.
-        Write-Information -InformationAction Continue ''
-        Write-Success "Installed: $($installed -join ' ')"
-        Write-Success "Location: $installDir"
-        if ($registered.Count -gt 0) {
-            Write-Success "Registered: $($registered -join ' ')"
-        }
-        if ($held.Count -gt 0) {
-            Write-Success "Already registered: $($held -join ' ')"
-        }
-        Write-Information -InformationAction Continue ''
-
-        # Check if install dir is in PATH
-        $pathDirs = $env:PATH -split [System.IO.Path]::PathSeparator
-        if ($installDir -notin $pathDirs) {
-            Write-Warn "$installDir is not in your PATH"
-            Write-Information -InformationAction Continue ''
-            Write-Information -InformationAction Continue "Add it to your PATH (run as Administrator):"
-            Write-Information -InformationAction Continue ''
-            Write-Information -InformationAction Continue "  [Environment]::SetEnvironmentVariable('Path',"
-            Write-Information -InformationAction Continue "    `"$installDir;`" + [Environment]::GetEnvironmentVariable('Path', 'User'), 'User')"
-            Write-Information -InformationAction Continue ''
-            Write-Information -InformationAction Continue "Or add to your PowerShell profile (`$PROFILE):"
-            Write-Information -InformationAction Continue ''
-            Write-Information -InformationAction Continue "  `$env:PATH = `"$installDir;`$env:PATH`""
-            Write-Information -InformationAction Continue ''
-        }
-
-        # Verify installation
-        if ($installDir -in $pathDirs) {
-            Write-Information -InformationAction Continue "Verify installation:"
-            foreach ($tool in $installed) {
-                Write-Information -InformationAction Continue "  $tool --version"
+            if ($held.Count -gt 0) {
+                Write-Output -InputObject "Already registered: $($held -join ' ')"
             }
-        }
+            Write-Output -InputObject ''
 
-        Write-Information -InformationAction Continue ''
-        Write-Info "Documentation: https://github.com/NobleFactor/devlore-cli#readme"
-        Write-Information -InformationAction Continue ''
-        Write-Info "Next steps:"
-        if ($registered.Count -gt 0) {
-            Write-Information -InformationAction Continue "  writ deploy"
-        }
-        foreach ($layer in $skipped) {
-            Write-Information -InformationAction Continue "skipped: $layer; to register it later:"
-            Write-Information -InformationAction Continue "  writ repo set $layer <working-tree-root>|<repository-url>"
-        }
+            # Check if install dir is in PATH
+            $pathDirs = $env:PATH -split [System.IO.Path]::PathSeparator
+            if ($installDir -notin $pathDirs) {
+                Write-Warning -Message "$installDir is not in your PATH"
+                Write-Output -InputObject ''
+                Write-Output -InputObject "Add it to your PATH (run as Administrator):"
+                Write-Output -InputObject ''
+                Write-Output -InputObject "  [Environment]::SetEnvironmentVariable('Path',"
+                Write-Output -InputObject "    `"$installDir;`" + [Environment]::GetEnvironmentVariable('Path', 'User'), 'User')"
+                Write-Output -InputObject ''
+                Write-Output -InputObject "Or add to your PowerShell profile (`$PROFILE):"
+                Write-Output -InputObject ''
+                Write-Output -InputObject "  `$env:PATH = `"$installDir;`$env:PATH`""
+                Write-Output -InputObject ''
+            }
 
-    } finally {
-        # Clean up temp directory
-        Remove-Item -Path $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
+            # Verify installation
+            if ($installDir -in $pathDirs) {
+                Write-Output -InputObject "Verify installation:"
+                foreach ($tool in $installed) {
+                    Write-Output -InputObject "  $tool --version"
+                }
+            }
+
+            Write-Output -InputObject ''
+            Write-Output -InputObject "Documentation: https://github.com/NobleFactor/devlore-cli#readme"
+            Write-Output -InputObject ''
+            Write-Output -InputObject "Next steps:"
+            if ($registered.Count -gt 0) {
+                Write-Output -InputObject "  writ deploy"
+            }
+            foreach ($layer in $skipped) {
+                Write-Output -InputObject "skipped: $layer; to register it later:"
+                Write-Output -InputObject "  writ repo set $layer <working-tree-root>|<repository-url>"
+            }
+
+        } finally {
+            # Clean up temp directory
+            Remove-Item -Path $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+    catch {
+        $caught = $_
+        $ErrorActionPreference = $callerErrorAction
+        $PSCmdlet.WriteError($caught)
     }
 }
 
-Main
+# After a failure the script returns, so the session it runs in goes on: under `irm | iex` and the script-block form,
+# `exit` would end the user's PowerShell session (#965; ruled 2026-10-19, "return, per #965"). Run as a file there is no
+# session to end, and the script exits 1, as section 7 says, so the process that ran it knows (D2). $? is false after a
+# reported error whatever the caller's error action; under Stop the error never gets here.
+Install-DevLore
+
+if (-not $? -and $MyInvocation.MyCommand.CommandType -eq 'ExternalScript') {
+    exit 1
+}
