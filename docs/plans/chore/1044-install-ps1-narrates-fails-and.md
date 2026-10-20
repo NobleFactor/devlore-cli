@@ -171,6 +171,9 @@ fails as the style guide's section 7 says, with the two departures this plan mea
       regenerate` with no diff, `Test-GuideFrontmatter.sh`, `make vet-all`, `star lint go`, `make lint-all`, `star lint
       shell`, `star lint starlark`, `Test-PowerShell.ps1`), the suite off Windows, `make test-race`, `make test-scenario`
 - [x] PR script written, shown, and handed over; the PR resolves #1044
+- [x] On Windows, before the pull request: `scripts/Test-InstallScript.ps1` at `e3cf261a` on danoble-wd11-3
+      (windows/arm64), with this branch's archive from `make dist PLATFORM=windows/arm64`, 2026-10-20: every check
+      passed, 84, under Windows PowerShell 5.1.26100.9711 and under PowerShell 7.6.6; `irm | iex` skipped, as off CI
 - [ ] CI on the pull request, every leg: the Installers workflow's `install.ps1` legs run the suite under Windows
       PowerShell 5.1 and PowerShell 7, on amd64 and arm64
 
