@@ -106,6 +106,38 @@ Part of #1100, riding this branch (ruled 2026-10-20: "Stub in the design doc now
 the terminal through glamour v2) and what is to design; `3.5-provider-catalog.md` lists `markdown` as proposed. #1100's
 Design row names them. The pull request says `Part of #1100`; it does not resolve it.
 
+### Requirement 6: What devlore-cli owed its next pull request
+
+Ruled 2026-10-20: "These go into #1101's PR." Each was promised to devlore-cli's next pull request while another held
+the one slot.
+
+1. `star/config.yaml` drops its `gh:` block (lines 29 to 35: `repositories` and `exempt: [65]`). noblefactor-ops#253
+   retired `gh.repositories`; `gh.exempt` was ruled out 2026-10-19 ("Remove gh.exempt. All issues must be
+   classified.").
+2. Every link to devlore-cli#65 names noblefactor-ops#317, where it moved: `CLAUDE.md:8`, `:12`, `:36`;
+   `docs/plans/audit-remediation.md:404`; `docs/plans/rust-migration.md:475`;
+   `docs/plans/feature/797-retire-get-epicreport.md:22`. Ruled 2026-10-19: every link points at the record directly.
+3. `docs/architecture/configuration.md`'s Open questions gain the two ruled 2026-10-19: how an extension command's
+   flags map to configuration keys and environment variables, to be designed before coding on unified configuration
+   starts; and the repeatable flag, a requirement of the unified configuration.
+4. `docs/architecture/9-star-extensions.md` § Flag Resolution says it is not built: star resolves an extension's flag
+   from the command line alone (`cmd/star/extension/command.go`).
+5. Lane 28's plan, `docs/plans/fix/1005-self-uninstall-unattended-still.md:156`: its last box ticked, met
+   2026-10-19 against the official `v0.1.0-dev.20261019221709`, and its status what its boxes say.
+6. #1060 (lane 33 of #949), every row:
+   - eight plans ticked and their status set by what their merges met: 948, 952, 956, 958, 947, 1029, 1034, 1003;
+   - `cmd/internal/cli/selfupgrade_archive.go:268` and `selfupgrade_archive_test.go:372` cite `install.sh` at the
+     lines #1039 moved the layout to;
+   - #947's plan gives #1003 to #1005 their current lane numbers;
+   - one form of GitHub authorization for all three: `Authorization: Bearer`. GitHub's REST documentation
+     ("Authenticating to the REST API", read 2026-10-20): "In most cases, you can use `Authorization: Bearer` or
+     `Authorization: token` to pass a token. However, if you are passing a JSON web token (JWT), you must use
+     `Authorization: Bearer`." `self upgrade` already sends Bearer; `install.sh:240` and `install.ps1:225` send
+     `token`, and `install.ps1:116`'s comment that OAuth tokens need `token` is withdrawn;
+   - `cmd/internal/cli/selfinstall.go`'s `// ====` banners become the Go style guide's region delineators;
+   - #1004's text: it no longer says `self install` creates the layer directories (#1030 removed that), nor cites
+     `01634491`'s lines.
+
 ## Implementation Phases
 
 ### Phase 1: The plan
@@ -144,8 +176,8 @@ Design row names them. The pull request says `Part of #1100`; it does not resolv
       responses; `TestConsole_CtrlCCancels` sends `\x03`. What a step renders stays `TestModelView`'s: v2 renders by
       frame, and scripted keys are read before the first. `make test` green twice and `make test-race` green
 
-**Found along the way, and fixed here.** All three are in the console as committed at `65c8b40f`, not made by the
-move; the program-level tests found them.
+**Found along the way, and fixed here.** The first three are in the console as committed at `65c8b40f`, not made by
+the move; the program-level tests found them.
 
 - An input step never took typing. `Update` sent every key to `handleKey`, and `handleInputKey` acted on enter
   alone, so no character reached the text input: `TestConsole_RunsAProgram` responded `""` where it typed `abc`.
@@ -168,12 +200,23 @@ move; the program-level tests found them.
       the record of why the suite adopted `NO_COLOR`, so they stand; a dated note after them states how each path
       honors `NO_COLOR` since #1101, and why the console decides rather than colorprofile
 
-### Phase 5: Merge
+### Phase 5: What devlore-cli owed (Requirement 6)
+
+- [ ] `star/config.yaml`'s `gh:` block removed
+- [ ] The links to devlore-cli#65 name noblefactor-ops#317
+- [ ] `configuration.md`'s Open questions and `9-star-extensions.md`'s note
+- [ ] Lane 28's plan closed
+- [ ] #1060's plans ticked
+- [ ] #1060's code references and issue text current
+- [ ] #1060's one authorization form, with the installer suites green
+
+### Phase 6: Merge
 
 - [x] `gofmt -l` clean; `make check`, `make test` and `make test-scenario` green, 2026-10-20. `make check`'s
       golangci-lint first flagged `advance` returning `m` beside `m.initInputForStep()`, which changes `m`
       (gocritic `evalOrder`); the command is now taken before the return
-- [ ] PR script written, shown, and handed over; the PR resolves #1101
+- [ ] The gate again after Phase 5: `gofmt -l` clean; `make check`, `make test` and `make test-scenario` green
+- [ ] PR script written, shown, and handed over; the PR resolves #1101 and #1060, and is part of #1100
 
 ## Files to Create/Modify
 
@@ -185,6 +228,9 @@ move; the program-level tests found them.
 | `docs/architecture/10-command-line-interface.md` | Modify | Requirement 4 |
 | `docs/architecture/3.5.17-markdown-provider.md`, `3.5.17-markdown-provider.status.md` | Create | Requirement 5 |
 | `docs/architecture/3.5-provider-catalog.md` | Modify | Requirement 5 |
+| `star/config.yaml`, `CLAUDE.md`, `docs/architecture/configuration.md`, `docs/architecture/9-star-extensions.md` | Modify | Requirement 6 |
+| `docs/plans/audit-remediation.md`, `rust-migration.md`, `feature/797-retire-get-epicreport.md`, `fix/1005-self-uninstall-unattended-still.md`, and #1060's eight plans | Modify | Requirement 6 |
+| `cmd/internal/cli/selfupgrade_archive.go`, `selfupgrade_archive_test.go`, `selfinstall.go`, `install.sh`, `install.ps1` | Modify | Requirement 6 |
 
 ## Related Documents
 
