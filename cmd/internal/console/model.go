@@ -263,7 +263,8 @@ func (m *Model) advance(response string) (tea.Model, tea.Cmd) {
 
 	m.selectedIndex = 0
 	m.renderStep()
-	return m, m.initInputForStep()
+	cmd := m.initInputForStep()
+	return m, cmd
 }
 
 // initInputForStep prepares input components for the current step.

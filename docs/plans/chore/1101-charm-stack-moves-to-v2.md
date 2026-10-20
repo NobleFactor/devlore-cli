@@ -170,7 +170,9 @@ move; the program-level tests found them.
 
 ### Phase 5: Merge
 
-- [ ] `gofmt -l` clean; `make check`, `make test` and `make test-scenario` green
+- [x] `gofmt -l` clean; `make check`, `make test` and `make test-scenario` green, 2026-10-20. `make check`'s
+      golangci-lint first flagged `advance` returning `m` beside `m.initInputForStep()`, which changes `m`
+      (gocritic `evalOrder`); the command is now taken before the return
 - [ ] PR script written, shown, and handed over; the PR resolves #1101
 
 ## Files to Create/Modify
