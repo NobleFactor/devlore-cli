@@ -62,9 +62,12 @@ child's input encoding is UTF-8 with its preamble again afterwards.
 
 ### Phase 2: The fix and its check
 
-- [ ] Requirements 1 and 2
-- [ ] The suite's stdin check fails against `46122426`'s `install.ps1` and passes with the fix, under 5.1 on
-      danoble-wd11-3; the whole suite passes there under 5.1 and 7; `Test-PowerShell.ps1` clean
+- [x] Requirements 1 and 2
+- [x] The suite's stdin check fails against `46122426`'s `install.ps1` and passes with the fix, under 5.1 on
+      danoble-wd11-3; the whole suite passes there under 5.1 and 7; `Test-PowerShell.ps1` clean. Run 2026-10-20 at
+      `5939bc39`: with the fix, 85 of 85 under Windows PowerShell 5.1.26100.9711 and under PowerShell 7.6.6; with
+      `46122426`'s `install.ps1` under 5.1, 84 and one failure, "stdin read: 3", as on CI's runners, though this
+      machine's console is OEM
 
 ### Phase 3: Merge
 
