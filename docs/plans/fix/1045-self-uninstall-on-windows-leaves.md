@@ -38,8 +38,9 @@ gone finishes the uninstall.
 
 - `make test-scenario` runs `TestSelfUninstallFromInstalledCopyScenario`, on a line of its own like the others.
 - A test, `TestScenarioTargetRunsEveryScenario` in `cmd/scenario`, runs under `make test` (it is not a scenario
-  itself): it finds every test function in `./cmd/scenario` and `./cmd/writ` whose body reads `DEVLORE_SCENARIO_RUN`
-  or `WRIT_SCENARIO_RUN`, by parsing their source, and fails for each that no `-run` pattern of the Makefile's
+  itself): it finds every test function in `./cmd/scenario` and `./cmd/writ` that reads `DEVLORE_SCENARIO_RUN` or
+  `WRIT_SCENARIO_RUN`, in its own body or through a function of its package it calls (cmd/writ's read it in
+  `newScenarioSandbox` and `newJourney`), by parsing their source, and fails for each that no `-run` pattern of the Makefile's
   `test-scenario` recipe, for that package, matches. Failing it before the Makefile line is added proves it.
 
 ### Requirement 2: On Windows, the manifest goes when the running image goes
@@ -70,8 +71,13 @@ gone finishes the uninstall.
 
 ### Phase 2: Every scenario runs (Requirement 1)
 
-- [ ] The guard test, failing for `TestSelfUninstallFromInstalledCopyScenario`; then the Makefile line, and it passes
-- [ ] `make test-scenario` here: the uninstall scenario runs and passes on Linux
+- [x] The guard test, failing for `TestSelfUninstallFromInstalledCopyScenario`; then the Makefile line, and it passes.
+      Done 2026-10-20: `make test` failed with "make test-scenario does not run
+      TestSelfUninstallFromInstalledCopyScenario in ./cmd/scenario" and nothing else, then passed with the line. The
+      writ scenarios read their gate in helpers, so the guard follows a test's calls within its package: with the
+      Makefile's `TestWritDeployScenario` pattern broken once, it named `TestWritDeployScenario_Deploy` and `_Harness`
+- [x] `make test-scenario` here: the uninstall scenario runs and passes on Linux, for the first time (lore, star, writ;
+      2026-10-20)
 
 ### Phase 3: The manifest on Windows (Requirement 2)
 
