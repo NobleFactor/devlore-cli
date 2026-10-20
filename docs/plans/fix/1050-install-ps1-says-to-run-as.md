@@ -178,9 +178,9 @@ does. A run that changed no layer ends with the documentation line.
 
 ### Phase 5: Merge
 
-- [ ] The gate: CI's quality gate locally, both suites, `make test-race`, `make test-scenario`, all finished green
-      before the PR script is called ready
-- [ ] PR script written, shown, and handed over; the PR resolves #1050
+- [x] The gate: CI's quality gate locally, both suites, `make test-race`, `make test-scenario`, all finished green
+      before the PR script is called ready: 15 steps at `71ec14ab`, every one exit 0
+- [x] PR script written, shown, and handed over; the PR resolves #1050
 - [ ] CI on the pull request, every leg; nothing acts on the checks while the script's gate watches them
 
 ## Files to Create/Modify
