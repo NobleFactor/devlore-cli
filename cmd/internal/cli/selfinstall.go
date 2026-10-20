@@ -1401,20 +1401,41 @@ func relPath(prefix, path string) string {
 	return rel
 }
 
-// cleanEmptyDirs removes empty directories that contained manifest files.
+// cleanEmptyDirs removes the directories that held recorded files and are now empty, deepest first (#1047).
+//
+// A directory is tried only after every recorded directory beneath it, so each one the uninstall emptied is empty when
+// its turn comes; one still holding anything, recorded or not, stays. Tried in a map's order, a parent could come
+// before its child, be skipped as not empty, and never be tried again. The order is by depth, most path elements first,
+// then by name, so it is the same on every run.
+//
+// Parameters:
+//   - `prefixRoot`: the installation prefix the entries are relative to.
+//   - `entries`: the recorded files whose directories are tried.
 func cleanEmptyDirs(prefixRoot fsroot.Dir, entries []manifestEntry) {
 
 	// Collect unique parent directories, relative to the root so the walk stops at it rather than at a
 	// string comparison against the prefix.
-	dirs := make(map[string]bool)
+	seen := make(map[string]bool)
+	var dirs []string
 	for _, entry := range entries {
 		for dir := filepath.Dir(entry.Path); dir != "." && dir != string(filepath.Separator); dir = filepath.Dir(dir) {
-			dirs[dir] = true
+			if !seen[dir] {
+				seen[dir] = true
+				dirs = append(dirs, dir)
+			}
 		}
 	}
 
+	separator := string(filepath.Separator)
+	slices.SortFunc(dirs, func(a, b string) int {
+		if deeper := strings.Count(b, separator) - strings.Count(a, separator); deeper != 0 {
+			return deeper
+		}
+		return strings.Compare(a, b)
+	})
+
 	// Try removing each directory (only succeeds if empty).
-	for dir := range dirs {
+	for _, dir := range dirs {
 		_ = removeIfEmpty(prefixRoot, prefixRoot.NewPath(dir)) //nolint:errcheck // best-effort cleanup
 	}
 }
