@@ -413,3 +413,32 @@ func TestModel_Resizes(t *testing.T) {
 		t.Error("the step was not rendered after the resize")
 	}
 }
+
+// TestConsole_NoColorAnyValue pins NO_COLOR to no-color.org's rule: any value that is not empty turns color off
+// and keeps the text. colorprofile alone would honor only a value strconv.ParseBool reads as true.
+//
+// CLICOLOR_FORCE keeps color on a writer that is not a terminal, so the color has something to lose; the first case
+// shows it is there without NO_COLOR.
+func TestConsole_NoColorAnyValue(t *testing.T) {
+	t.Setenv("CLICOLOR_FORCE", "1")
+	for _, testCase := range []struct {
+		value string
+		color bool
+	}{
+		{"", true},
+		{"1", false},
+		{"true", false},
+		{"yes", false},
+		{"anything", false},
+	} {
+		t.Setenv("NO_COLOR", testCase.value)
+		var output strings.Builder
+		New().WithOutput(&output).Success("done")
+		if got := strings.Contains(output.String(), "\x1b[38"); got != testCase.color {
+			t.Errorf("NO_COLOR=%q: colored = %v, want %v: %q", testCase.value, got, testCase.color, output.String())
+		}
+		if !strings.Contains(output.String(), "done") {
+			t.Errorf("NO_COLOR=%q: the message lost its text: %q", testCase.value, output.String())
+		}
+	}
+}

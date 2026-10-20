@@ -51,10 +51,7 @@ func (c *Console) WithStyles(s *Styles) *Console {
 func (c *Console) Run(session Session) (any, error) {
 	model := c.newModel(session, true)
 
-	p := tea.NewProgram(model,
-		tea.WithInput(c.input),
-		tea.WithOutput(c.output),
-	)
+	p := tea.NewProgram(model, c.programOptions()...)
 
 	finalModel, err := p.Run()
 	if err != nil {
@@ -81,10 +78,7 @@ func (c *Console) Run(session Session) (any, error) {
 func (c *Console) RunInline(session Session) (any, error) {
 	model := c.newModel(session, false)
 
-	p := tea.NewProgram(model,
-		tea.WithInput(c.input),
-		tea.WithOutput(c.output),
-	)
+	p := tea.NewProgram(model, c.programOptions()...)
 
 	finalModel, err := p.Run()
 	if err != nil {
@@ -126,16 +120,44 @@ func (c *Console) Styles() *Styles {
 	return c.styles
 }
 
+// programOptions returns the options of the console's Bubble Tea program: its input and output, and under
+// `NO_COLOR` the color profile without color.
+//
+// Returns:
+//   - `[]tea.ProgramOption`: the options.
+func (c *Console) programOptions() []tea.ProgramOption {
+	options := []tea.ProgramOption{tea.WithInput(c.input), tea.WithOutput(c.output)}
+	if noColor() {
+		options = append(options, tea.WithColorProfile(colorprofile.Ascii))
+	}
+	return options
+}
+
 // colorWriter returns the console's output behind a writer that adapts color to the terminal.
 //
 // Lip Gloss v2 renders full color and leaves downsampling to the writer. Outside a Bubble Tea program, which
-// downsamples itself, the console's own writes go through colorprofile, which detects the terminal and honors
-// `NO_COLOR` and `CLICOLOR`.
+// downsamples itself, the console's own writes go through colorprofile, which detects the terminal. Under
+// `NO_COLOR` the profile is Ascii, set rather than detected: see [noColor].
 //
 // Returns:
 //   - `io.Writer`: the output, downsampled for the terminal it reaches.
 func (c *Console) colorWriter() io.Writer {
-	return colorprofile.NewWriter(c.output, os.Environ())
+	w := colorprofile.NewWriter(c.output, os.Environ())
+	if noColor() {
+		w.Profile = colorprofile.Ascii
+	}
+	return w
+}
+
+// noColor reports whether `NO_COLOR` is set and not empty, no-color.org's rule and §10's.
+//
+// colorprofile honors only a value [strconv.ParseBool] reads as true (`env.go:116` at v0.4.3), so `NO_COLOR=yes`
+// would keep color; termenv, under Lip Gloss v1, honored any value. The console decides it here instead.
+//
+// Returns:
+//   - `bool`: whether color is off.
+func noColor() bool {
+	return os.Getenv("NO_COLOR") != ""
 }
 
 // Print outputs styled text without a session.

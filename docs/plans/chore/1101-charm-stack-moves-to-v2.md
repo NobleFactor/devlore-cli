@@ -88,7 +88,9 @@ By the Bubble Tea, Bubbles and Lip Gloss upgrade guides:
 - `Print`, `PrintStyled`, `Success`, `Warning`, `Error` and `Info` write outside Bubble Tea. Lip Gloss v2's `Render`
   always emits full color, so the console wraps its output in `colorprofile.NewWriter(output, os.Environ())`, which
   detects the terminal and honors `NO_COLOR`, as Lip Gloss v1's renderer did. Inside a program, Bubble Tea downsamples
-  itself.
+  itself. *Amended 2026-10-20 in Phase 4:* colorprofile honors `NO_COLOR` only when `strconv.ParseBool` reads it as
+  true, so the console sets the Ascii profile itself whenever `NO_COLOR` is not empty, for its writes and for its
+  program.
 
 ### Requirement 4: The specification
 
@@ -153,10 +155,18 @@ move; the program-level tests found them.
 - `renderStep` returned a command that read `m.step` and `m.renderer` on Bubble Tea's command goroutine while the
   next update wrote them: `make test-race` reported the race. The step now renders in the update that asks for it,
   and the `stepRenderedMsg` round trip is gone.
+- Found in Phase 4, reading colorprofile for §10's citation, and made by the move: colorprofile v0.4.3 honors
+  `NO_COLOR` only when `strconv.ParseBool` reads it as true (`env.go:116`), where termenv honored any non-empty value
+  (`termenv.go:69` at v0.16.0), so `NO_COLOR=yes` would have kept the console's color. The console now sets the Ascii
+  profile itself whenever `NO_COLOR` is not empty (`noColor`), for its writes and through `tea.WithColorProfile` for
+  its program. `TestConsole_NoColorAnyValue` holds it, with `CLICOLOR_FORCE=1` so there is color to lose; with the
+  check disabled, it fails for every value
 
 ### Phase 4: The specification (Requirement 4)
 
-- [ ] §10's rows restated, with citations at the pinned versions
+- [x] §10's rows restated, with citations at the pinned versions. Its two tables are measurements of 2026-09-14,
+      the record of why the suite adopted `NO_COLOR`, so they stand; a dated note after them states how each path
+      honors `NO_COLOR` since #1101, and why the console decides rather than colorprofile
 
 ### Phase 5: Merge
 
