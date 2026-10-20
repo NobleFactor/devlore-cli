@@ -113,11 +113,20 @@ Design row names them. The pull request says `Part of #1100`; it does not resolv
 
 ### Phase 2: `--output terminal` (Requirements 1 and 2)
 
-- [ ] glamour v2 and colorprofile in `go.mod`; `pkg/result/terminal.go` on glamour v2; termenv gone
-- [ ] Before and after, the same documents rendered and compared: every `pkg/result/terminal_test.go` test passes
-      unchanged; `star gh issues report --by schedule --schedule NobleFactor/devlore-cli#949 --output terminal`
-      rendered with the old and the new binary, with and without `NO_COLOR`, and the differences accounted for
-- [ ] `trimPadding` kept or deleted, by the measurement
+- [x] glamour v2 and colorprofile in `go.mod`; `pkg/result/terminal.go` on glamour v2. termenv is no longer
+      imported; it stays an indirect requirement, through Lip Gloss v1, until Phase 3
+- [x] Before and after, the same documents rendered and compared: every `pkg/result/terminal_test.go` test passes
+      unchanged, and `make test` is green. Rendered 2026-10-20 with star built at `385c6a90` (v1) and with this
+      change (v2), from a directory outside every repository:
+      - `star docs starlark --output terminal`, with and without `NO_COLOR`: the visible text is identical; the
+        escape codes differ.
+      - The schedule report for #949, `--output terminal`, with and without `NO_COLOR`: two differences, both v2's.
+        Lip Gloss v2 sizes table columns differently (`item_title` two columns wider, the last column narrower).
+        glamour v2 writes each link in a table cell as an OSC 8 hyperlink (234 in the report), with an `id` that
+        is an FNV hash of the URL, so two renderings are byte-identical and §7 holds; v2 has no option to turn
+        them off. The links are still collected under the table, as before.
+- [x] `trimPadding` kept: with it disabled, `make test` fails `TestTerminalFormatter_NoLineEndsInPadding` (every
+      line ends in padding to the wrap width), so glamour v2 still pads
 
 ### Phase 3: The console (Requirements 1 and 3)
 
