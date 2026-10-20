@@ -1371,7 +1371,9 @@ try {
     #
     # In a child session whose standard input is a file, the installer's own Invoke-NativeCommand runs this PowerShell
     # reading its standard input to the end. Closed, as section 7 has it, that input is empty; inherited, it would be the
-    # file's.
+    # file's. The child's console input encoding is UTF-8 with a preamble first, which Windows PowerShell 5.1 writes to a
+    # redirected input as a byte-order mark (#1104), so the check finds one on any console, a runner's or an OEM one;
+    # and afterwards it is that encoding again, as the caller had it.
 
     $stdinFile = Join-Path $scratch 'stdin.txt'
     Set-Content -LiteralPath $stdinFile -Value 'the installer''s own standard input'
@@ -1380,14 +1382,24 @@ try {
 foreach (`$definition in `$parsed.FindAll({ `$args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] }, `$true)) {
     . ([scriptblock]::Create(`$definition.Extent.Text))
 }
+try {
+    [Console]::InputEncoding = New-Object -TypeName System.Text.UTF8Encoding -ArgumentList `$true
+}
+catch {
+    'no console: the input encoding cannot be set'
+}
 `$read = Invoke-NativeCommand -FilePath '$shell' -ArgumentList @('-NoProfile', '-NonInteractive', '-Command', '[Console]::In.ReadToEnd().Length')
 "stdin read: `$read"
+"input encoding after: `$([Console]::InputEncoding.CodePage), preamble `$([Console]::InputEncoding.GetPreamble().Length)"
 "@
     $probe = Invoke-Child -Name 'stdin' -InputFile $stdinFile -ArgumentList @(
         '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand',
         (ConvertTo-EncodedCommand -Command $probeCommand))
     Test-Expectation -Description 'a program the installer runs: its standard input closed, it reads nothing' `
         -Condition ($probe.Output -match '(?m)^stdin read: 0\s*$') -Detail "exit $($probe.ExitCode)`n$($probe.Output)"
+    Test-Expectation -Description 'a program the installer runs: the caller''s console input encoding is as it was' `
+        -Condition ($probe.Output -match '(?m)^input encoding after: 65001, preamble 3\s*$') `
+        -Detail "exit $($probe.ExitCode)`n$($probe.Output)"
 
     # install.ps1's own case: characters a comparison by culture ignores, -ceq's included, so only an ordinal comparison
     # tells these names from the archive's and the checksums file's. The soft hyphen and the zero-width space go inside

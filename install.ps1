@@ -629,7 +629,37 @@ function Invoke-NativeCommand {
         $startInfo.Arguments = ($ArgumentList | ForEach-Object { ConvertTo-CommandLineArgument -Argument $_ }) -join ' '
     }
 
-    $process = [System.Diagnostics.Process]::Start($startInfo)
+    # No byte-order mark reaches the program (#1104; ruled 2026-10-20, "We do not store boms. Ever!"). Windows
+    # PowerShell 5.1's .NET Framework builds a redirected standard input's writer from the console's input encoding and
+    # writes that encoding's preamble the moment the process starts, so under a UTF-8 console the program reads EF BB BF
+    # before the end of its input; its ProcessStartInfo has no StandardInputEncoding to choose another. So for that
+    # moment the input encoding is UTF-8 without a preamble, and then the caller's again. The code page is 65001
+    # throughout: section 7's rule that a script never changes the console's code page holds. Without a console,
+    # reading the encoding fails, and nothing is set.
+    $callerInputEncoding = $null
+
+    try {
+        $callerInputEncoding = [Console]::InputEncoding
+    }
+    catch {
+        $callerInputEncoding = $null
+    }
+
+    $setInputEncoding = $null -ne $callerInputEncoding -and $callerInputEncoding.CodePage -eq 65001 -and
+        $callerInputEncoding.GetPreamble().Length -gt 0
+
+    try {
+        if ($setInputEncoding) {
+            [Console]::InputEncoding = New-Object -TypeName System.Text.UTF8Encoding -ArgumentList $false
+        }
+
+        $process = [System.Diagnostics.Process]::Start($startInfo)
+    }
+    finally {
+        if ($setInputEncoding) {
+            [Console]::InputEncoding = $callerInputEncoding
+        }
+    }
 
     try {
         $process.StandardInput.Close()
