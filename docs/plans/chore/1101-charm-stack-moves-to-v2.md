@@ -204,7 +204,8 @@ the move; the program-level tests found them.
 
 - [x] `star/config.yaml`'s `gh:` block removed; nothing else in the tree, plans aside, names `gh.repositories` or
       `gh.exempt`
-- [ ] The links to devlore-cli#65 name noblefactor-ops#317
+- [x] The links to devlore-cli#65 name noblefactor-ops#317: the six, and no other remains. The two "PR #65" in
+      `docs/plans/star-gen-receiver/phase-2.md` and `phase-3.md` are noblefactor-ops's pull request #65, and stay
 - [ ] `configuration.md`'s Open questions and `9-star-extensions.md`'s note
 - [ ] Lane 28's plan closed
 - [ ] #1060's plans ticked

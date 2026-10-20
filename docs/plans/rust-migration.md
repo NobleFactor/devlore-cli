@@ -472,4 +472,4 @@ support `--lang=go` (default) until the Go code is archived.
 - [Resource Management Plan](./resource-management.md) — current Go architecture
 - [Reflection Marshaler Plan](./reflection-marshaler.md) — Go reflection bridge design
 - [Star Gen Receiver Plan](./star-gen-receiver.md) — codegen tool design
-- Issue #65 — Error tracking
+- NobleFactor/noblefactor-ops#317 — Error tracking

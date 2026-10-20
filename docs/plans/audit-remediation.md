@@ -401,4 +401,4 @@ None outstanding. Rulings 1–4 close every question this plan opened.
 - [docs/plans/deploy-manifest-error-propagation.md](./deploy-manifest-error-propagation.md) —
   issue #368; found during the phase 1b review of the same file, kept out of the
   behavior-preserving work
-- Issue #65 — the standing ledger of judgment errors; no mechanical audit covers it
+- NobleFactor/noblefactor-ops#317 — the standing ledger of judgment errors; no mechanical audit covers it
