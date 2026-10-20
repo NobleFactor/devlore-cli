@@ -60,8 +60,9 @@ func deferRunningImageDeletion(prefixRoot fsroot.Dir, running manifestEntry, man
 	whenGone := "exit"
 	if manifest != "" {
 		manifestPath := prefixRoot.NewPath(manifest).Abs()
-		whenGone = fmt.Sprintf(`(del /f /q "%s" 2>nul & rmdir "%s" 2>nul & exit)`, manifestPath,
-			filepath.Dir(manifestPath))
+		quotedManifest := `"` + manifestPath + `"`
+		quotedDirectory := `"` + filepath.Dir(manifestPath) + `"`
+		whenGone = fmt.Sprintf(`(del /f /q %s 2>nul & rmdir %s 2>nul & exit)`, quotedManifest, quotedDirectory)
 	}
 
 	// The outer quote pair wraps the whole command; cmd /c strips it (the command holds special characters, so the

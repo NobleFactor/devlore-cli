@@ -91,8 +91,11 @@ gone finishes the uninstall.
 
 ### Phase 4: Merge
 
-- [ ] The gate: CI's quality gate locally, `make test-race`, `make test-scenario`
-- [ ] PR script written, shown, and handed over; the PR resolves #1045
+- [x] The gate: CI's quality gate locally, `make test-race`, `make test-scenario`, 2026-10-20. `make lint-all` first
+      flagged, for Windows, `"%s"` in the manifest's command (gocritic `sprintfQuotedString`); `%q` would double a
+      Windows path's backslashes, so the manifest's paths are quoted by hand, as the image's is. The command line is the
+      same text, so the Windows run at `6fd484c6` holds; `make lint-all`, `make vet-all` and `make test` green after
+- [x] PR script written, shown, and handed over; the PR resolves #1045
 - [ ] CI on the pull request, every leg; nothing acts on the checks while the script's gate watches them
 
 ## Files to Create/Modify
