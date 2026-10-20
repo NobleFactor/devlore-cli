@@ -167,8 +167,10 @@ fails as the style guide's section 7 says, with the two departures this plan mea
 
 ### Phase 5: Merge
 
-- [ ] The gate: CI's quality gate locally, `make test-race`, `make test-scenario`
-- [ ] PR script written, shown, and handed over; the PR resolves #1044
+- [x] The gate, 2026-10-20: CI's quality gate locally (`make build PLATFORM=all`, `go mod tidy` with no diff, `make
+      regenerate` with no diff, `Test-GuideFrontmatter.sh`, `make vet-all`, `star lint go`, `make lint-all`, `star lint
+      shell`, `star lint starlark`, `Test-PowerShell.ps1`), the suite off Windows, `make test-race`, `make test-scenario`
+- [x] PR script written, shown, and handed over; the PR resolves #1044
 - [ ] CI on the pull request, every leg: the Installers workflow's `install.ps1` legs run the suite under Windows
       PowerShell 5.1 and PowerShell 7, on amd64 and arm64
 
