@@ -228,8 +228,11 @@ the move; the program-level tests found them.
 - [x] `gofmt -l` clean; `make check`, `make test` and `make test-scenario` green, 2026-10-20. `make check`'s
       golangci-lint first flagged `advance` returning `m` beside `m.initInputForStep()`, which changes `m`
       (gocritic `evalOrder`); the command is now taken before the return
-- [ ] The gate again after Phase 5: `gofmt -l` clean; `make check`, `make test` and `make test-scenario` green
-- [ ] PR script written, shown, and handed over; the PR resolves #1101 and #1060, and is part of #1100
+- [x] The gate again after Phase 5, 2026-10-20: `gofmt -l` clean, and every step of CI's quality gate green
+      locally: `make build PLATFORM=all`, `make regenerate` with no diff, `Test-GuideFrontmatter.sh`, `make vet-all`,
+      `star lint go`, `make lint-all`, `star lint shell`, `star lint starlark`, `Test-PowerShell.ps1`, `make check`,
+      `make test-race` and `make test-scenario`
+- [x] PR script written, shown, and handed over; the PR resolves #1101 and #1060, and is part of #1100
 
 ## Files to Create/Modify
 
