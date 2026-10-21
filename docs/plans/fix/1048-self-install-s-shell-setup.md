@@ -60,8 +60,9 @@ No test covers the instructions.
 
 ### Phase 2: The fix (Requirements 1 and 2)
 
-- [ ] `printShellSetupInstructions` takes the prefix and names every shell's file; the test fails before and passes
-      after
+- [x] `printShellSetupInstructions` takes the prefix and names every shell's file; fish's search is `fishSearches`,
+      over `xdg.DataHome` and `xdg.DataDirs`. The two tests fail at `78881b09`, the instructions naming `~/.local` and
+      none of the prefix's files, and pass with the fix; `make test` passes
 
 ### Phase 3: Merge
 
@@ -73,8 +74,8 @@ No test covers the instructions.
 
 | File | Action | Purpose |
 | --- | --- | --- |
-| `cmd/internal/cli/selfinstall.go` | Modify | Requirement 1 |
-| `cmd/internal/cli/selfinstall_test.go` | Modify | Requirement 1 |
+| `cmd/internal/cli/selfinstall.go` | Modify | Requirements 1 and 2 |
+| `cmd/internal/cli/selfinstall_test.go` | Modify | Requirements 1 and 2 |
 
 ## Open Questions
 
