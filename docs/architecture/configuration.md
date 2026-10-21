@@ -501,7 +501,7 @@ separate mechanism and is **off-limits** to the config engine.
 The elevation (privilege-elevation) provider is the worked example, because it exercises every part of the model at
 once: a provider whose configuration is a sub-tree of **brokers**, each fronting a set of backing **services**, with
 per-stage variance supplied by profiles. The full elevation design is in
-[`6.1-privilege-elevation.md`](6.1-privilege-elevation.md); here we show only its configuration shape.
+[`6.1-authorization.md`](6.1-authorization.md); here we show only its configuration shape.
 
 ### The sub-tree
 
@@ -604,7 +604,7 @@ config layer can't see from inside one section — a signed-graph offer naming a
 consistency — is the consuming provider's **run-start preflight**: it navigates the resolved tree (`Lookup`/`Path`) and
 the graph, and an unresolved reference **refuses the run** before any node fires. This keeps the config layer
 domain-free; domain knowledge (e.g. that an elevation offer names a broker) lives with the provider. The elevation's
-offer→broker refusal is the worked instance (see [`6.1-privilege-elevation.md`](6.1-privilege-elevation.md)).
+offer→broker refusal is the worked instance (see [`6.1-authorization.md`](6.1-authorization.md)).
 
 ## Variables — supplemental
 

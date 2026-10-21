@@ -2,10 +2,16 @@
 
 Design topic for a future plan. Not yet approved for implementation.
 
-> **Elevation deep-dive.** The *provider* that fulfills the elevation policy below — both strategies, the
-> graph/config/runtime split, the token-provider mechanism, and the failure routing — is detailed in
-> [`6.1-privilege-elevation.md`](6.1-privilege-elevation.md). This document owns the **policy** (`elevation.Policy`,
-> the `Elevator` contract, `ProcessSpawn`); 6.1 owns the **provider** (`elevator`, a working name).
+> **Revised 2026-10-21.** This document keeps the **problem**, the **per-unit policy triplet** and the **topology**. What
+> it once designed as mechanism has moved, and the sections below that carried it are now a paragraph each saying where:
+> the provider to [`6.1-authorization.md`](6.1-authorization.md) (`authz`; elevation is its process-running case); the
+> privileged child, the interface shape, the Windows notes and the PowerShell prior art to
+> [`6.2-process-pool.md`](6.2-process-pool.md) (the command runner, a daemon per account); remote execution, SSH
+> multiplexing and the telemetry transport to [`2.7-control-plane.md`](2.7-control-plane.md) (the DevLore Broker) and
+> [`2.8-eventing-infrastructure.md`](2.8-eventing-infrastructure.md). The policy triplet's `ElevationOffer` is dormant in
+> the tree and its fate is 6.1 § Open 12; the *Target design* below, with its `Mode`, is kept as design history: ruled
+> 2026-10-21, there is no "whether" — a command declares the account it needs ([`6.2`](6.2-process-pool.md) § Ruled).
+> Plan: [`1119-broker-specification.md`](../plans/chore/1119-broker-specification.md).
 
 ---
 
@@ -192,416 +198,84 @@ spec.
 
 ---
 
+---
+
 ## Approach: Privileged Child Process + Action-Declared Elevation
 
-Combine a persistent elevated child process (mechanism) with action/node
-declarations (policy).
-
-### Privileged Child Process
-
-```
-┌──────────────────────────┐
-│  devlore (unprivileged)  │
-│                          │
-│  executor ──pipe──► ┌────────────────────────┐
-│                     │  worker (elevated)      │
-│                     │  receives: cmd, args    │
-│                     │  returns: stdout, rc    │
-│                     └────────────────────────┘
-│                          │
-│  flow.elevate starts it  │
-│  flow.elevate undo stops │
-└──────────────────────────┘
-```
-
-The worker is a generic command executor. Actions that need elevation don't exec
-directly — they send `(command, args, env)` to the worker and get back
-`(stdout, stderr, exit_code)`. File operations that need root (writing to `/etc`)
-go through the same channel.
-
-One elevated child, kept alive for the phase lifetime. This solves the core
-problem on all three platforms:
-
-- **Linux**: sudo credential caching is unreliable (configurable timeout, might
-  require tty). A persistent child avoids repeated prompts.
-- **macOS**: Same sudo issues, plus Keychain complications. Brew explicitly
-  rejects root — elevation must be selective.
-- **Windows**: UAC is per-process. You cannot "cache" it. An elevated process
-  is the only mechanism.
-
-### Platform Divergence
-
-| Platform | Spawn mechanism | IPC | Credential UX |
-|---|---|---|---|
-| Linux/macOS | `sudo ./devlore-worker` | stdin/stdout pipe | One sudo prompt, child stays alive |
-| Windows | `runas` / ShellExecute with `runas` verb | Named pipe | One UAC dialog, child stays alive |
-
-### Action-Declared Elevation
-
-Two levels of declaration:
-
-**Type-level** — optional interface on Action:
-
-```go
-// ElevationAware — actions implement this to declare whether they need
-// elevation by default. The executor checks this when no instance-level
-// override is present.
-type ElevationAware interface {
-    NeedsElevation() bool
-}
-```
-
-**Instance-level** — the unit's `ElevationOffer` overrides the type-level default
-(see [The per-unit policy triplet](#the-per-unit-policy-triplet) above). It replaces
-the earlier `node.Annotations["elevate"]` string hack with a typed tri-state:
-
-```go
-spec.WithElevationOffer(&elevation.Policy{Mode: elevation.Required})  // force on
-spec.WithElevationOffer(&elevation.Policy{Mode: elevation.Forbidden}) // force off (e.g. brew)
-```
-
-The executor's decision:
-
-1. Check `unit.ElevationOffer().Mode` — `Required` → elevate; `Forbidden` → never; `Auto`/nil → step 2
-2. Check if the action implements `ElevationAware` (its type-level default)
-3. If elevation is needed, route through `ElevationProvider`
-
-This covers the `shell.exec` case: the action type doesn't declare elevation by
-default, but a specific node opts in via `elevation.Required` — and `elevation.Forbidden`
-keeps root-hostile units (brew, language managers) unprivileged even inside an
-elevated phase.
+**Moved 2026-10-21.** The persistent elevated child this section described — a generic command executor over a pipe,
+one per phase, through which "file operations that need root go through the same channel" — is the **command runner**
+of [`6.2-process-pool.md`](6.2-process-pool.md) § 4.1: a daemon standing for an account, holding no shell, a fresh
+child per command, many commands at once. Platform divergence is 6.2 § 10 and § 4.3. Action-declared elevation, the
+`ElevationAware` interface and the `Mode` tri-state, is superseded by the account a command declares; the dormant
+`op.ElevationOffer`'s fate is [`6.1-authorization.md`](6.1-authorization.md) § Open 12.
 
 ---
 
 ## Interface Shape
 
-```go
-// ElevationProvider manages a privileged execution context.
-// Platform-specific implementations handle the spawn/IPC mechanics.
-type ElevationProvider interface {
-    // Start spawns the privileged child process.
-    Start(ctx context.Context) error
-
-    // Exec runs a command in the elevated context.
-    Exec(name string, args ...string) (stdout, stderr []byte, err error)
-
-    // WriteFile writes content to a file with elevated privileges.
-    WriteFile(path string, content []byte, mode os.FileMode) error
-
-    // Stop terminates the privileged child process.
-    Stop() error
-}
-```
-
-### flow.elevate Integration
-
-There is **no** `flow.elevate` action in the current tree (2026-07-21). The registered flow actions are
-`flow.subgraph`, `flow.choose`, `flow.gather`, `flow.wait_until`, `flow.complete`, `flow.degraded`, and
-`flow.failed` ([2.3](2.3-orchestration-primitives.md)); elevation today is the per-unit `ElevationOffer` policy
-triplet plus the `pkg/op/provider/elevator` stub, and realizing this design is phase-8 step 38
-([6.1](6.1-privilege-elevation.md)). The sketch below predates the sealed model — its `op.Context` / `Do`/`Undo` /
-`Compensator`-alias vocabulary must be restated onto activation records and receipts when step 38 lands:
-
-```go
-func (a *Elevate) Do(ctx *op.Context, slots map[string]any) (op.Result, op.Compensator, error) {
-    provider := elevationProviderFromContext(ctx)
-    if provider == nil {
-        return nil, nil, fmt.Errorf("elevation required but no provider configured")
-    }
-    if err := provider.Start(ctx); err != nil {
-        return nil, nil, fmt.Errorf("failed to acquire elevation: %w", err)
-    }
-    // Provider is the compensator — Undo calls Stop
-    return nil, provider, nil
-}
-
-func (a *Elevate) Undo(ctx *op.Context, compensator op.Compensator) error {
-    if provider, ok := compensator.(ElevationProvider); ok {
-        return provider.Stop()
-    }
-    return nil
-}
-```
-
-The `flow.elevate` node in the graph makes privilege acquisition visible in the
-plan and receipt. Phase boundary = child lifetime. The receipt records when
-elevation was acquired and released.
-
-### Context Integration
-
-`op.Context` currently carries: `context.Context` (embedded), `Catalog`,
-`Data map[string]any`, `DryRun`, `Graph`, `NodeID`, `Platform`, and `Writer`.
-The elevation provider would be accessed via `ctx.Data` or a dedicated field.
-The `Platform` field (added for host abstraction) already provides OS detection
-needed for platform-specific elevation dispatch.
+**Retired 2026-10-21.** `ElevationProvider{Start, Exec, WriteFile, Stop}` is the runner's API in another form
+([`6.2`](6.2-process-pool.md) § 13): `Start` and `Stop` are the runner's lifetime, `Exec` is the request, `WriteFile` is
+a command. The `flow.elevate` sketch that followed predated the sealed model; the provider that fulfills the policy is
+[`6.1-authorization.md`](6.1-authorization.md), whose `Authorize` takes the activation record and returns the lease as
+its receipt. There is no `flow.elevate` action in the tree, and `flow.Provider` has no `Elevate`.
 
 ---
 
 ## Windows-Specific Considerations
 
-- **UAC prompt**: Desktop-modal dialog. Cannot run headless without
-  pre-configuration (auto-elevation policies, scheduled tasks, or admin accounts
-  without UAC).
-- **Service control**: Windows services use `SC_HANDLE` / service control
-  manager — a different elevation path than command-line tools.
-- **MSI installers**: `msiexec` may need its own elevation path.
-- **PowerShell remoting**: `Enter-PSSession` is an option for server/headless
-  scenarios.
-- **Named pipes**: Native IPC mechanism on Windows — better fit than
-  stdin/stdout pipes for the elevated child.
+**Moved 2026-10-21** to [`6.2-process-pool.md`](6.2-process-pool.md) § 4.3: a service per account started by the
+Service Control Manager, a named pipe with a DACL and the client token as the peer identity, CRT argv encoding for tier
+1, `pwsh -File` for tier 2, a Job Object for cancel, an inherited handle for the third channel, and the one unverified
+row, the token path for on-demand spawn, which [#528](https://github.com/NobleFactor/devlore-cli/issues/528) settles.
+The UAC dialog is never raised from a service.
 
 ---
 
 ## Prior Art: Persistent PowerShell Session
 
-The persistent child process + pipe IPC pattern is the same architectural shape
-proposed for elevation:
-
-- A single `pwsh -NoProfile -NonInteractive -Command -` process is spawned once
-- Commands are streamed to stdin; output is read from stdout until a marker
-- Variables, module imports, and session state persist across calls
-- The session is closed explicitly (or on process exit)
-
-The motivation is PowerShell-specific: modules (Az, ActiveDirectory,
-PackageManagement) establish authenticated sessions on import, and COM/.NET
-objects (WMI, Registry, IIS) are expensive to instantiate. Spawning
-`pwsh -Command` per operation loses all state.
-
-**`internal/pwsh` demonstrated this shape and was deleted 2026-08-17** (phase-8
-step 55). It had zero importers, it was a second process-execution path beside
-`pkg/process` — which declares itself the single bridge to `os/exec` — and the
-one-shot execution it wrapped is now `powershell.exec`
-([3.5.9](3.5.9-powershell-provider.md)). The four bullets above are the whole of
-what it contributed here; the elevation worker generalizes the *pattern*, not
-that code, and should not be built by copying it. No persistent-session
-capability exists in the tree today. If one is needed, it returns as a provider
-over `pkg/process`, inside the provider model.
-
-The elevation worker generalizes this pattern: instead of PowerShell-specific
-stdin/marker protocol, the worker uses a structured IPC protocol (ndjson) for
-arbitrary `(command, args, env) → (stdout, stderr, exit_code)` exchanges.
+**Moved 2026-10-21** to [`6.2-process-pool.md`](6.2-process-pool.md) § 8, where the PowerShell host is modeled on
+runspaces rather than a persistent `pwsh` process, and § 3, where persistent interpreter state is separated from
+persistent privilege. `internal/pwsh`, which demonstrated the shape, was deleted 2026-08-17.
 
 ---
 
 ## Open Questions
 
-1. **Worker protocol**: What serialization for the IPC channel? JSON lines?
-   Protobuf? Gob? JSON lines is simplest and debuggable.
-2. **Worker binary**: Same binary with a `--worker` flag, or a separate
-   `devlore-worker` binary? Same binary is simpler to distribute.
-3. **Timeout/keepalive**: Should the elevated child auto-terminate after idle
-   timeout? Or only on explicit `Stop()`?
-4. **Nested elevation**: Can a gather body phase contain an elevate node? If so,
-   the child process must handle concurrent requests (one per iteration).
-5. **Dry-run**: In dry-run mode, `flow.elevate` should report "elevation
-   required here" without actually prompting for credentials.
-6. **Platform detection**: How does the executor know which `ElevationProvider`
-   to use? Compile-time build tags, runtime detection, or configuration?
-7. **Credential forwarding**: For remote execution scenarios, how do credentials
-   propagate? SSH agent forwarding? Kerberos?
+**Dispersed 2026-10-21.** Worker protocol: frames by tag with a request id, [`6.2`](6.2-process-pool.md) § 7. Worker
+binary: the runner daemon, the same binary for every account; `devlore` behind a flag or its own is
+[`2.7`](2.7-control-plane.md) § Open 2. Timeout and keepalive: 6.2 § 9. Nested elevation and concurrency: 6.2 § 6,
+multiplexing by request id. Dry-run: 6.2 § 9, allocating nothing. Platform detection: 6.2 § 10, the platform decides
+how the runner for root exists. Credential forwarding for remote execution: the token on the broker's remote leg,
+[`2.7`](2.7-control-plane.md) § Authorization at the socket.
 
 ---
 
 ## SSH Multiplexing for Remote Elevation
 
-SSH provides a natural transport for the elevated child model on remote hosts.
-A single TCP connection (the "tunnel") hosts multiple independent channels
-(the "sessions"). This is **multiplexing**.
-
-### One Tunnel, Many Sessions
-
-1. **The Tunnel (TCP/22):** Established once. Handles key exchange,
-   authentication, and encryption.
-2. **The Sessions (Channels):** Inside that one tunnel, `client.NewSession()`
-   can be called many times. Each session is logically isolated.
-
-```go
-// 1. Create the Tunnel (The Client)
-client, _ := ssh.Dial("tcp", "server:22", config)
-
-// 2. Elevated task
-s1, _ := client.NewSession()
-s1.Run("sudo apt update")
-s1.Close()
-
-// 3. Non-elevated task — fresh start, no sudo leak
-s2, _ := client.NewSession()
-s2.Run("rm -rf ~/old_configs")
-s2.Close()
-```
-
-### Why This Matters
-
-- **Concurrency:** Multiple sessions over one connection — tail a log, run
-  `yum install`, and monitor CPU simultaneously.
-- **Isolation:** If one session crashes, others remain unaffected.
-- **Elevation isolation:** Each session starts a fresh process on the remote
-  side. Permissions do not leak between sessions.
-
-### Connection Limits
-
-The remote `sshd` typically defaults `MaxSessions` to **10**. If the tool needs
-to exceed this (e.g., a gather with 50 concurrent iterations), options are:
-
-1. Increase `MaxSessions` on the target.
-2. Manage a pool of clients (multiple tunnels) in the Go tool.
+**Superseded 2026-10-21.** The remote leg is the broker's API over TLS with a token
+([`2.7`](2.7-control-plane.md) § The remote leg); SSH is at most a tunnel or a bootstrap for it. The property this
+section wanted — one authenticated connection carrying many isolated sessions — is HTTP/2's multiplexing of streams on
+one connection, and the per-session fresh process is the runner's child per command.
 
 ---
 
 ## Remote Execution: The Executor Abstraction
 
-The elevation model extends naturally to remote execution. The core insight:
-**the graph is the artifact that travels** — coordinator to target and back.
-
-### The Provider Interface
-
-```go
-// Executor abstracts local vs remote command execution.
-// The orchestrator doesn't care whether it's talking to a local shell or
-// an SSH tunnel.
-type Executor interface {
-    Upload(src string, dest string) error
-    Execute(cmd string, elevated bool) ([]byte, error)
-    Download(src string, dest string) error
-}
-```
-
-- **Local implementation:** Uses `os/exec` and `io.Copy`.
-- **SSH implementation:** Uses `ssh.Client` and `sftp` for file transfer.
-
-### Graph Lifecycle Over SSH
-
-1. **Transfer:** Coordinator SCP/SFTPs the graph (JSON or YAML) and the runner
-   binary to the target.
-2. **Trigger:** Coordinator calls `session.Start("./runner --graph=task.json")`.
-3. **Hydration:** On the target, the runner loads the graph, reconciles against
-   local system state (using the `RecoveryStack` with drift detection and
-   reconcile functions), and begins execution.
-4. **Persistence:** The runner saves the result graph (receipt) to a local file.
-5. **Retrieval:** Coordinator detects process exit, downloads the result graph.
-
-### Local-to-Remote Transition
-
-Start by using SSH even for localhost. This forces handling authentication,
-latency, and serialization immediately. If it works over `ssh localhost`, it
-works over `ssh 10.0.0.50` with zero code changes.
-
-### Graph Idempotency
-
-Because the graph is uploaded and reused for reconciliation, nodes must be
-**idempotent**. Example: an `Install-Nginx` node checks whether Nginx exists
-before attempting installation. This is already the design — actions check
-target state before acting.
-
-### Long-Running Workloads
-
-For "chunky" workloads (minutes to hours):
-
-- **Heartbeats:** The runner emits periodic "alive" signals to stderr that the
-  coordinator monitors.
-- **Detached pattern:** For very long workloads, start via `nohup` or a systemd
-  transient unit. Disconnect and re-attach later to check exit status. This
-  maps to the Recovery Stack restart capability (see
-  [devlore-recovery-serialization](5.2-recovery-serialization.md) — planned).
+**Superseded 2026-10-21.** `Executor{Upload, Execute(cmd string, elevated bool), Download}` and the graph travelling
+with a runner binary over SSH are replaced by posting the graph or the command to the remote machine's broker
+([`2.7`](2.7-control-plane.md) § The remote leg): the string loses to [`6.3`](6.3-command-execution.md)'s argv rule,
+the boolean to the account. What survives unchanged is the insight that **the graph is the artifact that travels** and
+must be idempotent, and the distributed flow of [`1-system-model.md`](1-system-model.md) § 6.2, where the coordinator
+collects each machine's trace. Long-running workloads re-attach by `seq` (2.7 § The two streams).
 
 ---
 
 ## Telemetry: Asynchronous Event Pipeline
 
-Chunky, distributed workloads cannot use synchronous request-response. The
-coordinator needs an **asynchronous event bus** that bridges the remote SSH
-runner and UI/API consumers.
-
-> **This is the event-stream spec — one of three orthogonal pieces (2026-07-21).** A run's outward-facing surface is
-> three independent subsystems: **control commands** (inbound; steer the run), **event streams** (this section —
-> outbound structured telemetry), and **narration** (`status.Narrator`; outbound human render). They are orthogonal —
-> none consumes another — and share one seam: the lifecycle hooks in [`pkg/op/hooks.go`](../../pkg/op/hooks.go). The
-> `SubscriptionManager` / non-blocking `Publish` below is the same shape the control plane's first cut reinvented as
-> `ControlPlane.Subscribe` / `emit` ([`2.7-control-plane.md`](2.7-control-plane.md), see its
-> [Framing](2.7-control-plane.md#framing-three-orthogonal-pieces)); the integration builds the event stream on **this**
-> spec, fed from a `LifecycleHook`, and splits it off the command surface. An observe action's `Observation` — a
-> resource fact ([`4-resource-management.md`](4-resource-management.md) §3, observations) — rides this stream as an event
-> **result**; "observation" stays the resource-fact term, "events" is this channel. This §Telemetry pipeline is the
-> remote-transport instance of the app-agnostic eventing bus designed in
-> [`2.8-eventing-infrastructure.md`](2.8-eventing-infrastructure.md).
-
-### Event Categories
-
-1. **Orchestration events:** "Graph Started," "Node 5 Scheduled," "Tunnel
-   Connection Lost."
-2. **Execution events:** "Installing Package X," "Step 2/10 Complete,"
-   "Retrying Connection."
-3. **System telemetry:** "CPU Spike on Node B," "Disk Full during Upgrade."
-
-### Structured Stream over SSH
-
-The runner emits **newline-delimited JSON (ndjson)** to stdout. The coordinator
-demuxes the stream into Go types.
-
-**Remote side (runner):**
-
-```go
-type Event struct {
-    Timestamp time.Time `json:"ts"`
-    NodeID    string    `json:"node_id"`
-    Status    string    `json:"status"`
-    Message   string    `json:"msg"`
-}
-
-json.NewEncoder(os.Stdout).Encode(Event{
-    Timestamp: time.Now(),
-    NodeID:    "provision-db",
-    Status:    "IN_PROGRESS",
-    Message:   "Allocating tablespace...",
-})
-```
-
-**Local side (coordinator):** Reads from `session.StdoutPipe()`, decodes JSON,
-broadcasts to a pub/sub system (NATS, Redis, or internal Go channel bus).
-
-### Observer Pattern
-
-```go
-type SubscriptionManager struct {
-    mu          sync.RWMutex
-    subscribers map[string]chan Event
-}
-
-func (s *SubscriptionManager) Publish(ev Event) {
-    s.mu.RLock()
-    defer s.mu.RUnlock()
-    for _, ch := range s.subscribers {
-        // Non-blocking send — slow client doesn't hang the orchestrator
-        select {
-        case ch <- ev:
-        default:
-        }
-    }
-}
-```
-
-### Reconnection and History
-
-SSH tunnel drops lose the stream. Mitigations:
-
-- **Log buffer:** Runner writes events to a local file (`/tmp/execution.log`)
-  while streaming to stdout.
-- **Re-sync:** On reconnection, coordinator asks "give me everything since
-  timestamp X."
-- **WebSocket bridge:** Go backend bridges internal channels to WebSockets for
-  real-time UI — the graph "lights up" node-by-node.
-
-### Elevation and Eventing
-
-Subtle trap: if the runner is executing an elevated task (`sudo`), it may lose
-access to telemetry sockets or log files. The event logger must initialize its
-sinks **before** privilege transitions, or the log directory
-(`/var/log/devlore/`) must have correct permissions for non-elevated tasks to
-still write telemetry.
-
-### Vision Summary
-
-1. **Coordinator** sends the Graph.
-2. **SSH Tunnel** stays open for the live stream of JSON events.
-3. **Go Channels** broadcast events to connected UI clients.
-4. **Result Graph** provides the final post-mortem state.
+**Moved 2026-10-21.** The event-stream spec this section seeded — `Event`, the non-blocking `SubscriptionManager`, the
+three categories, ndjson, reconnection and history, the elevation-and-eventing rule to initialize sinks before a
+privilege transition — is [`2.8-eventing-infrastructure.md`](2.8-eventing-infrastructure.md)'s bus, fed from the hook
+seam, and its wire is [`2.7-control-plane.md`](2.7-control-plane.md) § The two streams: operational events on
+`/events` for the logger and monitors, narration and output on `/console` for the caller, each `seq`-numbered with SSE
+`id:` as the resume point. The vision summary stands with one substitution: the broker's TLS listener where it said
+"SSH tunnel".
