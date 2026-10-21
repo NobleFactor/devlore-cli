@@ -60,7 +60,10 @@ Lane 42 of #949. One pull request, documentation only.
 
 ### Phase 2: The page (Requirement 1)
 
-- [ ] `wiki/Releasing.md`, each line checked against what it describes
+- [x] `wiki/Releasing.md`, each line checked against what it describes: the workflows' triggers, jobs and secrets
+      read from their files; `lkg-tag.yaml`'s tag, `<base branch>/lkg` on a merged PR's merge commit; each app token
+      scoped to one repository; the archives' products, `PRODUCTS := lore star writ`; the versions from
+      `release.yaml`; the environments as measured
 
 ### Phase 3: Merge
 
