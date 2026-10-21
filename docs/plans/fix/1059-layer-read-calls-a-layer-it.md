@@ -67,8 +67,13 @@ At `4992f580`:
 
 ### Phase 3: The installers (Requirement 2)
 
-- [ ] Both installers ask the state and say what writ cannot read; the `install.sh` suite's case fails before and
-      passes after; the `install.ps1` suite's, or the measurement that Windows cannot refuse the entry
+- [x] Both installers ask the state and say what writ cannot read. The `install.sh` suite's case, the account's layers
+      directory without search permission: every check passed with this branch's installer, and against develop's
+      (`4992f580`) 4 of its 5 checks failed, the layers reported skipped. Windows measured on danoble-wd11-3, 5.1 and 7:
+      with a deny on read and list applied (`icacls`, by SID), the entry's attributes were still returned and the
+      directory still listed, so the `install.ps1` suite has no unreadable case; that session is an administrator's
+      over ssh, and an ordinary user's might be refused, which the same-shaped PowerShell path handles. The `install.ps1`
+      suite, 131 passed under 5.1 and 131 under 7
 
 ### Phase 4: Merge
 
