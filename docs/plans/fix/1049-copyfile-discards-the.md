@@ -47,8 +47,9 @@ At `c8a31a44`: `copyFile` opens the source, creates the destination through `fsr
 
 ### Phase 3: Merge
 
-- [ ] `make check-all`, finished green as the PR script runs it, before the script is called ready
-- [ ] PR script written, shown, and handed over; the PR resolves #1049
+- [x] `make check-all`, finished green as the PR script runs it, before the script is called ready: at `b5f4e74c`, with
+      no prebuilt release
+- [x] PR script written, shown, and handed over; the PR resolves #1049
 - [ ] CI on the pull request, every leg; nothing acts on the checks while the script's gate watches them
 
 ## Files to Create/Modify
