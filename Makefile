@@ -272,7 +272,7 @@ HOST_COPIES := lore writ
 
 ## TARGETS
 
-.PHONY: all help help-short help-full build install clean test test-race cover vet vet-all lint lint-all build-all shell-lint complexity verify-ldflags check dev docs dist dist-all star star-lkg generate regenerate inventory help print-golangci-lint-version
+.PHONY: all help help-short help-full build install clean test test-race cover vet vet-all lint lint-all build-all shell-lint complexity verify-ldflags check check-all quality-gate test-installers powershell-lint psscriptanalyzer-pinned print-psscriptanalyzer-version dev docs dist dist-all star star-lkg generate regenerate inventory help print-golangci-lint-version
 
 ##@ Help
 
@@ -507,8 +507,8 @@ golangci-lint-pinned: ## Verify the pinned golangci-lint is the one on PATH
 lint: golangci-lint-pinned | $(STAR) ## Run golangci-lint through star, as CI does
 	$(STAR) lint go ./...
 
-shell-lint: ## Lint shell scripts
-	.github/scripts/shell-lint.sh
+shell-lint: | $(STAR) ## Lint shell scripts through star, as CI does
+	$(STAR) lint shell .
 
 complexity: ## Check cyclomatic complexity (max 20)
 	echo "Checking cyclomatic complexity (max 20)..."
@@ -537,7 +537,114 @@ verify-ldflags: ## Assert every build definition stamps the same package
 	done
 	echo "Build definitions agree on $(VERSION_PACKAGE)."
 
-check: vet lint shell-lint complexity verify-ldflags test ## Run all quality checks
+# PSScriptAnalyzer is pinned for the reason golangci-lint is: an analyzer of another version lints the same script
+# differently. This variable is the one place the version is written: CI reads it through
+# `make print-psscriptanalyzer-version` and installs it with Install-PSResource (#1110). A developer's machine may hold
+# others, as personal's profile installs the newest on demand; the lint imports this one by its version, so which one
+# a session would load first does not matter.
+PSSCRIPTANALYZER_VERSION ?= 1.25.0
+
+print-psscriptanalyzer-version: ## Print the pinned PSScriptAnalyzer version, for CI to install the same one
+	@echo $(PSSCRIPTANALYZER_VERSION)
+
+psscriptanalyzer-pinned: ## Verify the pinned PSScriptAnalyzer is installed
+	installed="$$(pwsh -NoProfile -Command '(Get-Module -ListAvailable -Name PSScriptAnalyzer).Version -join " "')"
+	case " $$installed " in
+		*" $(PSSCRIPTANALYZER_VERSION) "*) ;;
+		*)
+			echo "ERROR: PSScriptAnalyzer $(PSSCRIPTANALYZER_VERSION) is not installed (installed: $${installed:-none})."
+			echo "  Install it from pwsh:"
+			echo "    Install-PSResource -Name PSScriptAnalyzer -Version $(PSSCRIPTANALYZER_VERSION) -Repository PSGallery"
+			echo "        -TrustRepository -Scope CurrentUser"
+			exit 1
+			;;
+	esac
+
+# The base layer holds the organization's PowerShell gate and its settings, so the rule set is one across the three
+# repositories (#964). CI checks it out at .base; elsewhere it is the base layer writ has registered, found as star gh
+# finds its repositories (noblefactor-ops#253).
+BASE_LAYER ?= $(or $(wildcard .base),$(shell writ repo list --filter layer=base --filter state=registered \
+	--jq '.[].root' --output value 2>/dev/null))
+
+powershell-lint: psscriptanalyzer-pinned ## Lint every PowerShell script with the base layer's gate, pinned analyzer
+	if [ -z "$(BASE_LAYER)" ]; then
+		echo "ERROR: no base layer: CI checks it out at .base, and writ has none registered here."
+		exit 1
+	fi
+	pwsh -NoProfile -Command "Import-Module -Name PSScriptAnalyzer -RequiredVersion $(PSSCRIPTANALYZER_VERSION) \
+		-ErrorAction Stop; & '$(BASE_LAYER)/.github/scripts/Test-PowerShell.ps1'"
+
+# The quality gate: every check CI's quality-gate job runs, in its order, and the two it did not (#670). CI installs its
+# tools and runs this target; so does `check`, and so does every pull request's pre-flight, so the list is written once.
+# Code metrics stays a step of CI's own, being a report and not a check.
+#
+# Why each check runs, as CI's quality-gate job gave it when the job listed them:
+#
+# Building every platform. The codebase is pure Go, with no `import "C"`, so one runner links the whole matrix with
+# GOOS/GOARCH alone (~41s against ~13s host-only). Before this, the push path built the host alone and swept GOOS at
+# fixed GOARCH, so nothing ever compiled for arm64 while goreleaser shipped arm64 binaries at release: an arm64-only
+# break surfaced at release rather than at review.
+#
+# Generated files current. Codegen is mtime-gated, and a fresh clone stamps every file at checkout, so whether a
+# provider looks stale is decided by write order rather than by its source. Run 33024633546 measured one commit across
+# six jobs: 30 providers regenerated on one, 1 on two, 0 on three. Generator validations ride along with that, so which
+# defects got caught was luck (#702). `make regenerate` touches the sources to force every rule, then the diff asserts
+# the committed output equals the generated output, the same shape as the go.mod check. One leg is enough: generated
+# output is platform-independent, which is why the repository can hold one copy of it.
+#
+# vet-all and lint-all, per GOOS (docs/plans/platform-test-matrix.md, #373 phase 1b). Vet, lint and the compiler all
+# honor build constraints, so a single-GOOS pass never sees the other platforms' _darwin.go, _windows.go and _linux.go
+# files. Its first local run found three test files that did not compile under GOOS=windows, the reason three packages
+# reported [build failed] on the windows test leg. `make build-all` is not run: `build PLATFORM=all` covers every
+# package reachable from ./cmd (120 of 122) across all six GOOS/GOARCH pairs, and `vet-all` still type-checks all 122,
+# test files included. The two packages outside cmd's reach (pkg/op/provider/elevator, pkg/op/server) keep their
+# per-GOOS coverage that way.
+#
+# lint-all beside star lint go (ruling 2026-08-04, after the silent-pass gate incident): the dogfooded star path
+# carries the verdict; the direct run guards against any regression in star's own reporting pipeline.
+#
+# star lint starlark would have caught devlore-registry's docker package: 40 .star files calling seven APIs that do
+# not exist, passing every gate there was because nothing read a .star file's contents. The checker is embedded, so
+# there is no tool to install, and buildifier, which is installable, would have caught none of them (#721).
+#
+# Every check is a step of CI's one quality-gate job, not a job of its own: the develop ruleset requires exactly one
+# check, `quality-gate`, so a separate job could not block a merge whatever it reported (#964).
+quality-gate: ## Run every check of CI's quality gate
+	$(MAKE) build PLATFORM=all
+	go mod tidy
+	git diff --exit-code go.mod go.sum
+	$(MAKE) regenerate
+	git diff --exit-code
+	./scripts/Test-GuideFrontmatter.sh
+	$(MAKE) vet-all
+	build/star lint go ./...
+	$(MAKE) lint-all
+	build/star lint shell .
+	build/star lint starlark .
+	$(MAKE) powershell-lint
+	$(MAKE) complexity
+	$(MAKE) verify-ldflags
+
+test-installers: ## Run both installer suites against this checkout's programs
+	pwsh -NoProfile -File scripts/Test-InstallScript.ps1
+	bash scripts/Test-InstallScript.sh
+
+check: quality-gate test ## Run the quality gate and the tests
+
+# Everything CI runs that this machine can (#670, ruled 2026-08-25: "a developer can opt into running everything
+# locally"). What it cannot run, it names, so a green check-all claims what it ran and no more.
+check-all: ## Run everything CI runs that this machine can, and name the rest
+	$(MAKE) quality-gate
+	$(MAKE) test-race
+	$(MAKE) test-scenario
+	$(MAKE) test-installers
+	host="$(HOST_GOOS)/$(HOST_GOARCH)"
+	echo "check-all passed on $$host. CI alone runs:"
+	for platform in $(ALL_PLATFORMS); do
+		[ "$$platform" = "$$host" ] || echo "  test and scenario on $$platform"
+	done
+	echo "  the Installers workflow's install.ps1 legs, under Windows PowerShell 5.1 and PowerShell 7"
+	echo "  the Installers workflow's install.sh legs on macOS, MacPorts included"
 
 ##@ Development
 

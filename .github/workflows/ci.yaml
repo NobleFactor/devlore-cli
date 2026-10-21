@@ -41,50 +41,6 @@ jobs:
           brew install make
           echo "$(brew --prefix)/opt/make/libexec/gnubin" >> "$GITHUB_PATH"
 
-      # Every platform the project ships, on every push. The codebase is pure Go — zero `import "C"`
-      # — so one runner links the whole matrix with GOOS/GOARCH alone (~41s against ~13s host-only).
-      # Before this, the push path built the host alone and swept GOOS at fixed GOARCH, so nothing
-      # here ever compiled for arm64 while goreleaser shipped arm64 binaries at release: an
-      # arm64-only break surfaced at release rather than at review.
-      - name: Build every platform
-        run: make build PLATFORM=all
-
-      - name: Check go.mod tidy
-        run: |
-          go mod tidy
-          git diff --exit-code go.mod go.sum
-
-      # Codegen is mtime-gated, and a fresh clone stamps every file at checkout -- so whether a
-      # provider looks stale is decided by write order rather than by its source. Run 33024633546
-      # measured one commit across six jobs: 30 providers regenerated on one, 1 on two, 0 on three.
-      # Generator validations ride along with that, so which defects get caught was luck (#702).
-      #
-      # `make regenerate` touches the sources to force every rule, then the diff asserts the
-      # committed output equals the generated output -- the same shape as the go.mod check above.
-      # One leg is enough: generated output is platform-independent, which is why the repository can
-      # hold one copy of it.
-      - name: Generated files are current
-        run: |
-          make regenerate
-          git diff --exit-code
-
-      - name: Validate guide frontmatter
-        run: ./scripts/Test-GuideFrontmatter.sh
-
-      # Per-GOOS analysis (docs/plans/platform-test-matrix.md, #373 phase 1b): vet, lint, and the
-      # compiler all honor build constraints, so a single-GOOS pass never sees the other platforms'
-      # _darwin.go/_windows.go/_linux.go files. Same runner, one invocation per GOOS. Its first
-      # local run found three test files that did not compile under GOOS=windows — the reason three
-      # packages reported [build failed] on the windows test leg.
-      #
-      # `make build-all` used to run here as well. It is dropped rather than kept: `build PLATFORM=all`
-      # above covers every package reachable from ./cmd (120 of 122) across all six GOOS/GOARCH pairs
-      # rather than three GOOS at the host's arch, and `vet-all` below still type-checks all 122 —
-      # test files included, which `go build ./...` never did. The two packages outside cmd's reach
-      # (pkg/op/provider/elevator, pkg/op/server) therefore keep their per-GOOS coverage.
-      - name: Vet
-        run: make vet-all
-
       - name: Install lint tools
         # The timeouts are what make the retry loop work. Without them a stalled connection hangs
         # indefinitely and the loop never reaches its break-or-retry decision -- retries handle failures,
@@ -108,34 +64,6 @@ jobs:
           sudo apt-get "${apt_options[@]}" update
           sudo apt-get "${apt_options[@]}" install -y shellcheck
           golangci-lint version
-
-      - name: Lint Go
-        run: ./build/star lint go ./...
-
-      # Belt-and-suspenders (ruling 2026-08-04, after the silent-pass gate incident): the dogfooded
-      # star path above carries the verdict; this direct run guards against any future regression in
-      # star's own reporting pipeline.
-      - name: Lint Go (direct)
-        run: make lint-all
-
-      - name: Lint Shell
-        run: ./build/star lint shell .
-
-      # A step of quality-gate, not a job of its own: this repository's ruleset requires exactly one check by
-      # that name, so a separate job could not block a merge whatever it reported. Same reasoning as the
-      # PowerShell steps below, from #964.
-      #
-      # This is the step that would have caught devlore-registry's docker package -- 40 .star files calling
-      # seven APIs that do not exist, passing every gate there was because nothing read a .star file's
-      # contents. The checker is embedded, so there is no tool to install, and buildifier, which is
-      # installable, would have caught none of them (#721).
-      - name: Lint Starlark
-        run: ./build/star lint starlark .
-
-      - name: Code metrics
-        run: |
-          go install github.com/boyter/scc/v3@latest
-          scc .
 
       # PowerShell (#964). install.ps1 ships to users and was checked by nothing, while
       # noblefactor-ops has had this gate since its #218 and personal since its #216.
@@ -162,21 +90,27 @@ jobs:
           ref: develop
           path: .base
 
-      # The version noblefactor-ops pins, so a rule cannot change under this repository without the
-      # pin moving. pwsh ships on the ubuntu-latest image; only the analyzer is installed here.
+      # The version is the Makefile's, read rather than copied, as golangci-lint's is above (#1110). PSResourceGet ships
+      # with PowerShell 7.4 and later, with PSGallery registered, which PowerShellGet's Install-Module needed set up
+      # first; on #1108 that setup found no PSGallery and the job failed. pwsh ships on the ubuntu-latest image.
       - name: Install PSScriptAnalyzer
         shell: pwsh
-        env:
-          PSSCRIPTANALYZER_VERSION: 1.25.0
         run: |
-          Set-PSRepository -Name PSGallery -InstallationPolicy Trusted
-          Install-Module -Name PSScriptAnalyzer -RequiredVersion $env:PSSCRIPTANALYZER_VERSION -Scope CurrentUser -Force
-          $module = Get-Module -ListAvailable -Name PSScriptAnalyzer | Select-Object -First 1
-          Write-Output "PSScriptAnalyzer $($module.Version)"
+          $version = make -s print-psscriptanalyzer-version
+          Install-PSResource -Name PSScriptAnalyzer -Version $version -Repository PSGallery -TrustRepository `
+              -Scope CurrentUser
+          Write-Output "PSScriptAnalyzer $version"
 
-      - name: PowerShell format & lint (Test-PowerShell.ps1 from the base layer)
-        shell: pwsh
-        run: .base/.github/scripts/Test-PowerShell.ps1
+      # One list of checks (#670): the Makefile's quality-gate target is what this job, `make check`, `make check-all`
+      # and every pull request's pre-flight run, so a check added there runs everywhere. Each check's reason is
+      # written beside it in the Makefile.
+      - name: Quality gate
+        run: make quality-gate
+
+      - name: Code metrics
+        run: |
+          go install github.com/boyter/scc/v3@latest
+          scc .
 
   # Every test on every platform (docs/plans/platform-test-matrix.md, #373). The unit suite used to
   # run in quality-gate on ubuntu alone — 121 packages there, while macOS and Windows ran only the
