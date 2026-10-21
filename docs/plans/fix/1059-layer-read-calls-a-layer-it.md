@@ -62,7 +62,8 @@ At `4992f580`:
 
 ### Phase 2: The fix (Requirement 1)
 
-- [ ] `Read` and `Unreadable`'s documentation; the test fails before and passes after
+- [x] `Read` and `Unreadable`'s documentation; `TestRead_EntryThatCannotBeStatedIsUnreadable` failed at `4992f580`
+      ("State:unregistered ... want unreadable") and passes with the fix; `make test` passes
 
 ### Phase 3: The installers (Requirement 2)
 
