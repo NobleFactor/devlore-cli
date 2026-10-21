@@ -32,6 +32,10 @@ At `45a0dd43`:
   sentence before the commands says a project is a directory under the layer's `Home/`.
 - The repositories guide's two paths are `.local/bin/...`.
 - The README's prerequisite is Go 1.27+.
+- Getting started's later lines that the corrected layout contradicts, ruled 2026-10-21, "fix them here": the links
+  `writ deploy` makes point into `~/my-environment/Home/noblefactor/`, as this machine's point into each layer's
+  working tree; the example manifest is `Home/noblefactor/packages-manifest.yaml`, and lists each package as an object
+  with `name` and `with`, the only form `schema/packages-manifest.json` takes (#796).
 
 ## Out of Scope
 
@@ -47,7 +51,9 @@ At `45a0dd43`:
 
 ### Phase 2: The documents (Requirement 1)
 
-- [ ] The three, each line checked against what it describes
+- [x] The three, each line checked against what it describes: the layout against the repositories guide and
+      personal's `Home/`; the links against this machine's (`~/.zshrc -> Workspace/Personal/Home/common.Unix/.zshrc`);
+      the example manifest validated against `schema/packages-manifest.json`; Go against `go.mod`'s `go 1.27.0`
 
 ### Phase 3: Merge
 
