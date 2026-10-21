@@ -86,7 +86,10 @@ Neither serves the other's platform ([#1032](https://github.com/NobleFactor/devl
 release's archive, verify it against the release's checksums file before anything is extracted, and install nothing
 they cannot verify ([#1002](https://github.com/NobleFactor/devlore-cli/issues/1002)); both hand each program to its own
 `self install`, the one installer the suite has ([#798](https://github.com/NobleFactor/devlore-cli/issues/798), ruling
-1); both register the layers they are given and never ask.
+1); both register the layers they are given and never ask. Both download into a directory of their own under the
+user's temporary directory and remove it however they end, installed or refused
+([#958](https://github.com/NobleFactor/devlore-cli/issues/958)); both suites check it after every run
+([#1051](https://github.com/NobleFactor/devlore-cli/issues/1051)).
 
 - **`install.sh`, on Linux and macOS,** runs as `curl ... | bash -s -- <options>`, with nothing beside it. On macOS it
   runs with what ships there: `/bin/bash` 3.2 and macOS's own tools, bsdtar, BSD grep, sed and awk, shasum and curl;
@@ -111,7 +114,11 @@ they cannot verify ([#1002](https://github.com/NobleFactor/devlore-cli/issues/10
   departures from the guide's example, each measured: the catch is a function's, `Install-DevLore`, because under
   `irm | iex` the script has no `$PSCmdlet`, so an error names that function; and only a run as a file exits 1 after a
   failure, since in the script-block and `irm | iex` forms `exit` would end the user's session
-  ([#965](https://github.com/NobleFactor/devlore-cli/issues/965)).
+  ([#965](https://github.com/NobleFactor/devlore-cli/issues/965)). Under Windows PowerShell 5.1, the `Add-Type` that
+  compiles its file-identity check leaves one empty directory with a random name in `TEMP`, a session: the .NET
+  Framework compiler's, not the installer's, and nothing records whose it is. PowerShell 7 leaves none. It is not
+  cleaned up; ruled 2026-10-21, "it sounds like powershell is unhygenic, not a litterbug"
+  ([#1051](https://github.com/NobleFactor/devlore-cli/issues/1051)).
 
 ## 3. Command grammar
 

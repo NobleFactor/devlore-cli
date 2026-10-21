@@ -54,9 +54,13 @@ points `TMP` and `TEMP` at `<scratch>/<account>/tmp`, and `install.ps1` makes `d
 
 ### Requirement 1: Every installer run leaves nothing in its temporary directory (#1051)
 
-- Both suites check, after every run of the installer, whether it installed or was refused, that the account's
-  temporary directory holds nothing the installer made: no `mktemp -d` directory of `install.sh`'s, no
-  `devlore-install-*` of `install.ps1`'s.
+- Both suites check, after every run of the installer, whether it installed or was refused, that it removed its
+  download directory: the `install.sh` suite that the account's `TMPDIR` is empty, the `install.ps1` suite that its
+  temporary directory holds no `devlore-install-*`.
+- Not the whole of `install.ps1`'s temporary directory: under Windows PowerShell 5.1, `Add-Type`'s compiler leaves an
+  empty directory with a random name in `TEMP`, one a session (`Get-FileIdentity`, since #1108). Measured 2026-10-21
+  on danoble-wd11-3: PowerShell 7 leaves none, and nothing records whose such a directory is. Ruled the same day: "it
+  sounds like powershell is unhygenic, not a litterbug."
 - Each check names its run, so a failure says which case left something.
 - Checked to fail against an installer that leaves its directory behind.
 
@@ -97,8 +101,13 @@ points `TMP` and `TEMP` at `<scratch>/<account>/tmp`, and `install.ps1` makes `d
 
 ### Phase 2: Nothing left behind (Requirement 1)
 
-- [ ] Both suites' checks, failing against an installer that leaves its directory and passing against develop's
-- [ ] The `install.ps1` suite on danoble-wd11-3 under 5.1 and 7; the `install.sh` suite here
+- [x] Both suites' checks, failing against an installer that leaves its directory and passing against develop's: the
+      `install.sh` suite here, 66 checks passing against develop's installer and 55 failing against one that keeps its
+      directory, the 11 others runs refused before it makes one; the `install.ps1` suite, 39 checks, 36 failing
+      against one that keeps its directory and 3 refused before it makes one
+- [x] The `install.ps1` suite on danoble-wd11-3, 131 passed under 5.1 and 131 under 7; the `install.sh` suite here,
+      every check passed. The design document's § 2 says both installers remove their download directory, and what
+      5.1's `Add-Type` leaves
 
 ### Phase 3: One list of checks (Requirements 2 to 4)
 
@@ -121,6 +130,7 @@ points `TMP` and `TEMP` at `<scratch>/<account>/tmp`, and `install.ps1` makes `d
 | `scripts/Test-InstallScript.ps1` | Modify | Requirement 1 |
 | `Makefile` | Modify | Requirements 2 to 4 |
 | `.github/workflows/ci.yaml` | Modify | Requirements 2 and 4 |
+| `docs/architecture/10-command-line-interface.md` | Modify | § 2, The installers: the download directory, and 5.1's |
 
 ## Out of Scope
 

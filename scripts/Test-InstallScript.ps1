@@ -170,6 +170,9 @@ public class DevLoreFixtureResponse : System.Net.WebResponse
 
 $script:failures = 0
 
+# Every fixture run, by its account and in order, with what it left in the account's temporary directory (#1051).
+$script:fixtureRuns = New-Object -TypeName 'System.Collections.Generic.List[Object]'
+
 ###########
 # Helper functions
 ###########
@@ -379,6 +382,31 @@ function Get-Registration {
     }
 
     return ((& $Writ repo list) -join "`n")
+}
+
+# Get-Leftover gets the download directories the installer left in an account's temporary directory.
+#
+# Use-Account points TMP, TEMP and TMPDIR there, so it is where install.ps1 makes its download directory,
+# devlore-install-<guid>, which it must remove whichever way it ends (#1051). Nothing else there is counted: under
+# Windows PowerShell 5.1, Add-Type's compiler leaves an empty directory with a random name in TEMP, its own and not the
+# installer's, and PowerShell 7 leaves none (measured on danoble-wd11-3, 2026-10-21).
+#
+# Parameters:
+#   - `Account`: The account's name.
+#
+# Returns:
+#   - String: The name of each download directory left.
+function Get-Leftover {
+    [CmdletBinding()]
+    [OutputType([String])]
+    param(
+        [Parameter(Mandatory)]
+        [String]
+        $Account
+    )
+
+    $tmp = Join-Path (Join-Path $scratch $Account) 'tmp'
+    Get-ChildItem -LiteralPath $tmp -Filter 'devlore-install-*' -Force -ErrorAction Ignore | ForEach-Object { $_.Name }
 }
 
 # Invoke-Child runs this edition of PowerShell as a separate process with the arguments given.
@@ -981,6 +1009,8 @@ function Invoke-FixtureInstall {
     if ($fixtureResets.Count -gt 0) {
         $reset = $fixtureResets[$fixtureResets.Count - 1]
     }
+
+    $script:fixtureRuns.Add([pscustomobject]@{ Account = $Name; Leftovers = @(Get-Leftover -Account $Name) })
 
     return [pscustomobject]@{
         Message     = $reported.Message
@@ -1707,6 +1737,27 @@ catch {
         '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', "`"$installer`"", '-Help')
     Test-Expectation -Description 'as a file: -Help exits 0' -Condition ($helped.ExitCode -eq 0) `
         -Detail "exit $($helped.ExitCode)`n$($helped.Output)"
+
+    # --- Every run removes its download directory (#1051) ---
+    #
+    # Whether it installed or was refused, each run of the installer removes its download directory: #958 fixed
+    # install.sh leaving its own behind, and only a test keeps either installer from doing it. An account several
+    # fixture runs share is checked after each, by its run's number.
+
+    $runsOf = @{}
+
+    foreach ($run in $script:fixtureRuns) {
+        $runsOf[$run.Account] = 1 + [Int32] $runsOf[$run.Account]
+        Test-Expectation `
+            -Description "$($run.Account), run $($runsOf[$run.Account]): leaves no download directory behind" `
+            -Condition ($run.Leftovers.Count -eq 0) -Detail "left: $($run.Leftovers -join ', ')"
+    }
+
+    foreach ($account in 'failure', 'file') {
+        $left = @(Get-Leftover -Account $account)
+        Test-Expectation -Description "${account}: leaves no download directory behind" `
+            -Condition ($left.Count -eq 0) -Detail "left: $($left -join ', ')"
+    }
 
     # --- irm | iex with $env:DEVLORE_BASE, in a child session: it installs into ~/.local, so CI alone runs it ---
     #
