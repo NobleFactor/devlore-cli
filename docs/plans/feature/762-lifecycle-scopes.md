@@ -215,7 +215,7 @@ defect: the key is read in the same change that documents it.
 ### Requirement 9: Elevation is per scope
 
 A scope declares that it requires elevation; `elevation.Provider` satisfies it, as needed — sudo on Unix,
-Administrator on Windows. The provider is a draft (`6.1-privilege-elevation.md`); `ScopeSpec` gains the
+Administrator on Windows. The provider is a draft (`6.1-authorization.md`); `ScopeSpec` gains the
 field now so the requirement is expressible.
 
 ### Requirement 10: The record (ruled 2026-09-22, #913)
@@ -324,7 +324,7 @@ nothing validates unknown keys today, so a stale `writ.targets` would be ignored
 - [`2.4-hermeticity-guarantees.md`](../../architecture/2.4-hermeticity-guarantees.md) — the scope model
 - [`5.1-reconciliation.md`](../../architecture/5.1-reconciliation.md) — the concern and its landed mechanism
 - [`4.5-fsroot-variants.md`](../../architecture/4.5-fsroot-variants.md) — why the unsandboxed variants went
-- [`6.1-privilege-elevation.md`](../../architecture/6.1-privilege-elevation.md) — elevation, draft
+- [`6.1-authorization.md`](../../architecture/6.1-authorization.md) — elevation, draft
 - `writ-deploy-family.md` — the phase-8 design that renamed reconcile to status
 - Issues: #762 (this plan), #765 (neither config key is read — the prerequisite for `--scope`),
   #766 (the CLI specification), #761 (System roots disagree), #763 (doubled env prefix),

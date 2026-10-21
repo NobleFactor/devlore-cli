@@ -458,7 +458,7 @@ the layer model exists to prevent. Segments answer the same shape the same way, 
 
 **Elevation is per scope**, and automatic: updating `/` or `%SystemDrive%\` runs as a sudo user on Unix and
 as an Administrator on Windows, as needed. A scope declares that it requires elevation;
-[6.1](6.1-privilege-elevation.md)'s `elevation.Provider` satisfies it.
+[6.1](6.1-authorization.md)'s `authz.Provider` satisfies it, through the broker and the runner standing for root ([2.7](2.7-control-plane.md), [6.2](6.2-process-pool.md)).
 
 ## 5. The output model
 

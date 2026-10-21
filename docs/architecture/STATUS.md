@@ -42,4 +42,4 @@ Status overview for all architecture documents in `docs/architecture/`. Each doc
 | Document | Status |
 |----------|--------|
 | [5.2 Recovery Serialization](docs/architecture/5.2-recovery-serialization.md) | Design topic for a future plan |
-| [6 Execution Topology](docs/architecture/6-execution-topology.md) | Design topic for a future plan — Elevate stub only |
+| [6 Execution Topology](docs/architecture/6-execution-topology.md) | The problem, the policy triplet and the topology; its mechanism moved to [6.2](docs/architecture/6.2-process-pool.md), its provider to [6.1](docs/architecture/6.1-authorization.md), its wire to [2.7](docs/architecture/2.7-control-plane.md) (2026-10-21). No implementation beyond the dormant `ElevationOffer` and the dead `elevator` stub |

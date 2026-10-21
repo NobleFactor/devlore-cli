@@ -213,8 +213,8 @@ document when the owner rules it adopted; the plan does not close them.
 - `6.3-command-execution.md`: open question 3 recorded as closed by the request attribute, with the date; nothing else.
 - `index.md`: the 2.7, 6.1 and 6.2 lines retitled and described.
 - `STATUS.md`: row 6 revised.
-- Every link to `6.1-privilege-elevation.md` in `docs/` repointed; `grep -rn "6.1-privilege-elevation" docs/` is
-  empty at the last commit.
+- Every link to `6.1-privilege-elevation.md` in `docs/` repointed; at the last commit the only files naming it are this
+  plan, `6.1-authorization.md` and its status companion, which say what was retired.
 
 ## Implementation Phases
 
@@ -236,9 +236,11 @@ Each document is its own commit, so review can take them one at a time, and each
 
 ### Phase 3: the cross-references
 
-- [ ] `6-execution-topology.md`, `6.3-command-execution.md`, `index.md`, `STATUS.md` and every link to the retired
+- [x] `6-execution-topology.md`, `6.3-command-execution.md`, `index.md`, `STATUS.md` and every link to the retired
       file (Requirement 5)
-- [ ] `grep -rn "6.1-privilege-elevation" docs/` is empty
+- [x] `grep -rln "6.1-privilege-elevation" docs/` names only this plan, `6.1-authorization.md` and its status companion, which say what
+      was retired; every link is repointed, in the plans directory too, since a link to a removed file is dead whatever
+      the plan's age
 
 ### Phase 4: the pull request
 
