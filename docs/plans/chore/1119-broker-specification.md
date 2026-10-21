@@ -224,7 +224,7 @@ document when the owner rules it adopted; the plan does not close them.
 - [x] `2.7-control-plane.md` and its status companion (Requirement 1)
 - [x] `6.2-process-pool.md` and its status companion (Requirement 2)
 - [x] `2.8-eventing-infrastructure.md` and its status companion (Requirement 3)
-- [ ] `6.1-authorization.md` and its status companion land; `6.1-privilege-elevation.md` and its status are removed
+- [x] `6.1-authorization.md` and its status companion land; `6.1-privilege-elevation.md` and its status are removed
       with `git rm` (Requirement 4)
 
 Each document is its own commit, so review can take them one at a time, and each commit ticks its box above.
