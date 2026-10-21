@@ -280,6 +280,9 @@ account_env() {
 
 # install_pipe <account> <output> [VAR=value ...] -- [install.sh argument ...]: install.sh piped into bash, as
 # `curl ... | bash -s -- ...` runs it, in the named scratch account, with its output in <output>. Sets status.
+#
+# Every run, whether it installs or is refused, then checks that it left nothing in the account's TMPDIR, where
+# install.sh makes its download directory (#1051): #958 fixed a run that left it behind, and only a test keeps it fixed.
 status=0
 install_pipe() {
     local account="$1" output="$2"
@@ -299,6 +302,9 @@ install_pipe() {
     # ${extra[@]+...}: bash 3.2 reports an empty array as unbound under nounset.
     cat "$installer" | env "${environment[@]}" PATH="$installer_path" ${extra[@]+"${extra[@]}"} \
         "$installer_bash" -s -- "$@" >"$output" 2>&1 || status=$?
+    local leftovers="${output}.leftovers"
+    find "${scratch}/${account}/tmp" -mindepth 1 -maxdepth 1 >"$leftovers"
+    expect "$(basename "$output"): leaves nothing in its temporary directory" "$leftovers" test ! -s "$leftovers"
 }
 
 # root_of <account> <layer> [writ]: the root writ reports for a layer in that account, by the writ installed there,
