@@ -1,7 +1,7 @@
 ---
 title: "The execution model's specifications: 2.7 becomes the broker's, 6.2 the command runner's, 2.8 gains the fork, and 6.1-authorization lands"
 issue: https://github.com/NobleFactor/devlore-cli/issues/1119
-status: approved
+status: complete
 created: 2026-10-21
 updated: 2026-10-21
 ---
@@ -244,12 +244,17 @@ Each document is its own commit, so review can take them one at a time, and each
 
 ### Phase 4: the pull request
 
-- [ ] `make quality-gate` passes in the worktree (`Test-GuideFrontmatter.sh` is the check that reads documents; the
-      rest confirms nothing else changed)
-- [ ] Every relative link in the five changed documents resolves to a file in the tree (`scripts` are not written for
-      this; a one-line shell loop in the pull request's test plan)
-- [ ] The pull request's description says AI assisted and ends with `Signed-off-by:` and `Assisted-by: Claude Code`
-- [ ] This document's status is set to `complete` in the last commit, every box above ticked
+- [x] `make quality-gate` passes in the worktree (`Test-GuideFrontmatter.sh` is the check that reads documents; the
+      rest confirms nothing else changed) -- 2026-10-21, exit 0 on the tree at the previous commit; the first run
+      stopped at `powershell-lint` for want of PSScriptAnalyzer 1.25.0 on the machine, installed in user scope as the
+      gate instructs
+- [x] Every relative link in the changed documents resolves to a file in the tree (a shell loop over `](…)` in the
+      changed `docs/*.md`, `test -e` from the file's directory, or from the repository root for `STATUS.md`, whose
+      links are root-relative by its own convention; zero broken from this branch; one that predates it,
+      `STATUS.md` row 5, is [#1124](https://github.com/NobleFactor/devlore-cli/issues/1124))
+- [x] The pull request's description says AI assisted and ends with `Signed-off-by:` and `Assisted-by: Claude Code`
+      (`go-devlore-cli`, one level above the repository)
+- [x] This document's status is set to `complete` in the last commit, every box above ticked
 
 No phase runs after the merge: this is a documentation change with no deploy and no live path.
 
@@ -311,13 +316,13 @@ and a `System/` deploy from an unprivileged shell through the runner standing fo
 Rulings this plan needs before a document can say "settled" rather than "open"; absent a ruling, the document records
 the question.
 
-- [ ] The daemon's question 1: command runner or graph executor. It decides the broker's size and whether the System
+- The daemon's question 1: command runner or graph executor. It decides the broker's size and whether the System
       graph reaches root as `devlore run --graph` on the root runner (the proposal drawn) or as file operations.
-- [ ] fd 3 for devlore-aware children, against a `source` field with sniffing. 6.2 recommends fd 3.
-- [ ] The daemon's name and the socket paths, drawn as `devlore broker`, `/var/run/devlore/broker.sock`,
+- fd 3 for devlore-aware children, against a `source` field with sniffing. 6.2 recommends fd 3.
+- The daemon's name and the socket paths, drawn as `devlore broker`, `/var/run/devlore/broker.sock`,
       `runner-root.sock`; illustrative until ruled.
-- [ ] Whether the draft is adopted as written apart from the corrections listed, which closes #522–#525.
-- [ ] The shell provider's name. Feature #799 calls it "one command-execution surface for every platform"; 6.3's tier 1
+- Whether the draft is adopted as written apart from the corrections listed, which closes #522–#525.
+- The shell provider's name. Feature #799 calls it "one command-execution surface for every platform"; 6.3's tier 1
       runs no shell, and PowerShell is a dialect of its tier 2. Proposed: `command`, with `plan.command.run(argv=[...])`
       and `plan.command.script(body=..., args=[...])` and the dialect a parameter, `shell.exec` kept one release as a
       deprecated alias. A breaking change to an authoring surface, as 6.3 weighs for `command=`. Recorded in 6.3 as
