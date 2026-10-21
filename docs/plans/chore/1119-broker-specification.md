@@ -143,6 +143,11 @@ stand. The title becomes "The Command Runner: a pool of daemons, one per account
    `devlore run --graph` as the proposed form and the alternatives named), § Interface Shape (retired: `{Start, Exec,
    WriteFile, Stop}` is the runner's API in another form), § Remote Execution (retired onto 2.7's wire;
    `Execute(cmd string, elevated bool)` named as what 6.3 and the account rule out).
+9. **Windows (ruled mid-work, 2026-10-21: "We need Windows support too and the command runner must accommodate"):**
+   a § 4.3 with the same protocol by the platform's means — a service per account started by the SCM, a named pipe
+   with a DACL and the client token as the peer identity, CRT argv encoding for tier 1, `pwsh -File` for tier 2, a Job
+   Object for cancel, an inherited handle for the third channel — each row saying whether the tree has verified it;
+   #528 reframed to the one unverified row, the token path for on-demand spawn.
 8. **Open questions** revised: "who acquires" closed (the manager backend declares its account and obtains the
    runner); the worker binary closed as the runner daemon, with one-binary-or-two left to 2.7; the package-manager
    knobs, retirement thresholds, pause and resume across a restart, the PowerShell serialization boundary, JEA, kept;
