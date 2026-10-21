@@ -212,7 +212,7 @@ func runRepoSet(cmd *cobra.Command, name, location, destination, branch string) 
 
 	ctx := cmd.Context()
 
-	root, clone, err := settledRoot(ctx, name, location, destination, branch)
+	root, clone, err := settledRoot(ctx, name, location, destination)
 	if err != nil {
 		return err
 	}
@@ -236,47 +236,12 @@ func runRepoSet(cmd *cobra.Command, name, location, destination, branch string) 
 		record.Previous = &displaced
 	}
 
-	// A dry run emits what the real run would and does nothing: no clone, no fetch, no switch, no symlink, no
-	// removal. The target is described from its path alone, since a tree that would be cloned is not there to ask.
 	if viper.GetBool("writ.dry-run") {
-		if branch != "" && !clone {
-			cli.Note("%s: would fetch origin and switch %s to %s", name, root, branch)
-		}
-		if unchanged {
-			cli.Note("%s: unchanged, %s", name, root)
-		} else {
-			narrateSet(name, root, previous, true)
-		}
-		record.RepoTarget = RepoTarget{Root: root, Owner: ownerOf(root)}
-		return cli.Emit(cmd, record)
+		return emitDryRun(cmd, record, previous, root, branch, clone, unchanged)
 	}
 
-	if clone {
-		if _, err := cloneRepository(cmd, location, root, branch); err != nil {
-			return err
-		}
-		cli.Note("%s: cloned %s into %s, on %s", name, location, root, treeBranch(ctx, root))
-	} else {
-		if err := validateWorkingTree(root); err != nil {
-			return err
-		}
-
-		switched := ""
-		if branch != "" {
-			from, err := bringToBranch(ctx, name, root, branch)
-			if err != nil {
-				return err
-			}
-			if from != branch {
-				switched = fmt.Sprintf(", switched from %s to %s", from, branch)
-			}
-		}
-
-		if found {
-			cli.Note("%s: found the clone of %s at %s, on %s%s", name, location, root, treeBranch(ctx, root), switched)
-		} else {
-			cli.Note("%s: found a repository at %s, on %s%s", name, root, treeBranch(ctx, root), switched)
-		}
+	if err := settleTree(cmd, name, location, root, branch, clone, found); err != nil {
+		return err
 	}
 
 	if unchanged {
@@ -302,6 +267,91 @@ func runRepoSet(cmd *cobra.Command, name, location, destination, branch string) 
 	record.RepoTarget = repoTarget(ctx, root)
 
 	return cli.Emit(cmd, record)
+}
+
+// emitDryRun emits what `set` would do, and does nothing: no clone, no fetch, no switch, no symlink, no removal.
+//
+// The target is described from its path alone, since a tree that would be cloned is not there to ask.
+//
+// Parameters:
+//   - `cmd`: the invoking command; supplies the output stream.
+//   - `record`: the registration the real run would emit, its target still to be described.
+//   - `previous`: the layer's registration before.
+//   - `root`: the working tree's root.
+//   - `branch`: the branch asked for, or "".
+//   - `clone`: whether the tree would be cloned into being.
+//   - `unchanged`: whether the layer is already registered at `root`.
+//
+// Returns:
+//   - `error`: an emission failure.
+func emitDryRun(cmd *cobra.Command, record, previous RepoRegistration, root, branch string, clone, unchanged bool) error {
+
+	if branch != "" && !clone {
+		cli.Note("%s: would fetch origin and switch %s to %s", record.Layer, root, branch)
+	}
+
+	if unchanged {
+		cli.Note("%s: unchanged, %s", record.Layer, root)
+	} else {
+		narrateSet(record.Layer, root, previous, true)
+	}
+
+	record.RepoTarget = RepoTarget{Root: root, Owner: ownerOf(root)}
+
+	return cli.Emit(cmd, record)
+}
+
+// settleTree puts the layer's working tree on disk and on the branch asked for, and says what it found and did.
+//
+// A tree to clone is cloned, onto the branch when one is given. A tree already there, a path or the clone an
+// earlier run left, is checked to be a working tree and, when a branch is given, brought to it ([bringToBranch]).
+// Every refusal comes before the registration is written.
+//
+// Parameters:
+//   - `cmd`: the invoking command; supplies the streams and context.
+//   - `name`: the layer.
+//   - `location`: the polymorphic location operand.
+//   - `root`: the working tree's root.
+//   - `branch`: the branch asked for, or "".
+//   - `clone`: whether the tree has to be cloned into being.
+//   - `found`: whether the tree is the clone of `location` an earlier run left.
+//
+// Returns:
+//   - `error`: a failed clone, a root that is not a working tree, or [bringToBranch]'s refusals.
+func settleTree(cmd *cobra.Command, name, location, root, branch string, clone, found bool) error {
+
+	ctx := cmd.Context()
+
+	if clone {
+		if _, err := cloneRepository(cmd, location, root, branch); err != nil {
+			return err
+		}
+		cli.Note("%s: cloned %s into %s, on %s", name, location, root, treeBranch(ctx, root))
+		return nil
+	}
+
+	if err := validateWorkingTree(root); err != nil {
+		return err
+	}
+
+	switched := ""
+	if branch != "" {
+		from, err := bringToBranch(ctx, name, root, branch)
+		if err != nil {
+			return err
+		}
+		if from != branch {
+			switched = fmt.Sprintf(", switched from %s to %s", from, branch)
+		}
+	}
+
+	if found {
+		cli.Note("%s: found the clone of %s at %s, on %s%s", name, location, root, treeBranch(ctx, root), switched)
+	} else {
+		cli.Note("%s: found a repository at %s, on %s%s", name, root, treeBranch(ctx, root), switched)
+	}
+
+	return nil
 }
 
 // writeRegistration points `layer` at `root`, replacing whatever registration was there.
@@ -366,15 +416,14 @@ func narrateSet(name, root string, previous RepoRegistration, dryRun bool) {
 //   - `name`: the layer being set.
 //   - `location`: the polymorphic location operand.
 //   - `destination`: the URL form's optional clone destination.
-//   - `branch`: the URL form's optional branch.
 //
 // Returns:
 //   - `string`: the absolute working-tree-root the registration will point at.
 //   - `bool`: whether that root has to be cloned into being.
 //   - `error`: [plannedRoot]'s refusals, or a clone destination another layer holds.
-func settledRoot(ctx context.Context, name, location, destination, branch string) (root string, clone bool, err error) {
+func settledRoot(ctx context.Context, name, location, destination string) (root string, clone bool, err error) {
 
-	root, clone, err = plannedRoot(location, destination, branch)
+	root, clone, err = plannedRoot(location, destination)
 	if err == nil && clone {
 		err = sharedCloneRefusal(ctx, root, name)
 	}
@@ -392,13 +441,12 @@ func settledRoot(ctx context.Context, name, location, destination, branch string
 // Parameters:
 //   - `location`: the polymorphic location operand.
 //   - `destination`: the URL form's optional clone destination.
-//   - `branch`: the URL form's optional branch.
 //
 // Returns:
 //   - `string`: the absolute working-tree-root the registration will point at.
 //   - `bool`: whether that root has to be cloned into being.
 //   - `error`: a malformed combination of operands, or a URL that yields no directory name.
-func plannedRoot(location, destination, branch string) (root string, clone bool, err error) {
+func plannedRoot(location, destination string) (root string, clone bool, err error) {
 
 	if isRepositoryURL(location) {
 		if destination == "" {

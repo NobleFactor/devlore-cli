@@ -115,9 +115,12 @@ as now; `unchanged` stays for a layer already registered there, its branch line 
 
 ### Phase 3: Merge
 
-- [x] `make check-all`, finished green as the PR script runs it, before the script is called ready: at `acd17da6`, with
-      no prebuilt release
-- [x] PR script written, shown, and handed over; the PR resolves #983
+- [ ] `make check-all`, finished green as the PR script runs it, before the script is called ready. Corrected
+      2026-10-21: `77e9fd57` ticked this box for `acd17da6` while `make check-all` had failed, exit 2, on two lint
+      findings: `runRepoSet`'s cognitive complexity 33 (gocognit, over 20) and `plannedRoot`'s now-unused `branch`
+      (unparam). The tick was committed in the same command that printed the failure, unread. Fixed: the tree's
+      settling is `settleTree` and the dry run `emitDryRun`, and `branch` leaves `plannedRoot` and `settledRoot`
+- [ ] PR script written, shown, and handed over; the PR resolves #983
 - [ ] CI on the pull request, every leg; nothing acts on the checks while the script's gate watches them
 
 ## Files to Create/Modify
