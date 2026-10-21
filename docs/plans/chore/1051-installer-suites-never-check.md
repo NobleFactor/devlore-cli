@@ -121,13 +121,16 @@ points `TMP` and `TEMP` at `<scratch>/<account>/tmp`, and `install.ps1` makes `d
 ### Phase 4: Merge
 
 - [x] The PR script's pre-flight is `make check-all`, finished green before the script is called ready
-- [ ] Found running the PR script, 2026-10-21: under `make check-all`, the `install.sh` suite's own `make dist
+- [x] Found running the PR script, 2026-10-21: under `make check-all`, the `install.sh` suite's own `make dist
       DEVLORE_VERSION=v0.0.0-test.1002` inherited the `VERSION` this Makefile exports, kept it over DEVLORE_VERSION, and
       built a release of this checkout's version, which the suite refused. My `check-all` run had passed only because
       it named a `dist` built beforehand, `DEVLORE_TEST_DIST`, which the script does not. `test-installers` now unsets
       `VERSION`, `COMMIT` and `BUILD_DATE`; `make check-all` again, as the script runs it, with no `DEVLORE_TEST_DIST`
 - [x] PR script written, shown, and handed over; the PR resolves #1051, #670 and #1110
-- [ ] CI on the pull request, every leg; nothing acts on the checks while the script's gate watches them
+- [ ] CI on the pull request, every leg; nothing acts on the checks while the script's gate watches them. #1111's
+      first run: every leg passed but `quality-gate`, whose `star lint shell .` linted noblefactor-ops' scripts in
+      `.base`, checked out there now before the gate rather than after the shell lint. The base layer is moved out of
+      the checkout and named in `BASE_LAYER`, and the Makefile no longer looks for one in the tree
 
 ## Files to Create/Modify
 

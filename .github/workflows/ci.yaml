@@ -90,6 +90,14 @@ jobs:
           ref: develop
           path: .base
 
+      # Out of this checkout before the quality gate runs: `star lint shell .` lints every script under the tree it is
+      # given, and found noblefactor-ops' own there on #1111. actions/checkout puts a repository under the workspace
+      # alone, so it is moved, and the Makefile reads where from BASE_LAYER, as it reads writ's base layer locally.
+      - name: Move the base layer out of the checkout
+        run: |
+          mv .base "${RUNNER_TEMP}/base"
+          echo "BASE_LAYER=${RUNNER_TEMP}/base" >> "$GITHUB_ENV"
+
       # The version is the Makefile's, read rather than copied, as golangci-lint's is above (#1110). PSResourceGet ships
       # with PowerShell 7.4 and later, with PSGallery registered, which PowerShellGet's Install-Module needed set up
       # first; on #1108 that setup found no PSGallery and the job failed. pwsh ships on the ubuntu-latest image.

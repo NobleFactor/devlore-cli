@@ -561,14 +561,15 @@ psscriptanalyzer-pinned: ## Verify the pinned PSScriptAnalyzer is installed
 	esac
 
 # The base layer holds the organization's PowerShell gate and its settings, so the rule set is one across the three
-# repositories (#964). CI checks it out at .base; elsewhere it is the base layer writ has registered, found as star gh
-# finds its repositories (noblefactor-ops#253).
-BASE_LAYER ?= $(or $(wildcard .base),$(shell writ repo list --filter layer=base --filter state=registered \
-	--jq '.[].root' --output value 2>/dev/null))
+# repositories (#964). CI checks it out, moves it out of this tree and names it in BASE_LAYER; elsewhere it is the base
+# layer writ has registered, found as star gh finds its repositories (noblefactor-ops#253). Never inside this tree:
+# `star lint shell .` would lint its scripts too (#1111).
+BASE_LAYER ?= $(shell writ repo list --filter layer=base --filter state=registered --jq '.[].root' --output value \
+	2>/dev/null)
 
 powershell-lint: psscriptanalyzer-pinned ## Lint every PowerShell script with the base layer's gate, pinned analyzer
 	if [ -z "$(BASE_LAYER)" ]; then
-		echo "ERROR: no base layer: CI checks it out at .base, and writ has none registered here."
+		echo "ERROR: no base layer: set BASE_LAYER to a checkout of noblefactor-ops, or register writ's base layer."
 		exit 1
 	fi
 	pwsh -NoProfile -Command "Import-Module -Name PSScriptAnalyzer -RequiredVersion $(PSSCRIPTANALYZER_VERSION) \
