@@ -41,7 +41,9 @@ At `c8a31a44`: `copyFile` opens the source, creates the destination through `fsr
 
 ### Phase 2: The fix (Requirement 1)
 
-- [ ] `copyAndClose`, and `copyFile` through it; the test fails against the discarding close and passes after
+- [x] `copyAndClose`, and `copyFile` through it; `TestCopyAndClose_ReturnsTheCloseError` failed against the
+      discarding close ("copyAndClose returned <nil>; the destination's close failed") and passes with `iox.Close`;
+      `make test` passes
 
 ### Phase 3: Merge
 

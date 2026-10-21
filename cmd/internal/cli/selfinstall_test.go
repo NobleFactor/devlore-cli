@@ -328,6 +328,54 @@ func TestCopyFile_NonExistentSource(t *testing.T) {
 	}
 }
 
+// TestCopyAndClose_ReturnsTheCloseError is #1049: a write the operating system reports only when the file is closed,
+// a full disk say, leaves a short file, so the destination's close error is the copy's. The closer here takes every
+// write and fails only at close, which a real file cannot be made to do without its writes failing first.
+func TestCopyAndClose_ReturnsTheCloseError(t *testing.T) {
+
+	refused := errors.New("no space left on device")
+	dest := &failingCloser{closeErr: refused}
+
+	err := copyAndClose(dest, strings.NewReader("an extension"))
+
+	if !errors.Is(err, refused) {
+		t.Errorf("copyAndClose returned %v; the destination's close failed with %v", err, refused)
+	}
+
+	if !dest.closed || dest.written.String() != "an extension" {
+		t.Errorf("closed %v, wrote %q; want closed, and every byte written", dest.closed, dest.written.String())
+	}
+}
+
+// failingCloser is a destination that takes every write and fails when closed.
+type failingCloser struct {
+	written  bytes.Buffer
+	closeErr error
+	closed   bool
+}
+
+// Write takes every byte.
+//
+// Parameters:
+//   - `p`: the bytes to write.
+//
+// Returns:
+//   - `int`: len(p).
+//   - `error`: nil.
+func (f *failingCloser) Write(p []byte) (int, error) {
+	return f.written.Write(p)
+}
+
+// Close records that it was called and fails.
+//
+// Returns:
+//   - `error`: the closer's error.
+func (f *failingCloser) Close() error {
+	f.closed = true
+
+	return f.closeErr
+}
+
 // TestCopyDir tests recursive directory copying.
 func TestCopyDir(t *testing.T) {
 	src := t.TempDir()
