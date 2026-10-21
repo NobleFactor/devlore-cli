@@ -9,10 +9,13 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
+	"github.com/NobleFactor/devlore-cli/pkg/sink"
+	"github.com/NobleFactor/devlore-cli/pkg/status"
 	"github.com/NobleFactor/devlore-cli/pkg/xdg"
 	"github.com/spf13/cobra"
 )
@@ -186,6 +189,68 @@ func TestShellCompletionPath_PerShell(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestPrintInstallSummary_ShellSetupNamesThePrefix is #1048: the setup instructions name the completion files this
+// install wrote, under its prefix, never ~/.local whatever the prefix. The prefix is a scratch directory no shell
+// searches, so fish is told how to find its file.
+func TestPrintInstallSummary_ShellSetupNamesThePrefix(t *testing.T) {
+
+	prefix := t.TempDir()
+	t.Setenv("XDG_DATA_DIRS", "")
+	said := captureInstallSummary(t, prefix)
+
+	if strings.Contains(said, "~/.local") {
+		t.Errorf("the instructions name ~/.local for prefix %s:\n%s", prefix, said)
+	}
+
+	for _, want := range []string{
+		filepath.Join(prefix, "share", "bash-completion", "completions", "writ"),
+		"set --prepend fish_complete_path " + filepath.Join(prefix, "share", "fish", "vendor_completions.d"),
+		". " + filepath.Join(prefix, "share", "powershell", "completions", "writ.ps1"),
+		"fpath=(" + filepath.Join(prefix, "share", "zsh", "site-functions") + " $fpath)",
+	} {
+		if !strings.Contains(said, want) {
+			t.Errorf("the instructions lack %q:\n%s", want, said)
+		}
+	}
+}
+
+// TestPrintInstallSummary_FishFindsASearchedPrefix is #1048: under a prefix whose share directory fish searches, a
+// directory of XDG_DATA_DIRS, the instructions say fish finds the completion and ask nothing of the user.
+func TestPrintInstallSummary_FishFindsASearchedPrefix(t *testing.T) {
+
+	prefix := t.TempDir()
+	t.Setenv("XDG_DATA_DIRS", filepath.Join(prefix, "share")+string(os.PathListSeparator)+"/usr/share")
+	said := captureInstallSummary(t, prefix)
+
+	if strings.Contains(said, "fish_complete_path") {
+		t.Errorf("fish searches %s, yet the instructions ask for fish_complete_path:\n%s", prefix, said)
+	}
+
+	if !strings.Contains(said, filepath.Join(prefix, "share", "fish", "vendor_completions.d", "writ.fish")) {
+		t.Errorf("the instructions do not name fish's file:\n%s", said)
+	}
+}
+
+// captureInstallSummary returns what the install summary narrates for writ, with completions for every shell.
+//
+// Parameters:
+//   - `t`: the test, whose cleanup restores the narrator.
+//   - `prefix`: the installation prefix.
+//
+// Returns:
+//   - `string`: the narration.
+func captureInstallSummary(t *testing.T, prefix string) string {
+
+	t.Helper()
+	captured, narration := sink.Capture()
+	previous := UI()
+	SetUI(status.NewNarrator("writ", captured))
+	t.Cleanup(func() { SetUI(previous) })
+	printInstallSummary("writ", prefix, nil, []string{"bash", "fish", "pwsh", "zsh"})
+
+	return narration.String()
 }
 
 // TestHasMan tests the man command detection.

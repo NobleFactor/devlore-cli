@@ -570,7 +570,7 @@ func printInstallSummary(toolName, prefix string, installed, installedShells []s
 
 	Note("")
 	Note("Add %s to your PATH if not already present.", filepath.Join(prefix, "bin"))
-	printShellSetupInstructions(installedShells, toolName)
+	printShellSetupInstructions(prefix, installedShells, toolName)
 }
 
 // retireSupersededFiles removes what a previous install of this tool owned and this one does not.
@@ -1220,8 +1220,19 @@ func installCompletionsForShells(rootCmd *cobra.Command, prefixRoot fsroot.Dir, 
 	return paths, nil
 }
 
-// printShellSetupInstructions prints setup instructions for installed shells.
-func printShellSetupInstructions(shells []string, toolName string) {
+// printShellSetupInstructions prints, for each shell completions were installed for, how that shell finds them.
+//
+// Each line names the file this install wrote under the prefix, by shellCompletionPath, the function the install
+// writes by, so the instructions hold whatever the prefix (#1048). bash-completion 2 needs nothing more than the
+// prefix's bin on PATH: its loader looks in <dir>/../share/bash-completion/completions for every directory on PATH.
+// fish finds its file on its own only under a share directory it searches (fishSearches), and otherwise is told
+// to add the directory to fish_complete_path.
+//
+// Parameters:
+//   - `prefix`: the installation prefix.
+//   - `shells`: the shells completions were installed for.
+//   - `toolName`: the installed tool, whose completion files these are.
+func printShellSetupInstructions(prefix string, shells []string, toolName string) {
 	if len(shells) == 0 {
 		return
 	}
@@ -1230,24 +1241,50 @@ func printShellSetupInstructions(shells []string, toolName string) {
 	Note("Shell completion setup:")
 
 	for _, shell := range shells {
+		rel, filename := shellCompletionPath(shell, toolName)
+		dir := filepath.Join(prefix, rel)
+		file := filepath.Join(dir, filename)
+
 		switch shell {
 		case "bash":
 			Note("")
-			Note("  For bash, ensure bash-completion is installed.")
+			Note("  For bash, bash-completion 2 finds %s once %s is on your PATH.", file, filepath.Join(prefix, "bin"))
 		case "fish":
 			Note("")
-			Note("  For fish, completions work automatically.")
+			if fishSearches(filepath.Join(prefix, "share")) {
+				Note("  For fish, completions work automatically: fish finds %s.", file)
+			} else {
+				Note("  For fish, add to ~/.config/fish/config.fish:")
+				Note("    set --prepend fish_complete_path %s", dir)
+			}
 		case "pwsh":
 			Note("")
 			Note("  For PowerShell, add to your $PROFILE:")
-			Note("    . ~/.local/share/powershell/completions/%s.ps1", toolName)
+			Note("    . %s", file)
 		case "zsh":
 			Note("")
 			Note("  For zsh, add to ~/.zshrc:")
-			Note("    fpath=(~/.local/share/zsh/site-functions $fpath)")
+			Note("    fpath=(%s $fpath)", dir)
 			Note("    autoload -Uz compinit && compinit")
 		}
 	}
+}
+
+// fishSearches reports whether fish looks for vendor completions under a share directory without being told.
+//
+// fish's search is its user data directory, XDG_DATA_HOME's fish, and each XDG_DATA_DIRS directory's fish, each with
+// vendor_completions.d; nothing relative to PATH.
+//
+// Parameters:
+//   - `share`: the share directory, <prefix>/share.
+//
+// Returns:
+//   - `bool`: true when share is XDG_DATA_HOME or a directory of XDG_DATA_DIRS.
+func fishSearches(share string) bool {
+	share = filepath.Clean(share)
+
+	return share == filepath.Clean(xdg.DataHome()) ||
+		slices.ContainsFunc(xdg.DataDirs(), func(dir string) bool { return filepath.Clean(dir) == share })
 }
 
 // detectShells returns available shells on the system.
