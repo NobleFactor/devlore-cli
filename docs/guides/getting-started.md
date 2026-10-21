@@ -228,18 +228,19 @@ writ config set writ.repos.personal ~/my-environment
 
 ## Create your first project
 
-A project is simply a directory in your repository. Files inside it mirror
-the structure of your home directory:
+A project is simply a directory under your repository's `Home/`. Files inside it mirror
+the structure of your home directory: `Home/noblefactor/.config/git/config` deploys to
+`~/.config/git/config`.
 
 ```bash
 cd ~/my-environment
-mkdir -p noblefactor/Home/.config/git
+mkdir -p Home/noblefactor/.config/git
 
 # Move your existing gitconfig into the project
-mv ~/.config/git/config noblefactor/.config/git/config
+mv ~/.config/git/config Home/noblefactor/.config/git/config
 
 # Add more files
-cp ~/.zshrc noblefactor/.zshrc
+cp ~/.zshrc Home/noblefactor/.zshrc
 ```
 
 ## Deploy the project
@@ -251,8 +252,8 @@ writ deploy noblefactor
 Writ creates symlinks from your home directory to the project files:
 
 ```
-~/.zshrc → repos/personal/noblefactor/.zshrc
-~/.config/git/config → repos/personal/noblefactor/.config/git/config
+~/.zshrc → ~/my-environment/Home/noblefactor/.zshrc
+~/.config/git/config → ~/my-environment/Home/noblefactor/.config/git/config
 ```
 
 ## Check status
@@ -273,13 +274,13 @@ If your project includes a `packages-manifest.yaml` file, writ automatically
 delegates to lore for software installation:
 
 ```yaml
-# noblefactor/packages-manifest.yaml
+# Home/noblefactor/packages-manifest.yaml
 packages:
-  - gh
-  - jq
-  - ripgrep
-  - neovim:
-      with: [lsp]
+  - name: gh
+  - name: jq
+  - name: ripgrep
+  - name: neovim
+    with: [lsp]
 ```
 
 ```bash
