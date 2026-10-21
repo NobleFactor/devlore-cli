@@ -47,7 +47,9 @@ At `98c59913`:
 
 ### Phase 2: The fix (Requirement 1)
 
-- [ ] The flag gone, `ctx.dry_run` read; the two tests fail before and pass after
+- [x] The flag gone, `ctx.dry_run` read; the two tests failed at `98c59913` ("a dry run rewrote the index", "the
+      command declares --dry_run beside the global --dry-run") and pass with the fix; `make test` passes. The
+      generated CLI reference already listed only `--dry-run`, so it does not change
 
 ### Phase 3: Merge
 

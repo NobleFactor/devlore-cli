@@ -20,7 +20,7 @@
 #   references/ -- generated reference material, derived from source rather than authored
 #
 # Usage:
-#   star devlore knowledge index --target=/path/to/registry [--dry_run=true]
+#   star devlore knowledge index --target=/path/to/registry [--dry-run]
 
 # Files permitted at a domain root, where no asset type claims them.
 DOMAIN_ROOT_FILES = ["index.yaml", "README.md"]
@@ -221,7 +221,7 @@ def _resolve_target(ctx):
 def run(command, ctx):
     """Main entry point."""
     target = _resolve_target(ctx)
-    dry_run = ctx.args.get("dry_run", False)
+    dry_run = ctx.dry_run
 
     knowledge_dir = file.join(target, "knowledge")
 

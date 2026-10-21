@@ -58,7 +58,7 @@ func runIndex(t *testing.T, app *Application, target string) error {
 	if !ok {
 		t.Fatal(`command "devlore knowledge index" is not registered`)
 	}
-	_, err := cmd.Run(map[string]string{"target": target, "dry_run": ""})
+	_, err := cmd.Run(map[string]string{"target": target})
 	return err
 }
 
@@ -341,3 +341,51 @@ func TestKnowledgeIndex_AcceptsRecognizedNewTypes(t *testing.T) {
 		t.Fatalf("the three new asset types should be accepted: %v", err)
 	}
 }
+
+// region DRY RUN
+
+// TestKnowledgeIndex_GlobalDryRunWritesNothing is #1053: the command reads star's global --dry-run, which star gives
+// every script as ctx.dry_run, so a dry run over a registry with a new file to index leaves the index as it was.
+func TestKnowledgeIndex_GlobalDryRunWritesNothing(t *testing.T) {
+	before := "domain: packages\n" +
+		"slots:\n" +
+		"  - name: homebrew.yaml\n" +
+		"    generated: false\n" +
+		"    package: homebrew\n"
+	workdir, target := registry(t, map[string]string{
+		"knowledge/packages/slots/homebrew.yaml": "name: homebrew\n",
+		"knowledge/packages/slots/macports.yaml": "name: macports\n",
+		"knowledge/packages/index.yaml":          before,
+	})
+
+	previous := DryRun
+	DryRun = true
+	t.Cleanup(func() { DryRun = previous })
+
+	app := knowledgeRuntime(t, workdir)
+	if err := runIndex(t, app, target); err != nil {
+		t.Fatalf("index: %v", err)
+	}
+
+	if got := readIndex(t, workdir, target, "packages"); got != before {
+		t.Errorf("a dry run rewrote the index:\n%s", got)
+	}
+}
+
+// TestKnowledgeIndex_DeclaresNoDryRunFlag is #1053: the global --dry-run is the one way to ask for a dry run, so the
+// command declares no dry_run of its own beside it.
+func TestKnowledgeIndex_DeclaresNoDryRunFlag(t *testing.T) {
+	app := knowledgeRuntime(t, t.TempDir())
+
+	cmd, ok := app.Commands()["devlore knowledge index"]
+	if !ok {
+		t.Fatal(`command "devlore knowledge index" is not registered`)
+	}
+	for _, flag := range cmd.Flags {
+		if flag.Name == "dry_run" {
+			t.Errorf("the command declares --dry_run beside the global --dry-run")
+		}
+	}
+}
+
+// endregion
