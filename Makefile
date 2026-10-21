@@ -625,7 +625,12 @@ quality-gate: ## Run every check of CI's quality gate
 	$(MAKE) complexity
 	$(MAKE) verify-ldflags
 
+# The suites build their own release with `make dist DEVLORE_VERSION=<the fixtures' tag>` when DEVLORE_TEST_DIST names
+# none. This Makefile exports VERSION, COMMIT and BUILD_DATE to what it runs, and a make that inherits VERSION keeps it
+# over DEVLORE_VERSION (`VERSION ?= ...`), so the suite's release would carry this checkout's version and be refused.
+# The suites run without them.
 test-installers: ## Run both installer suites against this checkout's programs
+	unset VERSION COMMIT BUILD_DATE
 	pwsh -NoProfile -File scripts/Test-InstallScript.ps1
 	bash scripts/Test-InstallScript.sh
 
