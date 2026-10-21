@@ -111,15 +111,17 @@ points `TMP` and `TEMP` at `<scratch>/<account>/tmp`, and `install.ps1` makes `d
 
 ### Phase 3: One list of checks (Requirements 2 to 4)
 
-- [ ] `make quality-gate`, `make check`, `make shell-lint`, `make check-all`, the analyzer's pin and its check
-- [ ] `ci.yaml`'s quality-gate job installs its tools and runs `make quality-gate`; the analyzer installed with
-      `Install-PSResource`
-- [ ] `make check-all` here, green; the analyzer check refusing another version
+- [x] `make quality-gate`, `make check`, `make shell-lint`, `make check-all`, the analyzer's pin and its check; each
+      check's reason, written in `ci.yaml` until now, beside it in the Makefile
+- [x] `ci.yaml`'s quality-gate job installs its tools and runs `make quality-gate`; the analyzer installed with
+      `Install-PSResource`, which ran in a clean home here and installed 1.25.0
+- [x] `make check-all` here, green at `3deedf77`: the quality gate, 113 packages under `-race`, the scenarios, both
+      suites; the analyzer check accepting 1.25.0 and refusing 1.24.0 with the command that installs it
 
 ### Phase 4: Merge
 
-- [ ] The PR script's pre-flight is `make check-all`, finished green before the script is called ready
-- [ ] PR script written, shown, and handed over; the PR resolves #1051, #670 and #1110
+- [x] The PR script's pre-flight is `make check-all`, finished green before the script is called ready
+- [x] PR script written, shown, and handed over; the PR resolves #1051, #670 and #1110
 - [ ] CI on the pull request, every leg; nothing acts on the checks while the script's gate watches them
 
 ## Files to Create/Modify
