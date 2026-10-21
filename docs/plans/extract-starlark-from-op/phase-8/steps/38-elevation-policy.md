@@ -13,7 +13,7 @@ parent: ../../phase-8.md
 deliberately separated from the configuration work: the config model is settled, elevation policy is not.
 
 **Problem space — framed 2026-07-23.** The two-substrate framing now opens
-[`6.1-privilege-elevation.md` § Problem space](../../../../architecture/6.1-privilege-elevation.md#problem-space--elevation-serves-two-substrates):
+[`6.1-authorization.md` § Problem space](../../../../architecture/6.1-authorization.md#problem-space--elevation-serves-two-substrates):
 **substrate 1** is command execution (`shell` / `powershell` / `pkg` / `service`), which poses a *process-management*
 question alongside elevation; **substrate 2** is network access (`appnet.Download` and any token-taking method), where
 `elevation.Provider` is the token source. This reshapes the open questions below — the strategies ↔ brokers question
@@ -46,7 +46,7 @@ with provider config sections named `<Type>Config`. The **broker** model is sett
 ([`3.2`](../../../../architecture/3.2-projected-provider-api.md#pluggable-brokers--provider-owned-routers)): a
 provider-owned router over interface-conformant brokers — no global registry, no self-announcement.
 
-The elevation **mechanism** in [`6.1-privilege-elevation.md`](../../../../architecture/6.1-privilege-elevation.md)
+The elevation **mechanism** in [`6.1-authorization.md`](../../../../architecture/6.1-authorization.md)
 predates both and conflicts with them; its mechanism sections are banner-flagged **"superseded — under research
 (step 38)"**. This task does the research and reconciles them.
 

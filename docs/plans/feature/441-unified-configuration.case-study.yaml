@@ -18,7 +18,7 @@
 #   star: {}                         an application that overrides nothing, so inheritance is tested
 #
 # Written 2026-06-17 against the design draft of 2026-06-12; `elevator` renamed to `elevation`
-# 2026-09-01 per issue #679, which 6.1-privilege-elevation.md had already settled. It has NOT been
+# 2026-09-01 per issue #679, which 6.1-authorization.md had already settled. It has NOT been
 # re-verified against design changes since June -- doing so is thread 4's first task.
 
 # ─────────────────────────────────────────────────────────────────────────────

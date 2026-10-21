@@ -133,7 +133,7 @@ sequencing correction stands and is now structural: `Application.Config` (item 2
    brokers](../../../architecture/3.2-projected-provider-api.md#pluggable-brokers--provider-owned-routers)).
    See the worked shape in
    [the elevation case study](../../../architecture/configuration.md#case-study-the-elevation-section)
-   and the full elevation design in [`6.1-privilege-elevation.md`](../../../architecture/6.1-privilege-elevation.md).
+   and the full elevation design in [`6.1-authorization.md`](../../../architecture/6.1-authorization.md).
    Elevation **policy** (as distinct from the config shape, which is settled) is phase-8 step 38
    ([steps/38-elevation-policy.md](steps/38-elevation-policy.md)).
 5. **Variables + retirement of the flat sources.** The variable resolver becomes a thin reader over the rolled-up
