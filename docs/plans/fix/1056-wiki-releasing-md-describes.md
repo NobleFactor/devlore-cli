@@ -67,8 +67,9 @@ Lane 42 of #949. One pull request, documentation only.
 
 ### Phase 3: Merge
 
-- [ ] `make check-all`, finished green as the PR script runs it, before the script is called ready
-- [ ] PR script written, shown, and handed over; the PR resolves #1056
+- [x] `make check-all`, finished green as the PR script runs it, before the script is called ready: at `7da008f3`, with
+      no prebuilt release
+- [x] PR script written, shown, and handed over; the PR resolves #1056
 - [ ] CI on the pull request, every leg; nothing acts on the checks while the script's gate watches them
 
 ## Files to Create/Modify
