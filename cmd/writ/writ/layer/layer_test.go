@@ -6,6 +6,7 @@ package layer_test
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
@@ -125,6 +126,32 @@ func TestRead_FileIsBroken(t *testing.T) {
 
 	if got := layer.Read("team"); got.State != layer.Broken || got.Root != "" {
 		t.Fatalf("Read(team) = %+v over a file; want broken, no root", got)
+	}
+}
+
+// TestRead_EntryThatCannotBeStatedIsUnreadable is #1059: an entry writ is refused, not one that is absent, is
+// unreadable. The layers directory loses its search permission, so Lstat on an entry under it fails with permission
+// denied: whether a layer is registered there is not known, and is not reported as unregistered.
+func TestRead_EntryThatCannotBeStatedIsUnreadable(t *testing.T) {
+
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows has no search permission to take away")
+	}
+	if os.Geteuid() == 0 {
+		t.Skip("root is not refused by directory permissions")
+	}
+
+	layers := registry(t)
+	if err := os.Symlink(workingTree(t), filepath.Join(layers, "base")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(layers, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(layers, 0o750) })
+
+	if got := layer.Read("base"); got.State != layer.Unreadable || got.Root != "" {
+		t.Fatalf("Read(base) = %+v under a layers directory it cannot search; want unreadable, no root", got)
 	}
 }
 

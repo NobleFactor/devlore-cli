@@ -9,6 +9,8 @@
 package layer
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 
@@ -30,7 +32,8 @@ const (
 	// that is neither a link nor a directory.
 	Broken State = "broken"
 
-	// Unreadable is a link that cannot be read.
+	// Unreadable is an entry that cannot be stat'ed, or a link that cannot be read: whether a layer is registered there
+	// is not known (#1059).
 	Unreadable State = "unreadable"
 )
 
@@ -78,8 +81,13 @@ func Read(name string) Registration {
 
 	registration := Registration{Name: name, Path: filepath.Join(devlore.WritLayersDir(), name), State: Unregistered}
 
+	// Only an entry that is not there is unregistered. Any other failure, a permission denied say, leaves the layer
+	// unknown, and calling it unregistered would have the user register a layer that may be (#1059).
 	info, err := os.Lstat(registration.Path)
 	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			registration.State = Unreadable
+		}
 		return registration
 	}
 

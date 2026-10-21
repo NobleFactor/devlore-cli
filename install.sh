@@ -590,8 +590,9 @@ main() {
     local writ="${INSTALL_DIR}/writ"
     local registered=()
     local held=()
+    local unreadable=()
     local skipped=()
-    local layer location root
+    local layer location state
     for layer in base team personal; do
         case "$layer" in
             base) location="$BASE" ;;
@@ -599,18 +600,19 @@ main() {
             *) location="$PERSONAL" ;;
         esac
         if [[ -z "$location" ]]; then
-            # A layer not given is skipped unless the writ just installed already has it registered (#1029). A writ
-            # this run didn't install, or that can't answer, leaves it skipped.
-            root=""
+            # A layer not given is skipped unless the writ just installed already has it registered (#1029), or cannot
+            # read its registration, which is not the same as having none (#1059): that one is named, and not offered
+            # `writ repo set`. A writ this run didn't install, or that can't answer, leaves it skipped.
+            state=""
             if [[ -x "$writ" ]]; then
-                root=$("$writ" repo list --filter "layer=${layer}" --filter state=registered --jq '.[].root' \
-                    --output value 2>/dev/null) || root=""
+                state=$("$writ" repo list --filter "layer=${layer}" --jq '.[].state' --output value 2>/dev/null) ||
+                    state=""
             fi
-            if [[ -n "$root" ]]; then
-                held+=("$layer")
-            else
-                skipped+=("$layer")
-            fi
+            case "$state" in
+                registered) held+=("$layer") ;;
+                unreadable) unreadable+=("$layer") ;;
+                *) skipped+=("$layer") ;;
+            esac
             continue
         fi
         note "Registering ${layer}: ${location}"
@@ -628,6 +630,13 @@ main() {
     if [[ ${#held[@]} -gt 0 ]]; then
         success "Already registered: ${held[*]}"
     fi
+    # writ keeps each layer's registration as an entry in its layers directory, under the XDG data home on every
+    # platform (devlore.WritLayersDir).
+    for layer in ${unreadable[@]+"${unreadable[@]}"}; do
+        error 0 "writ cannot read ${layer}'s registration," \
+            "${XDG_DATA_HOME:-$HOME/.local/share}/devlore/writ/layers/${layer}: check its permissions, then run" \
+            "this installer again"
+    done
     echo
 
     # Check if install dir is in PATH. The advice names the directory this run installed into, written from $HOME
