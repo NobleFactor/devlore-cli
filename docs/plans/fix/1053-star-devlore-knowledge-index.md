@@ -53,8 +53,9 @@ At `98c59913`:
 
 ### Phase 3: Merge
 
-- [ ] `make check-all`, finished green as the PR script runs it, before the script is called ready
-- [ ] PR script written, shown, and handed over; the PR resolves #1053
+- [x] `make check-all`, finished green as the PR script runs it, before the script is called ready: at `03392b0b`, with
+      no prebuilt release
+- [x] PR script written, shown, and handed over; the PR resolves #1053
 - [ ] CI on the pull request, every leg; nothing acts on the checks while the script's gate watches them
 
 ## Files to Create/Modify
