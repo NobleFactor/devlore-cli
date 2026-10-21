@@ -1404,7 +1404,23 @@ func copyFile(dstRoot fsroot.Dir, src string, dst fsroot.Path) error {
 	if err != nil {
 		return fmt.Errorf("failed to create destination: %w", err)
 	}
-	defer func() { _ = dest.Close() }()
+
+	return copyAndClose(dest, source)
+}
+
+// copyAndClose copies `source` into `dest`, then closes `dest`, and the close's error is the copy's.
+//
+// A write the operating system reports only at close, a full disk or a network filesystem's, leaves a short file, so
+// a close that fails is a copy that failed (#1049). It closes through iox.Close, as the rest of this file does.
+//
+// Parameters:
+//   - `dest`: the destination, closed when the copy ends.
+//   - `source`: the source.
+//
+// Returns:
+//   - `err`: non-nil when the copy fails or the destination's close does.
+func copyAndClose(dest io.WriteCloser, source io.Reader) (err error) {
+	defer iox.Close(&err, dest)
 
 	if _, err := io.Copy(dest, source); err != nil {
 		return fmt.Errorf("failed to copy: %w", err)
