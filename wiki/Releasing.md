@@ -8,41 +8,56 @@ All CI/CD automation lives in `.github/workflows/`:
 
 | Workflow | File | Triggers | What It Does |
 |----------|------|----------|--------------|
-| **CI** | `ci.yaml` | Push to `develop`, PRs to `develop` | Build, vet, lint, test, shell lint |
-| **Docs Publish** | `docs-publish.yaml` | Push to `develop`, `main`, `release/*` | Generates CLI docs, copies guides, creates PR to website |
-| **Release** | `release.yaml` | Push to `develop`, `main`, `release/*`, tags `v*` | Builds binaries, creates GitHub release, syncs `install.sh` and `install.ps1` to website |
-| **Sync Knowledge** | `sync-knowledge.yaml` | Push to `develop`, `main`, `release/*` (paths: `internal/starlark/**`, `internal/writ/migrate/**`) | Syncs Starlark bindings and migration knowledge to devlore-registry |
+| **CI** | `ci.yaml` | Pushes and PRs to `develop`, `main`, `release/*` | The quality gate, the tests and the scenarios |
+| **Installers** | `installers.yaml` | Pushes and PRs to `develop`, `main`, `release/*` | Tests `install.sh` and `install.ps1` against this checkout's programs |
+| **Knowledge Extract** | `knowledge-extract.yaml` | Pushes and PRs to `develop`, `main`, `release/*` | Builds and validates the knowledge base; a push opens a PR to devlore-registry |
+| **Publish CLI Docs** | `docs-publish.yaml` | Pushes to `develop`, `main`, `release/*` | Generates the CLI reference, copies the guides, opens a PR to the website |
+| **Release** | `release.yaml` | Pushes to `develop`, `main`, `release/*`; tags `v*` | Builds the archives, creates the GitHub release, syncs both installers to the website |
+| **LKG Tag** | `lkg-tag.yaml` | Run by hand (`workflow_dispatch`), admins alone | Tags a merged PR's merge commit last-known-good |
 
 ### Workflow Details
 
-**ci.yaml** - Quality gate for development:
-- Runs on every push to `develop` and every PR
-- Steps: `go build`, `go vet`, `golangci-lint`, `go test`, shell lint
-- Must pass before merge
+**ci.yaml** - the quality gate:
+- `quality-gate`: installs its tools, then runs `make quality-gate`, the same list of checks the local gate and every
+  pull request's pre-flight run (build for every platform, `go.mod` tidy, generated files current, guide frontmatter,
+  vet and lint for every GOOS, shell, Starlark and PowerShell lint, complexity, ldflags); then a code-metrics report
+- `test`: `make test-race` on darwin-arm64, linux-amd64, linux-arm64, windows-amd64 and windows-arm64
+- `scenario`: `make test-scenario` on those platforms and darwin-amd64
+- The develop ruleset requires `quality-gate`
 
-**docs-publish.yaml** - Documentation sync:
+**installers.yaml** - the installers against the programs in the same commit:
+- Builds a release from this checkout, then runs `scripts/Test-InstallScript.sh` on Linux and macOS (MacPorts too)
+  and `scripts/Test-InstallScript.ps1` on Windows under Windows PowerShell 5.1 and PowerShell 7
+
+**knowledge-extract.yaml** - the knowledge base:
+- Builds `star`, builds the knowledge base, validates the package and knowledge schemas
+- On a PR, reports what would change; on a push, opens a PR to devlore-registry
+
+**docs-publish.yaml** - documentation sync:
 - Generates CLI reference docs via `cmd/devlore-docs`
 - Copies `docs/guides/` (hand-written guides)
-- Creates PR to `devlore.noblefactor.com` with content in `src/content/cli/` and `src/content/guides/`
-- Uses `NOBLEFACTOR_AUTOMATION` org secret
+- Opens and merges a PR to `devlore.noblefactor.com` with content in `src/content/cli/` and `src/content/guides/`
 
-**release.yaml** - Binary releases and installer sync:
-- Builds cross-platform binaries via `make dist`
-- Creates GitHub Release (prerelease for develop/release/*, full release for tags)
+**release.yaml** - archives, the release, and installer sync:
+- Builds the archives and their checksums file with `make dist`, versioned as [Version Numbering](#version-numbering)
+  says
+- Creates the GitHub Release: a pre-release for every branch build, a full release for a tag
 - Syncs `install.sh` and `install.ps1` to the website's `public/` via PR: its `develop` for develop runs, its `main` for
   `main` and tag runs, and the same `release/*` branch for release runs
-- Uses a NobleFactor automation GitHub App token (`NOBLEFACTOR_AUTOMATION_APP_ID`,
-  `NOBLEFACTOR_AUTOMATION_APP_PRIVATE_KEY`) for the website, and `GITHUB_TOKEN` for the release
+
+**lkg-tag.yaml** - last-known-good:
+- Given a merged PR's number, tags its merge commit `<base branch>/lkg` (`develop/lkg`, say), moving the tag if it
+  is there; it refuses anyone but an admin, and a PR not merged
 
 ### What Happens on Push
 
-| Push to... | ci.yaml | docs-publish.yaml | release.yaml |
-|------------|---------|-------------------|--------------|
-| `develop` | Runs | Creates docs PR | Creates prerelease, syncs both installers |
-| `main` | — | Creates docs PR | Creates RC release, syncs both installers |
-| `release/*` | — | Creates docs PR | Creates RC release, syncs both installers |
-| `v*` tag | — | — | Creates full release, syncs both installers |
-| PR to `develop` | Runs | — | — |
+| Event | ci.yaml | installers.yaml | knowledge-extract.yaml | docs-publish.yaml | release.yaml |
+|-------|---------|-----------------|------------------------|-------------------|--------------|
+| Push to `develop` | Runs | Runs | Opens registry PR | Opens docs PR | Pre-release, both installers synced |
+| Push to `main` | Runs | Runs | Opens registry PR | Opens docs PR | RC pre-release, both installers synced |
+| Push to `release/*` | Runs | Runs | Opens registry PR | Opens docs PR | RC pre-release, both installers synced |
+| `v*` tag | — | — | — | — | Full release, both installers synced |
+| PR to any of the three | Runs | Runs | Reports changes | — | — |
 
 ## Branch Strategy
 
@@ -125,19 +140,18 @@ See [GitHub Actions Workflows](#github-actions-workflows) above for the full pic
 
 | Secret | Scope | Used By | Purpose |
 |--------|-------|---------|---------|
-| `NOBLEFACTOR_AUTOMATION` | Org | `docs-publish.yaml`, `sync-knowledge.yaml` | Write access for cross-repo automation (website, registry, ops) |
-| `NOBLEFACTOR_CONTENT_ACCESS` | Org | `release.yaml` | Read access to all NobleFactor repos for releases |
-| `GITHUB_TOKEN` | Auto | `release.yaml` | Auto-provided, creates GitHub releases |
+| `NOBLEFACTOR_AUTOMATION_APP_ID` | Org | `docs-publish.yaml`, `knowledge-extract.yaml`, `release.yaml` | The NobleFactor automation GitHub App, whose token writes to the website and devlore-registry |
+| `NOBLEFACTOR_AUTOMATION_APP_PRIVATE_KEY` | Org | the same three | The app's private key, from which each run makes a short-lived token |
+| `GITHUB_TOKEN` | Auto | `release.yaml`, `lkg-tag.yaml` | Auto-provided: creates GitHub releases, and checks the LKG caller's role |
 
-**Token separation rationale**: `NOBLEFACTOR_CONTENT_ACCESS` has read-only access to repo contents, limiting blast radius for the frequently-running release workflow. `NOBLEFACTOR_AUTOMATION` has write access for cross-repo automation tasks. Use `scripts/Update-NFSecrets` to rotate both tokens.
+No long-lived personal token is used: each workflow that writes to another repository makes its own token from the
+app, scoped to that repository, for that run.
 
-See [devlore.noblefactor.com/DEPLOYMENT.md](https://github.com/NobleFactor/devlore.noblefactor.com/blob/develop/DEPLOYMENT.md) for full secrets documentation.
+See [devlore.noblefactor.com/DEPLOYMENT.md](https://github.com/NobleFactor/devlore.noblefactor.com/blob/develop/DEPLOYMENT.md) for the website's side.
 
 ## Release Artifacts
 
-Each release includes binaries and package manager assets for multiple platforms:
-
-### Binaries
+`release.yaml` runs `make dist`, and each release carries what it makes:
 
 | Platform | Architecture | Format |
 |----------|--------------|--------|
@@ -145,55 +159,35 @@ Each release includes binaries and package manager assets for multiple platforms
 | Linux | amd64, arm64 | `.tar.gz` |
 | Windows | amd64, arm64 | `.zip` |
 
-### Package Manager Assets
+and `devlore-cli_<version>_checksums.txt`, a SHA-256 line for each archive, which both installers and `self upgrade`
+verify an archive against before extracting it. Each archive holds `lore`, `star` and `writ`, and star's extensions
+under `share/`.
 
-| Platform | Format | File | Publishing |
-|----------|--------|------|------------|
-| macOS | Homebrew formula | `dist/homebrew/...` | Manual (to homebrew-tap repo) |
-| macOS | MacPorts Portfile | `Portfile` | Manual (PR to macports-ports) |
-| Debian/Ubuntu | `.deb` | `devlore-cli_*_amd64.deb` | Manual (to apt repo) |
-| RHEL/Fedora | `.rpm` | `devlore-cli-*.x86_64.rpm` | Manual (to yum repo) |
-| Windows | Winget manifest | `dist/winget/...` | Manual (PR to winget-pkgs) |
-
-All assets are generated but **not auto-published** to package repositories. This allows review before submission.
-
-### MacPorts Portfile Generation
-
-The Portfile is generated from a template during the release:
-
-1. `packaging/macports/Portfile.template` - Template with placeholders
-2. `packaging/macports/generate-portfile.sh` - Substitutes version and checksums
-3. GoReleaser runs the script as a post-hook and includes the result via `extra_files`
-
-To submit to MacPorts after a release:
-
-```bash
-# Fork https://github.com/macports/macports-ports
-# Copy the Portfile to devel/devlore-cli/Portfile
-# Submit PR
-```
-
-### Future Publishing
-
-When ready to auto-publish, enable by removing `skip_upload: true` from:
-- `brews:` in `.goreleaser.yaml` (requires homebrew-tap repo)
-- `winget:` in `.goreleaser.yaml` (requires winget-pkgs PR approval)
-
-For apt/yum repos, consider services like Gemfury or Packagecloud.
+Nothing builds package-manager assets. `.goreleaser.yaml` (Homebrew, winget, `.deb`, `.rpm`) and
+`packaging/macports/` (a Portfile template and its generator) are kept, and nothing runs them: `make verify-ldflags`
+keeps `.goreleaser.yaml`'s version stamps correct for whoever adopts it.
 
 ## Version Numbering
 
-- **Draft/testing**: `v0.1.0-draft`
-- **Pre-release**: `v0.1.0-alpha`, `v0.1.0-beta`, `v0.1.0-rc.1`
-- **Release**: `v1.0.0`, `v1.0.1`, `v1.1.0`
+`release.yaml` gives each build its version, and the channel its binaries follow for `self upgrade`:
+
+| Built from | Version | Release | Channel |
+|------------|---------|---------|---------|
+| `develop` | `v0.1.0-dev.<UTC stamp, YYYYMMDDhhmmss>` | Pre-release | `develop` |
+| `main` | `v0.1.0-rc.<stamp>` | Pre-release | `release` |
+| `release/X.Y` | `vX.Y-rc.<stamp>` | Pre-release | `release` |
+| A `v*` tag | the tag, `vX.Y.Z` | Full release | `release` |
+
+`make dist` with no `DEVLORE_VERSION` builds `v0.1.0-draft`, for local testing.
 
 ## Website Environments
 
-| Environment | URL | Auth Required |
-|-------------|-----|---------------|
-| Production | `devlore.noblefactor.com` | Currently yes, later no |
-| Preview (develop) | Azure SWA preview URL | Yes |
-| Preview (release/*) | Azure SWA preview URL | Yes |
+Measured 2026-10-21:
+
+| Environment | URL | Pages | Installers |
+|-------------|-----|-------|------------|
+| develop | `delightful-grass-0ac0a4c1e-develop.westus2.6.azurestaticapps.net` | Sign-in | `install.sh` and `install.ps1` anonymous, devlore-cli develop's: the installers' published address (`release.yaml`'s `INSTALLERS_URL`) |
+| `devlore.noblefactor.com` | `devlore.noblefactor.com` | Sign-in | An older `install.sh` anonymous; `install.ps1` behind the sign-in (NobleFactor/devlore.noblefactor.com#504) |
 
 ## Local Testing
 
