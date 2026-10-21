@@ -72,13 +72,14 @@ At `4992f580`:
       (`4992f580`) 4 of its 5 checks failed, the layers reported skipped. Windows measured on danoble-wd11-3, 5.1 and 7:
       with a deny on read and list applied (`icacls`, by SID), the entry's attributes were still returned and the
       directory still listed, so the `install.ps1` suite has no unreadable case; that session is an administrator's
-      over ssh, and an ordinary user's might be refused, which the same-shaped PowerShell path handles. The `install.ps1`
-      suite, 131 passed under 5.1 and 131 under 7
+      over ssh, and an ordinary user's might be refused, which the same-shaped PowerShell path handles. The
+      `install.ps1` suite, 131 passed under 5.1 and 131 under 7
 
 ### Phase 4: Merge
 
-- [ ] `make check-all`, finished green as the PR script runs it, before the script is called ready
-- [ ] PR script written, shown, and handed over; the PR resolves #1059
+- [x] `make check-all`, finished green as the PR script runs it, before the script is called ready: at `d63e549e`, with
+      no prebuilt release
+- [x] PR script written, shown, and handed over; the PR resolves #1059
 - [ ] CI on the pull request, every leg; nothing acts on the checks while the script's gate watches them
 
 ## Files to Create/Modify
