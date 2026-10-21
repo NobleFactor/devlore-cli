@@ -108,7 +108,10 @@ as now; `unchanged` stays for a layer already registered there, its branch line 
 
 ### Phase 2: The fix (Requirements 1 to 4)
 
-- [ ] `runRepoSet`, `plannedRoot` and the narration; the tests fail before and pass after where they test a change
+- [x] `runRepoSet`, `plannedRoot` and the narration, with `existingClone`, `bringToBranch`, `treeBranch` and `gitRun`;
+      the help says what `--branch` does. The ten new tests, and `TestRepo_Set_Errors`'s branch case, fail against
+      `repo_cmd.go` at `1e79048f` and pass with the fix; `make test` passes. The tests read the narration from
+      `os.Stderr`, to which the root binds writ's narrator when the command starts
 
 ### Phase 3: Merge
 
@@ -122,7 +125,7 @@ as now; `unchanged` stays for a layer already registered there, its branch line 
 | --- | --- | --- |
 | `cmd/writ/writ/repo_cmd.go` | Modify | Requirements 1 to 3 |
 | `cmd/writ/writ/repo_cmd_test.go` | Modify | Requirement 4 |
-| The `writ repo set` help and generated reference, wherever they say `--branch` is the URL form's alone | Modify | Requirement 2 |
+| The `writ repo set` help (`repo_cmd.go`); its generated reference, `docs/cli/`, follows and is not tracked | Modify | Requirement 2 |
 
 ## Decisions
 

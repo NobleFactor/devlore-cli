@@ -680,8 +680,10 @@ func TestRepo_Set_Errors(t *testing.T) {
 	if _, err := runRepo(t, "set", "personal", repo, "elsewhere"); err == nil || !strings.Contains(err.Error(), "takes no destination") {
 		t.Fatalf("expected no-destination error, got %v", err)
 	}
-	if _, err := runRepo(t, "set", "personal", "--branch", "main", repo); err == nil || !strings.Contains(err.Error(), "repository-url form") {
-		t.Fatalf("expected branch-on-local error, got %v", err)
+	// --branch applies to a path too (#983); a branch the tree does not have, and no origin to fetch it from, is
+	// refused, naming it.
+	if _, err := runRepo(t, "set", "personal", "--branch", "main", repo); err == nil || !strings.Contains(err.Error(), "branch main") {
+		t.Fatalf("expected a refusal naming the missing branch, got %v", err)
 	}
 
 	// Registering twice is a replacement, not a refusal. The case `add` failed on is the case `set` exists for.
@@ -967,5 +969,298 @@ func TestRepo_Set_ClonesURL_PositionalDestination(t *testing.T) {
 	}
 	if _, err := os.Stat(destination); err != nil {
 		t.Fatal("unset must not delete a clone the user named a destination for")
+	}
+}
+
+// --- #983: what an earlier run left, and the branch asked for ---
+
+// runRepoNarrated is [runRepoStreams] with writ's narration captured: set says what it found and did through the
+// narrator, which the root binds to os.Stderr when the command starts, so os.Stderr is a file for the run. These
+// tests set the environment, so none runs in parallel with another.
+func runRepoNarrated(t *testing.T, args ...string) (string, error) {
+
+	t.Helper()
+
+	captured, err := os.CreateTemp(t.TempDir(), "narration")
+	if err != nil {
+		t.Fatal(err)
+	}
+	previous := os.Stderr
+	os.Stderr = captured
+	_, streams, err := runRepoStreams(t, args...)
+	os.Stderr = previous
+
+	narration, readErr := os.ReadFile(captured.Name())
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	_ = captured.Close()
+
+	return string(narration) + streams, err
+}
+
+// gitIn runs git in `root` with the test's isolated configuration and an identity to commit with, failing the test
+// when git does.
+func gitIn(t *testing.T, root string, args ...string) string {
+
+	t.Helper()
+
+	full := append([]string{"-C", root, "-c", "user.name=t", "-c", "user.email=t@invalid"}, args...)
+	command := exec.CommandContext(context.Background(), "git", full...)
+	command.Env = isolatedGitEnv(t)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v\n%s", args, err, output)
+	}
+
+	return strings.TrimSpace(string(output))
+}
+
+// commitFile writes `content` to `file` in `root` and commits it.
+func commitFile(t *testing.T, root, file, content string) {
+
+	t.Helper()
+
+	if err := os.WriteFile(filepath.Join(root, file), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, root, "add", file)
+	gitIn(t, root, "commit", "--quiet", "-m", "set "+file+" to "+content)
+}
+
+// cloneOf clones `source` to a temporary working tree and returns it, its origin `source`.
+func cloneOf(t *testing.T, source string) string {
+
+	t.Helper()
+
+	tree := filepath.Join(t.TempDir(), "tree")
+	gitIn(t, filepath.Dir(tree), "clone", "--quiet", source, tree)
+
+	return tree
+}
+
+// TestRepo_Set_UsesTheCloneAnEarlierRunLeft is #983: a clone that landed, its registration never written, is at the
+// destination when the same command runs again, which registers it rather than refusing or cloning again.
+func TestRepo_Set_UsesTheCloneAnEarlierRunLeft(t *testing.T) {
+
+	dataHome := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dataHome)
+	source := sourceRepositoryNamed(t, "env.git")
+	url := "file://" + source
+	clone := filepath.Join(dataHome, "devlore", "writ", "repos", "env")
+	if err := os.MkdirAll(filepath.Dir(clone), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, filepath.Dir(clone), "clone", "--quiet", url, clone)
+
+	narration, err := runRepoNarrated(t, "set", "team", url)
+	if err != nil {
+		t.Fatalf("set over the clone an earlier run left: %v\n%s", err, narration)
+	}
+	if strings.Contains(narration, "Cloning into") {
+		t.Errorf("the clone an earlier run left was cloned again:\n%s", narration)
+	}
+	if !strings.Contains(narration, "found the clone of "+url+" at "+clone+", on main") {
+		t.Errorf("set did not say it found the clone:\n%s", narration)
+	}
+
+	listed, err := runRepoResult(t, "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := stateOf(t, listed, "team"); got.State != repoStateRegistered || got.Root != clone {
+		t.Errorf("team = %+v; want registered at %s", got, clone)
+	}
+}
+
+// TestRepo_Set_RefusesACloneOfAnotherRemote is #983's other half: a destination holding a clone of another
+// repository is refused, naming it, and nothing is registered.
+func TestRepo_Set_RefusesACloneOfAnotherRemote(t *testing.T) {
+
+	dataHome := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dataHome)
+	wanted, other := sourceRepositoryNamed(t, "env.git"), sourceRepositoryNamed(t, "env.git")
+	clone := filepath.Join(dataHome, "devlore", "writ", "repos", "env")
+	if err := os.MkdirAll(filepath.Dir(clone), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, filepath.Dir(clone), "clone", "--quiet", "file://"+other, clone)
+
+	_, _, err := runRepoStreams(t, "set", "team", "file://"+wanted)
+	if err == nil || !strings.Contains(err.Error(), "file://"+other) {
+		t.Fatalf("set over a clone of another remote = %v; want a refusal naming file://%s", err, other)
+	}
+}
+
+// TestRepo_Set_RefusesADestinationThatIsNotATree is #983: a destination that is not a git working tree is refused.
+func TestRepo_Set_RefusesADestinationThatIsNotATree(t *testing.T) {
+
+	dataHome := t.TempDir()
+	t.Setenv("XDG_DATA_HOME", dataHome)
+	source := sourceRepositoryNamed(t, "env.git")
+	clone := filepath.Join(dataHome, "devlore", "writ", "repos", "env")
+	if err := os.MkdirAll(clone, 0o750); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := runRepoStreams(t, "set", "team", "file://"+source)
+	if err == nil || !strings.Contains(err.Error(), "not a git working tree") {
+		t.Fatalf("set over a plain directory = %v; want a refusal saying it is not a git working tree", err)
+	}
+}
+
+// TestRepo_Set_WithoutABranchLeavesTheTree is #983's ruling: with no --branch, the tree stays on what it has
+// checked out, and set says which.
+func TestRepo_Set_WithoutABranchLeavesTheTree(t *testing.T) {
+
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	tree := cloneOf(t, sourceRepository(t))
+	gitIn(t, tree, "switch", "--quiet", "--create", "work")
+
+	narration, err := runRepoNarrated(t, "set", "personal", tree)
+	if err != nil {
+		t.Fatalf("set: %v\n%s", err, narration)
+	}
+	if !strings.Contains(narration, "found a repository at "+tree+", on work") {
+		t.Errorf("set did not say the tree's branch:\n%s", narration)
+	}
+	if got := gitIn(t, tree, "branch", "--show-current"); got != "work" {
+		t.Errorf("the tree moved to %s; want it left on work", got)
+	}
+}
+
+// TestRepo_Set_SwitchesToALocalBranch is #983: --branch with a path switches the tree, and says from what.
+func TestRepo_Set_SwitchesToALocalBranch(t *testing.T) {
+
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	tree := cloneOf(t, sourceRepository(t))
+	gitIn(t, tree, "branch", "work")
+
+	narration, err := runRepoNarrated(t, "set", "personal", tree, "--branch", "work")
+	if err != nil {
+		t.Fatalf("set --branch work: %v\n%s", err, narration)
+	}
+	if got := gitIn(t, tree, "branch", "--show-current"); got != "work" {
+		t.Errorf("the tree is on %s; want work", got)
+	}
+	if !strings.Contains(narration, "on work, switched from main to work") {
+		t.Errorf("set did not say it switched:\n%s", narration)
+	}
+}
+
+// TestRepo_Set_FetchesABranchPushedSince is #983's D2: a branch origin gained after the tree's last fetch is
+// fetched, and switched to, the local branch tracking origin's.
+func TestRepo_Set_FetchesABranchPushedSince(t *testing.T) {
+
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	source := sourceRepository(t)
+	tree := cloneOf(t, source)
+	gitIn(t, source, "branch", "later")
+
+	narration, err := runRepoNarrated(t, "set", "personal", tree, "--branch", "later")
+	if err != nil {
+		t.Fatalf("set --branch later: %v\n%s", err, narration)
+	}
+	if !strings.Contains(narration, "fetched origin") {
+		t.Errorf("set did not say it fetched:\n%s", narration)
+	}
+	if got := gitIn(t, tree, "rev-parse", "--abbrev-ref", "later@{upstream}"); got != "origin/later" {
+		t.Errorf("later tracks %q; want origin/later", got)
+	}
+}
+
+// TestRepo_Set_RefusesABranchThatIsNowhere is #983: a branch in neither the tree nor origin is refused, and the
+// layer is not registered.
+func TestRepo_Set_RefusesABranchThatIsNowhere(t *testing.T) {
+
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	tree := cloneOf(t, sourceRepository(t))
+
+	_, _, err := runRepoStreams(t, "set", "personal", tree, "--branch", "nowhere")
+	if err == nil || !strings.Contains(err.Error(), "nowhere") {
+		t.Fatalf("set --branch nowhere = %v; want a refusal naming the branch", err)
+	}
+
+	listed, err := runRepoResult(t, "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := stateOf(t, listed, "personal"); got.State != repoStateUnregistered {
+		t.Errorf("personal = %+v; want unregistered after the refusal", got)
+	}
+}
+
+// TestRepo_Set_RefusesASwitchUncommittedChangesBlock is #983: git switch refuses to overwrite uncommitted changes,
+// and so does set, registering nothing and leaving the change where it was.
+func TestRepo_Set_RefusesASwitchUncommittedChangesBlock(t *testing.T) {
+
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	source := sourceRepository(t)
+	commitFile(t, source, "f", "main")
+	gitIn(t, source, "switch", "--quiet", "--create", "other")
+	commitFile(t, source, "f", "other")
+	gitIn(t, source, "switch", "--quiet", "main")
+	tree := cloneOf(t, source)
+	if err := os.WriteFile(filepath.Join(tree, "f"), []byte("mine"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := runRepoStreams(t, "set", "personal", tree, "--branch", "other")
+	if err == nil || !strings.Contains(err.Error(), "git switch other") {
+		t.Fatalf("set --branch other over an uncommitted change = %v; want git switch's refusal", err)
+	}
+
+	if content, _ := os.ReadFile(filepath.Join(tree, "f")); string(content) != "mine" {
+		t.Errorf("the uncommitted change became %q; want it left as mine", content)
+	}
+	listed, err := runRepoResult(t, "list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := stateOf(t, listed, "personal"); got.State != repoStateUnregistered {
+		t.Errorf("personal = %+v; want unregistered after the refusal", got)
+	}
+}
+
+// TestRepo_Set_FastForwardsABranchBehind is #983's D2: a branch behind origin's is brought up to date.
+func TestRepo_Set_FastForwardsABranchBehind(t *testing.T) {
+
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	source := sourceRepository(t)
+	tree := cloneOf(t, source)
+	commitFile(t, source, "f", "newer")
+
+	narration, err := runRepoNarrated(t, "set", "personal", tree, "--branch", "main")
+	if err != nil {
+		t.Fatalf("set --branch main: %v\n%s", err, narration)
+	}
+	if gitIn(t, tree, "rev-parse", "HEAD") != gitIn(t, source, "rev-parse", "HEAD") {
+		t.Errorf("main was not brought up to origin's:\n%s", narration)
+	}
+	if !strings.Contains(narration, "fast-forwarded main to origin/main") {
+		t.Errorf("set did not say it fast-forwarded:\n%s", narration)
+	}
+}
+
+// TestRepo_Set_LeavesADivergedBranch is #983's D2: a branch with commits origin lacks is the user's, left as it is
+// and said so.
+func TestRepo_Set_LeavesADivergedBranch(t *testing.T) {
+
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	source := sourceRepository(t)
+	tree := cloneOf(t, source)
+	commitFile(t, source, "f", "theirs")
+	commitFile(t, tree, "g", "mine")
+	mine := gitIn(t, tree, "rev-parse", "HEAD")
+
+	narration, err := runRepoNarrated(t, "set", "personal", tree, "--branch", "main")
+	if err != nil {
+		t.Fatalf("set --branch main: %v\n%s", err, narration)
+	}
+	if got := gitIn(t, tree, "rev-parse", "HEAD"); got != mine {
+		t.Errorf("a diverged main moved from %s to %s", mine, got)
+	}
+	if !strings.Contains(narration, "main has commits origin lacks; left as it is") {
+		t.Errorf("set did not say it left main:\n%s", narration)
 	}
 }
