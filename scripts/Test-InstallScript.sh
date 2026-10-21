@@ -1001,6 +1001,25 @@ expect "every layer, no flags: gives no next step" "$run5" absent "Next steps:" 
 expect "every layer, no flags: ends with the documentation line" "$run5" \
     is "$(line_from_end 1 "$run5")" "$(said note "Documentation: https://github.com/NobleFactor/devlore-cli#readme")"
 
+# --- A layer writ cannot read is named, not skipped (#1059): the account's layers directory loses its search
+# permission, so writ cannot stat the three registrations under it, and does not know whether they are registered ---
+
+layers_dir="${scratch}/layers/home/.local/share/devlore/writ/layers"
+if [[ $EUID -eq 0 ]]; then
+    note "unreadable layers: not tried, root is not refused by directory permissions"
+else
+    run6="${scratch}/layers.run6"
+    chmod a-x "$layers_dir"
+    against "${github}/verified" layers "$run6"
+    chmod u+x "$layers_dir"
+    expect "unreadable layers, no flags: exits 0" "$run6" is "$status" 0
+    for layer in base team personal; do
+        expect "unreadable layers, no flags: names ${layer} as unreadable" "$run6" \
+            holds "$run6" "writ cannot read ${layer}'s registration, ${layers_dir}/${layer}"
+    done
+    expect "unreadable layers, no flags: skips none" "$run6" is "$(count "skipped: " "$run6")" 0
+fi
+
 # --- No flags: nothing registered, and the three skipped layers are the last lines ---
 
 output="${scratch}/none.out"

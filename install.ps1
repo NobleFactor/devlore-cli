@@ -1251,37 +1251,39 @@ function Install-DevLore {
             $layers = [ordered]@{ base = $Base; team = $Team; personal = $Personal }
             $registered = @()
             $held = @()
+            $unreadable = @()
             $skipped = @()
 
             foreach ($layer in $layers.Keys) {
                 $location = $layers[$layer]
 
                 if (-not $location) {
-                    # A layer not given is skipped unless the writ just installed already has it registered (#1029). A
-                    # writ this run didn't install, or that can't answer, leaves it skipped. --filter, not a --jq
-                    # select: Windows PowerShell 5.1 strips the double quotes inside a native command's arguments.
-                    $root = ''
+                    # A layer not given is skipped unless the writ just installed already has it registered (#1029), or
+                    # cannot read its registration, which is not the same as having none (#1059): that one is named,
+                    # and not offered `writ repo set`. A writ this run didn't install, or that can't answer, leaves it
+                    # skipped. --filter, not a --jq select: Windows PowerShell 5.1 strips the double quotes inside a
+                    # native command's arguments.
+                    $state = ''
 
                     if (Test-Path -LiteralPath $writPath -PathType Leaf) {
                         try {
-                            $root = (Invoke-NativeCommand -FilePath $writPath -ArgumentList @('repo', 'list',
-                                    '--filter', "layer=$layer", '--filter', 'state=registered', '--jq', '.[].root',
-                                    '--output', 'value') | Out-String).Trim()
+                            $state = (Invoke-NativeCommand -FilePath $writPath -ArgumentList @('repo', 'list',
+                                    '--filter', "layer=$layer", '--jq', '.[].state', '--output', 'value') |
+                                    Out-String).Trim()
 
                             if ($LASTEXITCODE -ne 0) {
-                                $root = ''
+                                $state = ''
                             }
                         }
                         catch {
-                            $root = ''
+                            $state = ''
                         }
                     }
 
-                    if ($root) {
-                        $held += $layer
-                    }
-                    else {
-                        $skipped += $layer
+                    switch ($state) {
+                        'registered' { $held += $layer }
+                        'unreadable' { $unreadable += $layer }
+                        default { $skipped += $layer }
                     }
 
                     continue
@@ -1311,6 +1313,20 @@ function Install-DevLore {
 
             if ($held.Count -gt 0) {
                 Write-Output -InputObject "Already registered: $($held -join ' ')"
+            }
+
+            # writ keeps each layer's registration as an entry in its layers directory, under the XDG data home on
+            # every platform (devlore.WritLayersDir).
+            $dataHome = $env:XDG_DATA_HOME
+
+            if (-not $dataHome) {
+                $dataHome = Join-Path -Path (Join-Path -Path $HOME -ChildPath '.local') -ChildPath 'share'
+            }
+
+            foreach ($layer in $unreadable) {
+                $entry = Join-Path -Path $dataHome -ChildPath "devlore\writ\layers\$layer"
+                Write-Warning -Message ("writ cannot read ${layer}'s registration, ${entry}: check its permissions, " +
+                    "then run this installer again")
             }
 
             Write-Output -InputObject ''
