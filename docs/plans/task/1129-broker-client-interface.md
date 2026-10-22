@@ -1,7 +1,7 @@
 ---
 title: "The broker's client interface: exec by account, the console stream, commands by run id, in pkg/op with a test double"
 issue: https://github.com/NobleFactor/devlore-cli/issues/1129
-status: approved
+status: complete
 created: 2026-10-22
 updated: 2026-10-22
 ---
@@ -119,10 +119,10 @@ not built. #1129's documents table carries this plan.
 
 ### Phase 4: the documents and the pull request
 
-- [ ] Requirement 4
-- [ ] `make check` passes; the description says AI assisted and ends with `Signed-off-by:` and `Assisted-by: Claude
-      Code`; the script is `~/Workspace/NobleFactor/devlore-cli.1129-broker-client-interface.bash`
-- [ ] Status `complete` in the last commit: nothing deploys
+- [x] Requirement 4 -- 2026-10-22
+- [x] `make check` passes; the description says AI assisted and ends with `Signed-off-by:` and `Assisted-by: Claude
+      Code`; the script is `~/Workspace/NobleFactor/devlore-cli.1129-broker-client-interface.bash` -- 2026-10-22
+- [x] Status `complete` in the last commit: nothing deploys -- 2026-10-22
 
 ## Files to Create/Modify
 
