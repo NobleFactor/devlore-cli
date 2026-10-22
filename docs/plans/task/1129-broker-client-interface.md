@@ -1,7 +1,7 @@
 ---
 title: "The broker's client interface: exec by account, the console stream, commands by run id, in pkg/op with a test double"
 issue: https://github.com/NobleFactor/devlore-cli/issues/1129
-status: draft
+status: approved
 created: 2026-10-22
 updated: 2026-10-22
 ---
@@ -104,8 +104,9 @@ not built. #1129's documents table carries this plan.
 
 ### Phase 1: the plan lands
 
-- [ ] Reviewed with the owner, status `approved`, committed alone on `feature/1129-broker-client-interface`
-- [ ] #1129's documents table carries this plan's link
+- [x] Reviewed with the owner, status `approved`, committed alone on `feature/1129-broker-client-interface` --
+      2026-10-22, `Post` on the interface now
+- [x] #1129's documents table carries this plan's link -- 2026-10-22
 
 ### Phase 2: the interface and the frames
 
@@ -146,9 +147,9 @@ not built. #1129's documents table carries this plan.
 
 ## Open Questions
 
-- **`Post` now, or when `plan.logon` is built.** The plan declares it now, because #1128 says the interface is fixed
-  in iteration 1 and never moved, and a method added later moves it; the stub of lane 2 refuses it with a named
-  failure until the logon lane. For ruling.
+- **`Post` now, or when `plan.logon` is built — ruled 2026-10-22: now.** #1128 says the interface is fixed in
+  iteration 1 and never moved, and a method added later moves it; the stub of lane 2 refuses it with a named failure
+  until the logon lane.
 - **`Events` on the interface, or the plane's `Subscribe` alone.** The plan puts it on the interface, because by run
   id is how a caller that does not hold the executor reaches a run, which is every caller once the broker is remote.
 - **The account's form** stays a string, as 6.2 § Open 8 leaves it; the interface documents the two role words,
