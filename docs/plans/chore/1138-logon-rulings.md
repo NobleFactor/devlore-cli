@@ -145,7 +145,7 @@ signature answer.
 ### Phase 2: the documents
 
 - [x] 6.2 per Requirement 1, with its status companion -- 2026-10-22
-- [ ] 6.1 per Requirement 2, and 6.3 § Open 6 per Requirement 7, with their status companions
+- [x] 6.1 per Requirement 2, and 6.3 § Open 6 per Requirement 7, with their status companions -- 2026-10-22
 - [ ] 2.7 per Requirements 3 and 6, with its status companion
 - [ ] 2.3 per Requirement 5, with its status companion
 
