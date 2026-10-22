@@ -115,7 +115,7 @@ not built. #1129's documents table carries this plan.
 
 ### Phase 3: the double
 
-- [ ] `pkg/op/broker_double.go` and its test per Requirement 3; `make check`
+- [x] `pkg/op/broker_double.go` and its test per Requirement 3; `make lint` and `make test` -- 2026-10-22
 
 ### Phase 4: the documents and the pull request
 
