@@ -75,8 +75,8 @@ CI alone, since it installs into `~/.local`, and checks the session goes on and 
 
 ### Phase 3: Merge
 
-- [ ] `make check-all`, finished green as the PR script runs it, read before this box is ticked
-- [ ] PR script written, shown, and handed over; the PR resolves #982
+- [x] `make check-all`, finished green as the PR script runs it, read before this box is ticked
+- [x] PR script written, shown, and handed over; the PR resolves #982
 - [ ] CI on the pull request, every leg; nothing acts on the checks while the script's gate watches them
 
 ## Files to Create/Modify
