@@ -1,7 +1,7 @@
 ---
 title: "The execution model's specifications take the rulings of 2026-10-22: the logon, authz as token acquisition, and plan.logon, the fifth combinator"
 issue: https://github.com/NobleFactor/devlore-cli/issues/1138
-status: approved
+status: complete
 created: 2026-10-22
 updated: 2026-10-22
 ---
@@ -158,10 +158,11 @@ and § Open 9 take it; 2.8's fork paragraph and both status companions follow.
 
 ### Phase 3: the pull request
 
-- [ ] `make check` passes in the worktree
-- [ ] The description says AI assisted and ends with `Signed-off-by:` and `Assisted-by: Claude Code`; the script is
-      `~/Workspace/NobleFactor/devlore-cli.1138-logon-rulings.bash`
-- [ ] Status `complete` in the last commit: nothing deploys, so the merge is the end
+- [x] `make check` passes in the worktree -- 2026-10-22, after installing the pinned golangci-lint v2.14.0 the
+      Makefile names, which Media-Server lacked; the whole gate, tests included
+- [x] The description says AI assisted and ends with `Signed-off-by:` and `Assisted-by: Claude Code`; the script is
+      `~/Workspace/NobleFactor/devlore-cli.1138-logon-rulings.bash` -- 2026-10-22
+- [x] Status `complete` in the last commit: nothing deploys, so the merge is the end -- 2026-10-22
 
 ## Files to Create/Modify
 
