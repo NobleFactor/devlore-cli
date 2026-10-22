@@ -1,7 +1,7 @@
 ---
-title: "The execution model's specifications take the logon rulings of 2026-10-22"
+title: "The execution model's specifications take the rulings of 2026-10-22: the logon, authz as token acquisition, and plan.logon, the fifth combinator"
 issue: https://github.com/NobleFactor/devlore-cli/issues/1138
-status: draft
+status: approved
 created: 2026-10-22
 updated: 2026-10-22
 ---
@@ -10,11 +10,15 @@ updated: 2026-10-22
 
 ## Summary
 
-Four rulings of 2026-10-22, taken while the execution-model session walked the first of its six open questions: what
-running code as another account is for, that it is a logon and sudo only a means to one, that the service manager
-makes the logons and devlore is never a key store, and that the macOS login keychain is a GUI-session thing the runner
-must declare. Each lands in the specification that owns it, in a dated section the body is read against, the body
-corrected in place. One commit per document, one pull request, no code.
+The rulings of 2026-10-22, taken while the execution-model session walked the first of its six open questions and
+then the big picture: what running code as another account is for; that it is a logon and sudo only a means to one;
+that the service manager makes the logons and devlore is never a key store; that the macOS login keychain is a
+GUI-session thing the runner must declare; that the `authz` package is strictly authorization for token acquisition;
+that the runner owns the loop, option 2 of 2.7 § Open 1, because the serialization boundary is the price of
+dispatching units to any device with a broker; that the mechanism is a new control structure, `plan.logon`, a subgraph
+that produces at plan time and executes at run time a graph in a local or remote logon; that #451 comes after this
+work; and that the shell provider becomes `command`. Each lands in the specification that owns it, in a dated section
+the body is read against, the body corrected in place. One commit per document, one pull request, no code.
 
 ## Issue 1138
 
@@ -49,6 +53,22 @@ specifications of [#520](https://github.com/NobleFactor/devlore-cli/issues/520),
 
 ## Requirements
 
+The owner's words of 2026-10-22, quoted in the sections: "1 is all accessing network and operating system resources.
+Grants to access these resources must be known to convey by the account I choose to use. 2 is all about protecting
+network and operating system resources ... remote the test code selectively. 3 is all about account claims on the
+network and operating system resources produced by a body of code. It is the user account that makes these claims.";
+"It is the logon and the logon is to an account ... Sudo is a means to an end: a logon."; "A good name for a logon
+that protects resources by identity is sandbox. It's a specific kind of sandbox."; "option 2. we do not want to be a
+key store. we need to rely on the OS for that. option 3 is a good fallback on Unix. if the broker's service account can
+logon to the requested user account, it will start a runner with sudo -u X."; "The macOS keychain is a bitch that
+way."; "Option 2 is the way to go. The cost gives us what i think we ultimately want: the ability to dispatch
+execution units to any device with a broker. The serialization boundary is the cost we pay for that."; "what we need
+is a subgraph that is specifically designed to produce (during planning) and execute a graph that runs in a local or
+remote logon. It would be the rough equivalent of sending a script to sudo. It would be another control structure.
+Another use case: running a lore package lifecycle operation."; "The authz package is strictly authorization for token
+acquisition. We introduce a new control structure: the logon for executing graphs anywhere there's a broker."; "Let's
+do #451 after."; "Command is a better name for the shell provider."
+
 ### Requirement 1: 6.2-process-pool.md
 
 A section **Ruled 2026-10-22: the runner is a logon, and the service manager makes it**, after § Ruled 2026-10-21, in
@@ -82,20 +102,52 @@ notes the credential never being devlore's.
 
 ### Requirement 4: the status companions
 
-6.1, 6.2 and 2.7's `.status.md` each gain a line under their open or completion section saying what 2026-10-22 moved.
+6.1, 6.2, 2.7 and 2.3's `.status.md` each gain a line under their open or completion section saying what 2026-10-22
+moved.
+
+### Requirement 5: 2.3-orchestration-primitives.md, the fifth combinator
+
+A section **Ruled 2026-10-22: `plan.logon`, the fifth combinator**, in the owner's words, then its place under the one
+rule: a subgraph whose body's executor runs in a logon, local or on another machine, through that machine's broker;
+the parent executor dispatches it, receives a stamped stack, pushes it nested and unwinds through it, as for any
+subgraph. What it does at plan time: the boundary (inputs are bindings whose producer is outside the body; outputs
+what the parent consumes), the catalog slice, and its arguments, `account` and optionally `host`, which fix the
+account when the unit is planned. At run time: inputs resolved to literals, the body re-rooted as an `op.Graph`,
+signed, posted to the broker, the console and events streams forked as 2.7 says, the stamped stack received;
+`CompensateLogon` posts the stack back for a state-checked unwind (`ResumeUnwind`); retry inherits the structural
+floor; pause makes it a trace and resume re-posts graph and trace; exit at the body's terminal, `Stop` forwarded. The
+two use cases: writ's System tree as `plan.logon("root", …)`, and a lore package lifecycle operation as the package's
+account or on the target host. The Starlark name `plan.logon`; the flow provider's `flow.logon` / `CompensateLogon`.
+§ The Combinators gains its entry.
+
+### Requirement 6: 2.7-control-plane.md, option 2 and the posted unit
+
+§ Open 1 closed by the ruling, with the answers to the three questions: a remoted unit is a full graph on the wire,
+the subtree re-rooted with literal inputs, the catalog slice and the coordinator's signature, and a stamped stack on
+return (option 2 of three); the remote is stateless between calls, the trace is the state, undo is the stack posted
+back, resume is graph plus trace posted again; exit is the run-state machine's terminal at the cut, `Stop` forwarded,
+`Pause` leaving a trace and no process. § The remote leg becomes the posted-unit protocol. § Open 15 takes the
+signature answer.
+
+### Requirement 7: the two procedural rulings
+
+6.1 § Open 1 closed: #451 after this work, so lane 1 of #1127 lands in today's names and the rename sweeps it. 6.3
+§ Open 6 closed: the shell provider becomes `command`, on #1127's lane 8.
 
 ## Implementation Phases
 
 ### Phase 1: the plan lands
 
-- [ ] Reviewed with the owner, status `approved`, committed alone on `chore/1138-logon-rulings`
-- [ ] #1138's documents table carries this plan's link
+- [x] Reviewed with the owner, status `approved`, committed alone on `chore/1138-logon-rulings` -- 2026-10-22, as
+      `draft` first, approved with Requirements 5 to 7 added on the big-picture ruling
+- [x] #1138's documents table carries this plan's link -- 2026-10-22
 
 ### Phase 2: the documents
 
 - [ ] 6.2 per Requirement 1, with its status companion
-- [ ] 6.1 per Requirement 2, with its status companion
-- [ ] 2.7 per Requirement 3, with its status companion
+- [ ] 6.1 per Requirement 2, and 6.3 § Open 6 per Requirement 7, with their status companions
+- [ ] 2.7 per Requirements 3 and 6, with its status companion
+- [ ] 2.3 per Requirement 5, with its status companion
 
 ### Phase 3: the pull request
 
@@ -111,7 +163,9 @@ notes the credential never being devlore's.
 | `docs/plans/chore/1138-logon-rulings.md` | Create | This plan |
 | `docs/architecture/6.2-process-pool.md`, `.status.md` | Modify | Requirement 1, 4 |
 | `docs/architecture/6.1-authorization.md`, `.status.md` | Modify | Requirement 2, 4 |
-| `docs/architecture/2.7-control-plane.md`, `.status.md` | Modify | Requirement 3, 4 |
+| `docs/architecture/2.7-control-plane.md`, `.status.md` | Modify | Requirement 3, 4, 6 |
+| `docs/architecture/2.3-orchestration-primitives.md`, `.status.md` | Modify | Requirement 4, 5 |
+| `docs/architecture/6.3-command-execution.md`, `.status.md` | Modify | Requirement 7 |
 
 ## Related Documents
 
