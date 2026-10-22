@@ -40,8 +40,12 @@ CI alone, since it installs into `~/.local`, and checks the session goes on and 
 - Everything after `param()` up to and including the `Install-DevLore` call runs inside
   `Invoke-Command -ScriptBlock { ... }`: strict mode, the configuration, the functions and the call. Each ends with
   that scope, in every form the installer is run in.
-- The exit check stays outside, after it: `$MyInvocation` there is the script's, and `$?` says whether the block
-  reported an error.
+- The exit check moves inside, after the call: `$?` there says whether `Install-DevLore` reported an error; after the
+  block it is true whatever the block reported (measured 2026-10-21: the suite's 'as a file: a failure exits 1'
+  failed, exit 0, with the check out there). Whether the script runs as a file is decided outside, from the script's
+  `$MyInvocation`, and passed in through `-ArgumentList`, so it sets no variable in the caller's scope. In the block
+  `$script:MyInvocation` is whichever script called the script-block form (measured: the suite's in-session cases
+  ended the suite).
 - The layers' fallback reads the environment as `[string]`, so an unset variable is `''`, as before.
 - The five parameters' own variables are all that `Invoke-Expression` leaves, holding what was passed, which under
   `Invoke-Expression` is nothing.
@@ -64,9 +68,10 @@ CI alone, since it installs into `~/.local`, and checks the session goes on and 
 
 ### Phase 2: The installer and the suite (Requirements 1 and 2)
 
-- [ ] `install.ps1`'s body in its own scope; getting started's note gone
-- [ ] The suite's `Invoke-Expression` case in a scratch home, failing at `272e6a98` and passing after, on danoble-wd11-3
-      under 5.1 and 7; the whole suite there under both
+- [x] `install.ps1`'s body in its own scope; getting started's note gone
+- [x] The suite's `Invoke-Expression` case in a scratch home, failing at `272e6a98` and passing after, on danoble-wd11-3
+      under 5.1 and 7; the whole suite there under both. At `272e6a98` under 5.1: 132 pass, 3 fail, the three new
+      checks (strict mode on; the three functions; the five variables). After: 135 pass, 0 fail, under 5.1 and 7
 
 ### Phase 3: Merge
 

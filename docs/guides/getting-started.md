@@ -45,9 +45,8 @@ On Windows, in Windows PowerShell 5.1 or PowerShell 7, the preferred form:
     -Personal <path-or-url>
 ```
 
-Or through `irm | iex`, which takes no parameters, so the layers come from the environment. This form leaves
-the installer's settings in your PowerShell session
-([#982](https://github.com/NobleFactor/devlore-cli/issues/982)); the form above leaves nothing behind.
+Or through `Invoke-RestMethod | Invoke-Expression`, which takes no parameters, so the layers come from the
+environment. Neither form leaves anything of the installer's in your PowerShell session.
 
 ```powershell
 $env:DEVLORE_BASE = '<path-or-url>'
