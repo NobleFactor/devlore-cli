@@ -1759,32 +1759,57 @@ catch {
             -Condition ($left.Count -eq 0) -Detail "left: $($left -join ', ')"
     }
 
-    # --- irm | iex with $env:DEVLORE_BASE, in a child session: it installs into ~/.local, so CI alone runs it ---
+    # --- Invoke-RestMethod | Invoke-Expression with $env:DEVLORE_BASE, in a child session (#982) ---
     #
-    # The published release, from GitHub: the child session is beyond the faux channel's stand-ins. What it checks, base
-    # registered and the session alive, holds whichever writ it installs (#1031).
+    # The published release, from GitHub: the child session is beyond the faux channel's stand-ins. What it checks holds
+    # whichever writ it installs (#1031): base registered, the session alive with its error action unchanged, and
+    # nothing of the installer's left in it, neither strict mode, nor its functions, nor its variables beyond the five
+    # parameters. The child's home is the scratch account's, so the install lands there and not in the user's ~/.local:
+    # PowerShell takes $HOME from USERPROFILE when it starts, and writ its home from the same variable.
 
-    if ($env:GITHUB_ACTIONS -eq 'true') {
-        $null = Use-Account -Name 'iex'
-        $command = @"
+    $iexAccount = Join-Path $scratch 'iex'
+    $null = Use-Account -Name 'iex'
+    $iexHome = Join-Path $iexAccount 'home'
+    New-Item -ItemType Directory -Path $iexHome -Force | Out-Null
+    $savedHome = @{ USERPROFILE = $env:USERPROFILE; HOME = $env:HOME }
+    $command = @"
 `$ErrorActionPreference = 'Continue'
 `$env:DEVLORE_BASE = '$repo'
 Get-Content -Raw -LiteralPath '$installer' | Invoke-Expression
 "after: session alive; error action `$ErrorActionPreference"
+"after: strict mode `$(try { `$null = `$neverSetByAnyone982; 'off' } catch { 'on' })"
+`$names = 'Install-DevLore', 'Get-CommandOnPersistentPath', 'Invoke-NativeCommand'
+`$functions = @(Get-Command -CommandType Function -Name `$names -ErrorAction Ignore)
+"after: functions [`$((`$functions | ForEach-Object { `$_.Name }) -join ' ')]"
+`$variables = @(Get-Variable -Name 'AuthToken', 'Version', 'Tools', 'GitHubRepo', 'InstallersUrl' -ErrorAction Ignore)
+"after: variables [`$((`$variables | ForEach-Object { `$_.Name }) -join ' ')]"
 "@
+
+    try {
+        $env:USERPROFILE = $iexHome
+        $env:HOME = $iexHome
         $iex = Invoke-Child -Name 'iex' -ArgumentList @(
             '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand',
             (ConvertTo-EncodedCommand -Command $command))
-        $iexWrit = Join-Path (Join-Path (Join-Path $HOME '.local') 'bin') $writName
-        $baseRoot = Get-LayerRoot -Writ $iexWrit -Layer 'base'
-        Test-Expectation -Description ('irm | iex with $env:DEVLORE_BASE: base registered, the session goes on, its ' +
-            'error action unchanged') `
-            -Condition ($baseRoot -eq $repo -and $iex.Output -match 'after: session alive; error action Continue') `
-            -Detail "base: $baseRoot; exit $($iex.ExitCode)`n$($iex.Output)"
     }
-    else {
-        Write-Output -InputObject 'SKIP irm | iex: it installs into ~/.local, so it runs in CI alone'
+    finally {
+        $env:USERPROFILE = $savedHome.USERPROFILE
+        $env:HOME = $savedHome.HOME
     }
+
+    $iexWrit = Join-Path (Join-Path (Join-Path $iexHome '.local') 'bin') $writName
+    $baseRoot = Get-LayerRoot -Writ $iexWrit -Layer 'base'
+    Test-Expectation `
+        -Description ('Invoke-Expression with $env:DEVLORE_BASE: base registered, the session goes on, its error ' +
+            'action unchanged') `
+        -Condition ($baseRoot -eq $repo -and $iex.Output -match 'after: session alive; error action Continue') `
+        -Detail "base: $baseRoot; exit $($iex.ExitCode)`n$($iex.Output)"
+    Test-Expectation -Description 'Invoke-Expression: leaves strict mode off in the session' `
+        -Condition ($iex.Output -match 'after: strict mode off') -Detail $iex.Output
+    Test-Expectation -Description 'Invoke-Expression: leaves none of the installer''s functions in the session' `
+        -Condition ($iex.Output -match 'after: functions \[\]') -Detail $iex.Output
+    Test-Expectation -Description 'Invoke-Expression: leaves none of the installer''s variables in the session' `
+        -Condition ($iex.Output -match 'after: variables \[\]') -Detail $iex.Output
 }
 catch {
     $caught = $_
