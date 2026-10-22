@@ -154,7 +154,7 @@ and § Open 9 take it; 2.8's fork paragraph and both status companions follow.
 - [x] 6.1 per Requirement 2, and 6.3 § Open 6 per Requirement 7, with their status companions -- 2026-10-22
 - [x] fd 3 per Requirement 8, in 6.2 and 2.8 and their status companions -- 2026-10-22
 - [x] 2.7 per Requirements 3 and 6, with its status companion -- 2026-10-22
-- [ ] 2.3 per Requirement 5, with its status companion
+- [x] 2.3 per Requirement 5, with its status companion -- 2026-10-22
 
 ### Phase 3: the pull request
 
