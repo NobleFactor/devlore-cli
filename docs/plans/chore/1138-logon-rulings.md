@@ -129,6 +129,12 @@ back, resume is graph plus trace posted again; exit is the run-state machine's t
 `Pause` leaving a trace and no process. § The remote leg becomes the posted-unit protocol. § Open 15 takes the
 signature answer.
 
+### Requirement 8: fd 3
+
+Ruled 2026-10-22, while the capture was being written: "We need the event stream. We should plan on adding that. I do
+not want to guess about what is being written to stderr. narrations go to stderr. events go to fd 3." 6.2 § 4.1 item 3
+and § Open 9 take it; 2.8's fork paragraph and both status companions follow.
+
 ### Requirement 7: the two procedural rulings
 
 6.1 § Open 1 closed: #451 after this work, so lane 1 of #1127 lands in today's names and the rename sweeps it. 6.3
@@ -146,6 +152,7 @@ signature answer.
 
 - [x] 6.2 per Requirement 1, with its status companion -- 2026-10-22
 - [x] 6.1 per Requirement 2, and 6.3 § Open 6 per Requirement 7, with their status companions -- 2026-10-22
+- [x] fd 3 per Requirement 8, in 6.2 and 2.8 and their status companions -- 2026-10-22
 - [ ] 2.7 per Requirements 3 and 6, with its status companion
 - [ ] 2.3 per Requirement 5, with its status companion
 
@@ -166,6 +173,7 @@ signature answer.
 | `docs/architecture/2.7-control-plane.md`, `.status.md` | Modify | Requirement 3, 4, 6 |
 | `docs/architecture/2.3-orchestration-primitives.md`, `.status.md` | Modify | Requirement 4, 5 |
 | `docs/architecture/6.3-command-execution.md`, `.status.md` | Modify | Requirement 7 |
+| `docs/architecture/2.8-eventing-infrastructure.md`, `.status.md` | Modify | Requirement 8 |
 
 ## Related Documents
 
