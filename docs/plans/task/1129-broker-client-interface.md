@@ -110,8 +110,8 @@ not built. #1129's documents table carries this plan.
 
 ### Phase 2: the interface and the frames
 
-- [ ] `pkg/op/broker.go` and `pkg/op/broker_console.go` per Requirements 1 and 2, with the JSON pins in
-      `pkg/op/broker_test.go`; `gofmt`; `make check`
+- [x] `pkg/op/broker.go` and `pkg/op/broker_console.go` per Requirements 1 and 2, with the JSON pins in
+      `pkg/op/broker_test.go`; `gofmt`; `make lint` and `make test` -- 2026-10-22
 
 ### Phase 3: the double
 
