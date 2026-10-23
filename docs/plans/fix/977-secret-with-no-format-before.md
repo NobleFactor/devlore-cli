@@ -1,9 +1,9 @@
 ---
 title: "A secret with no format before .sops deploys as a JSON wrapper"
 issue: https://github.com/NobleFactor/devlore-cli/issues/977
-status: approved
+status: active
 created: 2026-10-21
-updated: 2026-10-22
+updated: 2026-10-23
 ---
 
 # Plan: writ encrypts and decrypts every secret one way, as bytes, so token.sops deploys as its plaintext
@@ -85,12 +85,19 @@ user to name a format, since without one a secret "deploys as a JSON wrapper tod
 
 ### Phase 1: The plan
 
-- [ ] This plan committed on `fix/977-secret-with-no-format-before` and reviewed with the owner
+- [x] This plan committed on `fix/977-secret-with-no-format-before` and reviewed with the owner (`5465dab2`, approved
+      2026-10-23; this box ticked a commit late, logged on NobleFactor/noblefactor-engprod#317)
 
 ### Phase 2: The tests, failing (Requirement 2)
 
-- [ ] The round trip's test files, the deploy row and the six exact comparisons; what fails at `0e7bcdd4` through
-      `make test`, reported
+- [x] The round trip's test files, the deploy row and the six exact comparisons; what fails at `0e7bcdd4` through
+      `make test`, reported. All nine files fail: `token` and `server.pem` come back as the `{"data": ...}` wrapper;
+      `blob` as the wrapper, its bytes that are not UTF-8 replaced by U+FFFD; `brace` and `secrets.json` re-indented
+      by the JSON store; `secrets.yaml` rewritten by the YAML store (its comment moved, its quotes dropped, its
+      indentation evened); `not-yaml.yaml` refused at encryption by the YAML store; and `app.env` and `app.ini`
+      encrypt to documents `IsEncrypted` does not recognize, so `Client.Decrypt` would pass them through and deploy
+      the ciphertext. The deploy test fails on `token.sops`, the wrapper; its two YAML rows and the encryption
+      provider's three comparisons pass
 
 ### Phase 3: One mode (Requirements 1, 2 and 3)
 

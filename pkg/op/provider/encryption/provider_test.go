@@ -78,7 +78,8 @@ func TestCompensateDecryptSopsFile_RemovesFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := p.CompensateDecryptSopsFile(testActivation(t, p.RuntimeEnvironment()), &Receipt{ReceiptBase: op.NewReceiptBase(resource)}); err != nil {
+	receipt := &Receipt{ReceiptBase: op.NewReceiptBase(resource)}
+	if err := p.CompensateDecryptSopsFile(testActivation(t, p.RuntimeEnvironment()), receipt); err != nil {
 		t.Fatalf("compensate: %v", err)
 	}
 
@@ -101,7 +102,9 @@ func TestCompensateDecryptSopsFile_MissingFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = p.CompensateDecryptSopsFile(testActivation(t, p.RuntimeEnvironment()), &Receipt{ReceiptBase: op.NewReceiptBase(resource)})
+	err = p.CompensateDecryptSopsFile(testActivation(t, p.RuntimeEnvironment()), &Receipt{
+		ReceiptBase: op.NewReceiptBase(resource),
+	})
 	if err == nil {
 		t.Fatal("expected error removing nonexistent file")
 	}
@@ -287,11 +290,8 @@ func TestDecryptSopsFile_RoundTrip(t *testing.T) {
 		t.Fatalf("reading decrypted file: %v", err)
 	}
 
-	if !bytes.Contains(decrypted, []byte("hello")) {
-		t.Errorf("decrypted content missing 'hello': %s", decrypted)
-	}
-	if !bytes.Contains(decrypted, []byte("world")) {
-		t.Errorf("decrypted content missing 'world': %s", decrypted)
+	if !bytes.Equal(decrypted, plainYAML) {
+		t.Errorf("decrypted = %q, want %q", decrypted, plainYAML)
 	}
 
 	if result.Path().Abs() != destination {
@@ -361,7 +361,8 @@ func TestCompensateEncryptFile_RemovesFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := p.CompensateEncryptFile(testActivation(t, p.RuntimeEnvironment()), &Receipt{ReceiptBase: op.NewReceiptBase(resource)}); err != nil {
+	receipt := &Receipt{ReceiptBase: op.NewReceiptBase(resource)}
+	if err := p.CompensateEncryptFile(testActivation(t, p.RuntimeEnvironment()), receipt); err != nil {
 		t.Fatalf("compensate: %v", err)
 	}
 
@@ -384,7 +385,9 @@ func TestCompensateEncryptFile_MissingFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = p.CompensateEncryptFile(testActivation(t, p.RuntimeEnvironment()), &Receipt{ReceiptBase: op.NewReceiptBase(resource)})
+	err = p.CompensateEncryptFile(testActivation(t, p.RuntimeEnvironment()), &Receipt{
+		ReceiptBase: op.NewReceiptBase(resource),
+	})
 	if err == nil {
 		t.Fatal("expected error removing nonexistent file")
 	}
@@ -460,8 +463,8 @@ func TestEncryptFile_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Contains(decrypted, []byte("hello")) || !bytes.Contains(decrypted, []byte("world")) {
-		t.Errorf("decrypted = %q, want to contain hello + world", decrypted)
+	if !bytes.Equal(decrypted, plaintext) {
+		t.Errorf("decrypted = %q, want %q", decrypted, plaintext)
 	}
 
 	// Compensation removes the encrypted file.
