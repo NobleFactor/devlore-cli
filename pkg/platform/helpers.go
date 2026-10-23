@@ -4,10 +4,37 @@
 package platform
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
+	"strings"
 	"time"
 )
+
+// CommandTimeout bounds every command a manager runs.
+//
+// A wedged command — a stuck mirror, a tool that prompts on /dev/tty — can never hang the run indefinitely. It is a
+// generous backstop, not a per-operation deadline (large installs are legitimate).
+const CommandTimeout = 30 * time.Minute
+
+// autoConfirmReplies is how many `y` answers an auto-confirm stdin carries: far more than any command asks, then
+// end of file.
+const autoConfirmReplies = 4096
+
+// LocalRunner returns the [CommandRunner] for a platform built outside a runtime environment: it forks the command
+// from this process as the caller, and stands for no other account.
+//
+// A manager that asks it for [AccountRoot] gets a Result with Code -1 naming the refusal, never a prompt: without a
+// broker there is no logon to make, and this runner is for the callers that only query (`lore` searching a package,
+// a test driving a platform).
+//
+// Returns:
+//   - `CommandRunner`: the runner.
+func LocalRunner() CommandRunner {
+	return localRun
+}
 
 // refreshTTL is the staleness threshold for the automatic index refresh.
 //
@@ -138,4 +165,64 @@ func tagManager(results []SearchResult, manager string) []SearchResult {
 	}
 
 	return results
+}
+
+// localRun is [LocalRunner]: the command as the caller, bounded by [CommandTimeout], its streams captured.
+//
+// Parameters:
+//   - `ctx`: the caller's context; the timeout is layered on it.
+//   - `request`: the command.
+//
+// Returns:
+//   - `Result`: the captured stdout, stderr and exit code, trailing newlines trimmed; Code -1 when the command could
+//     not be launched, timed out, or asked for an account this runner does not stand for.
+func localRun(ctx context.Context, request CommandRequest) Result {
+
+	if len(request.Argv) == 0 {
+		return Result{Code: -1, Stderr: "platform: no command given"}
+	}
+	if request.Account != AccountCaller {
+		return Result{Code: -1, Stderr: fmt.Sprintf("platform: account %s is not available without a broker", request.Account)}
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, CommandTimeout)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, request.Argv[0], request.Argv[1:]...) //nolint:gosec // G204: argv from internal callers, never parsed
+
+	if len(request.Env) > 0 {
+		cmd.Env = os.Environ()
+		for name, value := range request.Env {
+			cmd.Env = append(cmd.Env, name+"="+value)
+		}
+	}
+	if request.AutoConfirm {
+		cmd.Stdin = strings.NewReader(strings.Repeat("y\n", autoConfirmReplies))
+	}
+
+	var stdout, stderr strings.Builder
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	err := cmd.Run()
+	code := 0
+	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			code = exitErr.ExitCode()
+		} else {
+			code = -1
+		}
+	}
+
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		fmt.Fprintf(&stderr, "\ncommand timed out after %s", CommandTimeout)
+	}
+
+	return Result{
+		OK:     code == 0,
+		Stdout: strings.TrimSuffix(stdout.String(), "\n"),
+		Stderr: strings.TrimSuffix(stderr.String(), "\n"),
+		Code:   code,
+	}
 }

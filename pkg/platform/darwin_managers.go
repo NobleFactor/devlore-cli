@@ -66,7 +66,7 @@ func (m *brewManager) purlType() string { return "brew" }
 // launchd Service Manager
 // =============================================================================
 
-type launchdManager struct{}
+type launchdManager struct{ commander }
 
 // region EXPORTED METHODS
 

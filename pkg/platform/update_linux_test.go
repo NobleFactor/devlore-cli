@@ -13,29 +13,32 @@ import (
 // TestAptRefreshIssuesElevatedUpdate verifies apt refreshes the index under sudo.
 func TestAptRefreshIssuesElevatedUpdate(t *testing.T) {
 
-	argv, sudo := captureRefresh(t, (&aptManager{}).refresh)
+	m := &aptManager{}
+	argv, account := captureRefresh(t, m, m.refresh)
 
-	if !slices.Equal(argv, []string{"apt-get", "update"}) || !sudo {
-		t.Errorf("apt refresh = (%v, sudo=%v), want (%v, sudo=true)", argv, sudo, []string{"apt-get", "update"})
+	if !slices.Equal(argv, []string{"apt-get", "update"}) || account != AccountRoot {
+		t.Errorf("apt refresh = (%v, account=%s), want (%v, root)", argv, account, []string{"apt-get", "update"})
 	}
 }
 
 // TestDnfRefreshIssuesElevatedMakecache verifies dnf rebuilds its metadata cache under sudo.
 func TestDnfRefreshIssuesElevatedMakecache(t *testing.T) {
 
-	argv, sudo := captureRefresh(t, (&dnfManager{}).refresh)
+	m := &dnfManager{}
+	argv, account := captureRefresh(t, m, m.refresh)
 
-	if !slices.Equal(argv, []string{"dnf", "makecache"}) || !sudo {
-		t.Errorf("dnf refresh = (%v, sudo=%v), want (%v, sudo=true)", argv, sudo, []string{"dnf", "makecache"})
+	if !slices.Equal(argv, []string{"dnf", "makecache"}) || account != AccountRoot {
+		t.Errorf("dnf refresh = (%v, account=%s), want (%v, root)", argv, account, []string{"dnf", "makecache"})
 	}
 }
 
 // TestPacmanRefreshIssuesElevatedNonInteractiveSync verifies pacman syncs its databases under sudo, non-interactively.
 func TestPacmanRefreshIssuesElevatedNonInteractiveSync(t *testing.T) {
 
-	argv, sudo := captureRefresh(t, (&pacmanManager{}).refresh)
+	m := &pacmanManager{}
+	argv, account := captureRefresh(t, m, m.refresh)
 
-	if !slices.Equal(argv, []string{"pacman", "-Sy", "--noconfirm"}) || !sudo {
-		t.Errorf("pacman refresh = (%v, sudo=%v), want (%v, sudo=true)", argv, sudo, []string{"pacman", "-Sy", "--noconfirm"})
+	if !slices.Equal(argv, []string{"pacman", "-Sy", "--noconfirm"}) || account != AccountRoot {
+		t.Errorf("pacman refresh = (%v, account=%s), want (%v, root)", argv, account, []string{"pacman", "-Sy", "--noconfirm"})
 	}
 }

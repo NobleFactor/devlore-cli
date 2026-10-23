@@ -10,13 +10,14 @@ import (
 	"time"
 )
 
-// deliverWhenAsked waits until the double has seen one exec, then delivers the frames to run r.
+// deliverWhenAsked waits until the double has seen one exec, then delivers the frames to the run.
 //
 // Parameters:
 //   - `t`: the test.
 //   - `broker`: the double.
+//   - `run`: the run the frames go to.
 //   - `frames`: what to deliver, in order.
-func deliverWhenAsked(t *testing.T, broker *RecordingBroker, frames ...ConsoleFrame) {
+func deliverWhenAsked(t *testing.T, broker *RecordingBroker, run RunID, frames ...ConsoleFrame) {
 
 	t.Helper()
 	go func() {
@@ -28,7 +29,7 @@ func deliverWhenAsked(t *testing.T, broker *RecordingBroker, frames ...ConsoleFr
 			time.Sleep(time.Millisecond)
 		}
 		for _, frame := range frames {
-			broker.Deliver("r", frame)
+			broker.Deliver(run, frame)
 		}
 	}()
 }
@@ -40,7 +41,7 @@ func deliverWhenAsked(t *testing.T, broker *RecordingBroker, frames ...ConsoleFr
 func TestRun_CollectsUntilControl(t *testing.T) {
 
 	broker := NewRecordingBroker()
-	deliverWhenAsked(t, broker,
+	deliverWhenAsked(t, broker, "r",
 		NarrationFrame("e-1", "u", "warn", "one"),
 		OutputFrame("e-9", []byte("not mine")),
 		OutputFrame("e-1", []byte("out")),

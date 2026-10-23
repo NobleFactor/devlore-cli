@@ -226,13 +226,6 @@ func NewRuntimeEnvironment(ctx context.Context, spec *RuntimeEnvironmentSpec) (*
 
 	platformCapability := spec.Platform
 
-	if platformCapability == nil {
-		if detected, err := platform.Detect(); err == nil {
-			//nolint:errcheck // diagnose-ignored-error: optional detect; see docs/architecture/2.8-eventing-infrastructure.md
-			platformCapability, _ = platform.New(detected)
-		}
-	}
-
 	modules := spec.Modules
 	if len(modules) == 0 {
 		modules = ReceiverRegistry().Scripts()
@@ -270,6 +263,15 @@ func NewRuntimeEnvironment(ctx context.Context, spec *RuntimeEnvironmentSpec) (*
 	runtimeEnvironment.Broker = spec.Broker
 	if runtimeEnvironment.Broker == nil {
 		runtimeEnvironment.Broker = NewInProcessBroker(runtimeEnvironment)
+	}
+
+	// The detected platform runs its commands through the environment's broker, so the broker comes first. A
+	// platform the spec supplied keeps the runner it was built with.
+	if runtimeEnvironment.Platform == nil {
+		if detected, err := platform.Detect(); err == nil {
+			//nolint:errcheck // diagnose-ignored-error: optional detect; see docs/architecture/2.8-eventing-infrastructure.md
+			runtimeEnvironment.Platform, _ = platform.New(detected.WithCommandRunner(PlatformRunner(runtimeEnvironment)))
+		}
 	}
 
 	return runtimeEnvironment, nil

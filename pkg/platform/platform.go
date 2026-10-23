@@ -128,6 +128,17 @@ func New(spec *Spec) (Platform, error) {
 		return nil, err
 	}
 
+	runner := spec.runner
+	if runner == nil {
+		runner = LocalRunner()
+	}
+	for _, manager := range spec.managers {
+		manager.setRunner(runner)
+	}
+	if setter, ok := spec.serviceManager.(runnerSetter); ok {
+		setter.setRunner(runner)
+	}
+
 	return &platform{
 		os:                 spec.os,
 		arch:               arch,
@@ -251,6 +262,7 @@ type Spec struct {
 	managers           []leaf         // the platform's leaf drivers
 	defaultManager     leaf           // the default native leaf (must appear in managers)
 	serviceManager     ServiceManager // the platform's service manager
+	runner             CommandRunner  // what the managers run commands through; nil means [LocalRunner]
 }
 
 // region EXPORTED METHODS
@@ -266,6 +278,19 @@ type Spec struct {
 //   - `*Spec`: the receiver, for chaining.
 func (s *Spec) WithArch(arch string) *Spec {
 	s.arch = arch
+	return s
+}
+
+// WithCommandRunner sets what the platform's managers run commands through. Absent, [New] uses [LocalRunner], which
+// stands for the caller alone; a runtime environment passes the runner its broker backs.
+//
+// Parameters:
+//   - `runner`: the runner.
+//
+// Returns:
+//   - `*Spec`: the receiver, for chaining.
+func (s *Spec) WithCommandRunner(runner CommandRunner) *Spec {
+	s.runner = runner
 	return s
 }
 

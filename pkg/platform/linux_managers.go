@@ -35,6 +35,9 @@ type aptManager struct{ driver }
 func newAptManager() *aptManager {
 	m := &aptManager{}
 	m.driver = newDriver(m)
+
+	// apt's one knob, declared where it belongs (6.2 § Open 4): quiet, and modified configuration files kept.
+	m.env = map[string]string{"DEBIAN_FRONTEND": "noninteractive"}
 	return m
 }
 
@@ -155,7 +158,7 @@ func (m *pacmanManager) purlType() string { return "alpm" }
 // systemd Service Manager
 // =============================================================================
 
-type systemdManager struct{}
+type systemdManager struct{ commander }
 
 // region EXPORTED METHODS
 
@@ -175,7 +178,7 @@ func (m *systemdManager) NeedsSudo() bool { return true }
 // SysVinit Service Manager
 // =============================================================================
 
-type sysVinitManager struct{}
+type sysVinitManager struct{ commander }
 
 // region EXPORTED METHODS
 

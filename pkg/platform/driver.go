@@ -36,6 +36,7 @@ type rawDriver interface {
 // primitives, with Search tagging each hit with the manager's purl type.
 type driver struct {
 	rawDriver
+	commander
 }
 
 // newDriver wires a [driver] to its concrete [rawDriver].

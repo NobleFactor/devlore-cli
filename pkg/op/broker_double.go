@@ -38,6 +38,10 @@ type RecordingBroker struct {
 	// statuses, by run: what Status and Command answer; a run with none is unknown.
 	statuses map[RunID]RunStatus
 
+	// complete, when set, ends every accepted exec at once with a control frame carrying this status, so a caller
+	// that waits through [Run] returns; set by [RecordingBroker.Complete].
+	complete *int
+
 	// consoles and events are the per-run streams, created on first subscription or delivery.
 	consoles map[RunID]*brokerStream[ConsoleFrame]
 	events   map[RunID]*brokerStream[ControlEvent]
@@ -117,6 +121,18 @@ func (b *RecordingBroker) Refuse(account string, refusal *Refusal) {
 	b.refusals[account] = refusal
 }
 
+// Complete makes every exec and post the double accepts end at once with a control frame of the given exit status,
+// for a test of a caller that waits through [Run] and does not care what the command said.
+//
+// Parameters:
+//   - `exitStatus`: the exit status every control frame carries.
+func (b *RecordingBroker) Complete(exitStatus int) {
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.complete = &exitStatus
+}
+
 // SetStatus makes a run known and sets what Status and Command answer for it.
 //
 // Parameters:
@@ -167,12 +183,20 @@ func (b *RecordingBroker) Exec(_ context.Context, request ExecRequest) (ExecID, 
 	}
 
 	b.mu.Lock()
-	defer b.mu.Unlock()
 	b.execs = append(b.execs, request)
-	if refusal, refused := b.refusals[request.Account]; refused {
+	refusal, refused := b.refusals[request.Account]
+	if refused {
+		b.mu.Unlock()
 		return "", refusal
 	}
-	return b.nextExec(), nil
+	id := b.nextExec()
+	complete := b.complete
+	b.mu.Unlock()
+
+	if complete != nil {
+		b.Deliver(request.Run, ControlFrame(id, *complete, nil))
+	}
+	return id, nil
 }
 
 // Post records the request and returns the next exec id, or the refusal set for its account.
@@ -191,12 +215,20 @@ func (b *RecordingBroker) Post(_ context.Context, request PostRequest) (ExecID, 
 	}
 
 	b.mu.Lock()
-	defer b.mu.Unlock()
 	b.posts = append(b.posts, request)
-	if refusal, refused := b.refusals[request.Account]; refused {
+	refusal, refused := b.refusals[request.Account]
+	if refused {
+		b.mu.Unlock()
 		return "", refusal
 	}
-	return b.nextExec(), nil
+	id := b.nextExec()
+	complete := b.complete
+	b.mu.Unlock()
+
+	if complete != nil {
+		b.Deliver(request.Run, ControlFrame(id, *complete, nil))
+	}
+	return id, nil
 }
 
 // Status returns the status SetStatus gave the run.

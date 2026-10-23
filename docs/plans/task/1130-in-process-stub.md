@@ -136,8 +136,16 @@ plan's status.
 
 ### Phase 3: the platform (Requirement 3)
 
-- [ ] `CommandRunner`, `WithCommandRunner`, `LocalRunner`, every leaf, `runCommand` deleted, the tests; the two
-      `cmd` callers; `grep -rn sudo pkg/platform` empty; `make lint`, `make test`
+- [x] `CommandRunner`, `WithCommandRunner`, `LocalRunner`, every leaf, `runCommand` deleted, the tests;
+      `grep -rn sudo pkg/platform` empty; `make lint`, `make test` -- 2026-10-22. Two things differ from Requirement
+      3 as written: `New` defaults to `LocalRunner` rather than refusing a spec with none, so the two `cmd` callers
+      and every platform test are untouched, and a platform built outside a runtime environment stands for the
+      caller alone by construction; and the managers run commands through a `commander` they embed, `m.run(argv,
+      account)`, which the service managers embed too, so the runner is set once by `New` on each. The runtime
+      environment builds its detected platform through `op.PlatformRunner`, its broker's adapter, after the broker
+      exists; a platform the spec supplied keeps the runner it was built with. A visible change for the owner to
+      judge: every manager command now narrates its audit line, `$ apt-get …`, through `process.Runner`, where
+      `runCommand` narrated nothing.
 
 ### Phase 4: the providers (Requirement 4)
 

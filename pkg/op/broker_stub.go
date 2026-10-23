@@ -14,6 +14,8 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+
+	"github.com/NobleFactor/devlore-cli/pkg/platform"
 )
 
 // Interface Guard: the in-process broker is a Broker, at compile time.
@@ -498,14 +500,14 @@ func commandFor(ctx context.Context, request ExecRequest, argv []string) *exec.C
 
 // endregion
 
-// Account names the in-process broker stands for. Their final form is 6.2 § Open 8.
+// Account names the in-process broker stands for, the platform's (6.2 § Open 8 has their final form).
 const (
 
 	// AccountCaller is the process's own account: the direct path, no logon, no policy.
-	AccountCaller = "caller"
+	AccountCaller = platform.AccountCaller
 
 	// AccountRoot is root: `sudo -n` here, the root runner in iteration 3.
-	AccountRoot = "root"
+	AccountRoot = platform.AccountRoot
 )
 
 // autoConfirmReplies is how many `y` answers an auto-confirm stdin carries: far more than any command asks, then EOF.
