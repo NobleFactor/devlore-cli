@@ -42,6 +42,8 @@ func (c *commander) setRunner(runner CommandRunner) {
 //
 // Returns:
 //   - `Result`: the captured stdout, stderr and exit code; a launch failure or a refusal is a Result with Code -1.
+//
+//nolint:unused // called by the Unix-tagged leaves; the Windows leaves reach their runner at lane 8 of #1127.
 func (c commander) run(argv []string, account string) Result {
 
 	if c.runner == nil {
