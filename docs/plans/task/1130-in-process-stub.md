@@ -1,7 +1,7 @@
 ---
 title: "The in-process stub behind the broker's interface: the caller's account through pkg/process, root through one sudo -n, every other sudo in pkg/platform deleted"
 issue: https://github.com/NobleFactor/devlore-cli/issues/1130
-status: active
+status: complete
 created: 2026-10-22
 updated: 2026-10-22
 ---
@@ -161,8 +161,9 @@ plan's status.
 
 ### Phase 6: after the merge (rule 5)
 
-- [ ] `make install`; `writ deploy` on Media-Server from an unprivileged shell runs its Home scope through the stub,
-      and `writ --version` reports the merge; status `complete`; #1130 closed
+- [x] `make install`; `writ deploy` on Media-Server from an unprivileged shell, 279 links, every one resolving, and
+      `writ --version` reports the merge, 65ee707e -- 2026-10-23. The Home scope is file links and ran no command,
+      so the root path's proof is the System scope, lane 10. Status `complete`; #1130 closes with this tick's merge
 
 ## Files to Create/Modify
 
