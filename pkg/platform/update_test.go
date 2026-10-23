@@ -20,6 +20,7 @@ type fakeLeaf struct {
 
 var _ leaf = (*fakeLeaf)(nil)
 
+func (f *fakeLeaf) setRunner(CommandRunner)                           {}
 func (f *fakeLeaf) name() string                                      { return f.typ }
 func (f *fakeLeaf) purlType() string                                  { return f.typ }
 func (f *fakeLeaf) Install([]PURL, map[string]any) ([]Receipt, error) { return nil, nil }

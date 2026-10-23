@@ -259,6 +259,10 @@ func (m *wingetManager) version(name string) string {
 // It lives in the windows-tagged file because there is no useful semantics for it on non-Windows hosts
 // (PowerShell and cmd.exe are absent). Used by both the winget and Service Control Manager primitives above.
 //
+// It is architecture 6.2 § 10's desktop interim row, the UAC dialog, and the one path that does not go through the
+// platform's [CommandRunner]: its callers hand it a string, which 6.3 forbids, and lane 8 of #1127 reshapes them to
+// argv and routes them through the runner, where `elevated` becomes [AccountRoot].
+//
 // Parameters:
 //   - `command`: the command line to run.
 //   - `elevated`: when true, relaunch the command elevated via `Start-Process -Verb RunAs`.

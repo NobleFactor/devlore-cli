@@ -6,6 +6,7 @@
 package platform
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -125,7 +126,7 @@ func isServerVariant(variantID string) bool {
 	}
 
 	// VARIANT_ID absent or unrecognized — fall back to systemd's default-target signal.
-	result := runCommand([]string{"systemctl", "get-default"}, false)
+	result := localRun(context.Background(), CommandRequest{Account: AccountCaller, Argv: []string{"systemctl", "get-default"}})
 	if !result.OK {
 		return false
 	}

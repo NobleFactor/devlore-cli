@@ -13,10 +13,11 @@ import (
 // TestBrewRefreshIssuesUnelevatedUpdate verifies brew refreshes without sudo (Homebrew is user-owned).
 func TestBrewRefreshIssuesUnelevatedUpdate(t *testing.T) {
 
-	argv, sudo := captureRefresh(t, (&brewManager{}).refresh)
+	m := &brewManager{}
+	argv, account := captureRefresh(t, m, m.refresh)
 
-	if !slices.Equal(argv, []string{"brew", "update"}) || sudo {
-		t.Errorf("brew refresh = (%v, sudo=%v), want (%q, sudo=false)", argv, sudo, []string{"brew", "update"})
+	if !slices.Equal(argv, []string{"brew", "update"}) || account != AccountCaller {
+		t.Errorf("brew refresh = (%v, account=%s), want (%q, caller)", argv, account, []string{"brew", "update"})
 	}
 }
 
@@ -25,9 +26,10 @@ func TestBrewRefreshIssuesUnelevatedUpdate(t *testing.T) {
 // MacPorts lives under /opt/local (root-owned), so the refresh requires elevation; `-N` keeps it non-interactive.
 func TestPortRefreshIssuesElevatedNonInteractiveSelfupdate(t *testing.T) {
 
-	argv, sudo := captureRefresh(t, (&portManager{}).refresh)
+	m := &portManager{}
+	argv, account := captureRefresh(t, m, m.refresh)
 
-	if !slices.Equal(argv, []string{"port", "-N", "selfupdate"}) || !sudo {
-		t.Errorf("port refresh = (%v, sudo=%v), want (%v, sudo=true)", argv, sudo, []string{"port", "-N", "selfupdate"})
+	if !slices.Equal(argv, []string{"port", "-N", "selfupdate"}) || account != AccountRoot {
+		t.Errorf("port refresh = (%v, account=%s), want (%v, root)", argv, account, []string{"port", "-N", "selfupdate"})
 	}
 }

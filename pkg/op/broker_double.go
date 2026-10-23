@@ -38,9 +38,13 @@ type RecordingBroker struct {
 	// statuses, by run: what Status and Command answer; a run with none is unknown.
 	statuses map[RunID]RunStatus
 
+	// complete, when set, ends every accepted exec at once with a control frame carrying this status, so a caller
+	// that waits through [Run] returns; set by [RecordingBroker.Complete].
+	complete *int
+
 	// consoles and events are the per-run streams, created on first subscription or delivery.
-	consoles map[RunID]*doubleStream[ConsoleFrame]
-	events   map[RunID]*doubleStream[ControlEvent]
+	consoles map[RunID]*brokerStream[ConsoleFrame]
+	events   map[RunID]*brokerStream[ControlEvent]
 }
 
 // NewRecordingBroker returns an empty double: no runs, no refusals, nothing delivered.
@@ -51,8 +55,8 @@ func NewRecordingBroker() *RecordingBroker {
 	return &RecordingBroker{
 		refusals: make(map[string]*Refusal),
 		statuses: make(map[RunID]RunStatus),
-		consoles: make(map[RunID]*doubleStream[ConsoleFrame]),
-		events:   make(map[RunID]*doubleStream[ControlEvent]),
+		consoles: make(map[RunID]*brokerStream[ConsoleFrame]),
+		events:   make(map[RunID]*brokerStream[ControlEvent]),
 	}
 }
 
@@ -117,6 +121,18 @@ func (b *RecordingBroker) Refuse(account string, refusal *Refusal) {
 	b.refusals[account] = refusal
 }
 
+// Complete makes every exec and post the double accepts end at once with a control frame of the given exit status,
+// for a test of a caller that waits through [Run] and does not care what the command said.
+//
+// Parameters:
+//   - `exitStatus`: the exit status every control frame carries.
+func (b *RecordingBroker) Complete(exitStatus int) {
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.complete = &exitStatus
+}
+
 // SetStatus makes a run known and sets what Status and Command answer for it.
 //
 // Parameters:
@@ -167,12 +183,20 @@ func (b *RecordingBroker) Exec(_ context.Context, request ExecRequest) (ExecID, 
 	}
 
 	b.mu.Lock()
-	defer b.mu.Unlock()
 	b.execs = append(b.execs, request)
-	if refusal, refused := b.refusals[request.Account]; refused {
+	refusal, refused := b.refusals[request.Account]
+	if refused {
+		b.mu.Unlock()
 		return "", refusal
 	}
-	return b.nextExec(), nil
+	id := b.nextExec()
+	complete := b.complete
+	b.mu.Unlock()
+
+	if complete != nil {
+		b.Deliver(request.Run, ControlFrame(id, *complete, nil))
+	}
+	return id, nil
 }
 
 // Post records the request and returns the next exec id, or the refusal set for its account.
@@ -191,12 +215,20 @@ func (b *RecordingBroker) Post(_ context.Context, request PostRequest) (ExecID, 
 	}
 
 	b.mu.Lock()
-	defer b.mu.Unlock()
 	b.posts = append(b.posts, request)
-	if refusal, refused := b.refusals[request.Account]; refused {
+	refusal, refused := b.refusals[request.Account]
+	if refused {
+		b.mu.Unlock()
 		return "", refusal
 	}
-	return b.nextExec(), nil
+	id := b.nextExec()
+	complete := b.complete
+	b.mu.Unlock()
+
+	if complete != nil {
+		b.Deliver(request.Run, ControlFrame(id, *complete, nil))
+	}
+	return id, nil
 }
 
 // Status returns the status SetStatus gave the run.
@@ -256,7 +288,7 @@ func (b *RecordingBroker) Console(run RunID) (frames <-chan ConsoleFrame, cancel
 
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.console(run).subscribe()
+	return b.console(run).subscribe(&b.mu)
 }
 
 // Deliver stamps the frame with the run's next console seq and fans it out to the run's console subscribers, as a
@@ -300,7 +332,7 @@ func (b *RecordingBroker) Events(run RunID) (events <-chan ControlEvent, cancel 
 
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.event(run).subscribe()
+	return b.event(run).subscribe(&b.mu)
 }
 
 // endregion
@@ -317,12 +349,12 @@ func (b *RecordingBroker) Events(run RunID) (events <-chan ControlEvent, cancel 
 //   - `run`: the run.
 //
 // Returns:
-//   - `*doubleStream[ConsoleFrame]`: the stream.
-func (b *RecordingBroker) console(run RunID) *doubleStream[ConsoleFrame] {
+//   - `*brokerStream[ConsoleFrame]`: the stream.
+func (b *RecordingBroker) console(run RunID) *brokerStream[ConsoleFrame] {
 
 	stream, known := b.consoles[run]
 	if !known {
-		stream = newDoubleStream[ConsoleFrame]()
+		stream = newBrokerStream[ConsoleFrame]()
 		b.consoles[run] = stream
 	}
 	return stream
@@ -334,12 +366,12 @@ func (b *RecordingBroker) console(run RunID) *doubleStream[ConsoleFrame] {
 //   - `run`: the run.
 //
 // Returns:
-//   - `*doubleStream[ControlEvent]`: the stream.
-func (b *RecordingBroker) event(run RunID) *doubleStream[ControlEvent] {
+//   - `*brokerStream[ControlEvent]`: the stream.
+func (b *RecordingBroker) event(run RunID) *brokerStream[ControlEvent] {
 
 	stream, known := b.events[run]
 	if !known {
-		stream = newDoubleStream[ControlEvent]()
+		stream = newBrokerStream[ControlEvent]()
 		b.events[run] = stream
 	}
 	return stream
@@ -369,69 +401,6 @@ type RecordedCommand struct {
 
 	// Command is the command.
 	Command ControlCommand
-}
-
-// doubleStream is one per-run stream of the double: its seq and its subscribers. The double's mu guards it.
-type doubleStream[T any] struct {
-
-	// seq is the last seq stamped; the next is seq+1.
-	seq uint64
-
-	// subscribers is the set of live channels.
-	subscribers map[chan T]struct{}
-}
-
-// newDoubleStream returns an empty stream.
-//
-// Returns:
-//   - `*doubleStream[T]`: the stream.
-func newDoubleStream[T any]() *doubleStream[T] {
-	return &doubleStream[T]{subscribers: make(map[chan T]struct{})}
-}
-
-// next returns the next seq.
-//
-// Returns:
-//   - `uint64`: the seq, starting at 1.
-func (s *doubleStream[T]) next() uint64 {
-
-	s.seq++
-	return s.seq
-}
-
-// publish sends the value to every subscriber without blocking; a full subscriber misses it.
-//
-// Parameters:
-//   - `value`: the value.
-func (s *doubleStream[T]) publish(value T) {
-
-	for ch := range s.subscribers {
-		select {
-		case ch <- value:
-		default:
-		}
-	}
-}
-
-// subscribe adds a subscriber and returns its channel and an idempotent cancel that closes it. The cancel takes no
-// lock: the double's mu is not reentrant, and cancel is called from test code that holds nothing.
-//
-// Returns:
-//   - `<-chan T`: the subscription.
-//   - `func()`: the cancel.
-func (s *doubleStream[T]) subscribe() (subscription <-chan T, cancel func()) {
-
-	ch := make(chan T, 64)
-	s.subscribers[ch] = struct{}{}
-
-	var once sync.Once
-	cancel = func() {
-		once.Do(func() {
-			delete(s.subscribers, ch)
-			close(ch)
-		})
-	}
-	return ch, cancel
 }
 
 // endregion
