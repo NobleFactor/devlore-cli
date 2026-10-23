@@ -177,7 +177,9 @@ func TestInProcessBroker_Cancel(t *testing.T) {
 	frames, cancel := broker.Console("r")
 	defer cancel()
 
-	id, err := broker.Exec(context.Background(), caller("sh", "-c", "sleep 30"))
+	// `sleep 30; true`: a second command keeps every sh from exec-ing sleep, so the kill hits sh and leaves sleep
+	// holding the pipes, as dash does for a lone command. The broker must not wait for the orphan.
+	id, err := broker.Exec(context.Background(), caller("sh", "-c", "sleep 30; true"))
 	if err != nil {
 		t.Fatalf("Exec: %v", err)
 	}

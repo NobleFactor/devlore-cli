@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/NobleFactor/devlore-cli/pkg/platform"
 )
@@ -47,8 +48,9 @@ type InProcessBroker struct {
 	// next numbers the exec ids: e-1, e-2, ...
 	next int
 
-	// children holds each running exec's child, for Cancel; removed at exit.
-	children map[ExecID]*exec.Cmd
+	// children holds each running exec's cancel, which ends its child; removed at exit. The child itself is the run
+	// goroutine's alone: its Process is written by Start there, and nothing else reads it.
+	children map[ExecID]context.CancelFunc
 
 	// runs is the registry Command and Status answer from: a run this process holds, by id.
 	runs map[RunID]trackedRun
@@ -68,7 +70,7 @@ type InProcessBroker struct {
 func NewInProcessBroker(runtimeEnvironment *RuntimeEnvironment) *InProcessBroker {
 	return &InProcessBroker{
 		runtimeEnvironment: runtimeEnvironment,
-		children:           make(map[ExecID]*exec.Cmd),
+		children:           make(map[ExecID]context.CancelFunc),
 		runs:               make(map[RunID]trackedRun),
 		consoles:           make(map[RunID]*brokerStream[ConsoleFrame]),
 		events:             make(map[RunID]*brokerStream[ControlEvent]),
@@ -81,24 +83,26 @@ func NewInProcessBroker(runtimeEnvironment *RuntimeEnvironment) *InProcessBroker
 
 // Fallible actions
 
-// Cancel kills one exec's child; its exit then arrives as a control frame like any other.
+// Cancel ends one exec's child by canceling the exec's context, which kills it; its exit then arrives as a
+// control frame like any other, or a launch failure does when it had not started yet.
 //
 // Parameters:
 //   - `ctx`: unused.
 //   - `id`: the exec.
 //
 // Returns:
-//   - `error`: non-nil when no such exec is running, or the kill failed.
+//   - `error`: non-nil when no such exec is running.
 func (b *InProcessBroker) Cancel(_ context.Context, id ExecID) error {
 
 	b.mu.Lock()
-	child, running := b.children[id]
+	cancel, running := b.children[id]
 	b.mu.Unlock()
 
-	if !running || child.Process == nil {
+	if !running {
 		return fmt.Errorf("broker: no running exec %q", id)
 	}
-	return child.Process.Kill()
+	cancel()
+	return nil
 }
 
 // Exec forks the command from this process, as the caller or as root through `sudo -n`, and returns its exec id
@@ -128,9 +132,12 @@ func (b *InProcessBroker) Exec(ctx context.Context, request ExecRequest) (ExecID
 		return "", err
 	}
 
+	ctx, cancel := context.WithCancel(ctx)
+
 	b.mu.Lock()
 	b.next++
 	id := ExecID(fmt.Sprintf("e-%d", b.next))
+	b.children[id] = cancel
 	b.mu.Unlock()
 
 	go b.run(ctx, id, request, argv, cleanup)
@@ -314,7 +321,7 @@ func (b *InProcessBroker) event(run RunID) *brokerStream[ControlEvent] {
 // ends with a control frame. It runs on its own goroutine, one per exec.
 //
 // Parameters:
-//   - `ctx`: ends the child when it ends.
+//   - `ctx`: the exec's own context; Cancel ends it, and the child with it.
 //   - `id`: the exec id the frames carry.
 //   - `request`: the exec.
 //   - `argv`: the vector to fork, the account's prefix included.
@@ -324,17 +331,15 @@ func (b *InProcessBroker) run(ctx context.Context, id ExecID, request ExecReques
 	if cleanup != nil {
 		defer cleanup()
 	}
-
-	child := commandFor(ctx, request, argv)
-
-	b.mu.Lock()
-	b.children[id] = child
-	b.mu.Unlock()
 	defer func() {
 		b.mu.Lock()
+		cancel := b.children[id]
 		delete(b.children, id)
 		b.mu.Unlock()
+		cancel()
 	}()
+
+	child := commandFor(ctx, request, argv)
 
 	stdout := &outputWriter{broker: b, run: request.Run, exec: id}
 	narration := func(line string) {
@@ -481,6 +486,11 @@ func commandFor(ctx context.Context, request ExecRequest, argv []string) *exec.C
 	child := exec.CommandContext(ctx, argv[0], argv[1:]...) //nolint:gosec // G204: argv from the request, never parsed
 	child.Dir = request.Cwd
 
+	// A killed child may leave grandchildren holding its pipes: dash forks `sleep` where bash execs it. Without a
+	// bound, Wait would block until they exit, and a cancel would hang the broker. The runner of iteration 3 owns the
+	// whole tree (6.2 § 4.3's Job Object, a process group on Unix); until then the pipes are abandoned after this.
+	child.WaitDelay = pipeWaitDelay
+
 	if len(request.Env) > 0 {
 		child.Env = os.Environ()
 		for name, value := range request.Env {
@@ -509,6 +519,9 @@ const (
 	// AccountRoot is root: `sudo -n` here, the root runner in iteration 3.
 	AccountRoot = platform.AccountRoot
 )
+
+// pipeWaitDelay bounds how long an exec waits for a killed child's pipes to close behind its grandchildren.
+const pipeWaitDelay = 2 * time.Second
 
 // autoConfirmReplies is how many `y` answers an auto-confirm stdin carries: far more than any command asks, then EOF.
 // What pkg/platform fed by hand before the broker (6.2 § Open 4).

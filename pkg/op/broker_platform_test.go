@@ -5,6 +5,7 @@ package op
 
 import (
 	"context"
+	"runtime"
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/application"
@@ -91,6 +92,9 @@ func TestPlatformRunner_Refusal(t *testing.T) {
 // gives it a runner that reaches the environment's broker.
 func TestNewRuntimeEnvironment_PlatformRunsThroughTheBroker(t *testing.T) {
 
+	if runtime.GOOS == "windows" {
+		t.Skip("the Windows leaves reach the platform's runner at lane 8 of #1127")
+	}
 	runtimeEnvironment, broker := newRecordedEnvironment(t)
 	if runtimeEnvironment.Platform == nil {
 		t.Skip("no platform detected on this host")
