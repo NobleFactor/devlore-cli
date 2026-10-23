@@ -1,7 +1,7 @@
 ---
 title: "The in-process stub behind the broker's interface: the caller's account through pkg/process, root through one sudo -n, every other sudo in pkg/platform deleted"
 issue: https://github.com/NobleFactor/devlore-cli/issues/1130
-status: approved
+status: active
 created: 2026-10-22
 updated: 2026-10-22
 ---
@@ -149,14 +149,15 @@ plan's status.
 
 ### Phase 4: the providers (Requirement 4)
 
-- [ ] The shell provider through `op.Run`; the pkg and service providers' tests pass unchanged; the new shell test
+- [x] The shell provider through `op.Run`, a caller script of dialect `sh`, the body the command; the pkg and service
+      providers' tests pass unchanged; two new shell tests, the request's shape and a refusal -- 2026-10-22
 
 ### Phase 5: the documents and the pull request
 
-- [ ] Requirement 5
-- [ ] `make check` passes; the description says AI assisted and ends with `Signed-off-by:` and `Assisted-by: Claude
-      Code`; the script is `~/Workspace/NobleFactor/devlore-cli.1130-in-process-stub.bash`
-- [ ] Status `active` in the last commit, with Phase 6 named as the reason
+- [x] Requirement 5 -- 2026-10-22
+- [x] `make check` passes; the description says AI assisted and ends with `Signed-off-by:` and `Assisted-by: Claude
+      Code`; the script is `~/Workspace/NobleFactor/devlore-cli.1130-in-process-stub.bash` -- 2026-10-22
+- [x] Status `active` in the last commit, with Phase 6 named as the reason -- 2026-10-22
 
 ### Phase 6: after the merge (rule 5)
 
