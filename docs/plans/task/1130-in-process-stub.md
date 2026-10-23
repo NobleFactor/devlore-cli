@@ -1,7 +1,7 @@
 ---
 title: "The in-process stub behind the broker's interface: the caller's account through pkg/process, root through one sudo -n, every other sudo in pkg/platform deleted"
 issue: https://github.com/NobleFactor/devlore-cli/issues/1130
-status: draft
+status: approved
 created: 2026-10-22
 updated: 2026-10-22
 ---
@@ -42,7 +42,8 @@ A task under feature [#1128](https://github.com/NobleFactor/devlore-cli/issues/1
 
 ## Goals
 
-1. **`grep -rn sudo pkg/platform` finds nothing**, and `grep -rn 'sudo -n' pkg` finds the stub and nothing else.
+1. **`grep -rn sudo pkg/platform` finds nothing**, and `grep -rn 'sudo -n' pkg` finds one file,
+   `pkg/op/broker_stub.go`, the stub's own root path. No caller anywhere says sudo; they say `root`.
 2. **No boolean says whether.** Every command names the account it runs as, `caller` or `root`, where today a `true`
    or `false` sits, and the platform's leaves receive their runner from the caller that owns it (6.2 § Open 2).
 3. **Providers run through the interface** and keep their behavior: the shell provider's result shape, the package
@@ -120,13 +121,18 @@ plan's status.
 
 ### Phase 1: the plan lands
 
-- [ ] Reviewed with the owner, status `approved`, committed alone on `feature/1130-in-process-stub`
-- [ ] #1130's documents table carries this plan's link
+- [x] Reviewed with the owner, status `approved`, committed alone on `feature/1130-in-process-stub` -- 2026-10-22,
+      committed as `draft` by the owner's own bang, approved on review with the direct path named
+- [x] #1130's documents table carries this plan's link -- 2026-10-22
 
 ### Phase 2: the stub and the environment (Requirements 1 and 2)
 
-- [ ] `pkg/op/broker_stub.go`, `pkg/op/broker_run.go`, their tests, the spec and environment fields; `make lint`,
-      `make test`
+- [x] `pkg/op/broker_stub.go`, `pkg/op/broker_run.go`, their tests, the spec and environment fields; `make lint`,
+      `make test` -- 2026-10-22. Two things differ from Requirement 1 as written: frames are delivered as the child
+      speaks, not at exit, since `process.Runner` already splits lines live and gained `Stream` for it, which leaves
+      lane 3 the never-dropping spool and the event sink; and `Track` is the run registry, which the executor does
+      not yet fill, because it has no run id to fill it with. The per-run stream moved to `broker_stream.go`, shared
+      with the double.
 
 ### Phase 3: the platform (Requirement 3)
 
@@ -173,8 +179,8 @@ plan's status.
 
 ## Open Questions
 
-- **Frames at exit, not as they happen.** Lane 2 delivers the console when the child exits; lane 3 makes it live.
-  A long `apt install` therefore narrates at its end under this lane alone. Accepted, since lane 3 follows at once.
+- **Frames at exit, not as they happen — moot.** Delivered live from the first commit; lane 3 owns the spool that
+  never drops and the event sink.
 - **The scratch directory for tier-2 scripts** under the stub: `os.MkdirTemp` per exec, removed after, or the
   environment's recovery site. The plan takes the temp directory; the runner of iteration 3 owns the real scratch root.
 - **Whether `LocalRunner` should exist at all**, or the two `cmd` callers should build a runtime environment and take

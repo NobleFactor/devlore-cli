@@ -74,6 +74,12 @@ type RuntimeEnvironment struct {
 	// Nil when running in environments where host access is not needed (e.g., pure data transforms).
 	Platform platform.Platform
 
+	// Broker is what runs commands for this environment: every provider's exec goes through it (architecture 2.7).
+	//
+	// The [InProcessBroker] bound to this environment when the spec gave none; a [RecordingBroker] in a provider's
+	// tests; the broker daemon's client in iteration 2.
+	Broker Broker
+
 	// Result is the primary output pipeline carried from the [RuntimeEnvironmentSpec].
 	//
 	// Populated by [RuntimeEnvironmentSpec.Build]. Defaults to a [result.Pipeline] writing JSON to
@@ -259,6 +265,11 @@ func NewRuntimeEnvironment(ctx context.Context, spec *RuntimeEnvironmentSpec) (*
 
 	if runtimeEnvironment.HasRoot() {
 		runtimeEnvironment.RecoverySite = NewRecoverySite(runtimeEnvironment)
+	}
+
+	runtimeEnvironment.Broker = spec.Broker
+	if runtimeEnvironment.Broker == nil {
+		runtimeEnvironment.Broker = NewInProcessBroker(runtimeEnvironment)
 	}
 
 	return runtimeEnvironment, nil
@@ -886,6 +897,10 @@ type RuntimeEnvironmentSpec struct {
 	// [platform.Detect] for host detection.
 	Platform platform.Platform
 
+	// Broker runs the environment's commands. Nil means the [InProcessBroker] bound to the environment; a test sets
+	// a [RecordingBroker] via [RuntimeEnvironmentSpec.WithBroker].
+	Broker Broker
+
 	// Result is the primary output sink.
 	//
 	// Carries structured data destined for the user or downstream tooling (JSON / YAML / CSV / template). The same
@@ -926,6 +941,19 @@ func NewRuntimeEnvironmentSpec(programName string) *RuntimeEnvironmentSpec {
 		ProgramName: programName,
 		ConceivedAt: time.Now(),
 	}
+}
+
+// WithBroker sets the broker the environment's commands run through.
+//
+// Parameters:
+//   - `broker`: the broker; a [RecordingBroker] in tests.
+//
+// Returns:
+//   - *RuntimeEnvironmentSpec: the config for method chaining.
+func (c *RuntimeEnvironmentSpec) WithBroker(broker Broker) *RuntimeEnvironmentSpec {
+
+	c.Broker = broker
+	return c
 }
 
 // WithApplication sets the tool-side [application.Application] handle.
