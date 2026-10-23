@@ -11,9 +11,7 @@
 package shell
 
 import (
-	"bytes"
 	"fmt"
-	"os/exec"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
@@ -38,44 +36,63 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 
 // region Behaviors
 
-// Exec executes a POSIX shell command and returns the structured execution result.
+// Exec runs a POSIX shell command through the environment's broker and returns the structured execution result.
+//
+// The command is a tier-2 script of 6.3, dialect `sh`, run as the caller: the broker writes the body to a file and
+// runs `sh file`, so nothing here hands a string to `-c`. The command's world is the run's root (#584 phase 2) when
+// the environment has one.
 //
 // Parameters:
-//   - `command`: shell command string to execute via sh -c.
+//   - `command`: the shell script to run.
 //
 // Returns:
-//   - `*Result`: command, both captured streams, and the exit code; nil only when command is empty.
-//   - `error`: any error from cmd.Run (the result is still returned with whatever was captured).
+//   - `*Result`: command, both captured streams, and the exit code; nil only when command is empty or the broker
+//     refused the exec.
+//   - `error`: non-nil on a non-zero exit (the result is still returned with whatever was captured), on a refusal,
+//     or when the exec could not be launched.
 func (p *Provider) Exec(command string) (*Result, error) {
+
 	if command == "" {
 		return nil, fmt.Errorf("no command specified")
 	}
-	cmd := exec.CommandContext(p.RuntimeEnvironment().Context, "sh", "-c", command) //nolint:gosec // G204: command built from provider inputs
 
-	// The command's world is the run's root (#584 phase 2): plan-space paths are root-relative, so a
-	// planned command's relative paths must resolve against the run's root, not the host process's cwd.
+	request := op.ExecRequest{
+		Run:     shellRun,
+		Unit:    string(Exec),
+		Account: op.AccountCaller,
+		Script:  &op.Script{Dialect: "sh", Body: command},
+	}
 	if p.RuntimeEnvironment().HasRoot() {
-		cmd.Dir = p.RuntimeEnvironment().Root().Name()
+		request.Cwd = p.RuntimeEnvironment().Root().Name()
 	}
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	err := cmd.Run()
-	exitCode := 0
-	if cmd.ProcessState != nil {
-		exitCode = cmd.ProcessState.ExitCode()
+
+	outcome, err := op.Run(p.RuntimeEnvironment().Context, p.RuntimeEnvironment().Broker, request)
+	if err != nil {
+		return nil, err
 	}
-	return &Result{
+
+	result := &Result{
 		Command:  command,
-		ExitCode: exitCode,
-		Stderr:   stderr.String(),
-		Stdout:   stdout.String(),
-	}, err
+		ExitCode: outcome.ExitStatus,
+		Stderr:   outcome.Stderr(),
+		Stdout:   string(outcome.Output),
+	}
+	switch {
+	case outcome.Error != "":
+		return result, fmt.Errorf("shell: %s", outcome.Error)
+	case outcome.ExitStatus != 0:
+		return result, fmt.Errorf("shell: exit status %d", outcome.ExitStatus)
+	default:
+		return result, nil
+	}
 }
 
 // endregion
 
 // endregion
+
+// shellRun is the run id the shell provider's execs carry until the executor gives runs ids of their own.
+const shellRun op.RunID = "shell"
 
 // region SUPPORTING TYPES
 
