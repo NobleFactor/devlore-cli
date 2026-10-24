@@ -26,7 +26,9 @@ updated: 2026-10-23
 4. **File descriptor 3 carries events, from our own programs only.** The event stream is one we create. The programs the command provider runs write nothing to it; only programs we write do. The command provider itself may emit events, such as logs and metrics. Telemetry is a kind of event: a diagnostic, a metric, and so on.
 5. **The logon pipeline.** A logon subgraph is the source of a three-tier request that runs from the app, through the broker, to a subgraph-runner standing for a user account. The app sends the subgraph through the broker to the subgraph-runner, which runs it the way the graph executor runs any graph. The subgraph-runner writes outputs to standard output, narration to standard error, and events to the event stream. The broker streams the narration back to the app as it arrives and returns the result to the app when the run ends, which is what writ already does in-process.
 6. **The broker remotes through SSH.** No broker is installed on the machines devlore reaches. SSH is the standard for remote access: it is installed, or can be installed, nearly everywhere. Over SSH the broker ships a bundle that ensures three things on the far machine: the subgraph-runner is present, installed if it is not, so that any device can run one; the subgraph is present; and the subgraph runs under the account's credentials. How results return over SSH is to be determined.
-7. **Open.** The trace must be part of the record on the app's side, and it must also be available to the subgraph-runner, together with the recovery site. Both the local and the remote case are hard. The question is whether traces and recovery stacks are centralized or distributed. The owner will decide it; this plan does not.
+7. **The command provider's interface (2026-10-24).** Every command devlore runs is ultimately an `exec.Cmd` from Go's `os/exec`. A bare fork is not available to a Go program, which is always multithreaded, so the interface offers what Go supports: running a program to completion, and replacing the current process with a program (exec), after a graceful shutdown that flushes narration, writes the trace and releases locks. Running a program synchronously comes with governance while it runs: a deadline that ends gracefully, the whole process tree killed on cancel, resource limits where the platform supports them, and reliable signalling. Asynchronous execution is ruled out for now; Start-Claude, ported to star, needs only synchronous commands and an exec into tmux. Options are built from Starlark by a method on the provider, on both the immediate and the planned surface.
+8. **The account belongs to the logon (2026-10-24).** A command runs as the account of the logon that contains it, or as the caller outside one. The command provider's options carry no account on either surface.
+9. **Open.** The trace must be part of the record on the app's side, and it must also be available to the subgraph-runner, together with the recovery site. Both the local and the remote case are hard. The question is whether traces and recovery stacks are centralized or distributed. The owner will decide it; this plan does not.
 
 ## Current State
 
@@ -72,6 +74,18 @@ A section **Ruled 2026-10-23: the subgraph-runner, and what it writes where**, r
 
 A section **Ruled 2026-10-23: the command provider's result**, ruling 3 stated: the command provider's actions are fallible, not compensable, `(string, error)`, Go's `exec.Cmd.Output` shape; the string is stdout, the error on a non-zero exit carries the code and the argv and no stderr, which went to narration; no accepted-exit-codes parameter until a use appears (#1153). § 6's exit-code and result questions closed by it; #824's premise recorded as superseded.
 
+### Requirement 4a: 6.3, the command provider's interface
+
+A section **Ruled 2026-10-24: the command provider's interface**, rulings 7 and 8 stated, with the interface itself:
+
+- `Run(argv, options) (string, error)` and `Script(dialect, body, args, options) (string, error)`: synchronous; stderr streamed to the narration sink as bytes; stdout the result; a non-zero exit an `ExitError` carrying the argv, the code and any signal, and no stderr.
+- `Exec(argv, options) error`: replaces the current process after a graceful shutdown; the direct path only, never through a broker; unavailable on Windows, where `syscall.Exec` returns `EWINDOWS`; returns only on failure.
+- `Which(name) (string, error)`: where a program resolves, for probing before running.
+- `Options(kwargs) (Options, error)`: the constructor Starlark calls on both surfaces, validating keys, durations and limits where the author writes them; a dict hydrates into the same type wherever an `Options` is expected. Fields: environment, directory, stdin (bytes or auto-confirm), timeout, grace, limits. No account.
+- Governance, concretely: `CommandContext` with `Cmd.Cancel` sending SIGTERM and `Cmd.WaitDelay` as the grace before SIGKILL; `Setpgid` and a signal to the group on Unix, a Job Object killed on close on Windows; cgroups through `SysProcAttr.CgroupFD` on Linux and Job Object limits on Windows, none on macOS; `Pdeathsig` on Linux; pidfd signalling on Linux since Go 1.23; start and end events carrying the exit code, the duration and the child's user and system time.
+- In the planned surface, options are a slot value in the graph document: they serialize (durations and sizes as text), a field may be a promise, and they are covered by the graph's checksum and signature.
+- Why not fork, and why exec, stated for a reader who knows Windows better than Unix: fork copies the calling process and returns twice; exec replaces the program inside a process, keeping its pid, descriptors and terminal; Unix starts a program with both, Windows with `CreateProcess`; Go offers `ForkExec` (behind `exec.Cmd.Start`) and `Exec`, and not fork alone, because fork copies only the calling thread of a multithreaded runtime.
+
 ### Requirement 5: 2.3, `plan.logon`
 
 § Ruled 2026-10-22 gains a dated addition: run time follows 2.7 § The logon pipeline (narration streamed back, result decoded at the end) and § The remote leg (SSH, the bundle); "forks the console and events streams" and "the stamped stack back" are replaced by a reference to the open question of 2.7 (#1158). Its two use cases stand. #1157 named as the task.
@@ -96,6 +110,10 @@ Every piece of work the rulings imply has an issue, typed and linked as a sub-is
 | The command provider returns `(string, error)` | #1153, under #799 | 1 (with lane 8, #1136) |
 | The command provider emits exec start and end as events | #1154, under #799 | 1 (with lane 8) |
 | `writ repo set` writes git's narration past the Narrator | #1152, bug, under #892 | 1 |
+| `command.options` on both surfaces; the account from the logon | #1164, under #799 | 1 (with lane 8) |
+| A running command is governed: deadline, tree kill, limits | #1165, under #799 | 1 (with lane 8) |
+| `command.which` | #1166, under #799 | 1 (with lane 8) |
+| `command.exec`: replace the process after a graceful shutdown | #802, under #799, ruling recorded on it | 1 (with lane 8) |
 | The broker relays narration live and returns the result at the end | #1155, under #1149 | 2 |
 | The subgraph-runner | #1156, under #1150 | 3 |
 | `plan.logon` | #1157, under #1150 | 3 |
@@ -114,7 +132,7 @@ The plan for #1131, committed on `feature/1131-console-spool`, is rewritten to i
 
 ### Phase 2: the streams (Requirements 1, 3, 4)
 
-- [ ] 2.8, 6.2, 6.3 and their status companions, one commit per document
+- [ ] 2.8, 6.2, 6.3 (Requirements 4 and 4a) and their status companions, one commit per document
 
 ### Phase 3: the pipeline and the remote leg (Requirements 2, 5, 6)
 
@@ -134,7 +152,7 @@ The plan for #1131, committed on `feature/1131-console-spool`, is rewritten to i
 | `docs/architecture/2.8-eventing-infrastructure.md`, `.status.md` | Modify | Requirement 1 |
 | `docs/architecture/2.7-control-plane.md`, `.status.md` | Modify | Requirement 2 |
 | `docs/architecture/6.2-process-pool.md`, `.status.md` | Modify | Requirement 3 |
-| `docs/architecture/6.3-command-execution.md`, `.status.md` | Modify | Requirement 4 |
+| `docs/architecture/6.3-command-execution.md`, `.status.md` | Modify | Requirements 4 and 4a |
 | `docs/architecture/2.3-orchestration-primitives.md`, `.status.md` | Modify | Requirement 5 |
 | `docs/architecture/5.3-recovery-site.md`, `.status.md` | Modify | Requirement 6 |
 
