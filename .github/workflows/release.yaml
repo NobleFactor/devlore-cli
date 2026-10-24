@@ -35,47 +35,21 @@ jobs:
 
       - name: Set up Go
         uses: actions/setup-go@v5
+        # One exact version, so a rerun builds with the toolchain the first run did and its archives are the same
+        # bytes (#980). '1.27' resolves to the newest 1.27 patch on the day of the run; 1.27.3 is what it resolved
+        # to for the last release before this was pinned.
         with:
-          go-version: '1.27'
+          go-version: '1.27.3'
 
       - name: Determine version and release type
         id: version
+        # The version comes from the commit, never the clock, so a rerun computes the one the first run did (#980).
+        # The script states how each kind of ref is versioned and which channel it carries; scripts/Test-Release.sh
+        # runs it outside Actions. shell: bash, which Actions runs with pipefail, unlike its default: a failed script
+        # must fail the step, not leave it green with no version.
+        shell: bash
         run: |
-          # Per https://docs.github.com/en/rest/releases/releases:
-          # - Full releases: served by /releases/latest
-          # - Prereleases: not served by /releases/latest. The installers' "latest" reads /releases?per_page=1, which
-          #   includes them, so a prerelease installs without an explicit DEVLORE_VERSION
-          # - Drafts: require push (write) access, not suitable for distribution
-          #
-          # The binaries carry their channel (#947), decided here with GitHub's prerelease flag so the two cannot
-          # disagree: a develop build follows develop, every one a pre-release; a build from main or release/* follows
-          # release and takes its pre-releases; a v* tag is a release and takes none. PRERELEASE is both the flag and
-          # the stamp, so a binary takes pre-releases exactly when it is one.
-          if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-            VERSION="${{ github.ref_name }}"
-            PRERELEASE="false"
-            CHANNEL="release"
-          elif [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
-            VERSION="v0.1.0-rc.$(date +%Y%m%d%H%M%S)"
-            PRERELEASE="true"
-            CHANNEL="release"
-          elif [[ "${{ github.ref }}" == refs/heads/release/* ]]; then
-            BRANCH_NAME="${{ github.ref_name }}"
-            VERSION="v${BRANCH_NAME#release/}-rc.$(date +%Y%m%d%H%M%S)"
-            PRERELEASE="true"
-            CHANNEL="release"
-          else
-            # develop, the one other ref this workflow runs on
-            VERSION="v0.1.0-dev.$(date +%Y%m%d%H%M%S)"
-            PRERELEASE="true"
-            CHANNEL="develop"
-          fi
-          {
-            echo "version=$VERSION"
-            echo "prerelease=$PRERELEASE"
-            echo "channel=$CHANNEL"
-          } >> "$GITHUB_OUTPUT"
-          echo "Building version: $VERSION (channel: $CHANNEL, prerelease: $PRERELEASE)"
+          .github/scripts/release-version.sh | tee --append "$GITHUB_OUTPUT"
 
       - name: Build distribution
         # The build proves the channel bound, as it proves the version: it runs the host's writ and compares.
@@ -85,28 +59,18 @@ jobs:
           PRERELEASE=${{ steps.version.outputs.prerelease }}
 
       - name: Create GitHub Release
-        # Per https://cli.github.com/manual/gh_release_create
-        #
-        # --target tags the commit this build came from. Without it GitHub creates the tag at the head of the default
-        # branch, develop, so a build from main or release/* would be tagged on develop's head (#947). A v* tag
-        # already exists, and gh leaves it where it is.
-        run: |
-          RELEASE_ARGS=""
-          if [[ "${{ steps.version.outputs.prerelease }}" == "true" ]]; then
-            RELEASE_ARGS="--prerelease"
-          fi
-
-          gh release create "${{ steps.version.outputs.version }}" \
-            --target "${{ github.sha }}" \
-            --title "${{ steps.version.outputs.version }}" \
-            --notes "Release ${{ steps.version.outputs.version }}
-
-          Source: ${{ github.repository }}@${{ github.sha }}
-          Ref: ${{ github.ref }}" \
-            $RELEASE_ARGS \
-            dist/*
+        # Creates the release, completes one a rerun finds lacking an asset, or leaves a complete one as it is (#980;
+        # ruled 2026-10-23, "B"). The script states each case; scripts/Test-Release.sh runs it against a stand-in gh.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_NOTES: |-
+            Release ${{ steps.version.outputs.version }}
+
+            Source: ${{ github.repository }}@${{ github.sha }}
+            Ref: ${{ github.ref }}
+        run: >-
+          .github/scripts/release-publish.sh "${{ steps.version.outputs.version }}" "${{ github.sha }}"
+          "${{ steps.version.outputs.prerelease }}" dist
 
       - name: Summary
         env:
