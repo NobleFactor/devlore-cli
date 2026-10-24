@@ -12,6 +12,8 @@ import (
 	"filippo.io/age"
 )
 
+// TestEncrypter_RoundTrip encrypts every file in testdata/roundtrip under its own name, decrypts the result, and
+// compares what comes back with the file, byte for byte, whatever the file is called (#977).
 func TestEncrypter_RoundTrip(t *testing.T) {
 
 	identity, err := age.GenerateX25519Identity()
@@ -28,24 +30,40 @@ func TestEncrypter_RoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	plaintext := []byte("greeting: hello\nname: world\n")
-	sourcePath := filepath.Join(root, "secret.yaml")
-
-	ciphertext, err := NewEncrypter().Encrypt(plaintext, sourcePath, root)
+	entries, err := os.ReadDir(filepath.Join("testdata", "roundtrip"))
 	if err != nil {
-		t.Fatalf("Encrypt: %v", err)
+		t.Fatal(err)
 	}
-	if !IsEncrypted(ciphertext) {
-		t.Fatalf("output is not SOPS-encrypted:\n%s", ciphertext)
+	if len(entries) == 0 {
+		t.Fatal("testdata/roundtrip holds no files")
 	}
 
-	// Round-trip: the config-free Client decrypts it back to plaintext using the ambient age key.
-	got, err := (&Client{}).Decrypt(ciphertext, sourcePath)
-	if err != nil {
-		t.Fatalf("Decrypt: %v", err)
-	}
-	if !bytes.Contains(got, []byte("hello")) || !bytes.Contains(got, []byte("world")) {
-		t.Errorf("decrypted = %q, want to contain hello + world", got)
+	for _, entry := range entries {
+		t.Run(entry.Name(), func(t *testing.T) {
+
+			cleartext, err := os.ReadFile(filepath.Join("testdata", "roundtrip", entry.Name()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			sourcePath := filepath.Join(root, entry.Name())
+
+			ciphertext, err := NewEncrypter().Encrypt(cleartext, sourcePath, root)
+			if err != nil {
+				t.Fatalf("Encrypt: %v", err)
+			}
+			if !IsEncrypted(ciphertext) {
+				t.Fatalf("output is not SOPS-encrypted:\n%s", ciphertext)
+			}
+
+			// The config-free Client decrypts with the ambient age key.
+			got, err := (&Client{}).Decrypt(ciphertext)
+			if err != nil {
+				t.Fatalf("Decrypt: %v", err)
+			}
+			if !bytes.Equal(got, cleartext) {
+				t.Errorf("decrypted = %q, want %q", got, cleartext)
+			}
+		})
 	}
 }
 

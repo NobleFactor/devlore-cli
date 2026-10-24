@@ -6,7 +6,6 @@ package sops
 import (
 	"fmt"
 	"path/filepath"
-	"strings"
 
 	"github.com/getsops/sops/v3/cmd/sops/formats"
 	"github.com/getsops/sops/v3/decrypt"
@@ -18,24 +17,22 @@ import (
 
 // Fallible actions
 
-// Decrypt decrypts SOPS-encrypted data. Format is inferred from sourcePath extension. Plaintext data passes through
-// unchanged.
+// Decrypt decrypts a SOPS document in sops's binary mode, the one mode writ encrypts in, and returns the bytes that
+// were encrypted, whatever the file is called (#977). Data that is not a SOPS document passes through unchanged.
 //
 // Parameters:
 //   - data: encrypted (or plaintext) content
-//   - sourcePath: original file path used to determine SOPS format
 //
 // Returns:
-//   - []byte: decrypted content (or unchanged plaintext)
+//   - []byte: the bytes that were encrypted (or the unchanged plaintext)
 //   - error: decryption error
-func (c *Client) Decrypt(data []byte, sourcePath string) ([]byte, error) {
+func (c *Client) Decrypt(data []byte) ([]byte, error) {
 
 	if !IsEncrypted(data) {
 		return data, nil
 	}
 
-	format := detectFormat(sourcePath, data)
-	plaintext, err := decrypt.DataWithFormat(data, formats.FormatFromString(format))
+	plaintext, err := decrypt.DataWithFormat(data, formats.Binary)
 	if err != nil {
 		return nil, fmt.Errorf("sops decrypt: %w", err)
 	}
@@ -45,14 +42,14 @@ func (c *Client) Decrypt(data []byte, sourcePath string) ([]byte, error) {
 // Actions
 
 // Decryptor returns a decryption function matching the signature expected by the execution engine:
-// func(source string, data []byte) ([]byte, error).
+// func(source string, data []byte) ([]byte, error). The source names the file in an error, and nothing else.
 //
 // Returns:
 //   - func(string, []byte) ([]byte, error): decryption function
 func (c *Client) Decryptor() func(source string, data []byte) ([]byte, error) {
 
 	return func(source string, data []byte) ([]byte, error) {
-		plaintext, err := c.Decrypt(data, source)
+		plaintext, err := c.Decrypt(data)
 		if err != nil {
 			return nil, fmt.Errorf("decrypt %s: %w", filepath.Base(source), err)
 		}
@@ -63,61 +60,3 @@ func (c *Client) Decryptor() func(source string, data []byte) ([]byte, error) {
 // endregion
 
 // endregion
-
-// detectFormat determines the SOPS format from filename and content.
-//
-// Parameters:
-//   - path: source file path
-//   - data: file content for content-based detection fallback
-//
-// Returns:
-//   - string: SOPS format name (yaml, json, dotenv, ini, binary)
-func detectFormat(path string, data []byte) string {
-
-	ext := strings.ToLower(filepath.Ext(path))
-
-	// Strip the devlore processing suffixes to get the actual format: `.sops` marks encryption and
-	// `.tmpl` marks rendering, so `config.yaml.tmpl.sops` carries a YAML document.
-	base := strings.TrimSuffix(path, ".sops")
-	base = strings.TrimSuffix(base, ".tmpl")
-	innerExt := strings.ToLower(filepath.Ext(base))
-
-	// Check inner extension for structured formats
-	switch innerExt {
-	case ".yaml", ".yml":
-		return "yaml"
-	case ".json":
-		return "json"
-	case ".env":
-		return "dotenv"
-	case ".ini":
-		return "ini"
-	}
-
-	// Check outer extension
-	switch ext {
-	case ".yaml", ".yml":
-		return "yaml"
-	case ".json":
-		return "json"
-	case ".env":
-		return "dotenv"
-	case ".ini":
-		return "ini"
-	}
-
-	// Fallback: detect from content
-	if len(data) > 0 {
-		trimmed := strings.TrimSpace(string(data))
-		if strings.HasPrefix(trimmed, "{") {
-			return "json"
-		}
-		// Check for age armor (binary format)
-		if strings.HasPrefix(trimmed, "-----BEGIN AGE") {
-			return "binary"
-		}
-	}
-
-	// Default to binary (opaque encrypted blob)
-	return "binary"
-}

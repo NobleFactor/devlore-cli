@@ -45,8 +45,9 @@ func newSecretEncryptCmd() *cobra.Command {
 		Long: `Encrypt files to .sops siblings per the governing .sops.yaml.
 
 The <file>.sops sibling is written beside each input — deployed names are
-unchanged (foo.env.sops deploys as foo.env). Recipients and document format
-come from the .sops.yaml resolved within the containing layer; a file no
+unchanged (foo.env.sops deploys as foo.env). Each file is encrypted as its
+bytes, whatever its name, so it deploys exactly as written. Recipients come
+from the .sops.yaml resolved within the containing layer; a file no
 creation rule governs fails with the resolver's error. An existing sibling
 refuses — encrypt never overwrites — and the plaintext source is never
 deleted; removal belongs to the caller.
