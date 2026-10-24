@@ -9,12 +9,12 @@ updated: 2026-08-25
 # Plan: elevator becomes elevation — the settled name reaches the tree
 
 **Epic:** [#520 — Elevation policy](https://github.com/NobleFactor/devlore-cli/issues/520)
-**Design:** [6.1-privilege-elevation.md](../architecture/6.1-privilege-elevation.md)
+**Design:** [6.1-authorization.md](../architecture/6.1-authorization.md)
 **Related:** [step 38 — elevation policy](extract-starlark-from-op/phase-8/steps/38-elevation-policy.md)
 
 ## Summary
 
-[`6.1-privilege-elevation.md:8`](../architecture/6.1-privilege-elevation.md) records the name as **settled**:
+[`6.1-authorization.md:8`](../architecture/6.1-authorization.md) records the name as **settled**:
 "Provider `elevation.Provider` in package `elevation` (`pkg/op/provider/elevation`)." The code is still
 `elevator`, 6.1's own status companion still carries an unchecked box calling `elevator` a working name, and
 6.1's body cites code paths that will not resolve after the rename. This plan carries the settled name into the
@@ -31,7 +31,7 @@ tree. **The stub stays** — it is the scaffold step 38's design builds on.
 
 | Component | Status | Notes |
 | --- | --- | --- |
-| The name | ✅ Settled | `6.1-privilege-elevation.md:8` — "Names — settled" |
+| The name | ✅ Settled | `6.1-authorization.md:8` — "Names — settled" |
 | Package and directory | ❌ `elevator` | `pkg/op/provider/elevator/{provider,broker,config}.go` |
 | Package doc comment | ❌ Calls the name provisional | contradicts 6.1's settled ruling |
 | 6.1 status checkbox | ❌ "☐ Name the provider — `elevator` are working names" | stale |
@@ -50,7 +50,7 @@ is package-level only.
 | 3 | Rewrite the package doc comment — the **name** is settled per 6.1; the **config shape** and method bodies remain provisional, and the provider stays unannounced | ☐ |
 | 4 | Update the `ElevationOffer/Elevator` TODO at `pkg/platform/helpers_unix.go:70` | ☐ |
 | 5 | Repair 6.1's two stale code links | ☐ |
-| 6 | Tick the settled-name checkbox in `6.1-privilege-elevation.status.md` | ☐ |
+| 6 | Tick the settled-name checkbox in `6.1-authorization.status.md` | ☐ |
 | 7 | Catalog: `elevation` / `elevation.*`, moved under a **"Designed, not announced"** heading carrying no role | ☐ |
 | 8 | Sweep the remaining documentation references — **rule: stale code paths are corrected, historical prose stays** | ☐ |
 

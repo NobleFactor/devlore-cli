@@ -3,7 +3,7 @@ title: "star: the root becomes the shared one, the dead cli package goes, and te
 issue: https://github.com/NobleFactor/devlore-cli/issues/743
 status: complete
 created: 2026-09-01
-updated: 2026-09-02
+updated: 2026-10-19
 ---
 
 # Plan: `star` adopts the output convention
@@ -89,6 +89,9 @@ beside it** — applied to three commands and then to the extension commands.
 ## Requirements
 
 ### Requirement 1: The root is the shared one
+
+> **2026-10-19 (#1005):** the shared root no longer declares `--interactive`, which nothing read; the list below is
+> the root as it was when this plan was carried out.
 
 `cli.NewRootCmd(cli.RootConfig{...})` replaces the hand-built root. The shared root registers `--config`,
 `--dry-run`, `--verbose`, `--silent` (through `AddSilentFlag`), `--interactive`, `--unattended` and the four

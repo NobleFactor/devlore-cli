@@ -20,6 +20,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/cobra/doc"
+	"github.com/spf13/viper"
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
@@ -28,45 +29,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/schema"
 )
 
-// =============================================================================
-// Types
-// =============================================================================
-
-// SelfInstallInfo contains metadata needed for self-installation.
-type SelfInstallInfo struct {
-	Name               string                  // Tool name (e.g., "lore", "writ", "star")
-	Version            string                  // Semantic version (e.g., "0.4.0"), set via ldflags
-	Channel            string                  // Channel the build follows ("develop", "release"), set via ldflags
-	Prerelease         bool                    // Whether the build takes its channel's pre-releases, set via ldflags
-	ManHeader          ManHeader               // Man page header metadata
-	ConfigInfo         *ConfigInfo             // Config schema and defaults (nil to skip config init)
-	PostInstallHooks   []func(string) []string // Hooks run after install; return installed file paths (relative to prefix)
-	PostUninstallHooks []func(string) error    // Hooks run after uninstall
-}
-
-// manifest records every file installed by self install/upgrade.
-type manifest struct {
-	Tool      string          `json:"tool"`
-	Version   string          `json:"version"`
-	Prefix    string          `json:"prefix"`
-	Installed string          `json:"installed"`
-	Files     []manifestEntry `json:"files"`
-}
-
-// manifestEntry records one installed file.
-type manifestEntry struct {
-	Path   string `json:"path"`   // Relative to prefix
-	SHA256 string `json:"sha256"` // Hex-encoded SHA-256
-}
-
-// installFlags holds the flag values for self install.
-type installFlags struct {
-	Shells []string
-}
-
-// =============================================================================
-// Command Construction
-// =============================================================================
+// region EXPORTED FUNCTIONS
 
 // NewSelfCmd creates the "self" command group with install, upgrade, and uninstall subcommands.
 func NewSelfCmd(rootCmd *cobra.Command, info SelfInstallInfo) *cobra.Command {
@@ -81,6 +44,81 @@ func NewSelfCmd(rootCmd *cobra.Command, info SelfInstallInfo) *cobra.Command {
 
 	return selfCmd
 }
+
+// CopyDir recursively copies a directory tree from the host filesystem into `dstRoot`.
+//
+// Used by post-install hooks — `cmd/star` copies its extensions this way — so the destination root is
+// supplied by the hook rather than constructed here (#405, phase 2b).
+//
+// Parameters:
+//   - `dstRoot`: the tree the destination belongs to, opened by the caller.
+//   - `src`: the source directory, outside the root.
+//   - `dst`: the destination within `dstRoot`.
+//
+// Returns:
+//   - `error`: non-nil when the source cannot be read or any destination cannot be written.
+func CopyDir(dstRoot fsroot.Dir, src string, dst fsroot.Path) error {
+	src = filepath.Clean(src)
+
+	srcInfo, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	if !srcInfo.IsDir() {
+		return fmt.Errorf("%s is not a directory", src)
+	}
+
+	// Perm(), not Mode(): a directory's Mode carries fs.ModeDir, which os.Mkdir silently discards but
+	// [os.Root.Mkdir] rejects as an unsupported file mode. Only the permission bits are the caller's to ask for.
+	if err := dstRoot.MkdirAll(dst, srcInfo.Mode().Perm()); err != nil {
+		return err
+	}
+
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		srcPath := filepath.Join(src, entry.Name())
+		dstPath := dstRoot.NewPath(dst.Rel(), entry.Name())
+
+		if entry.IsDir() {
+			if err := CopyDir(dstRoot, srcPath, dstPath); err != nil {
+				return err
+			}
+		} else {
+			if err := copyFile(dstRoot, srcPath, dstPath); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// CollectFiles returns all file paths under dir, relative to base.
+func CollectFiles(base, dir string) []string {
+	var files []string
+	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error { //nolint:errcheck // errors handled inside callback
+		if err != nil || d.IsDir() {
+			return err
+		}
+		rel, err := filepath.Rel(base, path)
+		if err != nil {
+			return err
+		}
+		files = append(files, rel)
+		return nil
+	})
+	return files
+}
+
+// endregion
+
+// region HELPER FUNCTIONS
+
+// region Command construction
 
 // newInstallCmd creates the "self install" subcommand.
 func newInstallCmd(rootCmd *cobra.Command, info SelfInstallInfo) *cobra.Command {
@@ -229,9 +267,19 @@ func newUninstallCmd(_ *cobra.Command, info SelfInstallInfo) *cobra.Command {
 		Short: "Remove " + info.Name + " and supporting files",
 		Long: `Remove ` + info.Name + ` and all files installed by "self install".
 
-Reads the installation manifest and removes only files that have not been
-modified since installation. Modified files are skipped and reported.
-Empty directories left behind are cleaned up.
+Reads the installation manifest and removes the files it records. A file
+changed since it was installed is kept, in case it is your own edit; a file
+that cannot be removed is kept and named for its reason. Empty directories
+left behind are cleaned up. The manifest is kept until nothing it records is
+left, so a later run can finish what one could not.
+
+On Windows the running program cannot delete itself, so it is removed once
+this command exits.
+
+It asks before removing anything, and reads the answer from standard input,
+whether or not that is a terminal. Only y or yes removes; any other answer,
+or none, removes nothing. --force removes without asking. --unattended asks
+nothing and takes the default, No, so it removes nothing.
 
 Example:
   ` + info.Name + ` self uninstall           # resolves prefix from binary location
@@ -239,7 +287,7 @@ Example:
   ` + info.Name + ` self uninstall --force    # skip confirmation prompt
 `,
 		Args: cobra.MaximumNArgs(1),
-		RunE: func(_ *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) error {
 			var prefix string
 			if len(args) > 0 {
 				prefix = expandTilde(args[0])
@@ -251,15 +299,22 @@ Example:
 				prefix = resolved
 			}
 
+			// --force is the answer. Without it, --unattended takes the prompt's default, No, and asks nothing (ruled
+			// 2026-10-01 on #1005). Otherwise the answer is read from stdin, terminal or not, and no answer is No, as
+			// docker's prompts do (ruled 2026-10-19).
 			if !force {
-				Note("This will remove %s from %s.", info.Name, prefix)
-				Note("Modified files will be preserved.")
-				Print("Continue? [y/N] ")
-				reader := bufio.NewReader(os.Stdin)
-				answer, err := reader.ReadString('\n')
-				if err != nil {
-					return fmt.Errorf("failed to read input: %w", err)
+				if viper.GetBool(info.Name + ".unattended") {
+					Note("Not confirmed: --unattended takes the default, No, so nothing was removed from %s.", prefix)
+					Note("--force removes without asking.")
+					return nil
 				}
+
+				Note("This will remove %s from %s.", info.Name, prefix)
+				Note("A file you have changed since installing it is kept.")
+				Print("Continue? [y/N] ")
+
+				// A read that ends early, or fails, leaves what it read, which is no answer at all or less than a yes.
+				answer, _ := bufio.NewReader(cmd.InOrStdin()).ReadString('\n') //nolint:errcheck // no answer is No
 				answer = strings.TrimSpace(strings.ToLower(answer))
 				if answer != "y" && answer != "yes" {
 					Note("Aborted.")
@@ -276,16 +331,16 @@ Example:
 	return cmd
 }
 
-// =============================================================================
-// Install / Upgrade
-// =============================================================================
+// endregion
+
+// region Install and upgrade
 
 // runSelfInstall installs the running program into `prefix` and replaces the tool's record of what it owns there.
 //
 // The binary installed is the running executable. With it go the man pages, when a `man` command exists, and the
 // completions for the shells `flags` names, or for those detected when it names none. The configuration and cache
-// are initialized, the post-install hooks run, and writ's layer directories are created. What the previous record
-// owned and this install does not is retired (#933), and the manifest is written last.
+// are initialized and the post-install hooks run. No layer is touched: `writ repo set` registers layers (#1030). What
+// the previous record owned and this install does not is retired (#933), and the manifest is written last.
 //
 // Parameters:
 //   - `rootCmd`: the command tree the man pages and completions are generated from.
@@ -294,9 +349,9 @@ Example:
 //   - `flags`: the install flags; `Shells` names the shells to install completions for.
 //
 // Returns:
-//   - `error`: non-nil when the prefix cannot be opened; when the binary, man pages, completions, configuration or
-//     writ's layer directories cannot be placed; or when the manifest cannot be written. `self upgrade` judges each
-//     program by this exit status (#947).
+//   - `error`: non-nil when the prefix cannot be opened; when the binary, man pages, completions or configuration
+//     cannot be placed; or when the manifest cannot be written. `self upgrade` judges each program by this exit
+//     status (#947).
 func runSelfInstall(rootCmd *cobra.Command, prefix string, info SelfInstallInfo, flags installFlags) (err error) {
 
 	// One root for the whole install, threaded through every stage below (#405, phase 2b). The prefix is the
@@ -356,18 +411,13 @@ func runSelfInstall(rootCmd *cobra.Command, prefix string, info SelfInstallInfo,
 	installed = append(installed, hookLines...)
 	manifestFiles = append(manifestFiles, hookPaths...)
 
-	// 6. Create writ layer directories.
-	if err := initWritLayerDirectories(info.Name); err != nil {
-		return err
-	}
-
-	// 7. Retire what the record this install replaces owned and this one does not (#933).
+	// 6. Retire what the record this install replaces owned and this one does not (#933).
 	//
 	// Before the manifest is written, because the previous record is what it is read from; after
 	// everything is placed, so a failure above leaves the previous install intact.
 	retired, retainedByChange := retireSupersededFiles(prefixRoot, prefix, info.Name, manifestFiles)
 
-	// 8. Write manifest. An install that cannot record what it placed has stranded it, so the failure is the
+	// 7. Write manifest. An install that cannot record what it placed has stranded it, so the failure is the
 	// install's, and `self upgrade` relies on each program's install to say so in its exit status (#947).
 	if err := writeManifest(prefixRoot, info.Name, info.Version, manifestFiles); err != nil {
 		return fmt.Errorf("failed to write manifest %s: %w", manifestPath(prefix, info.Name), err)
@@ -503,37 +553,6 @@ func runPostInstallHooks(prefix string, hooks []func(string) []string) (installe
 	return installed, manifestFiles
 }
 
-// initWritLayerDirectories creates and reports writ's layer directories; a no-op for every other tool.
-//
-// Parameters:
-//   - `toolName`: the tool being installed; only `writ` has layer directories.
-//
-// Returns:
-//   - `error`: non-nil when the directories cannot be created.
-func initWritLayerDirectories(toolName string) error {
-
-	if toolName != "writ" {
-		return nil
-	}
-
-	layerPaths, err := initWritLayers()
-	if err != nil {
-		return fmt.Errorf("failed to create layer directories: %w", err)
-	}
-
-	if len(layerPaths) == 0 {
-		return nil
-	}
-
-	Note("")
-	Note("Layer directories:")
-	for _, p := range layerPaths {
-		Note("  %s", p)
-	}
-
-	return nil
-}
-
 // printInstallSummary reports what was installed, where, and what the user must still do.
 //
 // Parameters:
@@ -551,7 +570,7 @@ func printInstallSummary(toolName, prefix string, installed, installedShells []s
 
 	Note("")
 	Note("Add %s to your PATH if not already present.", filepath.Join(prefix, "bin"))
-	printShellSetupInstructions(installedShells, toolName)
+	printShellSetupInstructions(prefix, installedShells, toolName)
 }
 
 // retireSupersededFiles removes what a previous install of this tool owned and this one does not.
@@ -610,7 +629,8 @@ func retireSupersededFiles(
 		return nil, nil
 	}
 
-	return removeRecordedFiles(prefixRoot, superseded)
+	removed, kept := removeRecordedFiles(prefixRoot, superseded)
+	return removed, keptPaths(prefixRoot, kept)
 }
 
 // printRetirementSummary reports what an install retired from the record it replaced.
@@ -641,20 +661,21 @@ func printRetirementSummary(removed, skipped []string) {
 	}
 }
 
-// =============================================================================
-// Uninstall
-// =============================================================================
+// endregion
 
-// removeRecordedFiles removes the files a record names, sparing anything that has changed since it
-// was written.
+// region Uninstall
+
+// removeRecordedFiles removes the files a record names, sparing anything that has changed since it was written, and
+// reporting why it kept each file it did not remove.
 //
-// The hash guard is the whole point: a file whose content no longer matches what was recorded may be
-// the operator's own edit, and deleting it would destroy work this program did not do. Such a file is
-// left and reported rather than removed, and so is one the filesystem refuses. A file already gone is
-// neither -- it is simply nothing to do.
+// The hash guard is the whole point: a file whose content no longer matches what was recorded may be the operator's
+// own edit, and deleting it would destroy work this program did not do. Such a file is kept as keepChanged. A file
+// the filesystem refuses is kept as keepRefused, and one whose hash cannot be computed as keepUnreadable -- distinct
+// from a changed file, so the caller names each for what it is rather than calling them all "modified". A file
+// already gone is nothing to do.
 //
-// Shared by `self uninstall`, which passes the whole record, and by an install retiring the part of a
-// previous record it no longer owns (#933).
+// Shared by `self uninstall`, which passes the record, and by an install retiring the part of a previous record it no
+// longer owns (#933).
 //
 // Parameters:
 //   - `prefixRoot`: the installation prefix the entries are relative to.
@@ -662,9 +683,8 @@ func printRetirementSummary(removed, skipped []string) {
 //
 // Returns:
 //   - `removed`: the absolute paths removed.
-//   - `skipped`: the absolute paths left in place -- changed since they were written, unreadable, or
-//     refused by the filesystem.
-func removeRecordedFiles(prefixRoot fsroot.Dir, entries []manifestEntry) (removed, skipped []string) {
+//   - `kept`: the files left in place, each with its reason.
+func removeRecordedFiles(prefixRoot fsroot.Dir, entries []manifestEntry) (removed []string, kept []keptFile) {
 
 	for _, entry := range entries {
 		path := prefixRoot.NewPath(entry.Path)
@@ -675,19 +695,17 @@ func removeRecordedFiles(prefixRoot fsroot.Dir, entries []manifestEntry) (remove
 			if os.IsNotExist(err) {
 				continue
 			}
-			Warn("Cannot read %s: %v (skipping)", path.Abs(), err)
-			skipped = append(skipped, path.Abs())
+			kept = append(kept, keptFile{Entry: entry, Reason: keepUnreadable})
 			continue
 		}
 
 		if currentHash != entry.SHA256 {
-			skipped = append(skipped, path.Abs())
+			kept = append(kept, keptFile{Entry: entry, Reason: keepChanged})
 			continue
 		}
 
 		if err := prefixRoot.Remove(path); err != nil {
-			Warn("Failed to remove %s: %v", path.Abs(), err)
-			skipped = append(skipped, path.Abs())
+			kept = append(kept, keptFile{Entry: entry, Reason: keepRefused})
 			continue
 		}
 		removed = append(removed, path.Abs())
@@ -696,10 +714,29 @@ func removeRecordedFiles(prefixRoot fsroot.Dir, entries []manifestEntry) (remove
 	// Clean up empty directories left behind.
 	cleanEmptyDirs(prefixRoot, entries)
 
-	return removed, skipped
+	return removed, kept
 }
 
-// runSelfUninstall removes files recorded in the manifest.
+// keptPaths is the absolute path of each kept file, in order -- for a caller that reports paths without their
+// reasons, such as the install retire summary.
+func keptPaths(prefixRoot fsroot.Dir, kept []keptFile) []string {
+
+	paths := make([]string, len(kept))
+	for i, k := range kept {
+		paths[i] = prefixRoot.NewPath(k.Entry.Path).Abs()
+	}
+	return paths
+}
+
+// runSelfUninstall removes the files the manifest records, keeps the manifest while any remain, and names a file it
+// could not remove by its reason (#1003).
+//
+// The running image is the one file this cannot simply delete on Windows, which refuses to delete a mapped image.
+// There its deletion is deferred past this process's exit (deferRunningImageDeletion), after every other recorded file
+// is removed, and it stays recorded until it is gone. When it is all that remains, the deferred deletion takes the
+// manifest with it once the image is gone (#1045), so nothing is left behind; when other files were kept, the manifest
+// stays recording them and the image, and a later run, finding the image gone, counts it removed. Elsewhere the image
+// deletes in place like any other file, so nothing is deferred.
 func runSelfUninstall(prefix string, info SelfInstallInfo) (err error) {
 
 	// One root for the whole uninstall, matching runSelfInstall (#405, phase 2b).
@@ -715,12 +752,48 @@ func runSelfUninstall(prefix string, info SelfInstallInfo) (err error) {
 			manifestPath(prefix, info.Name), info.Name, err)
 	}
 
-	removed, skipped := removeRecordedFiles(prefixRoot, m.Files)
+	// Every recorded file but the running image goes first, so that what the image's deletion leaves behind is known
+	// before it is scheduled.
+	running, found := runningImageEntry(prefixRoot, m.Files)
+	others := m.Files
+	if found {
+		others = excludeEntry(m.Files, running)
+	}
+	removed, kept := removeRecordedFiles(prefixRoot, others)
 
-	// Remove the manifest itself (best-effort).
-	mPath := prefixRoot.NewPath(relativeManifestPath(info.Name))
-	_ = os.Remove(mPath.Abs())                                                   //nolint:errcheck // best-effort cleanup
-	_ = removeIfEmpty(prefixRoot, prefixRoot.NewPath(filepath.Dir(mPath.Rel()))) //nolint:errcheck // best-effort cleanup
+	// The running image, deferred only where the platform must (Windows). deferred is what this will not remove in
+	// place: its deletion is scheduled and unconfirmed, so it stays recorded. When nothing else was kept, the manifest
+	// goes with it once it is gone. Where nothing defers it, or the deferral cannot start, it is removed in place.
+	var deferred []manifestEntry
+	if found {
+		manifestWithImage := ""
+		if len(kept) == 0 {
+			manifestWithImage = relativeManifestPath(info.Name)
+		}
+		if deferRunningImageDeletion(prefixRoot, running, manifestWithImage) {
+			deferred = append(deferred, running)
+		} else {
+			imageRemoved, imageKept := removeRecordedFiles(prefixRoot, []manifestEntry{running})
+			removed = append(removed, imageRemoved...)
+			kept = append(kept, imageKept...)
+		}
+	}
+
+	// What is still on disk: the files kept, plus the deferred running image. The manifest records exactly this, so a
+	// later run can finish; it is deleted only when nothing remains.
+	remaining := make([]manifestEntry, 0, len(kept)+len(deferred))
+	for _, k := range kept {
+		remaining = append(remaining, k.Entry)
+	}
+	remaining = append(remaining, deferred...)
+
+	if len(remaining) == 0 {
+		mPath := prefixRoot.NewPath(relativeManifestPath(info.Name))
+		_ = os.Remove(mPath.Abs())                                                   //nolint:errcheck // best-effort cleanup
+		_ = removeIfEmpty(prefixRoot, prefixRoot.NewPath(filepath.Dir(mPath.Rel()))) //nolint:errcheck // best-effort cleanup
+	} else if err := rewriteManifest(prefixRoot, info.Name, m.Version, remaining); err != nil {
+		Warn("Could not update the manifest at %s: %v", manifestPath(prefix, info.Name), err)
+	}
 
 	// Run post-uninstall hooks.
 	for _, hook := range info.PostUninstallHooks {
@@ -735,8 +808,25 @@ func runSelfUninstall(prefix string, info SelfInstallInfo) (err error) {
 		removeDevloreCache(info.Name)
 	}
 
-	// Print summary.
-	Success("Uninstalled %s from %s", info.Name, prefix)
+	printUninstallSummary(info.Name, prefix, removed, kept, deferred)
+
+	return nil
+}
+
+// printUninstallSummary reports what the uninstall removed, what it kept and why, and the running image whose
+// deletion it scheduled for after this process exits (#1003).
+//
+// Parameters:
+//   - `toolName`: the tool uninstalled.
+//   - `prefix`: the installation prefix.
+//   - `removed`: the absolute paths removed.
+//   - `kept`: the files left in place, each with its reason.
+//   - `deferred`: the recorded entries whose deletion was scheduled past this process's exit (the running image on
+//     Windows).
+func printUninstallSummary(toolName, prefix string, removed []string, kept []keptFile, deferred []manifestEntry) {
+
+	Success("Uninstalled %s from %s", toolName, prefix)
+
 	if len(removed) > 0 {
 		Note("")
 		Note("Removed %d file(s):", len(removed))
@@ -744,15 +834,121 @@ func runSelfUninstall(prefix string, info SelfInstallInfo) (err error) {
 			Note("  %s", f)
 		}
 	}
-	if len(skipped) > 0 {
+
+	for _, group := range []struct {
+		reason  keepReason
+		heading string
+	}{
+		{keepChanged, "Left %d file(s) changed since they were installed:"},
+		{keepRefused, "Could not remove %d file(s) (access denied or in use):"},
+		{keepUnreadable, "Could not read %d file(s) to check them, so left them:"},
+	} {
+		paths := keptForReason(kept, group.reason)
+		if len(paths) == 0 {
+			continue
+		}
 		Note("")
-		Note("Skipped %d modified file(s):", len(skipped))
-		for _, f := range skipped {
+		Note(group.heading, len(paths))
+		for _, f := range paths {
 			Note("  %s", f)
 		}
 	}
 
-	return nil
+	if len(deferred) > 0 {
+		Note("")
+		Note("The running program is removed once it exits:")
+		for _, entry := range deferred {
+			Note("  %s", filepath.Join(prefix, entry.Path))
+		}
+	}
+}
+
+// keptForReason is the prefix-relative path of each kept file with the given reason, for the summary.
+func keptForReason(kept []keptFile, reason keepReason) []string {
+
+	var paths []string
+	for _, k := range kept {
+		if k.Reason == reason {
+			paths = append(paths, k.Entry.Path)
+		}
+	}
+	return paths
+}
+
+// runningImageEntry finds the recorded entry that is this process's own executable, by [os.SameFile] rather than by
+// comparing paths -- a prefix reached through a link names the same file another way, as installBinary matches it.
+//
+// Parameters:
+//   - `prefixRoot`: the installation prefix.
+//   - `entries`: the recorded files.
+//
+// Returns:
+//   - `manifestEntry`: the running image's entry, when one of the recorded files is it.
+//   - `bool`: whether one was found.
+func runningImageEntry(prefixRoot fsroot.Dir, entries []manifestEntry) (manifestEntry, bool) {
+
+	self, err := os.Executable()
+	if err != nil {
+		return manifestEntry{}, false
+	}
+	selfInfo, err := os.Stat(self)
+	if err != nil {
+		return manifestEntry{}, false
+	}
+
+	for _, entry := range entries {
+		info, err := os.Stat(prefixRoot.NewPath(entry.Path).Abs())
+		if err == nil && os.SameFile(selfInfo, info) {
+			return entry, true
+		}
+	}
+	return manifestEntry{}, false
+}
+
+// excludeEntry returns `entries` without the one whose path matches `remove`.
+func excludeEntry(entries []manifestEntry, remove manifestEntry) []manifestEntry {
+
+	kept := make([]manifestEntry, 0, len(entries))
+	for _, entry := range entries {
+		if entry.Path != remove.Path {
+			kept = append(kept, entry)
+		}
+	}
+	return kept
+}
+
+// rewriteManifest writes the manifest to record exactly `entries`, with the hashes already recorded -- not
+// recomputed, so a kept file that has changed or cannot be read is still recorded, which is the point of keeping it.
+//
+// Parameters:
+//   - `prefixRoot`: the installation prefix.
+//   - `toolName`: the tool.
+//   - `version`: the version the manifest carries, unchanged from the one read.
+//   - `entries`: the files to record.
+//
+// Returns:
+//   - `error`: the manifest could not be written.
+func rewriteManifest(prefixRoot fsroot.Dir, toolName, version string, entries []manifestEntry) error {
+
+	m := manifest{
+		Tool:      toolName,
+		Version:   version,
+		Prefix:    prefixRoot.Name(),
+		Installed: time.Now().UTC().Format(time.RFC3339),
+		Files:     entries,
+	}
+
+	data, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	mPath := prefixRoot.NewPath(relativeManifestPath(toolName))
+	if err := prefixRoot.MkdirAll(prefixRoot.NewPath(filepath.Dir(mPath.Rel())), 0o750); err != nil {
+		return err
+	}
+
+	return prefixRoot.WriteFile(mPath, append(data, '\n'), 0o600)
 }
 
 // removeDevloreConfig removes tool-specific config from the XDG config directory.
@@ -796,9 +992,9 @@ func removeDevloreCache(toolName string) {
 	_ = removeIfEmpty(cacheRoot, cacheRoot.NewPath(".")) //nolint:errcheck // best-effort cleanup
 }
 
-// =============================================================================
-// Manifest
-// =============================================================================
+// endregion
+
+// region Manifest
 
 // writeManifest writes the installation manifest.
 func writeManifest(prefixRoot fsroot.Dir, toolName, version string, relativePaths []string) error {
@@ -833,9 +1029,9 @@ func writeManifest(prefixRoot fsroot.Dir, toolName, version string, relativePath
 	return prefixRoot.WriteFile(mPath, append(data, '\n'), 0o600)
 }
 
-// =============================================================================
-// Prefix Resolution
-// =============================================================================
+// endregion
+
+// region Prefix resolution
 
 // defaultPrefix returns the default installation prefix (~/.local).
 func defaultPrefix() string {
@@ -874,9 +1070,9 @@ func expandTilde(path string) string {
 	return path
 }
 
-// =============================================================================
-// Binary Installation
-// =============================================================================
+// endregion
+
+// region Binary installation
 
 // installBinary places `source` at `bin/<name>` in `prefixRoot`, unless it is already the file there.
 //
@@ -917,9 +1113,9 @@ func installBinary(prefixRoot fsroot.Dir, source, name string) (string, error) {
 	return installed.Abs(), nil
 }
 
-// =============================================================================
-// Man Pages
-// =============================================================================
+// endregion
+
+// region Man pages
 
 // installManPagesTo generates and installs man pages into `dir` within `prefixRoot`.
 func installManPagesTo(rootCmd *cobra.Command, prefixRoot fsroot.Dir, dir fsroot.Path, header ManHeader) ([]string, error) {
@@ -956,9 +1152,9 @@ func installManPagesTo(rootCmd *cobra.Command, prefixRoot fsroot.Dir, dir fsroot
 	return files, nil
 }
 
-// =============================================================================
-// Shell Completions
-// =============================================================================
+// endregion
+
+// region Shell completions
 
 // shellCompletionPath returns the installation path and filename for a shell's completion file.
 func shellCompletionPath(shell, cmdName string) (relPath, filename string) {
@@ -1024,8 +1220,19 @@ func installCompletionsForShells(rootCmd *cobra.Command, prefixRoot fsroot.Dir, 
 	return paths, nil
 }
 
-// printShellSetupInstructions prints setup instructions for installed shells.
-func printShellSetupInstructions(shells []string, toolName string) {
+// printShellSetupInstructions prints, for each shell completions were installed for, how that shell finds them.
+//
+// Each line names the file this install wrote under the prefix, by shellCompletionPath, the function the install
+// writes by, so the instructions hold whatever the prefix (#1048). bash-completion 2 needs nothing more than the
+// prefix's bin on PATH: its loader looks in <dir>/../share/bash-completion/completions for every directory on PATH.
+// fish finds its file on its own only under a share directory it searches (fishSearches), and otherwise is told
+// to add the directory to fish_complete_path.
+//
+// Parameters:
+//   - `prefix`: the installation prefix.
+//   - `shells`: the shells completions were installed for.
+//   - `toolName`: the installed tool, whose completion files these are.
+func printShellSetupInstructions(prefix string, shells []string, toolName string) {
 	if len(shells) == 0 {
 		return
 	}
@@ -1034,24 +1241,50 @@ func printShellSetupInstructions(shells []string, toolName string) {
 	Note("Shell completion setup:")
 
 	for _, shell := range shells {
+		rel, filename := shellCompletionPath(shell, toolName)
+		dir := filepath.Join(prefix, rel)
+		file := filepath.Join(dir, filename)
+
 		switch shell {
 		case "bash":
 			Note("")
-			Note("  For bash, ensure bash-completion is installed.")
+			Note("  For bash, bash-completion 2 finds %s once %s is on your PATH.", file, filepath.Join(prefix, "bin"))
 		case "fish":
 			Note("")
-			Note("  For fish, completions work automatically.")
+			if fishSearches(filepath.Join(prefix, "share")) {
+				Note("  For fish, completions work automatically: fish finds %s.", file)
+			} else {
+				Note("  For fish, add to ~/.config/fish/config.fish:")
+				Note("    set --prepend fish_complete_path %s", dir)
+			}
 		case "pwsh":
 			Note("")
 			Note("  For PowerShell, add to your $PROFILE:")
-			Note("    . ~/.local/share/powershell/completions/%s.ps1", toolName)
+			Note("    . %s", file)
 		case "zsh":
 			Note("")
 			Note("  For zsh, add to ~/.zshrc:")
-			Note("    fpath=(~/.local/share/zsh/site-functions $fpath)")
+			Note("    fpath=(%s $fpath)", dir)
 			Note("    autoload -Uz compinit && compinit")
 		}
 	}
+}
+
+// fishSearches reports whether fish looks for vendor completions under a share directory without being told.
+//
+// fish's search is its user data directory, XDG_DATA_HOME's fish, and each XDG_DATA_DIRS directory's fish, each with
+// vendor_completions.d; nothing relative to PATH.
+//
+// Parameters:
+//   - `share`: the share directory, <prefix>/share.
+//
+// Returns:
+//   - `bool`: true when share is XDG_DATA_HOME or a directory of XDG_DATA_DIRS.
+func fishSearches(share string) bool {
+	share = filepath.Clean(share)
+
+	return share == filepath.Clean(xdg.DataHome()) ||
+		slices.ContainsFunc(xdg.DataDirs(), func(dir string) bool { return filepath.Clean(dir) == share })
 }
 
 // detectShells returns available shells on the system.
@@ -1080,9 +1313,9 @@ func hasMan() bool {
 	return err == nil
 }
 
-// =============================================================================
-// Config and Cache
-// =============================================================================
+// endregion
+
+// region Config and cache
 
 // initDevloreConfig creates the unified devlore config structure.
 func initDevloreConfig(info SelfInstallInfo) (paths []string, err error) {
@@ -1144,36 +1377,9 @@ func initDevloreCache(toolName string) (path string, err error) {
 	return cacheDir.Abs(), nil
 }
 
-// initWritLayers creates the writ layer directories if they don't exist.
-//
-// This function is the campaign's LAST item in disguise: the shared CLI package creating one tool's
-// directories is why `devlore` still knows what a writ layer is. See the closure list in
-// docs/plans/windows-native-permissions.md — it moves to `cmd/writ` as a post-install hook, and this
-// conversion is deliberately shallow so that move stays a move.
-func initWritLayers() (created []string, err error) {
+// endregion
 
-	layersRoot, err := OpenTree(devlore.WritLayersDir())
-	if err != nil {
-		return nil, err
-	}
-	defer iox.Close(&err, layersRoot)
-
-	for _, layer := range []string{"base", "team", "personal"} {
-		layerPath := layersRoot.NewPath(layer)
-		if _, err := layersRoot.Stat(layerPath); os.IsNotExist(err) {
-			if err := layersRoot.MkdirAll(layerPath, 0o750); err != nil {
-				return created, err
-			}
-			created = append(created, layerPath.Abs())
-		}
-	}
-
-	return created, nil
-}
-
-// =============================================================================
-// File Helpers
-// =============================================================================
+// region File helpers
 
 // copyFile copies a file from `src` on the host filesystem to `dst` within `dstRoot`.
 //
@@ -1198,82 +1404,29 @@ func copyFile(dstRoot fsroot.Dir, src string, dst fsroot.Path) error {
 	if err != nil {
 		return fmt.Errorf("failed to create destination: %w", err)
 	}
-	defer func() { _ = dest.Close() }()
+
+	return copyAndClose(dest, source)
+}
+
+// copyAndClose copies `source` into `dest`, then closes `dest`, and the close's error is the copy's.
+//
+// A write the operating system reports only at close, a full disk or a network filesystem's, leaves a short file, so
+// a close that fails is a copy that failed (#1049). It closes through iox.Close, as the rest of this file does.
+//
+// Parameters:
+//   - `dest`: the destination, closed when the copy ends.
+//   - `source`: the source.
+//
+// Returns:
+//   - `err`: non-nil when the copy fails or the destination's close does.
+func copyAndClose(dest io.WriteCloser, source io.Reader) (err error) {
+	defer iox.Close(&err, dest)
 
 	if _, err := io.Copy(dest, source); err != nil {
 		return fmt.Errorf("failed to copy: %w", err)
 	}
 
 	return nil
-}
-
-// CopyDir recursively copies a directory tree from the host filesystem into `dstRoot`.
-//
-// Used by post-install hooks — `cmd/star` copies its extensions this way — so the destination root is
-// supplied by the hook rather than constructed here (#405, phase 2b).
-//
-// Parameters:
-//   - `dstRoot`: the tree the destination belongs to, opened by the caller.
-//   - `src`: the source directory, outside the root.
-//   - `dst`: the destination within `dstRoot`.
-//
-// Returns:
-//   - `error`: non-nil when the source cannot be read or any destination cannot be written.
-func CopyDir(dstRoot fsroot.Dir, src string, dst fsroot.Path) error {
-	src = filepath.Clean(src)
-
-	srcInfo, err := os.Stat(src)
-	if err != nil {
-		return err
-	}
-	if !srcInfo.IsDir() {
-		return fmt.Errorf("%s is not a directory", src)
-	}
-
-	// Perm(), not Mode(): a directory's Mode carries fs.ModeDir, which os.Mkdir silently discards but
-	// [os.Root.Mkdir] rejects as an unsupported file mode. Only the permission bits are the caller's to ask for.
-	if err := dstRoot.MkdirAll(dst, srcInfo.Mode().Perm()); err != nil {
-		return err
-	}
-
-	entries, err := os.ReadDir(src)
-	if err != nil {
-		return err
-	}
-
-	for _, entry := range entries {
-		srcPath := filepath.Join(src, entry.Name())
-		dstPath := dstRoot.NewPath(dst.Rel(), entry.Name())
-
-		if entry.IsDir() {
-			if err := CopyDir(dstRoot, srcPath, dstPath); err != nil {
-				return err
-			}
-		} else {
-			if err := copyFile(dstRoot, srcPath, dstPath); err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
-}
-
-// CollectFiles returns all file paths under dir, relative to base.
-func CollectFiles(base, dir string) []string {
-	var files []string
-	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error { //nolint:errcheck // errors handled inside callback
-		if err != nil || d.IsDir() {
-			return err
-		}
-		rel, err := filepath.Rel(base, path)
-		if err != nil {
-			return err
-		}
-		files = append(files, rel)
-		return nil
-	})
-	return files
 }
 
 // fileSHA256 computes the SHA-256 hash of a file.
@@ -1301,20 +1454,41 @@ func relPath(prefix, path string) string {
 	return rel
 }
 
-// cleanEmptyDirs removes empty directories that contained manifest files.
+// cleanEmptyDirs removes the directories that held recorded files and are now empty, deepest first (#1047).
+//
+// A directory is tried only after every recorded directory beneath it, so each one the uninstall emptied is empty when
+// its turn comes; one still holding anything, recorded or not, stays. Tried in a map's order, a parent could come
+// before its child, be skipped as not empty, and never be tried again. The order is by depth, most path elements first,
+// then by name, so it is the same on every run.
+//
+// Parameters:
+//   - `prefixRoot`: the installation prefix the entries are relative to.
+//   - `entries`: the recorded files whose directories are tried.
 func cleanEmptyDirs(prefixRoot fsroot.Dir, entries []manifestEntry) {
 
 	// Collect unique parent directories, relative to the root so the walk stops at it rather than at a
 	// string comparison against the prefix.
-	dirs := make(map[string]bool)
+	seen := make(map[string]bool)
+	var dirs []string
 	for _, entry := range entries {
 		for dir := filepath.Dir(entry.Path); dir != "." && dir != string(filepath.Separator); dir = filepath.Dir(dir) {
-			dirs[dir] = true
+			if !seen[dir] {
+				seen[dir] = true
+				dirs = append(dirs, dir)
+			}
 		}
 	}
 
+	separator := string(filepath.Separator)
+	slices.SortFunc(dirs, func(a, b string) int {
+		if deeper := strings.Count(b, separator) - strings.Count(a, separator); deeper != 0 {
+			return deeper
+		}
+		return strings.Compare(a, b)
+	})
+
 	// Try removing each directory (only succeeds if empty).
-	for dir := range dirs {
+	for _, dir := range dirs {
 		_ = removeIfEmpty(prefixRoot, prefixRoot.NewPath(dir)) //nolint:errcheck // best-effort cleanup
 	}
 }
@@ -1344,3 +1518,62 @@ func removeIfEmpty(root fsroot.Dir, dir fsroot.Path) error {
 
 	return nil
 }
+
+// endregion
+
+// endregion
+
+// region SUPPORTING TYPES
+
+// SelfInstallInfo contains metadata needed for self-installation.
+type SelfInstallInfo struct {
+	Name               string                  // Tool name (e.g., "lore", "writ", "star")
+	Version            string                  // Semantic version (e.g., "0.4.0"), set via ldflags
+	Channel            string                  // Channel the build follows ("develop", "release"), set via ldflags
+	Prerelease         bool                    // Whether the build takes its channel's pre-releases, set via ldflags
+	ManHeader          ManHeader               // Man page header metadata
+	ConfigInfo         *ConfigInfo             // Config schema and defaults (nil to skip config init)
+	PostInstallHooks   []func(string) []string // Hooks run after install; return installed file paths (relative to prefix)
+	PostUninstallHooks []func(string) error    // Hooks run after uninstall
+}
+
+// manifest records every file installed by self install/upgrade.
+type manifest struct {
+	Tool      string          `json:"tool"`
+	Version   string          `json:"version"`
+	Prefix    string          `json:"prefix"`
+	Installed string          `json:"installed"`
+	Files     []manifestEntry `json:"files"`
+}
+
+// manifestEntry records one installed file.
+type manifestEntry struct {
+	Path   string `json:"path"`   // Relative to prefix
+	SHA256 string `json:"sha256"` // Hex-encoded SHA-256
+}
+
+// installFlags holds the flag values for self install.
+type installFlags struct {
+	Shells []string
+}
+
+// keepReason is why a recorded file was not removed. It is what separates a file this program must not touch from
+// one it simply could not, so the summary can say which (#1003).
+type keepReason int
+
+const (
+	// keepChanged: the file's content no longer matches what was recorded, so it may be the operator's own edit.
+	keepChanged keepReason = iota
+	// keepRefused: the filesystem refused the delete -- a permission on the prefix, or a running image on Windows.
+	keepRefused
+	// keepUnreadable: the file's hash could not be computed, so the guard above cannot be judged.
+	keepUnreadable
+)
+
+// keptFile is a recorded file that was not removed, and why.
+type keptFile struct {
+	Entry  manifestEntry
+	Reason keepReason
+}
+
+// endregion

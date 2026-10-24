@@ -326,6 +326,12 @@ second verb, not a flag.**
 
 ### Flag Resolution
 
+> **Not built** (noted 2026-10-20). An extension's flag comes from the command line alone
+> (`cmd/star/extension/command.go:68`); the environment and configuration rungs below are design. How a command's
+> flags map to configuration keys and environment variables is an open question of the unified configuration
+> ([configuration.md § Open questions](configuration.md#open-questions)), ruled 2026-10-19 to be resolved before that
+> work starts.
+
 Each flag resolves in priority order:
 
 1. CLI argument: `--fix`

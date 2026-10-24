@@ -369,7 +369,7 @@ func TestVerifyArchive_RefusesEachMissingPieceAndMismatch(t *testing.T) {
 
 // --- unpackArchive ---
 
-// TestUnpackArchive_LaysOutAsTheInstallersDo is Requirement 6's layout (install.sh:318-345).
+// TestUnpackArchive_LaysOutAsTheInstallersDo is Requirement 6's layout (install.sh:557-579).
 //
 // The programs at the archive's root move to `pkg/bin`, executable, so each one's `self install` finds `pkg/share`
 // at `<exeDir>/../share`; everything else stays where the archive put it.

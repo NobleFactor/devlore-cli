@@ -1,9 +1,9 @@
 ---
 title: "The docs sync publishes the committed products: writ, lore and star; devlore-test's reference stays in the repository"
 issue: https://github.com/NobleFactor/devlore-cli/issues/956
-status: active
+status: complete
 created: 2026-09-26
-updated: 2026-09-26
+updated: 2026-10-19
 ---
 
 # Plan: the docs sync publishes what ships
@@ -67,8 +67,10 @@ this step is the statement of what the site publishes; a fourth product is one w
 - [x] `star lint shell .` (11 files), `make vet-all` (three platforms), `go test ./cmd/devlore-docs/`
       pass on DANOBLE-UD24-1; `make lint-all` runs in CI, golangci-lint not being on this host
 - [x] PR script written, shown, and handed over
-- [ ] After the merge: the run of `docs-publish.yaml` opens the site's PR with three trees and no
-      `devlore-test`; that PR is the one lane 4's branch takes before its own build
+- [x] After the merge: the run of `docs-publish.yaml` opens the site's PR with three trees and no
+      `devlore-test`; that PR is the one lane 4's branch takes before its own build. It did: site #462, which lane 4's
+      plan records, and on 2026-10-19 the site's `develop` tree held `src/content/cli/` for lore, star and writ and
+      nothing of devlore-test
 
 ## Out of Scope
 

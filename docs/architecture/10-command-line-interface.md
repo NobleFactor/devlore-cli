@@ -79,6 +79,47 @@ name. What a program needs at install time rides `RootConfig` hooks (star's exte
 other program has one. The rulings and the collisions they resolved are in
 [743-star-adoption.md](../plans/feature/743-star-adoption.md).
 
+### The installers
+
+Two scripts put the suite on a machine that has none of it, and each runs with what ships with its operating system.
+Neither serves the other's platform ([#1032](https://github.com/NobleFactor/devlore-cli/issues/1032)). Both fetch a
+release's archive, verify it against the release's checksums file before anything is extracted, and install nothing
+they cannot verify ([#1002](https://github.com/NobleFactor/devlore-cli/issues/1002)); both hand each program to its own
+`self install`, the one installer the suite has ([#798](https://github.com/NobleFactor/devlore-cli/issues/798), ruling
+1); both register the layers they are given and never ask. Both download into a directory of their own under the
+user's temporary directory and remove it however they end, installed or refused
+([#958](https://github.com/NobleFactor/devlore-cli/issues/958)); both suites check it after every run
+([#1051](https://github.com/NobleFactor/devlore-cli/issues/1051)).
+
+- **`install.sh`, on Linux and macOS,** runs as `curl ... | bash -s -- <options>`, with nothing beside it. On macOS it
+  runs with what ships there: `/bin/bash` 3.2 and macOS's own tools, bsdtar, BSD grep, sed and awk, shasum and curl;
+  nothing it does needs a newer bash, a GNU tool or GNU `getopt`. The owner, 2026-10-09: "How many times must I say
+  that install.sh MUST run with what ships with macOS?!" On Linux it runs with the distribution's bash and core tools,
+  and curl, which it names when missing. It sources nothing: it narrates and traps with copies of Declare-BashScript's
+  functions, made by hand from the helper as it is today and made again by hand when it needs a newer one, and carries
+  none of the helper's checks for bash 5.3 or GNU `getopt`
+  ([#1037](https://github.com/NobleFactor/devlore-cli/issues/1037)). Its status for each cause is the helper's, from
+  the set in § 9. It takes `--prefix`, `--base`, `--team` and `--personal` as `--option value` or as
+  `--option=value`, in a few lines that run on bash 3.2, and refuses by name one given last with no value
+  ([#1038](https://github.com/NobleFactor/devlore-cli/issues/1038)).
+- **`install.ps1`, on Windows,** runs with what ships there: Windows PowerShell 5.1, and PowerShell 7 alike, in one
+  code path. Ruled 2026-09-24, reversing #798's third ruling, which had it install PowerShell 7 first: the installer
+  uses what is known to be on the box, Windows PowerShell 5.1, and installs nothing but devlore
+  ([948-install-ps1-is-published-beside.md](../plans/feature/948-install-ps1-is-published-beside.md)).
+  It speaks and fails as the PowerShell style guide's section 7 says
+  ([#1044](https://github.com/NobleFactor/devlore-cli/issues/1044)): what it is doing on the verbose stream, a warning
+  on the warning stream, its results (the usage, the summary, the PATH advice and the next steps) on the output
+  stream, and nothing on the information stream or the host. A failure is an error record of its own, with an id and
+  a category, reported under its caller's error action, and the program it runs reads a closed standard input. Two
+  departures from the guide's example, each measured: the catch is a function's, `Install-DevLore`, because under
+  `irm | iex` the script has no `$PSCmdlet`, so an error names that function; and only a run as a file exits 1 after a
+  failure, since in the script-block and `irm | iex` forms `exit` would end the user's session
+  ([#965](https://github.com/NobleFactor/devlore-cli/issues/965)). Under Windows PowerShell 5.1, the `Add-Type` that
+  compiles its file-identity check leaves one empty directory with a random name in `TEMP`, a session: the .NET
+  Framework compiler's, not the installer's, and nothing records whose it is. PowerShell 7 leaves none. It is not
+  cleaned up; ruled 2026-10-21, "it sounds like powershell is unhygenic, not a litterbug"
+  ([#1051](https://github.com/NobleFactor/devlore-cli/issues/1051)).
+
 ## 3. Command grammar
 
 Commands are `<binary> <noun> <verb>` or `<binary> <verb>` where the noun is implied by the binary. `lore
@@ -444,7 +485,7 @@ is refused.
 
 **Elevation is per scope**, and automatic: updating `/` or `%SystemDrive%\` runs as a sudo user on Unix and
 as an Administrator on Windows, as needed. A scope declares that it requires elevation;
-[6.1](6.1-privilege-elevation.md)'s `elevation.Provider` satisfies it.
+[6.1](6.1-authorization.md)'s `authz.Provider` satisfies it, through the broker and the runner standing for root ([2.7](2.7-control-plane.md), [6.2](6.2-process-pool.md)).
 
 ## 5. The output model
 
@@ -828,6 +869,9 @@ keep that promise.
 
 **The suite reports the BSD sysexits set** — the same thirteen `Declare-BashScript` defines for the shell
 scripts beside these programs, so a status means one thing across the whole toolchain (ruled 2026-09-12).
+`install.sh` stops with the same set, one status for each cause: 64 for usage, 65 for an archive it cannot verify, 69
+for a missing tool or a refusal from GitHub, 70 for a failed `self install`, 75 for GitHub's spent rate limit, and 78
+for an unsupported platform (ruled 2026-10-09, [#1037](https://github.com/NobleFactor/devlore-cli/issues/1037)).
 
 Two codes sit outside that set and carry the most traffic:
 
@@ -876,6 +920,11 @@ paragraph above -- an exit-code-2 error names the flag or the subcommand, and th
 
 - Prompt only when stdin is a TTY. A non-interactive invocation that would prompt fails instead, naming the
   flag that would have supplied the answer.
+- **A confirmation is the exception** (ruled 2026-10-19, #1005: "Follow Docker's behavior."). A yes-or-no question
+  before a destructive step reads its answer from stdin whether or not stdin is a terminal, so `echo y | ...`
+  answers it; only `y` or `yes` confirms, and no answer, an empty line or end of input, is No. `--force` answers
+  yes without asking. `--unattended` asks nothing and takes the default, No. Declining, by answer or by
+  `--unattended`, changes nothing and exits 0, as docker's declined prompts do. `self uninstall` is the first.
 - Color and progress indicators only when stderr is a TTY, and never in the result stream.
 - `--silent` suppresses narration. It never suppresses the result, and never changes the exit code.
 
@@ -995,6 +1044,18 @@ What decided it is that the suite already disagreed with itself:
 
 A convention honored by accident in one place and ignored in two is worse than either consistent answer, and
 honoring it costs one environment check per path.
+
+**Since the Charm stack moved to v2 (2026-10-20, #1101),** both tables above are history: termenv and Lip Gloss v1
+are gone. Each path now makes its own check, `NO_COLOR` set and not empty:
+
+| Path | Under `NO_COLOR` |
+| --- | --- |
+| `cmd/internal/console` | color off: its writes go through colorprofile v0.4.3's writer, and its Bubble Tea program takes `tea.WithColorProfile`, both set to Ascii (`noColor`, `console.go`) |
+| `--output terminal` | color off: glamour v2 renders full color, and the rendering goes through a colorprofile writer set to Ascii (`TerminalFormatter.Format`) |
+
+The console decides rather than leaving it to colorprofile's detection, because colorprofile honors only a value
+`strconv.ParseBool` reads as true (`env.go:116` at v0.4.3): `NO_COLOR=yes` would keep color, where termenv honored
+any value (`termenv.go:69` at v0.16.0).
 
 **It suppresses color, not styling.** no-color.org's FAQ: the variable "only signals the user's intention
 regarding adding ANSI color to text output." Under `NO_COLOR`, `--output terminal` keeps bold, italic and
@@ -1409,5 +1470,10 @@ only argument-taking format.
 **A third stream.** clig.dev describes two streams. This suite has three, because a workflow engine produces
 durable artifacts that are neither the answer to a question nor progress narration. Documents go to the store
 (§6), and no clig.dev guidance is contradicted by their existence — it simply does not cover them.
+
+**A confirmation reads a piped answer.** clig.dev says "If `stdin` is not an interactive terminal, skip prompting
+and just require those flags/args", as `gh` and the Azure CLI do. This suite's confirmations do as docker's do
+instead (§10, ruled 2026-10-19): the answer is read from stdin whether or not it is a terminal, and no answer is
+No. A script that pipes `y` keeps working, and a script that pipes nothing changes nothing.
 
 Everything else follows clig.dev, and where this document is silent, clig.dev is the answer.

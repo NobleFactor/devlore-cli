@@ -1,9 +1,9 @@
 ---
 title: "devlore-docs writes a subcommand named index as index.md, which the site reads as its directory's page: two star pages collide and the site has not built since 2026-09-24"
 issue: https://github.com/NobleFactor/devlore-cli/issues/952
-status: active
+status: complete
 created: 2026-09-26
-updated: 2026-09-26
+updated: 2026-10-19
 ---
 
 # Plan: every generated page states its own URL path
@@ -87,9 +87,11 @@ push to `develop`. So the fix reaches the site by the merge alone: the next sync
 ### Phase 4: Merge, sync, build
 
 - [x] PR script written, shown, and handed over
-- [ ] After the merge: `docs-publish.yaml` opens the site's sync PR carrying pages with `slug`; with
+- [x] After the merge: `docs-publish.yaml` opens the site's sync PR carrying pages with `slug`; with
       site#457 merged, the site's build goes green for the first time since 2026-09-24. Stays open until
-      that build is seen
+      that build is seen. Seen: site#457's plan records the `develop` deploy after #463 (run 36248830682) as the
+      first green build since 2026-09-24, and the site's `develop` builds were green through 2026-10-10 (checked
+      2026-10-19)
 
 ## Out of Scope
 
@@ -98,4 +100,4 @@ push to `develop`. So the fix reaches the site by the merge alone: the next sync
   collision; the owner has that question on devlore-registry#92's naming, and the generator fix holds
   regardless.
 - **`--dry_run`** on `knowledge index`, an underscore where every other flag has a hyphen. Command-line
-  epic, its own issue.
+  epic, its own issue: filed 2026-10-19 as #1053, when #949's audit found it never had been.

@@ -19,7 +19,7 @@ This repository declares its `gh:` block in `star/config.yaml` and deletes `scri
 1. **One report, not two.** The script is deleted; the process documents in `noblefactor-ops`
    already name the extension (noblefactor-ops#177).
 2. **This repository's config declares the set** — `gh.repositories` and `gh.exempt` — so the
-   report run here spans both repositories and exempts #65 as the script hard-coded.
+   report run here spans both repositories and exempts NobleFactor/noblefactor-ops#317 as the script hard-coded.
 3. **Parity, one last time, before the deletion.** Byte for byte, on this repository, with the
    exemption coming from project config rather than a scratch user file.
 

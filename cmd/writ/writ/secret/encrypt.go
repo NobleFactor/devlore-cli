@@ -23,6 +23,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
 	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/deploy"
+	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/layer"
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
@@ -102,7 +103,7 @@ func ExecuteEncrypt(ctx context.Context, cfg *EncryptConfig) ([]*op.Graph, error
 //   - `error`: non-nil when a file does not exist or lies outside every registered layer.
 func assignToLayers(files []string) ([]layerGroup, error) {
 
-	layers, err := registeredLayers()
+	registered, err := registeredLayers()
 	if err != nil {
 		return nil, err
 	}
@@ -115,7 +116,7 @@ func assignToLayers(files []string) ([]layerGroup, error) {
 			return nil, fmt.Errorf("resolve %s: %w", file, err)
 		}
 
-		name, root := containingLayer(layers, canonical)
+		name, root := containingLayer(registered, canonical)
 		if root == "" {
 			return nil, fmt.Errorf(
 				"%s is not inside a registered layer; register its repository with 'writ repo set'", file)
@@ -225,15 +226,15 @@ func canonicalPath(path string) (string, error) {
 // containingLayer returns the registered layer containing the canonical path; the longest root wins.
 //
 // Parameters:
-//   - `layers`: the registered layers, name to canonical root.
+//   - `registered`: the registered layers, name to canonical root.
 //   - `canonical`: the canonical file path.
 //
 // Returns:
 //   - `name`: the containing layer's name, or empty.
 //   - `root`: the containing layer's root, or empty.
-func containingLayer(layers map[string]string, canonical string) (name, root string) {
+func containingLayer(registered map[string]string, canonical string) (name, root string) {
 
-	for candidate, candidateRoot := range layers {
+	for candidate, candidateRoot := range registered {
 		if canonical != candidateRoot && !strings.HasPrefix(canonical, candidateRoot+string(filepath.Separator)) {
 			continue
 		}
@@ -294,32 +295,36 @@ func refuseExistingDestinations(groups []layerGroup) error {
 
 // registeredLayers enumerates the registered layers as name to canonical working-tree root.
 //
-// A missing layers directory yields an empty map (every file then fails containment); broken registrations
-// are skipped.
+// A missing layers directory yields an empty map (every file then fails containment); an entry [layer.Read] does
+// not call registered, an empty directory among them (#1030), is skipped.
 //
 // Returns:
 //   - `map[string]string`: the registered layers.
 //   - `error`: non-nil when the layers directory exists but cannot be read.
 func registeredLayers() (map[string]string, error) {
 
-	layers := make(map[string]string)
+	registered := make(map[string]string)
 
 	entries, err := os.ReadDir(devlore.WritLayersDir())
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return layers, nil
+			return registered, nil
 		}
 		return nil, fmt.Errorf("read layers directory: %w", err)
 	}
 
 	for _, entry := range entries {
-		root, err := filepath.EvalSymlinks(filepath.Join(devlore.WritLayersDir(), entry.Name()))
+		read := layer.Read(entry.Name())
+		if read.State != layer.Registered {
+			continue
+		}
+		root, err := filepath.EvalSymlinks(read.Path)
 		if err != nil {
 			continue
 		}
-		layers[entry.Name()] = root
+		registered[entry.Name()] = root
 	}
-	return layers, nil
+	return registered, nil
 }
 
 // runAll executes every graph, collecting per-layer failures.
@@ -337,9 +342,9 @@ func runAll(ctx context.Context, cfg *EncryptConfig, graphs []*op.Graph) error {
 
 	for _, graph := range graphs {
 		if runErr := runGraph(ctx, cfg, graph); runErr != nil {
-			layer := layerAnnotation(graph)
-			cli.Warn("encrypt layer %s failed: %v", layer, runErr)
-			failures = append(failures, fmt.Errorf("layer %s: %w", layer, runErr))
+			failed := layerAnnotation(graph)
+			cli.Warn("encrypt layer %s failed: %v", failed, runErr)
+			failures = append(failures, fmt.Errorf("layer %s: %w", failed, runErr))
 		}
 	}
 

@@ -411,7 +411,8 @@ func TestCollectLayerSources_TheGivenScopesOnly(t *testing.T) {
 
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	layer := filepath.Join(devlore.WritLayersDir(), "base")
-	for _, name := range []string{"Home", "Staging", "System"} {
+	// A layer is registered only as a git working tree (#1030), so the layer holds `.git` beside its scopes.
+	for _, name := range []string{".git", "Home", "Staging", "System"} {
 		if err := os.MkdirAll(filepath.Join(layer, name), 0o755); err != nil {
 			t.Fatal(err)
 		}

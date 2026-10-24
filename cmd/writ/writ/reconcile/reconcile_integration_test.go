@@ -251,6 +251,10 @@ func TestBuildReport_LayerLink(t *testing.T) {
 	if err := os.MkdirAll(layersDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// A layer is a git working tree (#1030).
+	if err := os.MkdirAll(filepath.Join(sourceRoot, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Symlink(sourceRoot, filepath.Join(layersDir, "personal")); err != nil {
 		t.Fatal(err)
 	}
@@ -274,6 +278,32 @@ func TestBuildReport_LayerLink(t *testing.T) {
 		return
 	}
 	t.Error("personal layer not reported")
+}
+
+// TestBuildReport_EmptyLayerDirectoryIsAbsent is #1030: the empty directory an earlier `self install` left where a
+// layer goes is reported as no layer, not as a directory-mode one.
+func TestBuildReport_EmptyLayerDirectoryIsAbsent(t *testing.T) {
+
+	deployFixture(t)
+
+	if err := os.MkdirAll(filepath.Join(devlore.WritLayersDir(), "base"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := reconcile.BuildReport(context.Background(), reconcileConfig())
+	if err != nil {
+		t.Fatalf("BuildReport: %v", err)
+	}
+
+	for _, layer := range report.Layers {
+		if layer.Name == "base" {
+			if layer.State != "absent" {
+				t.Errorf("base layer state = %s over an empty directory, want absent", layer.State)
+			}
+			return
+		}
+	}
+	t.Error("base layer not reported")
 }
 
 // TestBuildReport_NoLifetimeIsNotFound pins the ruled answer (#922, #756): with no current lifetime there is no

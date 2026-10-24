@@ -1,9 +1,9 @@
 ---
 title: "install.sh exits 1 after a successful install, and leaves its download directory behind: the exit trap names a local that is gone"
 issue: https://github.com/NobleFactor/devlore-cli/issues/958
-status: active
+status: complete
 created: 2026-09-26
-updated: 2026-09-26
+updated: 2026-10-19
 ---
 
 # Plan: install.sh's cleanup outlives main
@@ -72,9 +72,11 @@ have no long options (the open question on personal#228's plan, not settled here
 ### Phase 4: Merge, publish
 
 - [x] PR script written, shown, and handed over
-- [ ] After the merge: the next pre-release's sync carries the fixed `install.sh` to the site's
+- [x] After the merge: the next pre-release's sync carries the fixed `install.sh` to the site's
       `develop`; the develop environment's copy is byte-identical to `develop`'s and a scratch run from
-      it exits 0
+      it exits 0. Met: every live install from the develop environment since exited 0 (lanes 14, 15, 23 and 24 of
+      #949 record them), and on 2026-10-19 its `install.sh` matched `develop`'s byte for byte. The regression has no
+      test yet: #1051
 
 ## Out of Scope
 

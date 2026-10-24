@@ -2,31 +2,31 @@
 
 **Architecture document:** [6-execution-topology.md](6-execution-topology.md)
 
+**State:** revised 2026-10-21. The document keeps the problem, the per-unit policy triplet and the topology; its
+mechanism sections are a paragraph each naming where the content now lives. Plan
+[`1119-broker-specification.md`](../plans/chore/1119-broker-specification.md).
+
 ## Completion
 
-| Component | Status | Completed | PR |
-|-----------|--------|-----------|-----|
-| Per-unit `ElevationOffer` + `ExecutableUnit` triplet | First cut in tree (uncommitted) | — | — |
-| Elevate (privilege transition) | Stub only | 2026-02-16 | [#139](https://github.com/NobleFactor/devlore-cli/pull/139) |
-| Elevation provider interface | Not implemented | — | — |
-| Remote execution | Not implemented | — | — |
-| Telemetry | Not implemented | — | — |
-
-A first-cut `op.ElevationOffer` and the `ExecutableUnit` policy triplet (elevation / retry / error) are wired in
-`pkg/op`; the architecture doc marks this the "shipped first cut" and keeps the fuller `pkg/elevation` / `Mode` /
-`Elevator` design as the deferred "Target design." The provider, remote-execution, and telemetry mechanisms remain
-"not yet approved for implementation."
+| Component | Status | Where it lives now |
+|-----------|--------|--------------------|
+| Per-unit `ElevationOffer` + `ExecutableUnit` triplet | In the tree, dormant: `WithElevationOffer` called by nothing, `ElevationOffer()` read by nothing, not serialized | here; its fate is [6.1](6.1-authorization.md) § Open 12 |
+| The "whether" (`Mode` / `Forbidden`) | Superseded 2026-10-21: a command declares its account | [6.2](6.2-process-pool.md) § Ruled |
+| Elevate (privilege transition) | No `flow.elevate` in the tree; `flow.Provider` has no `Elevate` | — |
+| The provider | Designed, not implemented; the `elevator` stub is dead (#679) | [6.1](6.1-authorization.md), the `authz` provider (#1116) |
+| The privileged child / the worker | Designed, not implemented | [6.2](6.2-process-pool.md) § 4.1, the runner daemon |
+| Windows | Designed, one row unverified (#528) | [6.2](6.2-process-pool.md) § 4.3 |
+| Remote execution | Superseded by the broker's remote leg; designed, not implemented | [2.7](2.7-control-plane.md) |
+| Telemetry | Designed; the bus settled 2026-07-23, the fork 2026-10-21; not implemented | [2.8](2.8-eventing-infrastructure.md), [2.7](2.7-control-plane.md) § The two streams |
 
 ## Document Discrepancies
 
-None.
+None after the 2026-10-21 revision. Before it, § Interface Shape cited `internal/execution/flow/elevate.go`, which
+does not exist, and § Approach designed a worker that 6.2 had already replaced.
 
 ## Outstanding Work
 
-1. **Elevation** — `op.ElevationOffer` first cut + the per-unit triplet are wired; deferred: the `Mode`/`Forbidden` disposition, op-free `pkg/elevation` packaging, the `Elevator` / `ElevationProvider` mechanism, and `flow.elevate`'s full privilege integration (still a passthrough stub)
-2. **Remote execution** — SSH/RPC-based subgraph dispatch to remote nodes
-3. **Telemetry** — the event-stream piece of the run's observability surface (control commands / event streams /
-   narration; see [2.7-control-plane.md Framing](2.7-control-plane.md#framing-three-orthogonal-pieces)). The `Event` /
-   `SubscriptionManager` spec is fed from the `pkg/op/hooks.go` seam; the control plane's first cut reinvented it and
-   must be reconciled onto this spec.
-4. **No implementation plan exists** — architecture doc only
+1. **The policy triplet's third member.** Whether `op.ElevationOffer` becomes the unit's offer reference for
+   [6.1](6.1-authorization.md) or is retired with the elevator — 6.1 § Open 12.
+2. **An implementation plan** — the four-iteration schedule the plan names, filed after it merges; nothing here is
+   implemented beyond the dormant triplet member.

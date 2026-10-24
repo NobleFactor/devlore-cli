@@ -5,8 +5,6 @@ package writ
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/lorepackage"
@@ -14,13 +12,12 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/decommission"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/deploy"
+	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/layer"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/reconcile"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/upgrade"
 	"github.com/spf13/cobra"
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
-
-	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
 )
 
 // newDeployCmd creates `writ deploy`, which deploys the selected projects from every layer, one graph per scope.
@@ -378,37 +375,19 @@ func runReconcile(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// getConfiguredRepo returns the directory a layer is registered at.
-//
-// Layers are directories, or links to them, at `~/.local/share/devlore/writ/layers/<layer>/`.
+// getConfiguredRepo returns a registered layer's working tree, or an empty string when the layer is not registered.
 //
 // Parameters:
-//   - `layer`: the layer's name: base, team or personal.
+//   - `name`: the layer.
 //
 // Returns:
-//   - `string`: the layer's directory, its link resolved; "" when the layer is not registered or its link dangles.
-func getConfiguredRepo(layer string) string {
-	layerPath := filepath.Join(devlore.WritLayersDir(), layer)
+//   - `string`: the working tree, as [layer.Read] reports its root; empty unless the layer is registered.
+func getConfiguredRepo(name string) string {
 
-	// Check if layer exists (directory or symlink)
-	info, err := os.Lstat(layerPath)
-	if err != nil {
+	read := layer.Read(name)
+	if read.State != layer.Registered {
 		return ""
 	}
 
-	// If it's a symlink, resolve it to get the actual path
-	if info.Mode()&os.ModeSymlink != 0 {
-		target, err := filepath.EvalSymlinks(layerPath)
-		if err != nil {
-			return "" // Broken symlink
-		}
-		return target
-	}
-
-	// It's a directory
-	if info.IsDir() {
-		return layerPath
-	}
-
-	return ""
+	return read.Root
 }

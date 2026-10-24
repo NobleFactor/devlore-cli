@@ -3,29 +3,33 @@
 
 package console
 
-import "github.com/charmbracelet/lipgloss"
+import (
+	"image/color"
+
+	"charm.land/lipgloss/v2"
+)
 
 // Theme holds the color scheme for the console UI.
 type Theme struct {
-	Primary   lipgloss.Color
-	Secondary lipgloss.Color
-	Success   lipgloss.Color
-	Warning   lipgloss.Color
-	Error     lipgloss.Color
-	Muted     lipgloss.Color
-	Text      lipgloss.Color
+	Primary   color.Color
+	Secondary color.Color
+	Success   color.Color
+	Warning   color.Color
+	Error     color.Color
+	Muted     color.Color
+	Text      color.Color
 }
 
 // DefaultTheme returns the default color scheme.
 func DefaultTheme() Theme {
 	return Theme{
-		Primary:   "39",  // Blue
-		Secondary: "99",  // Purple
-		Success:   "42",  // Green
-		Warning:   "214", // Orange
-		Error:     "196", // Red
-		Muted:     "245", // Gray
-		Text:      "252", // Light gray
+		Primary:   lipgloss.Color("39"),  // Blue
+		Secondary: lipgloss.Color("99"),  // Purple
+		Success:   lipgloss.Color("42"),  // Green
+		Warning:   lipgloss.Color("214"), // Orange
+		Error:     lipgloss.Color("196"), // Red
+		Muted:     lipgloss.Color("245"), // Gray
+		Text:      lipgloss.Color("252"), // Light gray
 	}
 }
 

@@ -265,7 +265,7 @@ func extractZipEntry(scratch fsroot.Dir, archive, pkg fsroot.Path, entry *zip.Fi
 	return extractEntry(scratch, pkg, entry.Name, false, mode, body)
 }
 
-// layOutPackage lays out an unpacked archive as the installers do (install.sh:318-345): every regular file at the
+// layOutPackage lays out an unpacked archive as the installers do (install.sh:557-579): every regular file at the
 // package's root is a program, and moves to `pkg/bin`, executable; everything else stays where the archive put it.
 //
 // Each program's `self install` then finds `pkg/share` at `<exeDir>/../share`, where it looks for what it installs

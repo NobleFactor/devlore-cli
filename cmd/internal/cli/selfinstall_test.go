@@ -6,11 +6,16 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
+	"github.com/NobleFactor/devlore-cli/pkg/sink"
+	"github.com/NobleFactor/devlore-cli/pkg/status"
 	"github.com/NobleFactor/devlore-cli/pkg/xdg"
 	"github.com/spf13/cobra"
 )
@@ -186,6 +191,68 @@ func TestShellCompletionPath_PerShell(t *testing.T) {
 	}
 }
 
+// TestPrintInstallSummary_ShellSetupNamesThePrefix is #1048: the setup instructions name the completion files this
+// install wrote, under its prefix, never ~/.local whatever the prefix. The prefix is a scratch directory no shell
+// searches, so fish is told how to find its file.
+func TestPrintInstallSummary_ShellSetupNamesThePrefix(t *testing.T) {
+
+	prefix := t.TempDir()
+	t.Setenv("XDG_DATA_DIRS", "")
+	said := captureInstallSummary(t, prefix)
+
+	if strings.Contains(said, "~/.local") {
+		t.Errorf("the instructions name ~/.local for prefix %s:\n%s", prefix, said)
+	}
+
+	for _, want := range []string{
+		filepath.Join(prefix, "share", "bash-completion", "completions", "writ"),
+		"set --prepend fish_complete_path " + filepath.Join(prefix, "share", "fish", "vendor_completions.d"),
+		". " + filepath.Join(prefix, "share", "powershell", "completions", "writ.ps1"),
+		"fpath=(" + filepath.Join(prefix, "share", "zsh", "site-functions") + " $fpath)",
+	} {
+		if !strings.Contains(said, want) {
+			t.Errorf("the instructions lack %q:\n%s", want, said)
+		}
+	}
+}
+
+// TestPrintInstallSummary_FishFindsASearchedPrefix is #1048: under a prefix whose share directory fish searches, a
+// directory of XDG_DATA_DIRS, the instructions say fish finds the completion and ask nothing of the user.
+func TestPrintInstallSummary_FishFindsASearchedPrefix(t *testing.T) {
+
+	prefix := t.TempDir()
+	t.Setenv("XDG_DATA_DIRS", filepath.Join(prefix, "share")+string(os.PathListSeparator)+"/usr/share")
+	said := captureInstallSummary(t, prefix)
+
+	if strings.Contains(said, "fish_complete_path") {
+		t.Errorf("fish searches %s, yet the instructions ask for fish_complete_path:\n%s", prefix, said)
+	}
+
+	if !strings.Contains(said, filepath.Join(prefix, "share", "fish", "vendor_completions.d", "writ.fish")) {
+		t.Errorf("the instructions do not name fish's file:\n%s", said)
+	}
+}
+
+// captureInstallSummary returns what the install summary narrates for writ, with completions for every shell.
+//
+// Parameters:
+//   - `t`: the test, whose cleanup restores the narrator.
+//   - `prefix`: the installation prefix.
+//
+// Returns:
+//   - `string`: the narration.
+func captureInstallSummary(t *testing.T, prefix string) string {
+
+	t.Helper()
+	captured, narration := sink.Capture()
+	previous := UI()
+	SetUI(status.NewNarrator("writ", captured))
+	t.Cleanup(func() { SetUI(previous) })
+	printInstallSummary("writ", prefix, nil, []string{"bash", "fish", "pwsh", "zsh"})
+
+	return narration.String()
+}
+
 // TestHasMan tests the man command detection.
 func TestHasMan(t *testing.T) {
 	_ = hasMan()
@@ -261,6 +328,54 @@ func TestCopyFile_NonExistentSource(t *testing.T) {
 	}
 }
 
+// TestCopyAndClose_ReturnsTheCloseError is #1049: a write the operating system reports only when the file is closed,
+// a full disk say, leaves a short file, so the destination's close error is the copy's. The closer here takes every
+// write and fails only at close, which a real file cannot be made to do without its writes failing first.
+func TestCopyAndClose_ReturnsTheCloseError(t *testing.T) {
+
+	refused := errors.New("no space left on device")
+	dest := &failingCloser{closeErr: refused}
+
+	err := copyAndClose(dest, strings.NewReader("an extension"))
+
+	if !errors.Is(err, refused) {
+		t.Errorf("copyAndClose returned %v; the destination's close failed with %v", err, refused)
+	}
+
+	if !dest.closed || dest.written.String() != "an extension" {
+		t.Errorf("closed %v, wrote %q; want closed, and every byte written", dest.closed, dest.written.String())
+	}
+}
+
+// failingCloser is a destination that takes every write and fails when closed.
+type failingCloser struct {
+	written  bytes.Buffer
+	closeErr error
+	closed   bool
+}
+
+// Write takes every byte.
+//
+// Parameters:
+//   - `p`: the bytes to write.
+//
+// Returns:
+//   - `int`: len(p).
+//   - `error`: nil.
+func (f *failingCloser) Write(p []byte) (int, error) {
+	return f.written.Write(p)
+}
+
+// Close records that it was called and fails.
+//
+// Returns:
+//   - `error`: the closer's error.
+func (f *failingCloser) Close() error {
+	f.closed = true
+
+	return f.closeErr
+}
+
 // TestCopyDir tests recursive directory copying.
 func TestCopyDir(t *testing.T) {
 	src := t.TempDir()
@@ -324,6 +439,23 @@ func installIntoTempPrefix(t *testing.T) (string, SelfInstallInfo) {
 
 	t.Helper()
 
+	return installToolIntoTempPrefix(t, "selftest")
+}
+
+// installToolIntoTempPrefix is [installIntoTempPrefix] for the tool named, for a test of what one tool's install
+// does that another's does not.
+//
+// Parameters:
+//   - `t`: the test harness.
+//   - `name`: the tool's name.
+//
+// Returns:
+//   - `string`: the prefix the tool was installed into.
+//   - `SelfInstallInfo`: the descriptor it was installed with.
+func installToolIntoTempPrefix(t *testing.T, name string) (string, SelfInstallInfo) {
+
+	t.Helper()
+
 	sandbox := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(sandbox, "config"))
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(sandbox, "cache"))
@@ -331,14 +463,25 @@ func installIntoTempPrefix(t *testing.T) (string, SelfInstallInfo) {
 	t.Setenv("XDG_STATE_HOME", filepath.Join(sandbox, "state"))
 
 	prefix := filepath.Join(sandbox, "prefix")
-	info := SelfInstallInfo{Name: "selftest", Version: "1.0.0"}
+	info := SelfInstallInfo{Name: name, Version: "1.0.0"}
 
-	rootCmd := &cobra.Command{Use: "selftest"}
+	rootCmd := &cobra.Command{Use: name}
 	if err := runSelfInstall(rootCmd, prefix, info, installFlags{Shells: []string{"bash"}}); err != nil {
 		t.Fatalf("runSelfInstall: %v", err)
 	}
 
 	return prefix, info
+}
+
+// TestRunSelfInstall_CreatesNoLayerDirectories is #1030: installing writ registers no layer, and leaves nothing where
+// the layers go for writ to mistake for one. `writ repo set` makes the layers directory when it registers a layer.
+func TestRunSelfInstall_CreatesNoLayerDirectories(t *testing.T) {
+
+	installToolIntoTempPrefix(t, "writ")
+
+	if _, err := os.Lstat(devlore.WritLayersDir()); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("installing writ left %s behind (Lstat: %v); want nothing there", devlore.WritLayersDir(), err)
+	}
 }
 
 // TestRunSelfInstall_LaysOutThePrefix proves an install produces the tree it claims to, on every platform.
@@ -856,5 +999,65 @@ func TestRetireSupersededFiles_FirstInstallHasNothingToRetire(t *testing.T) {
 
 	if len(removed) != 0 || len(skipped) != 0 {
 		t.Errorf("removed = %v, skipped = %v; a first install has no record to retire", removed, skipped)
+	}
+}
+
+// TestCleanEmptyDirs_RemovesEveryEmptiedDirectory pins that an uninstall removes every directory it emptied, and no
+// other (#1047).
+//
+// cleanEmptyDirs tried the recorded files' directories in a map's order, and a parent tried before its child was not
+// empty yet, was skipped, and was never tried again. A chain six directories deep came out whole only when its
+// directories happened to come up deepest first, one order in 720. Here the chain, a branch beside it, and a directory
+// holding a file the manifest does not record: the first two must go, the third must stay, and so must every directory
+// above it.
+func TestCleanEmptyDirs_RemovesEveryEmptiedDirectory(t *testing.T) {
+
+	prefix := t.TempDir()
+	recorded := []string{
+		filepath.Join("share", "a", "b", "c", "d", "e", "f", "chain.txt"),
+		filepath.Join("share", "a", "branch", "leaf.txt"),
+	}
+	unrecorded := filepath.Join("share", "kept", "mine.txt")
+
+	for _, relative := range append(append([]string{}, recorded...), unrecorded) {
+		path := filepath.Join(prefix, relative)
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+			t.Fatalf("make %s: %v", filepath.Dir(path), err)
+		}
+		if err := os.WriteFile(path, []byte(relative), 0o600); err != nil {
+			t.Fatalf("write %s: %v", path, err)
+		}
+	}
+
+	// The uninstall removes the recorded files, then cleans the directories they leave.
+	entries := make([]manifestEntry, 0, len(recorded))
+	for _, relative := range recorded {
+		if err := os.Remove(filepath.Join(prefix, relative)); err != nil {
+			t.Fatalf("remove %s: %v", relative, err)
+		}
+		entries = append(entries, manifestEntry{Path: relative})
+	}
+
+	root, err := OpenTree(prefix)
+	if err != nil {
+		t.Fatalf("OpenTree: %v", err)
+	}
+	t.Cleanup(func() { _ = root.Close() })
+
+	cleanEmptyDirs(root, entries)
+
+	for _, relative := range []string{
+		filepath.Join("share", "a"),
+		filepath.Join("share", "a", "b", "c", "d", "e", "f"),
+		filepath.Join("share", "a", "branch"),
+	} {
+		if _, err := os.Stat(filepath.Join(prefix, relative)); !os.IsNotExist(err) {
+			t.Errorf("%s was emptied by the uninstall and is still there (stat: %v)", relative, err)
+		}
+	}
+	for _, relative := range []string{"share", filepath.Join("share", "kept"), unrecorded} {
+		if _, err := os.Stat(filepath.Join(prefix, relative)); err != nil {
+			t.Errorf("%s holds a file the manifest does not record, and is gone: %v", relative, err)
+		}
 	}
 }

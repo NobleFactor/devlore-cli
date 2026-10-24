@@ -550,7 +550,7 @@ separate mechanism and is **off-limits** to the config engine.
 The elevation (privilege-elevation) provider is the worked example, because it exercises every part of the model at
 once: a provider whose configuration is a sub-tree of **brokers**, each fronting a set of backing **services**, with
 per-stage variance supplied by profiles. The full elevation design is in
-[`6.1-privilege-elevation.md`](6.1-privilege-elevation.md); here we show only its configuration shape.
+[`6.1-authorization.md`](6.1-authorization.md); here we show only its configuration shape.
 
 ### The sub-tree
 
@@ -653,7 +653,7 @@ config layer can't see from inside one section — a signed-graph offer naming a
 consistency — is the consuming provider's **run-start preflight**: it navigates the resolved tree (`Lookup`/`Path`) and
 the graph, and an unresolved reference **refuses the run** before any node fires. This keeps the config layer
 domain-free; domain knowledge (e.g. that an elevation offer names a broker) lives with the provider. The elevation's
-offer→broker refusal is the worked instance (see [`6.1-privilege-elevation.md`](6.1-privilege-elevation.md)).
+offer→broker refusal is the worked instance (see [`6.1-authorization.md`](6.1-authorization.md)).
 
 ## Variables — supplemental
 
@@ -1059,3 +1059,17 @@ From the comparison, the concrete refinements layered onto star's proven registr
 - **`show` and `sync` for all four?** (asked 2026-09-02) — `star`'s two extension commands are star's alone today.
   `show`, the resolved view, is what every program's users ask for; whether it joins the shared set, and whether
   `sync` stays star's, is open. Tracked under #441.
+- **An extension command's flags, and the keys and variables they map to** (ruled 2026-10-19) — the unification
+  rolls an extension's section up through every source, but says nothing of how a star extension *command's* flag maps
+  to a key in that section or to an environment variable. `9-star-extensions.md` § Flag Resolution maps them its own
+  way (`STAR_<COMMAND>_<FLAG>`, `<command>.<flag>`), and star builds neither: an extension's flag comes from the command
+  line alone (`cmd/star/extension/command.go:68`). Ruled: a design question, resolved before coding on the unified
+  configuration starts. Found by noblefactor-ops#253, whose `--repo` will gain its environment and configuration rungs
+  once this is designed and built.
+
+## Requirements carried
+
+- **Repeatable flags** (ruled 2026-10-19) — a flag given more than once accumulates its values: `--repo a --repo b`.
+  Star's extension flags have no list type (`bool`, `string`, `int`, `glob`: `cmd/star/extension/extension.go:162`), so
+  star gh's `--repo` takes one comma-separated value for now ("For now, it is not repeatable."). Designed with the
+  unified configuration.

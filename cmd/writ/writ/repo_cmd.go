@@ -5,7 +5,9 @@ package writ
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -17,6 +19,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
 	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
+	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/layer"
 )
 
 // newRepoCmd builds the repo command family: layer-repository registration through the layers directory.
@@ -66,8 +69,16 @@ git clone (git-clone's own grammar: the optional trailing working-tree-root is t
 clone destination). Without one, the clone lands in the writ-owned home under
 XDG_DATA_HOME/devlore/writ/repos, named as git clone names it: acme/team-env.git
 clones to repos/team-env. Two layers whose repositories share a name are refused.
-After placement the repository is entirely yours: writ performs no hidden git
-operations, ever.`,
+A clone an earlier run left at the destination is used rather than cloned again;
+anything else there is refused.
+
+With --branch, for either form, writ fetches origin, switches to the branch
+(creating it from origin's when only origin has it) and fast-forwards it when it
+is behind; a branch with commits origin lacks is left as it is. It refuses, and
+registers nothing, when the branch is nowhere or uncommitted changes block the
+switch. Without --branch the tree is left on whatever it has checked out. Either
+way writ says what it found and did, and the branch the layer is on; it performs
+no other git operations on the repository.`,
 		Example: `  writ repo set personal ~/Workspace/Personal
   writ repo set team git@github.com:acme/team-env.git
   writ repo set personal git@github.com:me/personal.git ~/Workspace/Personal
@@ -83,7 +94,7 @@ operations, ever.`,
 		},
 	}
 
-	cmd.Flags().String("branch", "", "Branch to clone (repository-url form only)")
+	cmd.Flags().String("branch", "", "Branch to clone, or to switch the tree to")
 
 	return cmd
 }
@@ -127,7 +138,7 @@ type RepoRegistration struct {
 	// The tree the registration points at. Promoted, so the record reads layer, state, source, root, owner.
 	RepoTarget
 
-	// Branch is the branch a URL form cloned, present only when `--branch` was given.
+	// Branch is the branch `--branch` asked for, present only when it was given.
 	Branch string `json:"branch,omitempty"`
 
 	// Previous is the registration this one displaced, or the one `unset` removed. Absent when nothing was
@@ -183,65 +194,67 @@ const (
 //
 // Parameters:
 //   - `cmd`: the invoking command; supplies the streams and context.
-//   - `layer`: the layer name; must be one of [LayerOrder].
+//   - `name`: the layer name; must be one of [LayerOrder].
 //   - `location`: a local working-tree-root (`~` expands; must be a git working tree) or a repository URL.
 //   - `destination`: the clone destination for the URL form; empty selects the writ-owned home. Must be
 //     empty for the working-tree-root form.
-//   - `branch`: the branch to clone; URL form only.
+//   - `branch`: the branch to clone, or to switch the tree to; empty leaves the tree's checked-out branch.
 //
 // Returns:
-//   - `error`: an unknown layer, a malformed combination, a clone name another layer already holds, a failed
-//     clone, a non-working-tree root, or a filesystem failure.
-func runRepoSet(cmd *cobra.Command, layer, location, destination, branch string) error {
+//   - `error`: an unknown layer, a malformed combination, a clone name another layer already holds, a clone
+//     destination holding something other than the clone an earlier run left, a failed clone, a non-working-tree
+//     root, a branch that is nowhere or that uncommitted changes keep the tree from, or a filesystem failure.
+func runRepoSet(cmd *cobra.Command, name, location, destination, branch string) error {
 
-	if !slices.Contains(LayerOrder, layer) {
-		return fmt.Errorf("unknown layer %q (layers: base, team, personal)", layer)
+	if !slices.Contains(LayerOrder, name) {
+		return fmt.Errorf("unknown layer %q (layers: base, team, personal)", name)
 	}
 
-	root, clone, err := settledRoot(cmd.Context(), layer, location, destination, branch)
+	ctx := cmd.Context()
+
+	root, clone, err := settledRoot(ctx, name, location, destination)
 	if err != nil {
 		return err
 	}
 
-	previous := repoRegistration(cmd.Context(), layer)
-
-	if previous.State == repoStateRegistered && previous.Root == root {
-		cli.Note("%s: unchanged, %s", layer, root)
-		return cli.Emit(cmd, RepoRegistration{
-			Layer:      layer,
-			State:      repoStateRegistered,
-			RepoTarget: repoTarget(cmd.Context(), root),
-			Branch:     branch,
-		})
+	// The clone an earlier run left, its registration never written, is used rather than refused (#983): running
+	// the same command again is the recovery (ruled 2026-09-26).
+	found := false
+	if clone {
+		if found, err = existingClone(ctx, root, location); err != nil {
+			return err
+		}
+		clone = !found
 	}
 
-	record := RepoRegistration{Layer: layer, State: repoStateRegistered, Branch: branch}
-	if previous.State != repoStateUnregistered {
+	previous := repoRegistration(ctx, name)
+	unchanged := previous.State == repoStateRegistered && previous.Root == root
+
+	record := RepoRegistration{Layer: name, State: repoStateRegistered, Branch: branch}
+	if !unchanged && previous.State != repoStateUnregistered {
 		displaced := previous.RepoTarget
 		record.Previous = &displaced
 	}
 
-	// A dry run emits what the real run would and does nothing: no clone, no symlink, no removal. The
-	// target is described from its path alone, since a tree that would be cloned is not there to ask.
 	if viper.GetBool("writ.dry-run") {
-		record.RepoTarget = RepoTarget{Root: root, Owner: ownerOf(root)}
-		narrateSet(layer, root, previous, true)
+		return emitDryRun(cmd, record, previous, root, branch, clone, unchanged)
+	}
+
+	if err := settleTree(cmd, name, location, root, branch, clone, found); err != nil {
+		return err
+	}
+
+	if unchanged {
+		cli.Note("%s: unchanged, %s", name, root)
+		record.RepoTarget = repoTarget(ctx, root)
 		return cli.Emit(cmd, record)
 	}
 
-	if clone {
-		if _, err := cloneRepository(cmd, location, root, branch); err != nil {
-			return err
-		}
-	} else if err := validateWorkingTree(root); err != nil {
+	if err := writeRegistration(name, root); err != nil {
 		return err
 	}
 
-	if err := writeRegistration(layer, root); err != nil {
-		return err
-	}
-
-	narrateSet(layer, root, previous, false)
+	narrateSet(name, root, previous, false)
 
 	// The displaced tree goes with its registration when it was writ's own (#792). A tree the user registered
 	// by path is theirs and stays.
@@ -251,9 +264,94 @@ func runRepoSet(cmd *cobra.Command, layer, location, destination, branch string)
 		}
 	}
 
-	record.RepoTarget = repoTarget(cmd.Context(), root)
+	record.RepoTarget = repoTarget(ctx, root)
 
 	return cli.Emit(cmd, record)
+}
+
+// emitDryRun emits what `set` would do, and does nothing: no clone, no fetch, no switch, no symlink, no removal.
+//
+// The target is described from its path alone, since a tree that would be cloned is not there to ask.
+//
+// Parameters:
+//   - `cmd`: the invoking command; supplies the output stream.
+//   - `record`: the registration the real run would emit, its target still to be described.
+//   - `previous`: the layer's registration before.
+//   - `root`: the working tree's root.
+//   - `branch`: the branch asked for, or "".
+//   - `clone`: whether the tree would be cloned into being.
+//   - `unchanged`: whether the layer is already registered at `root`.
+//
+// Returns:
+//   - `error`: an emission failure.
+func emitDryRun(cmd *cobra.Command, record, previous RepoRegistration, root, branch string, clone, unchanged bool) error {
+
+	if branch != "" && !clone {
+		cli.Note("%s: would fetch origin and switch %s to %s", record.Layer, root, branch)
+	}
+
+	if unchanged {
+		cli.Note("%s: unchanged, %s", record.Layer, root)
+	} else {
+		narrateSet(record.Layer, root, previous, true)
+	}
+
+	record.RepoTarget = RepoTarget{Root: root, Owner: ownerOf(root)}
+
+	return cli.Emit(cmd, record)
+}
+
+// settleTree puts the layer's working tree on disk and on the branch asked for, and says what it found and did.
+//
+// A tree to clone is cloned, onto the branch when one is given. A tree already there, a path or the clone an
+// earlier run left, is checked to be a working tree and, when a branch is given, brought to it ([bringToBranch]).
+// Every refusal comes before the registration is written.
+//
+// Parameters:
+//   - `cmd`: the invoking command; supplies the streams and context.
+//   - `name`: the layer.
+//   - `location`: the polymorphic location operand.
+//   - `root`: the working tree's root.
+//   - `branch`: the branch asked for, or "".
+//   - `clone`: whether the tree has to be cloned into being.
+//   - `found`: whether the tree is the clone of `location` an earlier run left.
+//
+// Returns:
+//   - `error`: a failed clone, a root that is not a working tree, or [bringToBranch]'s refusals.
+func settleTree(cmd *cobra.Command, name, location, root, branch string, clone, found bool) error {
+
+	ctx := cmd.Context()
+
+	if clone {
+		if _, err := cloneRepository(cmd, location, root, branch); err != nil {
+			return err
+		}
+		cli.Note("%s: cloned %s into %s, on %s", name, location, root, treeBranch(ctx, root))
+		return nil
+	}
+
+	if err := validateWorkingTree(root); err != nil {
+		return err
+	}
+
+	switched := ""
+	if branch != "" {
+		from, err := bringToBranch(ctx, name, root, branch)
+		if err != nil {
+			return err
+		}
+		if from != branch {
+			switched = fmt.Sprintf(", switched from %s to %s", from, branch)
+		}
+	}
+
+	if found {
+		cli.Note("%s: found the clone of %s at %s, on %s%s", name, location, root, treeBranch(ctx, root), switched)
+	} else {
+		cli.Note("%s: found a repository at %s, on %s%s", name, root, treeBranch(ctx, root), switched)
+	}
+
+	return nil
 }
 
 // writeRegistration points `layer` at `root`, replacing whatever registration was there.
@@ -263,19 +361,19 @@ func runRepoSet(cmd *cobra.Command, layer, location, destination, branch string)
 // observe as "registered nowhere".
 //
 // Parameters:
-//   - `layer`: the layer name.
+//   - `name`: the layer name.
 //   - `root`: the absolute working-tree-root.
 //
 // Returns:
 //   - `error`: a filesystem failure.
-func writeRegistration(layer, root string) error {
+func writeRegistration(name, root string) error {
 
-	layers := devlore.WritLayersDir()
-	if err := os.MkdirAll(layers, 0o750); err != nil {
+	registry := devlore.WritLayersDir()
+	if err := os.MkdirAll(registry, 0o750); err != nil {
 		return err
 	}
 
-	link := filepath.Join(layers, layer)
+	link := filepath.Join(registry, name)
 	if _, err := os.Lstat(link); err == nil {
 		if err := os.Remove(link); err != nil {
 			return err
@@ -288,11 +386,11 @@ func writeRegistration(layer, root string) error {
 // narrateSet says what `set` did, or under a dry run what it would do.
 //
 // Parameters:
-//   - `layer`: the layer.
+//   - `name`: the layer.
 //   - `root`: where it now points, or would.
 //   - `previous`: what was there before.
 //   - `dryRun`: whether nothing happened.
-func narrateSet(layer, root string, previous RepoRegistration, dryRun bool) {
+func narrateSet(name, root string, previous RepoRegistration, dryRun bool) {
 
 	would := ""
 	if dryRun {
@@ -301,12 +399,12 @@ func narrateSet(layer, root string, previous RepoRegistration, dryRun bool) {
 
 	switch {
 	case previous.State == repoStateUnregistered:
-		cli.Note("%s: %snow %s", layer, would, root)
+		cli.Note("%s: %snow %s", name, would, root)
 	case previous.Owner == repoOwnerWrit:
 		cli.Note("%s: %swas %s, now %s; the clone writ made at %s %sgoes with it",
-			layer, would, previous.Root, root, previous.Root, would)
+			name, would, previous.Root, root, previous.Root, would)
 	default:
-		cli.Note("%s: %swas %s, now %s", layer, would, previous.Root, root)
+		cli.Note("%s: %swas %s, now %s", name, would, previous.Root, root)
 	}
 }
 
@@ -315,20 +413,19 @@ func narrateSet(layer, root string, previous RepoRegistration, dryRun bool) {
 //
 // Parameters:
 //   - `ctx`: for the git invocations that resolve the other registrations.
-//   - `layer`: the layer being set.
+//   - `name`: the layer being set.
 //   - `location`: the polymorphic location operand.
 //   - `destination`: the URL form's optional clone destination.
-//   - `branch`: the URL form's optional branch.
 //
 // Returns:
 //   - `string`: the absolute working-tree-root the registration will point at.
 //   - `bool`: whether that root has to be cloned into being.
 //   - `error`: [plannedRoot]'s refusals, or a clone destination another layer holds.
-func settledRoot(ctx context.Context, layer, location, destination, branch string) (root string, clone bool, err error) {
+func settledRoot(ctx context.Context, name, location, destination string) (root string, clone bool, err error) {
 
-	root, clone, err = plannedRoot(location, destination, branch)
+	root, clone, err = plannedRoot(location, destination)
 	if err == nil && clone {
-		err = sharedCloneRefusal(ctx, root, layer)
+		err = sharedCloneRefusal(ctx, root, name)
 	}
 
 	return root, clone, err
@@ -344,13 +441,12 @@ func settledRoot(ctx context.Context, layer, location, destination, branch strin
 // Parameters:
 //   - `location`: the polymorphic location operand.
 //   - `destination`: the URL form's optional clone destination.
-//   - `branch`: the URL form's optional branch.
 //
 // Returns:
 //   - `string`: the absolute working-tree-root the registration will point at.
 //   - `bool`: whether that root has to be cloned into being.
 //   - `error`: a malformed combination of operands, or a URL that yields no directory name.
-func plannedRoot(location, destination, branch string) (root string, clone bool, err error) {
+func plannedRoot(location, destination string) (root string, clone bool, err error) {
 
 	if isRepositoryURL(location) {
 		if destination == "" {
@@ -369,9 +465,6 @@ func plannedRoot(location, destination, branch string) (root string, clone bool,
 
 	if destination != "" {
 		return "", false, fmt.Errorf("a working-tree-root takes no destination (got %q)", destination)
-	}
-	if branch != "" {
-		return "", false, fmt.Errorf("--branch applies to the repository-url form only")
 	}
 
 	absolute, err := filepath.Abs(expandPath(location))
@@ -400,7 +493,7 @@ func validateWorkingTree(root string) error {
 	if !info.IsDir() {
 		return fmt.Errorf("working-tree-root %s is not a directory", root)
 	}
-	if _, err := os.Stat(filepath.Join(root, ".git")); err != nil {
+	if !layer.IsWorkingTree(root) {
 		return fmt.Errorf(
 			"%s is not a git working tree (deploy pins layers from git history; run 'git init' first)", root)
 	}
@@ -474,20 +567,20 @@ func humanishName(url string) (string, error) {
 // Parameters:
 //   - `ctx`: for the git invocations that resolve each registration.
 //   - `root`: the clone destination about to be used.
-//   - `layer`: the layer being set.
+//   - `name`: the layer being set.
 //
 // Returns:
 //   - `error`: another layer holds `root`.
-func sharedCloneRefusal(ctx context.Context, root, layer string) error {
+func sharedCloneRefusal(ctx context.Context, root, name string) error {
 
 	for _, other := range LayerOrder {
-		if other == layer {
+		if other == name {
 			continue
 		}
 		registration := repoRegistration(ctx, other)
 		if registration.State != repoStateUnregistered && registration.Root == root {
 			return fmt.Errorf("%s and %s resolve to the same clone, %s: two layers cannot share one repository name",
-				layer, other, root)
+				name, other, root)
 		}
 	}
 
@@ -541,6 +634,161 @@ func cloneRepository(cmd *cobra.Command, url, destination, branch string) (strin
 	return absolute, nil
 }
 
+// existingClone reports whether a clone destination already holds the clone of `url` an earlier run left.
+//
+// Nothing there is no clone. A git working tree whose remote is `url`, compared as written (#983, D1: the rerun
+// this serves passes the same URL, which `git clone` wrote verbatim), is that clone. Anything else is refused,
+// saying what it holds.
+//
+// Parameters:
+//   - `ctx`: for the git invocation that reads the tree's remote.
+//   - `root`: the clone destination.
+//   - `url`: the repository URL given.
+//
+// Returns:
+//   - `bool`: true when `root` holds the clone of `url`.
+//   - `error`: `root` holds something else, or cannot be stat'ed.
+func existingClone(ctx context.Context, root, url string) (bool, error) {
+
+	if _, err := os.Lstat(root); err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	if !layer.IsWorkingTree(root) {
+		return false, fmt.Errorf("clone destination %s exists and is not a git working tree", root)
+	}
+
+	source := sourceOf(ctx, root)
+	if source != url {
+		if source == "" {
+			source = "no remote"
+		}
+		return false, fmt.Errorf("clone destination %s holds a clone of %s, not %s", root, source, url)
+	}
+
+	return true, nil
+}
+
+// bringToBranch puts a working tree on `branch` as origin has it now, and says each step (#983, D2).
+//
+// It fetches origin, which updates the remote-tracking refs alone; switches to the branch, which `git switch`
+// creates from origin's when only origin has it; and fast-forwards a branch that is behind origin's, leaving one
+// with commits origin lacks as it is. A tree with no origin is not fetched, and its own branches are all there is.
+//
+// Parameters:
+//   - `ctx`: for the git invocations.
+//   - `name`: the layer, for the narration.
+//   - `root`: the working tree.
+//   - `branch`: the branch asked for.
+//
+// Returns:
+//   - `string`: the branch the tree was on, as [treeBranch] says it.
+//   - `error`: the branch is in neither the tree nor origin, or git refused the switch or the fast-forward, its
+//     reason given.
+func bringToBranch(ctx context.Context, name, root, branch string) (string, error) {
+
+	from := treeBranch(ctx, root)
+
+	_, err := gitOutput(ctx, root, "remote", "get-url", "origin")
+	hasOrigin := err == nil
+
+	if hasOrigin {
+		if output, err := gitRun(ctx, root, "fetch", "--quiet", "origin"); err != nil {
+			cli.Warn("%s: could not fetch origin: %s; using its branches as last fetched", name, output)
+		} else {
+			cli.Note("%s: fetched origin", name)
+		}
+	}
+
+	_, err = gitOutput(ctx, root, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch)
+	local := err == nil
+	remote := false
+	if hasOrigin {
+		_, err = gitOutput(ctx, root, "rev-parse", "--verify", "--quiet", "refs/remotes/origin/"+branch)
+		remote = err == nil
+	}
+
+	if !local && !remote {
+		return from, fmt.Errorf("branch %s is in neither %s nor its origin", branch, root)
+	}
+
+	if from != branch {
+		if output, err := gitRun(ctx, root, "switch", "--quiet", branch); err != nil {
+			return from, fmt.Errorf("git switch %s in %s: %s", branch, root, output)
+		}
+	}
+
+	if !remote {
+		return from, nil
+	}
+
+	counts, err := gitOutput(ctx, root, "rev-list", "--left-right", "--count", branch+"...origin/"+branch)
+	if err != nil {
+		return from, err
+	}
+
+	var ahead, behind int
+	if _, err := fmt.Sscan(counts, &ahead, &behind); err != nil {
+		return from, fmt.Errorf("reading how %s stands against origin/%s: %w", branch, branch, err)
+	}
+
+	switch {
+	case ahead > 0 && behind > 0:
+		cli.Note("%s: %s has commits origin lacks; left as it is", name, branch)
+	case behind > 0:
+		if output, err := gitRun(ctx, root, "merge", "--quiet", "--ff-only", "origin/"+branch); err != nil {
+			return from, fmt.Errorf("git merge --ff-only origin/%s in %s: %s", branch, root, output)
+		}
+		cli.Note("%s: fast-forwarded %s to origin/%s", name, branch, branch)
+	}
+
+	return from, nil
+}
+
+// treeBranch says which branch a working tree has checked out, or the commit a detached HEAD is at.
+//
+// Parameters:
+//   - `ctx`: for the git invocations.
+//   - `root`: the working tree.
+//
+// Returns:
+//   - `string`: the branch's name, or `detached at <commit>`.
+func treeBranch(ctx context.Context, root string) string {
+
+	if branch, err := gitOutput(ctx, root, "branch", "--show-current"); err == nil && branch != "" {
+		return branch
+	}
+
+	commit, err := gitOutput(ctx, root, "rev-parse", "--short", "HEAD")
+	if err != nil {
+		return "no commit"
+	}
+
+	return "detached at " + commit
+}
+
+// gitRun runs git in `root` for its effect, and returns what it printed, for the reason a refusal gives.
+//
+// Parameters:
+//   - `ctx`: the invocation's context.
+//   - `root`: the working tree to run in.
+//   - `arguments`: git's arguments.
+//
+// Returns:
+//   - `string`: standard output and standard error together, trimmed.
+//   - `error`: git failed, or is not installed.
+func gitRun(ctx context.Context, root string, arguments ...string) (string, error) {
+
+	//nolint:gosec // G204: git in the user's own working tree, on the branch the user asked for -- the command's purpose.
+	command := exec.CommandContext(ctx, "git", append([]string{"-C", root}, arguments...)...)
+	output, err := command.CombinedOutput()
+
+	return strings.TrimSpace(string(output)), err
+}
+
 // runRepoUnset unregisters `layer`, and says nothing if it was not registered.
 //
 // Idempotent by ruling (2026-09-18): a command that is safe to run twice is a command a script can use, and
@@ -549,23 +797,23 @@ func cloneRepository(cmd *cobra.Command, url, destination, branch string) (strin
 //
 // Parameters:
 //   - `cmd`: the invoking command; supplies the output stream.
-//   - `layer`: the layer name; must be one of [LayerOrder].
+//   - `name`: the layer name; must be one of [LayerOrder].
 //
 // Returns:
 //   - `error`: an unknown layer, or a filesystem failure.
-func runRepoUnset(cmd *cobra.Command, layer string) error {
+func runRepoUnset(cmd *cobra.Command, name string) error {
 
-	if !slices.Contains(LayerOrder, layer) {
-		return fmt.Errorf("unknown layer %q (layers: base, team, personal)", layer)
+	if !slices.Contains(LayerOrder, name) {
+		return fmt.Errorf("unknown layer %q (layers: base, team, personal)", name)
 	}
 
-	previous := repoRegistration(cmd.Context(), layer)
+	previous := repoRegistration(cmd.Context(), name)
 	if previous.State == repoStateUnregistered {
-		return cli.Emit(cmd, RepoRegistration{Layer: layer, State: repoStateUnregistered})
+		return cli.Emit(cmd, RepoRegistration{Layer: name, State: repoStateUnregistered})
 	}
 
 	displaced := previous.RepoTarget
-	record := RepoRegistration{Layer: layer, State: repoStateUnregistered, Previous: &displaced}
+	record := RepoRegistration{Layer: name, State: repoStateUnregistered, Previous: &displaced}
 
 	would := ""
 	if viper.GetBool("writ.dry-run") {
@@ -573,16 +821,16 @@ func runRepoUnset(cmd *cobra.Command, layer string) error {
 	}
 
 	if previous.Owner == repoOwnerWrit {
-		cli.Note("%s: %sunregistered; the clone writ made at %s %sgoes with it", layer, would, previous.Root, would)
+		cli.Note("%s: %sunregistered; the clone writ made at %s %sgoes with it", name, would, previous.Root, would)
 	} else {
-		cli.Note("%s: %sunregistered, was %s; the tree is yours and stays", layer, would, previous.Root)
+		cli.Note("%s: %sunregistered, was %s; the tree is yours and stays", name, would, previous.Root)
 	}
 
 	if would != "" {
 		return cli.Emit(cmd, record)
 	}
 
-	link := filepath.Join(devlore.WritLayersDir(), layer)
+	link := filepath.Join(devlore.WritLayersDir(), name)
 	if err := os.Remove(link); err != nil {
 		return err
 	}
@@ -638,31 +886,24 @@ func runRepoList(cmd *cobra.Command) error {
 //
 // Parameters:
 //   - `ctx`: for the git invocation that resolves the tree's remote.
-//   - `layer`: the layer name to report on.
+//   - `name`: the layer name to report on.
 //
 // Returns:
 //   - `RepoRegistration`: the layer, its state, and its target when there is one.
-func repoRegistration(ctx context.Context, layer string) RepoRegistration {
+func repoRegistration(ctx context.Context, name string) RepoRegistration {
 
-	link := filepath.Join(devlore.WritLayersDir(), layer)
+	read := layer.Read(name)
 
-	info, err := os.Lstat(link)
-	if err != nil {
-		return RepoRegistration{Layer: layer, State: repoStateUnregistered}
+	switch read.State {
+	case layer.Unregistered:
+		return RepoRegistration{Layer: name, State: repoStateUnregistered}
+	case layer.Unreadable:
+		return RepoRegistration{Layer: name, State: repoStateUnreadable}
+	case layer.Broken:
+		return RepoRegistration{Layer: name, State: repoStateBroken, RepoTarget: repoTarget(ctx, read.Target)}
 	}
 
-	target := link
-	if info.Mode()&os.ModeSymlink != 0 {
-		if target, err = os.Readlink(link); err != nil {
-			return RepoRegistration{Layer: layer, State: repoStateUnreadable}
-		}
-	}
-
-	if _, err := filepath.EvalSymlinks(link); err != nil {
-		return RepoRegistration{Layer: layer, State: repoStateBroken, RepoTarget: repoTarget(ctx, target)}
-	}
-
-	return RepoRegistration{Layer: layer, State: repoStateRegistered, RepoTarget: repoTarget(ctx, target)}
+	return RepoRegistration{Layer: name, State: repoStateRegistered, RepoTarget: repoTarget(ctx, read.Target)}
 }
 
 // repoTarget describes the tree at `root`: where it is, which repository it is, and whose it is.

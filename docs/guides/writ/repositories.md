@@ -113,11 +113,11 @@ environment/
     │   ├── .config/git/config
     │   └── packages-manifest.yaml    # Optional: the project's software
     ├── noblefactor.Unix/             # Variant: macOS, Linux, FreeBSD, OpenBSD and NetBSD
-    │   └── local/bin/my-script
+    │   └── .local/bin/my-script
     ├── thenobles/                    # Project: family-shared config
     │   └── .config/shared/family.conf
     └── thenobles.Darwin/             # Variant: macOS only
-        └── local/bin/Backup-TimeCapsule
+        └── .local/bin/Backup-TimeCapsule
 ```
 
 `Unix` is the first link of the chain on macOS, Linux, FreeBSD, OpenBSD and NetBSD, so `noblefactor.Unix/` applies on

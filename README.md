@@ -75,7 +75,7 @@ validate packages. Content is served from GitHub today; OCI distribution
 
 ## Building
 
-**Prerequisites:** Go 1.26+ and **GNU make 3.82+**.
+**Prerequisites:** Go 1.27+ and **GNU make 3.82+**.
 
 macOS ships GNU make 3.81 — the last GPLv2 release, so it will never advance — and the build uses
 `.ONESHELL:`, which 3.82 introduced. Older make ignores that directive silently and fails with

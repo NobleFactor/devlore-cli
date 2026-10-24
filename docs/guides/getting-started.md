@@ -31,7 +31,8 @@ the DevLore site's develop environment, from which devlore is released today.
 On macOS and Linux:
 
 ```bash
-curl --fail --silent --show-error --location https://delightful-grass-0ac0a4c1e-develop.westus2.6.azurestaticapps.net/install.sh |
+curl --fail --silent --show-error --location \
+  https://delightful-grass-0ac0a4c1e-develop.westus2.6.azurestaticapps.net/install.sh |
   bash -s -- --base=<path-or-url> --team=<path-or-url> --personal=<path-or-url>
 ```
 
@@ -44,9 +45,8 @@ On Windows, in Windows PowerShell 5.1 or PowerShell 7, the preferred form:
     -Personal <path-or-url>
 ```
 
-Or through `irm | iex`, which takes no parameters, so the layers come from the environment. This form leaves
-the installer's settings in your PowerShell session
-([#982](https://github.com/NobleFactor/devlore-cli/issues/982)); the form above leaves nothing behind.
+Or through `Invoke-RestMethod | Invoke-Expression`, which takes no parameters, so the layers come from the
+environment. Neither form leaves anything of the installer's in your PowerShell session.
 
 ```powershell
 $env:DEVLORE_BASE = '<path-or-url>'
@@ -57,14 +57,16 @@ irm https://delightful-grass-0ac0a4c1e-develop.westus2.6.azurestaticapps.net/ins
 
 | bash | PowerShell | Environment | Layer |
 | --- | --- | --- | --- |
-| `--base=<loc>` | `-Base <loc>` | `DEVLORE_BASE` | base |
-| `--team=<loc>` | `-Team <loc>` | `DEVLORE_TEAM` | team |
-| `--personal=<loc>` | `-Personal <loc>` | `DEVLORE_PERSONAL` | personal |
+| `--base <loc>` or `--base=<loc>` | `-Base <loc>` | `DEVLORE_BASE` | base |
+| `--team <loc>` or `--team=<loc>` | `-Team <loc>` | `DEVLORE_TEAM` | team |
+| `--personal <loc>` or `--personal=<loc>` | `-Personal <loc>` | `DEVLORE_PERSONAL` | personal |
 
 - Each is optional. A location is a working-tree root or a repository URL, as `writ repo set` takes it; an
-  SSH URL clones over SSH. A flag wins over its variable.
+  SSH URL clones over SSH. A flag wins over its variable. In bash, each flag takes its value after a space or an
+  `=`.
 - The installer never asks. A layer you don't give is skipped, and the run's last lines name the
-  `writ repo set` command that registers it later.
+  `writ repo set` command that registers it later. A layer writ already has is not skipped: the
+  summary names it as already registered.
 - It installs into `~/.local` on every platform: the programs in `~/.local/bin`, with their man pages,
   completions and star's extensions. `--prefix` (`-Prefix`) changes that. `DEVLORE_VERSION` installs a
   particular release, and `DEVLORE_TOOLS` one program. `GH_TOKEN`, if you set it, lifts GitHub's limit of 60
@@ -86,8 +88,8 @@ release=https://github.com/NobleFactor/devlore-cli/releases/download/$tag
 curl --fail --silent --show-error --location --remote-name "$release/$archive"
 curl --fail --silent --show-error --location --remote-name "$release/devlore-cli_${tag}_checksums.txt"
 
-# 2. Verify the archive (on macOS: shasum --algorithm 256 --check)
-grep "$archive" "devlore-cli_${tag}_checksums.txt" | sha256sum --check
+# 2. Verify the archive against the line that names it exactly (on macOS: shasum --algorithm 256 --check)
+awk -v archive="$archive" '$2 == archive' "devlore-cli_${tag}_checksums.txt" | sha256sum --check
 
 # 3. Extract it, with the programs in bin/ beside share/, where star finds its extensions
 mkdir -p devlore/bin
@@ -111,7 +113,8 @@ $release = "https://github.com/NobleFactor/devlore-cli/releases/download/$tag"
 
 Invoke-WebRequest -Uri "$release/$archive" -OutFile $archive -UseBasicParsing
 Invoke-WebRequest -Uri "$release/$checksums" -OutFile $checksums -UseBasicParsing
-$expected = ((Get-Content $checksums | Where-Object { $_ -match $archive }) -split '\s+')[0]
+$expected = ((Get-Content $checksums | Where-Object { ($_ -split '\s+')[1] -ceq $archive }) -split '\s+')[0]
+if (-not $expected) { throw "$checksums has no line for $archive" }
 if ((Get-FileHash -Path $archive -Algorithm SHA256).Hash -ne $expected) { throw "Checksum mismatch for $archive" }
 
 Expand-Archive -Path $archive -DestinationPath devlore
@@ -224,18 +227,19 @@ writ config set writ.repos.personal ~/my-environment
 
 ## Create your first project
 
-A project is simply a directory in your repository. Files inside it mirror
-the structure of your home directory:
+A project is simply a directory under your repository's `Home/`. Files inside it mirror
+the structure of your home directory: `Home/noblefactor/.config/git/config` deploys to
+`~/.config/git/config`.
 
 ```bash
 cd ~/my-environment
-mkdir -p noblefactor/Home/.config/git
+mkdir -p Home/noblefactor/.config/git
 
 # Move your existing gitconfig into the project
-mv ~/.config/git/config noblefactor/.config/git/config
+mv ~/.config/git/config Home/noblefactor/.config/git/config
 
 # Add more files
-cp ~/.zshrc noblefactor/.zshrc
+cp ~/.zshrc Home/noblefactor/.zshrc
 ```
 
 ## Deploy the project
@@ -247,8 +251,8 @@ writ deploy noblefactor
 Writ creates symlinks from your home directory to the project files:
 
 ```
-~/.zshrc → repos/personal/noblefactor/.zshrc
-~/.config/git/config → repos/personal/noblefactor/.config/git/config
+~/.zshrc → ~/my-environment/Home/noblefactor/.zshrc
+~/.config/git/config → ~/my-environment/Home/noblefactor/.config/git/config
 ```
 
 ## Check status
@@ -269,13 +273,13 @@ If your project includes a `packages-manifest.yaml` file, writ automatically
 delegates to lore for software installation:
 
 ```yaml
-# noblefactor/packages-manifest.yaml
+# Home/noblefactor/packages-manifest.yaml
 packages:
-  - gh
-  - jq
-  - ripgrep
-  - neovim:
-      with: [lsp]
+  - name: gh
+  - name: jq
+  - name: ripgrep
+  - name: neovim
+    with: [lsp]
 ```
 
 ```bash
