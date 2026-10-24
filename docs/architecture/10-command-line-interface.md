@@ -465,7 +465,8 @@ as an Administrator on Windows, as needed. A scope declares that it requires ele
 **The split.** Everything a command emits is one of three things:
 
 - A **result** — the answer the user asked for. Machine-readable, JSON by default. Always stdout.
-- **Narration** — progress, warnings, errors, diagnostics. For a human. Always stderr.
+- **Narration** — progress, warnings and errors. For a human. Always stderr. A program devlore runs narrates on its own stderr, which reaches devlore's narration stream as it was written; filtering is each program's business, by its own flags.
+- **Events** — for observers, through OpenTelemetry, never on stdout or stderr. Diagnostics are events (ruled 2026-10-23; [2.8](2.8-eventing-infrastructure.md) § Ruled 2026-10-23 and 2026-10-24).
 - **Documents** — definitions and traces. Never stdout; they go to the execution store (§6).
 
 A result is written to a file by shell redirection, not by a flag: `lore list > packages.json`. The suite

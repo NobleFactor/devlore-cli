@@ -252,8 +252,7 @@ how the runner for root exists. Credential forwarding for remote execution: the 
 
 ## SSH Multiplexing for Remote Elevation
 
-**Superseded 2026-10-21.** The remote leg is the broker's API over TLS with a token
-([`2.7`](2.7-control-plane.md) § The remote leg); SSH is at most a tunnel or a bootstrap for it. The property this
+**Superseded 2026-10-21; SSH restored 2026-10-24.** On 2026-10-21 the remote leg became the broker's API over TLS with a token, and SSH at most a tunnel. On 2026-10-24 the owner ruled the other way: the broker remotes through SSH, shipping a bundle that ensures the executor and the subgraph are present on the far machine and run under the account's credentials, with no broker installed there ([`2.7`](2.7-control-plane.md) § The remote leg). Whether one SSH connection carries many sessions, by Go's SSH package's channels or OpenSSH's multiplexing, is [`2.7`](2.7-control-plane.md) § Open 17 and 18. The 2026-10-21 text follows for the record: The property this
 section wanted — one authenticated connection carrying many isolated sessions — is HTTP/2's multiplexing of streams on
 one connection, and the per-session fresh process is the runner's child per command.
 

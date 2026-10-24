@@ -41,7 +41,7 @@ The foundation lives in `pkg/devconfig`, with **no domain knowledge**:
 ```go
 type Section interface {
     Name() string
-    Path() string                              // dotted, YAML-style: "providers.elevation.brokers.ssh"
+    Path() string                              // dotted, YAML-style: "providers.authz.brokers.ssh"
 }
 type Config interface {
     Path() string                              // unnamed — the holding field names it
@@ -102,7 +102,7 @@ It is one structure seen two ways: the **layers** (`base` → `profiles.<stage>`
 
 ```
 Config  (root)
-├── base            ─► providers ─► elevation ─► brokers ─► services
+├── base            ─► providers ─► authz ─► brokers ─► services
 ├── profiles        ─► development · integration · staging · release
 │                       (each a partial overlay of the base section tree)
 └── applications    ─► lore · star · writ
@@ -116,7 +116,7 @@ Config  (root)
   otherwise stays the simple `base → profile → app` case.
 
 **Addressing.** Both `SectionBase` and `ConfigBase` expose `Path()` — a **dotted, YAML-style path** that mirrors the
-YAML key nesting exactly: `providers.elevation.brokers.ssh.services.step-ca.endpoint`. Whether a segment is a struct
+YAML key nesting exactly: `providers.authz.brokers.ssh.services.step-ca.endpoint` (renamed 2026-10-24 from `providers.elevation…`: the provider is `authz`, ruled 2026-10-21; the `brokers` here are `authz`'s token brokers, [6.1](6.1-authorization.md), not the broker of [2.7](2.7-control-plane.md)). Whether a segment is a struct
 field or a `Config` member is **type-level only** — resolved from the type as the loader descends, never written into
 the path string (consistent with YAML, where both are just nested keys). The path is **stamped top-down during that
 typed descent**, so `Path()` is a stored byproduct of parsing — no parent back-pointers.
@@ -410,8 +410,8 @@ plus the **builtin floor** (`SourceBuiltin`) beneath all — the compiled-in def
 ```
 
 Because each layer is itself a tree, the overlay is **per-key down matching paths**:
-`base.providers.elevation.brokers.ssh.default_ttl` is overwritten by
-`profiles.release.providers.elevation.brokers.ssh.default_ttl`, and a key set in one layer but not another is inherited.
+`base.providers.authz.brokers.ssh.default_ttl` is overwritten by
+`profiles.release.providers.authz.brokers.ssh.default_ttl`, and a key set in one layer but not another is inherited.
 
 An app reads **only `base` plus its own application layer** (and the active profile) — never another app's. Because
 override happens at overlay time, there is no per-setting "is-set" bookkeeping and no compile-time decision about which
@@ -522,8 +522,8 @@ base
 
 The provider's `elevation.ProviderConfig` embeds `SectionBase`; its `Brokers` sub-tree holds one section per broker.
 Each broker config is announced against the `Brokers` **parent handle** — the path-keyed child-type schema that types
-`providers.elevation.brokers.ssh` as an `elevation.BrokerConfig`. The concrete broker types are unexported (the public
-surface is the `elevation.Broker` interface and its `elevation.BrokerConfig` contract); a broker that fronts leaf
+`providers.authz.brokers.ssh` as an `authz.BrokerConfig`. The concrete broker types are unexported (the public
+surface is the `elevation.Broker` interface and its `authz.BrokerConfig` contract); a broker that fronts leaf
 sub-brokers (the former "services") is itself a sub-tree (see
 [Pluggable brokers](3.2-projected-provider-api.md#pluggable-brokers--provider-owned-routers)):
 
@@ -595,7 +595,7 @@ tree, not entries in an untyped per-provider map.
 
 Each section may implement `Validate() error` — OpenTelemetry's `component.ConfigValidator`. The loader walks the
 resolved tree **after** the roll-up, calling `Validate()` on each section and recursing into its sub-tree; it sees
-resolved values and fails fast with a **path-qualified** message (`providers.elevation.brokers.ssh.default_ttl: must be
+resolved values and fails fast with a **path-qualified** message (`providers.authz.brokers.ssh.default_ttl: must be
 > 0`) rather than surfacing deep inside an execution. A section validates **its own values and its own sub-tree** — it
 never reaches sideways to a sibling or up to the graph.
 
@@ -663,7 +663,7 @@ The sections that must exist, each at its owner (the working ledger; sequencing 
    `DEVLORE_MODEL_*`, and `--model-*` sources into the loader overlay.
 5. **The registry section** (`pkg/devregistry` extraction) — lore's package-registry location.
 6. **`signing`** (`pkg/signing`, lands with phase-8 step 46).
-7. **`providers.elevation`** — the broker sub-tree (the case study above; phase-8 step 38).
+7. **`providers.authz`** (was `providers.elevation`, renamed 2026-10-24) — the token-broker sub-tree (the case study above; phase-8 step 38).
 
 Ruled OUT: sops encryption config stays file-anchored `.sops.yaml`; decryption is config-free; store locations
 (XDG state home) and writ's layer tree are convention/packaging, not configuration.
