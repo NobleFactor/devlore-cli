@@ -67,9 +67,9 @@ file hashes those archives (`Makefile`, `dist-all` and `checksums`). The one rer
   of CI's quality-gate job and `make check-all`, runs it for each ref kind against a fixed commit and compares the
   version, exactly, with the one the commit's time gives, twice, the second run equal to the first. It fails at
   `fcc43546`, where the version is the clock's.
-- The test runs `make dist` twice for this machine's platform, a few seconds apart, and compares the two
-  checksums files byte for byte, and so every archive. It fails at `fcc43546`, where the build date and file times
-  differ.
+- The test runs `make dist` twice, a few seconds apart, for this machine's platform and for windows/amd64, so a
+  `.tar.gz` and a `.zip`, and compares the two checksums files byte for byte, and so every archive. It fails at
+  `fcc43546`, where the build date and file times differ.
 - The same test runs `release-publish.sh` against a stand-in `gh` on `PATH` that records each call and answers as a
   release would: none, one with every asset, one missing an asset. It compares the calls, exactly, with create;
   nothing; and an upload of every asset, replacing. At `fcc43546` the step is inline, so the test fails for want of
@@ -92,8 +92,12 @@ file hashes those archives (`Makefile`, `dist-all` and `checksums`). The one rer
 
 ### Phase 3: The fix (Requirements 1, 2 and 3)
 
-- [ ] The version from the commit; the release step as ruled; the build reproducible; both scripts; the test
-      passing
+- [x] The version from the commit; the release step as ruled; the build reproducible; both scripts; the test
+      passing. `make test-release` exits 0, all 12 checks. The build check was widened in this phase to build
+      windows/amd64 as well as this machine's platform, so a `.zip` is compared as well as a `.tar.gz`; both come back
+      the same bytes. `make dist` now refuses a `tar` that is not GNU tar, which `--sort` and `--mtime` need. The
+      Release workflow's Go is 1.27.3, what `1.27` resolved to for the last release, and its version step runs under
+      `shell: bash`, so a failed script fails the step
 
 ### Phase 4: Merge
 

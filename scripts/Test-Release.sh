@@ -11,7 +11,7 @@ set -o errexit -o errtrace -o nounset -o pipefail
 # Declare-BashScript's functions and constants this suite uses, as NobleFactor/noblefactor-ops c942f54 has them,
 # copied by hand: nothing here sources the helper (#1037). Copy them again when this suite needs a newer one.
 
-readonly EX_USAGE=64       # command line usage error
+readonly EX_USAGE=64 # command line usage error
 readonly Heavy_ballot='✘' Heavy_check_mark='✔'
 script_name="$(basename "$0")" && readonly script_name
 
@@ -124,8 +124,8 @@ observes with what it expects, exactly:
   2. .github/scripts/release-publish.sh, against a stand-in gh first on PATH that records each call, creates a
      release that is not there, changes nothing in one that has every asset, and replaces every asset in one that
      lacks one.
-  3. make dist, run twice for this machine's platform a few seconds apart, writes the same checksums file, and so
-     the same archives, byte for byte.
+  3. make dist, run twice a few seconds apart for this machine's platform and for windows/amd64, so a .tar.gz and a
+     .zip, writes the same checksums file, and so the same archives, byte for byte.
 
 Reports each check passed or failed on stderr, in Declare-BashScript's form, and exits 1 if any check failed. It
 exits 64 on a usage error. Run by make quality-gate, which CI's quality-gate job and make check-all run.
@@ -306,7 +306,8 @@ is "a release lacking an asset has every asset replaced" "$(calls_for partial)" 
 
 # --- 3. A rebuild of the commit is the same bytes ---
 
-host="$(go env GOOS)/$(go env GOARCH)"
+# This machine's platform, packed as a .tar.gz, and windows/amd64, packed as a .zip: both ways an archive is made.
+platforms="$(go env GOOS)/$(go env GOARCH) windows/amd64"
 test_version=v0.0.0-test.reproducible
 sums="dist/devlore-cli_${test_version}_checksums.txt"
 
@@ -318,7 +319,7 @@ sums="dist/devlore-cli_${test_version}_checksums.txt"
 # Returns:
 #   - 0.
 dist_checksums() {
-    if ! (cd "$repo" && env -u VERSION -u COMMIT -u BUILD_DATE make dist PLATFORM="$host" \
+    if ! (cd "$repo" && env -u VERSION -u COMMIT -u BUILD_DATE make dist PLATFORM="$platforms" \
         DEVLORE_VERSION="$test_version" >"$1" 2>&1); then
         printf 'make dist failed; its output is in %s\n' "$1"
         return 0
@@ -326,7 +327,7 @@ dist_checksums() {
     cat "${repo}/${sums}"
 }
 
-note "building ${host} twice with make dist, a few seconds apart"
+note "building ${platforms} twice with make dist, a few seconds apart"
 first=$(dist_checksums "${scratch}/dist-1.log")
 sleep 2
 second=$(dist_checksums "${scratch}/dist-2.log")

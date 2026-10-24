@@ -55,11 +55,13 @@ DEVLORE_VERSION ?= $(shell git describe --tags --match "v*" --always --dirty 2>/
 
 VERSION ?= $(DEVLORE_VERSION)
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
-BUILD_DATE ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
+# The build date is the commit's committer time in UTC, not the clock, so a rebuild of a commit stamps what the first
+# build did and its archives are the same bytes (#980; ruled 2026-10-23, "B").
+BUILD_DATE ?= $(shell TZ=UTC git log -1 --format=%cd --date=format-local:%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "none")
 
 # Freeze the three, and keep them frozen. `?=` defines RECURSIVELY expanded variables, so every
 # $(shell …) above re-runs at every single reference — a different `git describe`, a different
-# `date`, each time the variable is named. LDFLAGS is `:=` and captures one set; a recipe naming
+# `git log`, each time the variable is named. LDFLAGS is `:=` and captures one set; a recipe naming
 # $(VERSION) again gets another.
 #
 # That is not hypothetical: on the windows runner the stamp check compared `8a62b17-dirty` against a
@@ -77,7 +79,7 @@ BUILD_DATE := $(BUILD_DATE)
 # every binary it produces.
 #
 # `build/star: FORCE` shells out to `$(MAKE) star`, and a sub-make is a NEW run: it re-parses this
-# file and the `?=` above would run a second `date` and a second `git describe`. Exporting puts the
+# file and the `?=` above would run a second `git log` and a second `git describe`. Exporting puts the
 # frozen values in the sub-make's environment, where those same `?=` guards find them already defined
 # and skip the $(shell) entirely — the override path the comment above already describes.
 #
@@ -696,6 +698,19 @@ dist-all: ## Build distribution archives for PLATFORM (default: every supported 
 	#
 	# dist/ is emptied first, so everything in it is this run's: `checksums` hashes every file it finds there, and a
 	# checksums file or an archive left by an earlier run would be listed with this run's (#1034).
+	# A rebuild of a commit is the same bytes (#980; ruled 2026-10-23, "B"): the binaries are built with -trimpath, so no
+	# build directory is recorded in them, and stamped with the commit's time (BUILD_DATE above); every file in an
+	# archive takes the commit's time, in name order, owned by 0:0, and gzip records no name or time. That takes GNU
+	# tar, for --sort and --mtime, and GNU touch, for --date.
+	tar_version=$$(tar --version 2>&1 || true)
+	case "$$tar_version" in
+		*"GNU tar"*) ;;
+		*)
+			echo "ERROR: make dist needs GNU tar, for a reproducible archive; tar is: $${tar_version%%$$'\n'*}" >&2
+			exit 1
+			;;
+	esac
+	epoch=$$(git log -1 --format=%ct)
 	rm -rf dist
 	mkdir -p dist
 	extensions=$$(git ls-files star/extensions)
@@ -712,15 +727,17 @@ dist-all: ## Build distribution archives for PLATFORM (default: every supported 
 		echo "Building $$os/$$arch..."
 		binaries=()
 		for product in $(PRODUCTS); do
-			GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 go build $(LDFLAGS) -o "$$stage/$$product$$ext" "./cmd/$$product"
+			GOOS=$$os GOARCH=$$arch CGO_ENABLED=0 go build -trimpath $(LDFLAGS) -o "$$stage/$$product$$ext" "./cmd/$$product"
 			binaries+=("$$product$$ext")
 		done
 		git ls-files -z star/extensions | tar --null -T - -cf - | tar -xf - -C "$$stage/share/devlore"
 		if [[ "$$archive_ext" == "tar.gz" ]]; then
-			tar -czf "dist/$$archive" -C "$$stage" "$${binaries[@]}" share
+			tar --sort=name --mtime="@$$epoch" --owner=0 --group=0 --numeric-owner -cf - -C "$$stage" "$${binaries[@]}" share |
+				gzip -n >"dist/$$archive"
 			listed=$$(tar -tzf "dist/$$archive")
 		else
-			(cd "$$stage" && zip -qr "../$$archive" "$${binaries[@]}" share)
+			find "$$stage" -exec touch --no-dereference --date="@$$epoch" {} +
+			(cd "$$stage" && find "$${binaries[@]}" share | LC_ALL=C sort | TZ=UTC zip -q -X -@ "../$$archive")
 			listed=$$(unzip -Z1 "dist/$$archive")
 		fi
 		# The archive check: its files are exactly the products and the tracked extensions, nothing missing and
