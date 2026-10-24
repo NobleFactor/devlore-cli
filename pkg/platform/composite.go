@@ -16,6 +16,7 @@ import (
 // winget, snap, flatpak) and diverge for the native Linux managers — apt→deb, dnf→rpm, pacman→alpm.
 type leaf interface {
 	PackageManager
+	runnerSetter
 	name() string
 	purlType() string
 }

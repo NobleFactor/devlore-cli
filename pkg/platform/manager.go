@@ -3,6 +3,8 @@
 
 package platform
 
+import "context"
+
 // PackageManager is the Composite package-management contract.
 //
 // The same surface serves a single leaf driver and the platform's router over many leaves.
@@ -227,6 +229,41 @@ type Result struct {
 	Stderr string // captured standard error, trailing newline trimmed
 	Code   int    // the process exit code (-1 when the command could not be launched)
 }
+
+// CommandRunner runs a command as an account and captures what it said: what the platform's managers run through.
+//
+// The runtime environment builds its platform with a runner that goes through its broker ([op.Broker]), so a
+// manager's `root` command reaches root however the broker does it; [LocalRunner] is the one for a platform built
+// outside a runtime environment, and it stands for the caller alone.
+type CommandRunner func(ctx context.Context, request CommandRequest) Result
+
+// CommandRequest is one command a manager runs.
+type CommandRequest struct {
+
+	// Account is the account the command runs as: [AccountCaller] or [AccountRoot].
+	Account string
+
+	// Argv is the command and its arguments; `argv[0]` is the executable. A vector, never a string: nothing is
+	// quoted and nothing can inject (#561).
+	Argv []string
+
+	// Env joins the command's environment.
+	Env map[string]string
+
+	// AutoConfirm feeds the command an endless `y\n` on stdin, so a tool that prompts despite its non-interactive
+	// flags proceeds rather than aborting on end of file.
+	AutoConfirm bool
+}
+
+// Account names a [CommandRequest] may carry. Their final form is architecture 6.2 § Open 8.
+const (
+
+	// AccountCaller is the process's own account.
+	AccountCaller = "caller"
+
+	// AccountRoot is root.
+	AccountRoot = "root"
+)
 
 // SearchResult represents a package found by [PackageManager.Search].
 //
