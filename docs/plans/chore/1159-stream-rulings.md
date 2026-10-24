@@ -1,7 +1,7 @@
 ---
 title: "The execution model's specifications take the rulings of 2026-10-23 and 2026-10-24: three streams, three audiences; the command provider's interface; the logon, its account and its host; the broker remotes through SSH"
 issue: https://github.com/NobleFactor/devlore-cli/issues/1159
-status: active
+status: complete
 created: 2026-10-23
 updated: 2026-10-24
 ---
@@ -204,8 +204,8 @@ Its pointer that the SSH remote design was replaced on 2026-10-21 is corrected: 
 ### Phase 4: the check and the pull request
 
 - [x] Requirement 8: each ruling's passages read back against § Current State, every contradicted passage gone; every outstanding question recorded where it belongs; every issue in the table open and linked -- 2026-10-24: thirteen retired phrases searched across `docs/architecture`; the hits left are citations of the old text, dated
-- [ ] `make check` passes; the description says AI assisted and ends with `Signed-off-by:` and `Assisted-by: Claude Code`; the script is `~/Workspace/NobleFactor/devlore-cli.1159-stream-rulings.bash`
-- [ ] Status `complete` in the last commit: nothing deploys
+- [x] `make check` passes; the description says AI assisted and ends with `Signed-off-by:` and `Assisted-by: Claude Code`; the script is `~/Workspace/NobleFactor/devlore-cli.1159-stream-rulings.bash` -- 2026-10-24; 2.8 also gains a worked example, a logon to a shell script that reports through `otel-cli`, on the owner's word
+- [x] Status `complete` in the last commit: nothing deploys -- 2026-10-24
 
 ## Files to Create/Modify
 
