@@ -1,6 +1,7 @@
 # Configuration — Status
 
 **Document:** [configuration.md](configuration.md)
+**Amended 2026-10-24** (plan [`1159-stream-rulings.md`](../plans/chore/1159-stream-rulings.md)): the example path is `providers.authz…`, and its `brokers` are named as `authz`'s token brokers, not 2.7's broker.
 **State:** Design draft (2026-06-12).
 **Implementation:** Not started. Plan + iterative sequencing:
 [`docs/plans/extract-starlark-from-op/phase-8/configuration.md`](../plans/extract-starlark-from-op/phase-8/configuration.md).
