@@ -101,8 +101,9 @@ file hashes those archives (`Makefile`, `dist-all` and `checksums`). The one rer
 
 ### Phase 4: Merge
 
-- [ ] `make check-all`, finished green as the PR script runs it, read before this box is ticked
-- [ ] PR script `~/Workspace/NobleFactor/devlore-cli.980-rerunning-a-release-run-doesn-t.bash` written, shown, and
+- [x] `make check-all`, finished green as the PR script runs it, read before this box is ticked: exit 0 at `d0a5d3d1`,
+      with `TMPDIR` alone set, "check-all passed on linux/arm64", `make test-release` among it
+- [x] PR script `~/Workspace/NobleFactor/devlore-cli.980-rerunning-a-release-run-doesn-t.bash` written, shown, and
       handed over; the PR resolves #980
 - [ ] After the merge: the merge commit's Release run rerun, and one pre-release for that commit
 
