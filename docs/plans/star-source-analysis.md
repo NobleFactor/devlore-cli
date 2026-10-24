@@ -1,6 +1,6 @@
 ---
 title: "Starlark Source Analysis Provider"
-status: in-progress
+status: active
 created: 2026-02-24
 updated: 2026-02-24
 ---

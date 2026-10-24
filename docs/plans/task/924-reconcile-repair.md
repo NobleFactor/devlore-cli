@@ -1,7 +1,7 @@
 ---
 title: "Lane 5: reconcile repairs by running the named operation on the drifted subset"
 issue: https://github.com/NobleFactor/devlore-cli/issues/924
-status: in-progress
+status: active
 created: 2026-09-26
 updated: 2026-09-27
 ---

@@ -1,7 +1,7 @@
 ---
 title: "The layer journey as a scenario: self install, repo set, deploy, the move, on every platform"
 issue: https://github.com/NobleFactor/devlore-cli/issues/855
-status: in-progress
+status: active
 created: 2026-09-07
 updated: 2026-09-30
 ---

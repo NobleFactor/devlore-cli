@@ -1,7 +1,7 @@
 ---
 title: "Eager property projection — the MethodModifiers bit-flag"
 parent: "docs/plans/extract-starlark-from-op/phase-8/graph-immutability.md"
-status: in-progress
+status: active
 created: 2026-05-31
 updated: 2026-06-01
 ---

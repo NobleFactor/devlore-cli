@@ -1,7 +1,7 @@
 ---
 title: "Provider and Flow Integration Tests"
 issue: TBD
-status: in-progress
+status: active
 created: 2026-03-17
 updated: 2026-03-17
 ---

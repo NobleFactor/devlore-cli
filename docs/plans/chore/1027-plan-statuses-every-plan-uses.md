@@ -3,7 +3,7 @@ title: "Plan statuses: every plan uses the process's five words, and CI keeps it
 issue: https://github.com/NobleFactor/devlore-cli/issues/1027
 status: draft
 created: 2026-10-04
-updated: 2026-10-04
+updated: 2026-10-23
 ---
 
 # Plan: every plan uses the process's five statuses
@@ -53,7 +53,8 @@ path to narrow it, and requires `title` alone of a working document: a plan with
 
 `in-progress` and `in progress` become `active`, the word development-process.md says they mean; `chartered`
 becomes `approved`. The 32 such edits were made in the worktree on 2026-10-04 before this plan existed, which breaks
-the process's order; open question 1 rules them.
+the process's order; open question 1 rules them. They are committed on PR C's branch in a commit of their own, the
+one after its merge of develop on 2026-10-23, as the ruling there says.
 
 ### Requirement 2: commentary after the word
 
@@ -66,9 +67,9 @@ in the wrong case (`Draft`). The status becomes the lower-case word alone; the c
 | Value | Files | Becomes |
 | --- | --- | --- |
 | `proposed` | 5 (`writ-secret-*`) | `draft` |
-| `charter — chartered …` | 5 (steps 53, 55, 58, 59, 60) | `approved`, unless the step's own boxes show the work begun or done |
+| `charter — chartered …` | 5 (steps 53, 55, 58–60) | `approved`, unless the step's own boxes show work begun or done |
 | `IMPLEMENTED`, `SHIPPED`, `settled — implemented …`, `closed`, `completed` | 8 | `complete` |
-| `done pending commit` | 1 (step 44) | `complete` once the commit it awaited is found in the history; otherwise `active` |
+| `done pending commit` | 1 (step 44) | `complete` if the commit it awaited is in the history; otherwise `active` |
 | `ready` | 1 (`workflow-rename.md`) | `approved` |
 | `design-solidified` | 1 (step 50) | `approved` |
 | `pending` | 1 (`compensation/phase-2.md`) | `draft` |
@@ -128,6 +129,11 @@ words. How, given the base layer's script as it stands, is open question 4.
 
 1. **The 32 edits made before this plan.** (a) They stand as Requirement 1's work, committed after this plan is
    approved. Recommended: they are exactly Requirement 1. (b) They are reverted and redone after approval.
+   **Ruled: (a), committed now.** The owner, 2026-10-04: "the 32 status edits should go in with the edits you are
+   obliged to make to complete the PR for this lane." On 2026-10-23, develop's quality gate, whose regenerate step
+   now ends in `git diff --exit-code` over the whole tree, failed PR C's merge while the edits were uncommitted; I
+   proposed committing them in a commit of their own right after the merge's, still to land with PR C. The owner: "I
+   agree with your recommendation."
 2. **Commentary after the word.** (a) It moves into the body, as the first paragraph under the title, beginning
    "Status:". Recommended: it is the plan's history. (b) It is dropped.
 3. **Requirement 3's table**, approved as written or amended.

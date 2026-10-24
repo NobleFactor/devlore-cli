@@ -1,7 +1,7 @@
 ---
 title: "Windows native permissions: enforce restrictive modes, route every mutation through fsroot"
 issue: https://github.com/NobleFactor/devlore-cli/issues/405
-status: in progress
+status: active
 created: 2026-08-13
 updated: 2026-10-04
 ---

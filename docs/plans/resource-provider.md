@@ -3,7 +3,7 @@
 ```yaml
 title: Resource-Provider Model
 issue: TBD
-status: in-progress
+status: active
 created: 2026-02-14
 updated: 2026-02-16
 ```

@@ -2,7 +2,7 @@
 title: "Graph immutability: consumer & test migration after the seal"
 parent: "docs/plans/extract-starlark-from-op/phase-8.md"
 issue: 275
-status: in-progress
+status: active
 created: 2026-05-27
 updated: 2026-05-30
 ---

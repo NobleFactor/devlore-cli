@@ -1,7 +1,7 @@
 ---
 title: "Lane 4: reconcile's three exit codes -- 66 never deployed, 0 clean, 1 drifted"
 issue: https://github.com/NobleFactor/devlore-cli/issues/756
-status: in-progress
+status: active
 created: 2026-09-24
 updated: 2026-09-24
 ---

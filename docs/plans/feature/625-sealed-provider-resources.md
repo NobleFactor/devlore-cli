@@ -1,7 +1,7 @@
 ---
 title: "Sealed provider resources: every announced resource type is an interface"
 issue: https://github.com/NobleFactor/devlore-cli/issues/625
-status: in-progress
+status: active
 created: 2026-08-23
 updated: 2026-09-04
 ---

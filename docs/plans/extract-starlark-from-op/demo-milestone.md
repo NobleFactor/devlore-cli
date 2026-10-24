@@ -2,7 +2,7 @@
 title: "Demo Milestone: prove the Go + Starlark APIs and the lore packaging model"
 parent: "docs/plans/extract-starlark-from-op.md"
 issue: TBD
-status: in-progress
+status: active
 created: 2026-06-02
 updated: 2026-09-30
 ---

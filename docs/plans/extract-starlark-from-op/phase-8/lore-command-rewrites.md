@@ -1,7 +1,7 @@
 ---
 title: "Lore command rewrites — ground-up against the sealed API"
 parent: "docs/plans/extract-starlark-from-op/phase-8/graph-immutability.md"
-status: in-progress
+status: active
 created: 2026-05-30
 updated: 2026-09-30
 ---

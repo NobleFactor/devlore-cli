@@ -1,7 +1,7 @@
 ---
 title: "arm64 build and test matrix"
 issue: https://github.com/NobleFactor/devlore-cli/issues/681
-status: in-progress
+status: active
 created: 2026-08-25
 updated: 2026-08-25
 ---

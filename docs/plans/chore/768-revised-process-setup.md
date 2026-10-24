@@ -1,7 +1,7 @@
 ---
 title: "Set up to execute four threads under the revised process"
 issue: https://github.com/NobleFactor/devlore-cli/issues/768
-status: in-progress
+status: active
 created: 2026-09-01
 updated: 2026-09-01
 ---

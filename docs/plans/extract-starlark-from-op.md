@@ -1,7 +1,7 @@
 ---
 title: "Extract starlark infrastructure from pkg/op into pkg/op/starlarkbridge"
 issue: 264
-status: in-progress
+status: active
 created: 2026-03-24
 updated: 2026-05-24 (Phase 8 13.0(n) variable-binding overhaul complete; Phases 6/7 + Steps 16–20 closed inline; remaining toward phase-8 PR: steps 21–23 + open design items O1–O3; design + implementation status tracked in sub-plan)
 ---

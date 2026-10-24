@@ -1,7 +1,7 @@
 ---
 title: "The writ lifecycle surface: reconcile, scopes, and the vocabulary settlement"
 issue: https://github.com/NobleFactor/devlore-cli/issues/762
-status: in-progress
+status: active
 created: 2026-08-31
 updated: 2026-09-30
 ---

@@ -1,7 +1,7 @@
 ---
 title: "Lanes 1 to 4: a version result, a complete walk, silence before argv, and the sysexits"
 issue: https://github.com/NobleFactor/devlore-cli/issues/795
-status: chartered
+status: approved
 created: 2026-09-13
 updated: 2026-09-13
 ---

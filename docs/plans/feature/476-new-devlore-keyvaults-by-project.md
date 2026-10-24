@@ -1,7 +1,7 @@
 ---
 title: "New-DevloreKeyVaults lives in devlore-cli's own Home/noblefactor-ops.Unix and sources the base's Declare-BashScript"
 issue: https://github.com/NobleFactor/devlore-cli/issues/476
-status: in-progress
+status: active
 created: 2026-09-07
 updated: 2026-09-07
 ---

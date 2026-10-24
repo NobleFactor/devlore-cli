@@ -1,7 +1,7 @@
 ---
 title: "The Makefile finds Git for Windows' bash itself when run from PowerShell or cmd"
 issue: https://github.com/NobleFactor/devlore-cli/issues/865
-status: in-progress
+status: active
 created: 2026-09-08
 updated: 2026-09-08
 ---

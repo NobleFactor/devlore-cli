@@ -3,7 +3,7 @@
 title: "Phase 8 · Step 21 (Bucket 4): migrate cmd/lore onto the sealed Graph API"
 parent: "docs/plans/extract-starlark-from-op/phase-8/graph-immutability.md"
 issue: TBD
-status: in-progress
+status: active
 created: 2026-06-02
 updated: 2026-09-30
 ---

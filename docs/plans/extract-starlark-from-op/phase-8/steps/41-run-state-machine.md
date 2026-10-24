@@ -1,7 +1,7 @@
 ---
 step: 41
 title: "Run-state machine — phases, aberrant running states, terminal drivers, and the trace transition journal"
-status: in-progress — foundation + PoliciesConfig + journal + Transition choke point landed/committed 2026-07-08; serialized Condition rename + the failure-handling reconciliation 2026-07-09; behavioral work items 6-19 pending
+status: active — foundation + PoliciesConfig + journal + Transition choke point landed/committed 2026-07-08; serialized Condition rename + the failure-handling reconciliation 2026-07-09; behavioral work items 6-19 pending
 proof_run: 2026-07-08 (type foundation: pkg/op + all providers + provider/plan green; FAIL set unchanged from baseline)
 parent: ../../phase-8.md
 ---

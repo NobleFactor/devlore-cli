@@ -1,7 +1,7 @@
 ---
 title: "Compensation Phase 6: Integration Tests"
 parent: compensation.md
-status: in-progress
+status: active
 created: 2026-02-17
 updated: 2026-02-17
 ---

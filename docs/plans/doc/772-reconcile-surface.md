@@ -1,7 +1,7 @@
 ---
 title: "740 and 762 disagree on writ reconcile's surface"
 issue: https://github.com/NobleFactor/devlore-cli/issues/772
-status: in-progress
+status: active
 created: 2026-09-01
 updated: 2026-09-01
 ---

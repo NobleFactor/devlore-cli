@@ -1,7 +1,7 @@
 ---
 title: "Complexity refactors: 61 functions under the thresholds"
 issue: "#312"
-status: in-progress
+status: active
 created: 2026-08-02
 updated: 2026-08-13
 ---

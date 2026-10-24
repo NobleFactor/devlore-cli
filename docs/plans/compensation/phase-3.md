@@ -1,7 +1,7 @@
 ---
 title: "Compensation Phase 3: Package Provider"
 parent: compensation.md
-status: in-progress
+status: active
 created: 2026-02-16
 updated: 2026-02-16
 ---

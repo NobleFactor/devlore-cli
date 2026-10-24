@@ -1,7 +1,7 @@
 ---
 title: "The shell gate follows Declare-BashScript, and discovers through the git tree"
 issue: https://github.com/NobleFactor/devlore-cli/issues/863
-status: in-progress
+status: active
 created: 2026-09-08
 updated: 2026-09-08
 ---
