@@ -272,7 +272,7 @@ HOST_COPIES := lore writ
 
 ## TARGETS
 
-.PHONY: all help help-short help-full build install clean test test-race cover vet vet-all lint lint-all build-all shell-lint complexity verify-ldflags check check-all quality-gate test-installers powershell-lint psscriptanalyzer-pinned print-psscriptanalyzer-version dev docs dist dist-all star star-lkg generate regenerate inventory help print-golangci-lint-version
+.PHONY: all help help-short help-full build install clean test test-race cover vet vet-all lint lint-all build-all shell-lint complexity verify-ldflags check check-all quality-gate test-installers test-release powershell-lint psscriptanalyzer-pinned print-psscriptanalyzer-version dev docs dist dist-all star star-lkg generate regenerate inventory help print-golangci-lint-version
 
 ##@ Help
 
@@ -625,6 +625,13 @@ quality-gate: ## Run every check of CI's quality gate
 	$(MAKE) powershell-lint
 	$(MAKE) complexity
 	$(MAKE) verify-ldflags
+	$(MAKE) test-release
+
+# A rerun of a release run produces the release the first run made (#980): the version from the commit, the release
+# step creating, completing or changing nothing, and a rebuild the same bytes. A step of the quality gate, so CI's
+# quality-gate job runs it. Its two builds run without VERSION, COMMIT and BUILD_DATE, for the reason below.
+test-release: ## Check that a rerun of a release run produces the release the first run made
+	bash scripts/Test-Release.sh
 
 # The suites build their own release with `make dist DEVLORE_VERSION=<the fixtures' tag>` when DEVLORE_TEST_DIST names
 # none. This Makefile exports VERSION, COMMIT and BUILD_DATE to what it runs, and a make that inherits VERSION keeps it

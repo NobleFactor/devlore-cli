@@ -1,7 +1,7 @@
 ---
 title: "Rerunning a release run doesn't reproduce its release"
 issue: https://github.com/NobleFactor/devlore-cli/issues/980
-status: approved
+status: active
 created: 2026-10-23
 updated: 2026-10-23
 ---
@@ -63,9 +63,10 @@ file hashes those archives (`Makefile`, `dist-all` and `checksums`). The one rer
 ### Requirement 4: The tests
 
 - The version step's logic moves to a script the workflow runs, `.github/scripts/release-version.sh`, so it can be run
-  outside Actions. A test, `scripts/Test-Release.sh`, run by `make check-all`, runs it for each ref kind
-  against a fixed commit and compares the version, exactly, with the one the commit's time gives, twice, the second
-  run equal to the first. It fails at `fcc43546`, where the version is the clock's.
+  outside Actions. A test, `scripts/Test-Release.sh`, run by `make test-release`, a step of `make quality-gate` and so
+  of CI's quality-gate job and `make check-all`, runs it for each ref kind against a fixed commit and compares the
+  version, exactly, with the one the commit's time gives, twice, the second run equal to the first. It fails at
+  `fcc43546`, where the version is the clock's.
 - The test runs `make dist` twice for this machine's platform, a few seconds apart, and compares the two
   checksums files byte for byte, and so every archive. It fails at `fcc43546`, where the build date and file times
   differ.
@@ -85,7 +86,9 @@ file hashes those archives (`Makefile`, `dist-all` and `checksums`). The one rer
 
 ### Phase 2: The tests, failing (Requirement 4)
 
-- [ ] The test of both scripts and of two builds, failing at `fcc43546` through `make check-all`
+- [x] The test of both scripts and of two builds, failing at `fcc43546` through `make test-release`: all 12 checks
+      fail, the eight version checks and the three release-step checks for want of the scripts, and the build check
+      because two builds seconds apart give different archive hashes
 
 ### Phase 3: The fix (Requirements 1, 2 and 3)
 
