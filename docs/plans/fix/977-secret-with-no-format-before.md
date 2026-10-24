@@ -1,7 +1,7 @@
 ---
 title: "A secret with no format before .sops deploys as a JSON wrapper"
 issue: https://github.com/NobleFactor/devlore-cli/issues/977
-status: active
+status: complete
 created: 2026-10-21
 updated: 2026-10-23
 ---
@@ -112,8 +112,9 @@ user to name a format, since without one a secret "deploys as a JSON wrapper tod
 
 ### Phase 4: Merge
 
-- [ ] `make check-all`, finished green as the PR script runs it, read before this box is ticked
-- [ ] PR script `~/Workspace/NobleFactor/devlore-cli.977-secret-with-no-format-before.bash` written, shown, and
+- [x] `make check-all`, finished green as the PR script runs it, read before this box is ticked: exit 0 at `54ae413d`,
+      with `TMPDIR` alone set, "check-all passed on linux/arm64"
+- [x] PR script `~/Workspace/NobleFactor/devlore-cli.977-secret-with-no-format-before.bash` written, shown, and
       handed over; the PR resolves #977. This box's commit, the pull request's last, sets this plan `complete`
 
 CI on the pull request is the script's gate, not a box here: the script merges only when every check has passed, and
