@@ -1,22 +1,22 @@
 ---
-title: "The execution model's specifications take the rulings of 2026-10-23: three streams, three audiences; the command provider's result; the subgraph-runner pipeline; the broker remotes through SSH"
+title: "The execution model's specifications take the rulings of 2026-10-23 and 2026-10-24: three streams, three audiences; the command provider's interface; the logon, its account and its host; the broker remotes through SSH"
 issue: https://github.com/NobleFactor/devlore-cli/issues/1159
 status: draft
 created: 2026-10-23
-updated: 2026-10-23
+updated: 2026-10-24
 ---
 
-# Plan: the rulings of 2026-10-23 land in the specifications
+# Plan: the rulings of 2026-10-23 and 2026-10-24 land in the specifications
 
 ## Summary
 
-**The problem.** On 2026-10-23 the owner ruled, in conversation with the execution-model session (schedule [#1127](https://github.com/NobleFactor/devlore-cli/issues/1127)), on what a command's three streams are and who they are for, on what the command provider returns, on how a logon subgraph travels from the app through the broker to a subgraph-runner and back, and on how the broker remotes. None of it is in a document, and six passages the specs carry now say otherwise; two of them are in code merged the day before (#1140, #1143). The owner asked that the design documents capture the full extent of what was discussed, that the plan cover the full design, and that issues be logged for all the work.
+**The problem.** On 2026-10-23 and 2026-10-24 the owner ruled, in conversation with the execution-model session (schedule [#1127](https://github.com/NobleFactor/devlore-cli/issues/1127)), on what a command's three streams are and who they are for, on what the command provider returns and offers, on how a logon subgraph travels from the app through the broker to a subgraph-executor and back, on where the account and the host belong, on who elevates, and on how the broker remotes. None of it is in a document, and passages in fourteen specifications, and in code merged on 2026-10-22, now say otherwise. The owner asked that the design documents capture the full extent of what was discussed, that the plan cover the full design, and that issues be logged for all the work.
 
-**The deliverable.** Each ruling in the specification that owns it, in a section headed Ruled 2026-10-23, and the body corrected to match, in 2.8, 2.7, 6.2, 6.3, 2.3 and 5.3, with each status companion. The one question the owner left open, where a logon subgraph's trace and recovery stack live, recorded as open in 2.7 and 5.3 with what is known. Every piece of work the rulings imply already has an issue (Requirement 8); this plan changes documents only, no code.
+**The deliverable.** Each ruling in the specification that owns it, in a section headed with its date, and the body corrected to match, in fourteen documents with their status companions. The questions the owner left open are recorded as open, in one list in this plan and in the specification each belongs to. Every piece of work the rulings imply has an issue (Requirement 8). This plan changes documents only, no code.
 
 ## Issue 1159
 
-[The execution model's specifications take the rulings of 2026-10-23](https://github.com/NobleFactor/devlore-cli/issues/1159). A chore under Epic [#442](https://github.com/NobleFactor/devlore-cli/issues/442), The Command Runner, touching the specifications of [#1118](https://github.com/NobleFactor/devlore-cli/issues/1118), The DevLore Broker, and [#449](https://github.com/NobleFactor/devlore-cli/issues/449), Eventing and Telemetry.
+[The execution model's specifications take the rulings of 2026-10-23](https://github.com/NobleFactor/devlore-cli/issues/1159). A chore under Epic [#442](https://github.com/NobleFactor/devlore-cli/issues/442), The Command Runner, touching the specifications of [#1118](https://github.com/NobleFactor/devlore-cli/issues/1118), The DevLore Broker, [#449](https://github.com/NobleFactor/devlore-cli/issues/449), Eventing and Telemetry, and [#520](https://github.com/NobleFactor/devlore-cli/issues/520), Authorization.
 
 ## The rulings
 
@@ -27,8 +27,22 @@ updated: 2026-10-23
 5. **The logon pipeline.** A logon subgraph is the source of a three-tier request that runs from the app, through the broker, to a subgraph-runner standing for a user account. The app sends the subgraph through the broker to the subgraph-runner, which runs it the way the graph executor runs any graph. The subgraph-runner writes outputs to standard output, narration to standard error, and events to the event stream. The broker streams the narration back to the app as it arrives and returns the result to the app when the run ends, which is what writ already does in-process.
 6. **The broker remotes through SSH.** No broker is installed on the machines devlore reaches. SSH is the standard for remote access: it is installed, or can be installed, nearly everywhere. Over SSH the broker ships a bundle that ensures three things on the far machine: the subgraph-runner is present, installed if it is not, so that any device can run one; the subgraph is present; and the subgraph runs under the account's credentials. How results return over SSH is to be determined.
 7. **The command provider's interface (2026-10-24).** Every command devlore runs is ultimately an `exec.Cmd` from Go's `os/exec`. A bare fork is not available to a Go program, which is always multithreaded, so the interface offers what Go supports: running a program to completion, and replacing the current process with a program (exec), after a graceful shutdown that flushes narration, writes the trace and releases locks. Running a program synchronously comes with governance while it runs: a deadline that ends gracefully, the whole process tree killed on cancel, resource limits where the platform supports them, and reliable signalling. Asynchronous execution is ruled out for now; Start-Claude, ported to star, needs only synchronous commands and an exec into tmux. Options are built from Starlark by a method on the provider, on both the immediate and the planned surface.
-8. **The account belongs to the logon (2026-10-24).** A command runs as the account of the logon that contains it, or as the caller outside one. The command provider's options carry no account on either surface.
-9. **Open.** The trace must be part of the record on the app's side, and it must also be available to the subgraph-runner, together with the recovery site. Both the local and the remote case are hard. The question is whether traces and recovery stacks are centralized or distributed. The owner will decide it; this plan does not. Also open (2026-10-24): input from the user while a command runs, which the owner added to the three streams. It comes in three kinds: a program reading standard input, which wants the user's keystrokes forwarded to its file descriptor 0 as a byte stream, the console stream in reverse; a program that wants a terminal, such as `sudo` asking for a password, which needs a pseudo-terminal and so merges standard output and standard error, ruling it out for any command whose output is a result; and our own programs asking the user a question, which is better carried as a structured request and answer relayed by the broker and asked through the app's Narrator, where `--unattended` answers with the default. The recommendation is to design the third first, add the first when a command needs it, and keep the second to the direct path's `Exec`.
+8. **The account belongs to the logon, and the broker elevates (2026-10-24).** The account is named by the author, in a call to the command provider or its planner, and it is a property of the logon, the unit of execution; every command inside runs as it, and a call that names an account is a logon of that one command. Elevating to the account is the broker's: the app sends the subgraph and the account, and the broker makes sure a subgraph-executor is running as that account, starting one with its own privileges or reusing one. The broker therefore runs under an account with elevation privileges, and the app need not. Automatic elevation is recommended but not required, and the documentation spells out how to configure such an account. This amends the ruling of 2026-10-22 that the broker is unprivileged; devlore still holds no credential.
+9. **A command processor is identified by its host and account (2026-10-24).** The subgraph is the work a processor runs, not part of its identity: one elevated executor runs many subgraphs, and runs them in parallel. The executor is a version requirement the broker satisfies, matching the app's, not a path the app chooses. What names a processor is the account and the host it lives on, written `account@host` when shown to a person; with no host it is this machine, and `caller` with no host is the direct path, with no broker hop.
+10. **The logon takes the account and the host as two arguments (2026-10-24).** The account is policy and belongs in the graph; the host is the environment's and usually comes from configuration, an inventory or a variable. The account a subgraph runs as is not the account SSH logs in with: SSH may log in as `deploy` and the broker there elevate to `root`. So `plan.logon(account, host=None)` keeps them apart, and the broker combines them only as a processor's identity.
+11. **SSH's configuration is the user's (2026-10-24).** How to reach a host, its user, key, port and jump host, belongs in `~/.ssh/config`, which writ already deploys from the personal layer; devlore names a host by its SSH alias and does not own that file.
+
+## Outstanding design questions
+
+Each is the owner's to rule. The documents record them as open, not as proposals.
+
+1. **Where a logon subgraph's trace and recovery stack live**, locally and remotely: centralized or distributed. The trace must be part of the record on the app's side and also available to the subgraph-executor, together with the recovery site, which lives inside the run's authority boundary on the machine where the effect happened. #1158.
+2. **The shipment back over SSH**, and with it how a remote executor's events reach the bus. SSH carries file descriptors 0, 1 and 2, not 3; the candidates are SSH's connection multiplexing, which Windows' built-in client lacks, a forwarded Unix socket, a second connection, or events written to a file on the far side and collected after. #1160.
+3. **Input from the user while a command runs.** It comes in three kinds: a program reading standard input, which wants keystrokes forwarded to its file descriptor 0 as a byte stream, the console stream in reverse; a program that wants a terminal, such as `sudo` asking for a password, which needs a pseudo-terminal and so merges standard output and standard error, ruling it out for any command whose output is a result; and our own programs asking the user a question, best carried as a structured request and answer relayed by the broker and asked through the app's Narrator, where `--unattended` answers with the default. The recommendation is to design the third first, add the first when a command needs it, and keep the second to the direct path's `Exec`. No issue yet.
+4. **A package or service command that needs root, written without an account.** Under ruling 8 it runs as root only inside a root logon. Either the author must put it in one, and preflight refuses it otherwise, or the planner puts package and service nodes whose manager needs root into a root logon for them. The recommendation is the planner, with lane 7 (#527) reframed: the backend declares that apt needs root, and the logon makes it so.
+5. **The SSH client.** The recommendation is the system's OpenSSH client, run through the command provider, which honours the user's whole configuration, agent, `known_hosts`, keys and jump hosts, and reports a host's resolved configuration with `ssh -G`. Go's `x/crypto/ssh` reads no configuration, and its usual parser does not support `Match`; its one advantage is a second channel for events (question 2).
+6. **The local leg of the broker.** As this plan reads ruling 6, the HTTP/2-over-TLS remote leg and its token are withdrawn and the local leg, HTTP/2 over a Unix socket or named pipe, stays. To confirm.
+7. **Three issues left from the rulings:** #824 asks for the opposite of ruling 3 and is superseded by #1153; #1135 names an offer on a unit, a surface retired on 2026-10-22; #892 carries no epic label.
 
 ## Current State
 
@@ -46,10 +60,18 @@ updated: 2026-10-23
 | 2.3 § Ruled 2026-10-22, `plan.logon` | posted through the broker; "forks the console and events streams as 2.7 § The remote leg says"; the stamped stack back | 5, 6, 7 |
 | 5.3 | the recovery site within one authority boundary, one process; nothing on a logon subgraph | 7 |
 | `pkg/op/broker_console.go`, `broker_stub.go` (#1140, #1143) | `Narration{Exec, Unit, Level, Text}`; the stub stamps `"warn"` | 2; corrected by #1151 |
+| 2.6 § Elevation | the requirement a `NeedsSudo()` boolean on the manager; `ElevationOffer` | 8 |
+| 6.1 § Ruled 2026-10-21 item 3; § Problem space | "a unit's command declares the account it needs"; the backend declares its account | 8 |
+| 6.2 § Ruled 2026-10-21; § Ruled 2026-10-22; § 4 | the manager backend declares the account; the broker unprivileged; the pool keyed by account alone | 8, 9 |
+| 10-command-line-interface § 5 | "Narration — progress, warnings, errors, diagnostics" | 1 |
+| 3.5.8, 3.5.9 | `shell.exec` runs `sh -c` of a string and returns both streams; PowerShell a provider of its own | 3, 7 |
+| 6-execution-topology | its SSH remote design replaced on 2026-10-21 | 6 |
+| 3.4; configuration.md | package leaves declare the need; `providers.elevation.brokers.ssh` | 8 |
+| `pkg/platform` leaves, `op.PlatformRunner` (#1143) | each manager command names `AccountRoot` or `AccountCaller` and the broker elevates per command | 8 |
 
 ## Requirements
 
-Each specification states the rulings it takes in a section headed Ruled 2026-10-23: in plain prose, attributed to the owner and dated, the way this plan's § The rulings states them, not as quotations.
+Each specification states the rulings it takes in a section headed with the date: in plain prose, attributed to the owner and dated, the way this plan's § The rulings states them, not as quotations.
 
 ### Requirement 1: 2.8, the eventing specification
 
@@ -65,10 +87,20 @@ A section **Ruled 2026-10-23: the pipeline, the streams on the wire, and SSH**, 
 - A new § **The logon pipeline**: app ⇒ broker ⇒ subgraph-runner, as ruling 5; the broker streams the runner's narration back as it comes and returns the runner's result, its stdout, with the exit status at the end, as writ does in-process (`env.Status` while the executor runs, `cli.Emit` once when `Run` returns); the app decodes the result into the logon unit's output, and the app's own `-o` shapes the final product; the app's narration flags travel with the request.
 - § The remote leg rewritten: the broker remotes through SSH, as ruling 6; the bundle ensures the subgraph-runner is present, installing it if absent, the subgraph is present, and it executes under the account's credentials; no broker on the far machine. The HTTP/2-over-TLS remote leg and its token are withdrawn; the local leg, HTTP/2 over the socket or pipe, stands. § Open 5 (remote authorization) and § Open 8 (version skew) restated for SSH and the bundle. § Ruled 2026-10-22's "any device with a broker" amended: any device SSH reaches.
 - § Open gains: the shipment back (ruling 6); where the trace and recovery stack live (ruling 7, #1158).
+- The broker's own events: each exec's start and end, grants and refusals, runner connections, on the bus beside the app's and the relayed fd 3 (ruling 4); none on a request's reply path.
+- The logon request is the account, the host and the subgraph (rulings 8 to 10); the broker keys its processors by host and account, displays them as `account@host`, supplies the executor at the app's version, and elevates with its own privileges.
+- The remote leg's SSH: the connection is the user's `~/.ssh/config`, which devlore does not own (ruling 11); the login account it names is not the logon's account.
+- § Open gains user input while a command runs (outstanding question 3) and the SSH client (outstanding question 5).
 
 ### Requirement 3: 6.2, the command runner
 
 A section **Ruled 2026-10-23: the subgraph-runner, and what it writes where**, rulings 2, 4 and 5 stated. § 4.1 item 3 rewritten: `narration` is stderr's bytes, pumped unconditionally like stdout, no line splitting, no line limit, no UTF-8 replacement; `event` is fd 3, from devlore's own children only. § 7 Framing follows. The **subgraph-runner** is named as what the runner is when it runs a posted logon subgraph: devlore running it through the graph executor as its account, narration to its stderr under the flags the app passes, its result once at the end to stdout, its events to fd 3 (#1156). § Open questions gains the bundle's contents and installation (#1160).
+- The pool key becomes the host and the account (ruling 9): a remote processor is an address whose host is not this one, so the local and remote cases are one rule. The executor's version is a property of the processor, checked when the broker connects, not part of its name.
+- Subgraphs run in parallel on one elevated executor (ruling 9), so the executor keeps every piece of per-run state, the run registry, each run's console and events streams, its recovery site, keyed by run, never global to the process.
+
+### Requirement 3a: 6.2, the broker's account
+
+§ Ruled 2026-10-22 gains a dated amendment stating ruling 8: the broker runs under an account with elevation privileges, the app need not, and automatic elevation is recommended, not required; the broker, not the app, elevates to the logon's account. A new section, **Configuring the broker's account**, says how, per platform: on Linux and macOS a sudoers rule for the broker's account, scoped to the runner binary and the accounts it may stand for, `NOPASSWD` for automatic elevation; on Windows a service account in Administrators, or `LocalSystem` for the root analogue. In iteration 1 the account configured is the app's user, since the in-process broker runs as it (#1167).
 
 ### Requirement 4: 6.3, command execution
 
@@ -81,23 +113,22 @@ A section **Ruled 2026-10-24: the command provider's interface**, rulings 7 and 
 - `Run(argv, options) (string, error)` and `Script(dialect, body, args, options) (string, error)`: synchronous; stderr streamed to the narration sink as bytes; stdout the result; a non-zero exit an `ExitError` carrying the argv, the code and any signal, and no stderr.
 - `Exec(argv, options) error`: replaces the current process after a graceful shutdown; the direct path only, never through a broker; unavailable on Windows, where `syscall.Exec` returns `EWINDOWS`; returns only on failure.
 - `Which(name) (string, error)`: where a program resolves, for probing before running.
-- `Options(kwargs) (Options, error)`: the constructor Starlark calls on both surfaces, validating keys, durations and limits where the author writes them; a dict hydrates into the same type wherever an `Options` is expected. Fields: environment, directory, stdin (bytes or auto-confirm), timeout, grace, limits. No account.
+- `Options(kwargs) (Options, error)`: the constructor Starlark calls on both surfaces, validating keys, durations and limits where the author writes them; a dict hydrates into the same type wherever an `Options` is expected. Fields: environment, directory, stdin (bytes or auto-confirm), timeout, grace, limits; no account, which belongs to the logon (ruling 8). A call that names an account runs as a logon of that one command, in either surface.
 - Governance, concretely: `CommandContext` with `Cmd.Cancel` sending SIGTERM and `Cmd.WaitDelay` as the grace before SIGKILL; `Setpgid` and a signal to the group on Unix, a Job Object killed on close on Windows; cgroups through `SysProcAttr.CgroupFD` on Linux and Job Object limits on Windows, none on macOS; `Pdeathsig` on Linux; pidfd signalling on Linux since Go 1.23; start and end events carrying the exit code, the duration and the child's user and system time.
 - In the planned surface, options are a slot value in the graph document: they serialize (durations and sizes as text), a field may be a promise, and they are covered by the graph's checksum and signature.
 - Why not fork, and why exec, stated for a reader who knows Windows better than Unix: fork copies the calling process and returns twice; exec replaces the program inside a process, keeping its pid, descriptors and terminal; Unix starts a program with both, Windows with `CreateProcess`; Go offers `ForkExec` (behind `exec.Cmd.Start`) and `Exec`, and not fork alone, because fork copies only the calling thread of a multithreaded runtime.
 
 ### Requirement 5: 2.3, `plan.logon`
 
-§ Ruled 2026-10-22 gains a dated addition: run time follows 2.7 § The logon pipeline (narration streamed back, result decoded at the end) and § The remote leg (SSH, the bundle); "forks the console and events streams" and "the stamped stack back" are replaced by a reference to the open question of 2.7 (#1158). Its two use cases stand. #1157 named as the task.
+§ Ruled 2026-10-22 gains a dated addition, rulings 8 to 10 stated: the logon carries the account, and every command inside runs as it; `plan.logon(account, host=None)` keeps the two arguments, the account a role in the graph and the host the environment's, a variable, a promise or a configured default, with no host meaning this machine; a command call that names an account is a logon of one command; run time follows 2.7 § The logon pipeline (narration streamed back, result decoded at the end) and § The remote leg (SSH, the bundle); "forks the console and events streams" and "the stamped stack back" are replaced by a reference to outstanding question 1 (#1158). Its two use cases stand. #1157 is the task.
 
 ### Requirement 6: 5.3, the recovery site
 
-A section **Open 2026-10-23: the recovery site across a logon**, ruling 7 stated, with what is known: the site is inside the run's authority boundary, file archival a zero-copy rename, so an archived file and its recovery id live on the machine and partition where the effect happened, and a receipt's undo runs there; writ keeps the trace app-side in the store; a resume or a state-checked unwind needs the trace where it runs. Centralize or distribute is the owner's,
-#1158.
+A section **Open 2026-10-23: the recovery site across a logon**, ruling 7 stated, with what is known: the site is inside the run's authority boundary, file archival a zero-copy rename, so an archived file and its recovery id live on the machine and partition where the effect happened, and a receipt's undo runs there; writ keeps the trace app-side in the store; a resume or a state-checked unwind needs the trace where it runs. Centralize or distribute is the owner's, #1158.
 
 ### Requirement 7: the status companions
 
-2.8, 2.7, 6.2, 6.3, 2.3 and 5.3's `.status.md` each gain a dated line saying what 2026-10-23 moved and which issue carries the work.
+Every document this plan changes gains, in its `.status.md`, a dated line saying what 2026-10-23 and 2026-10-24 moved and which issue carries the work.
 
 ### Requirement 8: the issues, verified
 
@@ -109,19 +140,46 @@ Every piece of work the rulings imply has an issue, typed and linked as a sub-is
 | The console stream never drops a frame | #1131, rescoped, under #1128 | 1 |
 | The command provider returns `(string, error)` | #1153, under #799 | 1 (with lane 8, #1136) |
 | The command provider emits exec start and end as events | #1154, under #799 | 1 (with lane 8) |
-| `writ repo set` writes git's narration past the Narrator | #1152, bug, under #892 | 1 |
-| `command.options` on both surfaces; the account from the logon | #1164, under #799 | 1 (with lane 8) |
+| `command.options` on both surfaces, with no account | #1164, under #799 | 1 (with lane 8) |
 | A running command is governed: deadline, tree kill, limits | #1165, under #799 | 1 (with lane 8) |
 | `command.which` | #1166, under #799 | 1 (with lane 8) |
 | `command.exec`: replace the process after a graceful shutdown | #802, under #799, ruling recorded on it | 1 (with lane 8) |
+| The platform's leaves and `op.PlatformRunner` stop choosing an account | #1168, under #1128 | 1, after outstanding question 4 |
+| The broker emits its own events | #1169, under #1128 | 1 |
+| `writ repo set` writes git's narration past the Narrator | #1152, bug, under #892 | 1 |
+| How to configure the broker's account to elevate | #1167, under #1149 | 1 and 2 |
 | The broker relays narration live and returns the result at the end | #1155, under #1149 | 2 |
 | The subgraph-runner | #1156, under #1150 | 3 |
-| `plan.logon` | #1157, under #1150 | 3 |
+| `plan.logon(account, host)` | #1157, under #1150 | 3 |
 | The broker remotes through SSH, the bundle | #1160, under #1150 | 3 |
 | Where the trace and recovery stack live | #1158, under #1150, for ruling | 3 |
 | These documents | #1159, this chore | — |
 
 The plan for #1131, committed on `feature/1131-console-spool`, is rewritten to its rescoped task on that branch when lane 3 resumes; it is not this branch's file.
+
+### Requirement 9: 2.6, execution policies
+
+§ Elevation's table, its `NeedsSudo()` and its `ElevationOffer` predate ruling 8 and the retirement of `ElevationOffer` on 2026-10-22. It is restated: the requirement is the logon's account, the realization is the broker's elevation, and the per-manager boolean goes with outstanding question 4.
+
+### Requirement 10: 6.1, authorization
+
+§ Ruled 2026-10-21 item 3, "a unit's command declares the account it needs", and § Problem space's backend-declared account are amended by ruling 8: the account belongs to the logon, the elevation to the broker, and the `authz` package stays strictly token acquisition (2026-10-22).
+
+### Requirement 11: 10-command-line-interface § 5
+
+The output model's narration bullet, "progress, warnings, errors, diagnostics", becomes narration without diagnostics, which are events (ruling 1); the result and the documents bullets stand.
+
+### Requirement 12: 3.5.8 and 3.5.9, the shell and PowerShell providers
+
+3.5.8 is superseded by the command provider: `sh -c` of a string and a result holding both streams give way to 6.3's tiers and ruling 3's `(string, error)`. It is rewritten as the command provider's specification, or replaced by a pointer to 6.3, with the provider's name `command` (ruled 2026-10-22). 3.5.9 becomes the PowerShell dialect of the script tier.
+
+### Requirement 13: 6, execution topology
+
+Its pointer that the SSH remote design was replaced on 2026-10-21 is corrected: ruling 6 brings SSH back as the broker's remote transport, with a bundle in place of document 6's upload of a runner binary.
+
+### Requirement 14: 3.4 and configuration.md
+
+3.4's contract in which "package leaves declare the need" follows outstanding question 4. configuration.md's example path `providers.elevation.brokers.ssh` is renamed to the `authz` provider's, and its use of "broker" is reconciled with the broker of 2.7.
 
 ## Implementation Phases
 
@@ -130,17 +188,17 @@ The plan for #1131, committed on `feature/1131-console-spool`, is rewritten to i
 - [ ] Reviewed with the owner, status `approved`, committed alone on `chore/1159-stream-rulings`
 - [ ] #1159's documents table carries this plan's link
 
-### Phase 2: the streams (Requirements 1, 3, 4)
+### Phase 2: the streams and the interface (Requirements 1, 3, 3a, 4, 4a, 11, 12)
 
-- [ ] 2.8, 6.2, 6.3 (Requirements 4 and 4a) and their status companions, one commit per document
+- [ ] 2.8, 6.2, 6.3, 10, 3.5.8, 3.5.9 and their status companions, one commit per document
 
-### Phase 3: the pipeline and the remote leg (Requirements 2, 5, 6)
+### Phase 3: the logon, the broker and the remote leg (Requirements 2, 5, 6, 9, 10, 13, 14)
 
-- [ ] 2.7, 2.3, 5.3 and their status companions, one commit per document
+- [ ] 2.7, 2.3, 5.3, 2.6, 6.1, 6, 3.4, configuration.md and their status companions, one commit per document
 
 ### Phase 4: the check and the pull request
 
-- [ ] Requirement 8: each ruling's passages read back against the table of Current State, every contradicted passage gone; every issue in the table open and linked
+- [ ] Requirement 8: each ruling's passages read back against § Current State, every contradicted passage gone; every outstanding question recorded where it belongs; every issue in the table open and linked
 - [ ] `make check` passes; the description says AI assisted and ends with `Signed-off-by:` and `Assisted-by: Claude Code`; the script is `~/Workspace/NobleFactor/devlore-cli.1159-stream-rulings.bash`
 - [ ] Status `complete` in the last commit: nothing deploys
 
@@ -151,18 +209,19 @@ The plan for #1131, committed on `feature/1131-console-spool`, is rewritten to i
 | `docs/plans/chore/1159-stream-rulings.md` | Create | This plan |
 | `docs/architecture/2.8-eventing-infrastructure.md`, `.status.md` | Modify | Requirement 1 |
 | `docs/architecture/2.7-control-plane.md`, `.status.md` | Modify | Requirement 2 |
-| `docs/architecture/6.2-process-pool.md`, `.status.md` | Modify | Requirement 3 |
+| `docs/architecture/6.2-process-pool.md`, `.status.md` | Modify | Requirements 3 and 3a |
 | `docs/architecture/6.3-command-execution.md`, `.status.md` | Modify | Requirements 4 and 4a |
 | `docs/architecture/2.3-orchestration-primitives.md`, `.status.md` | Modify | Requirement 5 |
 | `docs/architecture/5.3-recovery-site.md`, `.status.md` | Modify | Requirement 6 |
+| `docs/architecture/2.6-execution-policies.md`, `.status.md` | Modify | Requirement 9 |
+| `docs/architecture/6.1-authorization.md`, `.status.md` | Modify | Requirement 10 |
+| `docs/architecture/10-command-line-interface.md`, `.status.md` | Modify | Requirement 11 |
+| `docs/architecture/3.5.8-shell-provider.md`, `3.5.9-powershell-provider.md`, their `.status.md` | Modify | Requirement 12 |
+| `docs/architecture/6-execution-topology.md`, `.status.md` | Modify | Requirement 13 |
+| `docs/architecture/3.4-platform-package-managers.md`, `configuration.md`, their `.status.md` | Modify | Requirement 14 |
 
 ## Related Documents
 
 - [1138-logon-rulings.md](1138-logon-rulings.md), the rulings of 2026-10-22 these build on
 - [1130-in-process-stub.md](../task/1130-in-process-stub.md), the stub whose narration frames #1151 corrects
-- [10-command-line-interface.md](../../architecture/10-command-line-interface.md) § 5, the output model the three streams agree with
-
-## Open Questions
-
-- Rulings 6 and 7 leave the shipment back and the trace's home to the owner; the documents record them as open, not as proposals.
-
+- NobleFactor/noblefactor-engprod#399, the documentation standards this plan already follows: rulings stated, not quoted, and no hard-wrapped prose
