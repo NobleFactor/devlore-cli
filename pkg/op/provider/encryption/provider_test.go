@@ -12,14 +12,11 @@ import (
 	"testing"
 
 	"filippo.io/age"
-	"github.com/getsops/sops/v3"
-	"github.com/getsops/sops/v3/aes"
-	sopsage "github.com/getsops/sops/v3/age"
-	"github.com/getsops/sops/v3/stores/yaml"
 
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
+	"github.com/NobleFactor/devlore-cli/pkg/sops"
 )
 
 // testActivation wraps runtimeEnvironment in an [op.ActivationRecord] for non-graph dispatch (nil Graph and Unit).
@@ -206,9 +203,16 @@ func TestDecryptSopsFile_NilSopsClient(t *testing.T) {
 	}
 }
 
-// sopsEncrypt generates age keys and encrypts plainYAML with SOPS.
-// Returns the encrypted bytes and the age identity string for decryption.
-func sopsEncrypt(t *testing.T, plainYAML []byte) (encrypted []byte, identity string) {
+// sopsEncrypt encrypts plaintext with writ's own encrypter for a fresh age identity, as `writ secret encrypt` does.
+//
+// Parameters:
+//   - t: the test.
+//   - plaintext: the bytes to encrypt.
+//
+// Returns:
+//   - []byte: the encrypted document.
+//   - string: the age identity that decrypts it.
+func sopsEncrypt(t *testing.T, plaintext []byte) (encrypted []byte, identity string) {
 	t.Helper()
 
 	ageIdentity, err := age.GenerateX25519Identity()
@@ -216,46 +220,16 @@ func sopsEncrypt(t *testing.T, plainYAML []byte) (encrypted []byte, identity str
 		t.Fatal(err)
 	}
 
-	store := &yaml.Store{}
-	branches, err := store.LoadPlainFile(plainYAML)
+	dir := t.TempDir()
+	sopsYAML := "creation_rules:\n  - path_regex: .*\n    age: " + ageIdentity.Recipient().String() + "\n"
+	if err := os.WriteFile(filepath.Join(dir, ".sops.yaml"), []byte(sopsYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	encrypted, err = sops.NewEncrypter().Encrypt(plaintext, filepath.Join(dir, "secret"), dir)
 	if err != nil {
-		t.Fatalf("loading plain YAML: %v", err)
+		t.Fatalf("Encrypt: %v", err)
 	}
-
-	masterKey := &sopsage.MasterKey{
-		Recipient: ageIdentity.Recipient().String(),
-	}
-
-	tree := sops.Tree{
-		Branches: branches,
-		Metadata: sops.Metadata{
-			KeyGroups: []sops.KeyGroup{{masterKey}},
-			Version:   "3.7.0",
-		},
-	}
-
-	dataKey, errs := tree.GenerateDataKey()
-	if len(errs) > 0 {
-		t.Fatalf("GenerateDataKey: %v", errs)
-	}
-
-	cipher := aes.NewCipher()
-	mac, err := tree.Encrypt(dataKey, cipher)
-	if err != nil {
-		t.Fatalf("encrypting tree: %v", err)
-	}
-
-	encryptedMac, err := cipher.Encrypt(mac, dataKey, tree.Metadata.LastModified.Format("2006-01-02T15:04:05Z"))
-	if err != nil {
-		t.Fatalf("encrypting MAC: %v", err)
-	}
-	tree.Metadata.MessageAuthenticationCode = encryptedMac
-
-	encrypted, err = store.EmitEncryptedFile(tree)
-	if err != nil {
-		t.Fatalf("emitting encrypted file: %v", err)
-	}
-
 	return encrypted, ageIdentity.String()
 }
 

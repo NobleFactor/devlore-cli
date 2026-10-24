@@ -55,10 +55,12 @@ user to name a format, since without one a secret "deploys as a JSON wrapper tod
 ### Requirement 1: One mode, binary
 
 - `Encrypter.Encrypt` encrypts with sops's binary store, and `Client.Decrypt` decrypts as binary, whatever the name.
-  `detectFormat` and `storeForFormat` are deleted.
+  `detectFormat` and `storeForFormat` are deleted. `Client.Decrypt` takes the data alone: its path argument chose the
+  format and nothing else; `Decryptor` keeps the source to name the file in an error.
 - What deploys is the bytes that were encrypted, exactly.
 - A secret writ encrypted before in structured mode, any `.yaml`, `.yml`, `.json`, `.env` or `.ini` secret, no longer
-  decrypts, and is encrypted again. Nothing reads the old form (the governing principle: no legacy).
+  decrypts, and is encrypted again. Nothing reads the old form (devlore-cli's governing principle: a greenfield
+  product).
 
 ### Requirement 2: Every test compares what it observes with what it expects, exactly
 
@@ -67,11 +69,11 @@ user to name a format, since without one a secret "deploys as a JSON wrapper tod
   (`hunter2\n`), `brace` (`{"k": 1}\n`), `blob` (a NUL and bytes that are not UTF-8), `secrets.yaml` with comments and
   uneven indentation, `secrets.json`, `app.env`, `app.ini`, `server.pem` and `not-yaml.yaml` (text that is not YAML).
   `TestEncrypter_RoundTrip` becomes a table over the directory: each file encrypted with `NewEncrypter().Encrypt` under
-  its own name, decrypted with `Client.Decrypt` under its name plus `.sops`, as deploy decrypts it, and the result
-  compared with the file, byte for byte. Every file comes back exactly; one that does not is a defect, reported.
+  its own name, decrypted with `Client.Decrypt`, and the result compared with the file, byte for byte. Every file comes
+  back exactly; one that does not is a defect, reported.
 - The deploy test and the encryption provider's tests build their ciphertext with writ's encrypter, and the deploy test
   adds `token.sops` from `hunter2\n`; each deployed file is compared with its cleartext, entire.
-- `decrypt_test.go`'s format rows go with `detectFormat`.
+- `decrypt_test.go`, which held only `detectFormat`'s test, goes with it.
 - At `0e7bcdd4`, `token`, `blob` and the deploy row fail (each comes back as the wrapper), and `secrets.yaml` fails if
   sops's YAML store rewrites it; the run says which. All pass after.
 
@@ -80,6 +82,8 @@ user to name a format, since without one a secret "deploys as a JSON wrapper tod
 - `docs/guides/writ/index.md`: any file can be a secret, named with `.sops` after its own name; it deploys as the bytes
   that were encrypted. `sops decrypt` shows one and `sops edit` changes one, with no options, given a key it was
   encrypted for. The sentence about the JSON wrapper goes.
+- `writ secret encrypt`'s help, and the doc comments of `secret.ExecuteEncrypt` and `Provider.EncryptFile`, which said
+  the document format comes from `.sops.yaml`: each file is encrypted as its bytes; `.sops.yaml` gives the recipients.
 
 ## Implementation Phases
 
@@ -101,8 +105,10 @@ user to name a format, since without one a secret "deploys as a JSON wrapper tod
 
 ### Phase 3: One mode (Requirements 1, 2 and 3)
 
-- [ ] Binary in both directions; `detectFormat` and `storeForFormat` deleted; the tests' ciphertext built by writ's
-      encrypter; the guide; every test passing
+- [x] Binary in both directions; `detectFormat` and `storeForFormat` deleted; the tests' ciphertext built by writ's
+      encrypter; the guide; every test passing. `make test` exits 0: all nine round-trip files come back byte for
+      byte, `blob`'s NUL and bytes that are not UTF-8 among them, and the deploy test's `token.sops` deploys as
+      `hunter2\n`
 
 ### Phase 4: Merge
 
@@ -119,11 +125,16 @@ no commit could record it (#199). Nothing acts on the checks while the gate watc
 | --- | --- | --- |
 | `pkg/sops/decrypt.go` | Modify | Requirement 1 |
 | `pkg/sops/encrypter.go` | Modify | Requirement 1 |
-| `pkg/sops/decrypt_test.go` | Modify | Requirement 2 |
+| `pkg/op/provider/encryption/provider.go` | Modify | Requirement 1: the call; Requirement 3: the doc comment |
+| `pkg/sops/decrypt_test.go` | Delete | Requirement 2 |
 | `pkg/sops/encrypter_test.go` | Modify | Requirement 2: the round trip |
+| `pkg/sops/client_test.go` | Modify | Requirement 1: the call |
 | `pkg/sops/testdata/roundtrip/*` | Create | Requirement 2: the round trip's test files |
 | `pkg/op/provider/encryption/provider_test.go` | Modify | Requirement 2 |
 | `cmd/writ/writ/deploy/sops_integration_test.go` | Modify | Requirement 2 |
+| `cmd/writ/writ/secret/encrypt_test.go` | Modify | Requirement 1: the call |
+| `cmd/writ/writ/secret_cmd.go` | Modify | Requirement 3: the help |
+| `cmd/writ/writ/secret/encrypt.go` | Modify | Requirement 3: the doc comment |
 | `docs/guides/writ/index.md` | Modify | Requirement 3 |
 
 ## Out of Scope

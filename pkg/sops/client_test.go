@@ -13,7 +13,7 @@ import (
 func TestDecrypt_PlaintextPassthrough(t *testing.T) {
 
 	plaintext := []byte("name: sshd\nport: 22\n")
-	got, err := (&Client{}).Decrypt(plaintext, "config.yaml")
+	got, err := (&Client{}).Decrypt(plaintext)
 	if err != nil {
 		t.Fatalf("Decrypt() error = %v", err)
 	}

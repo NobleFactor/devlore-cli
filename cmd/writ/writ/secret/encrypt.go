@@ -48,11 +48,11 @@ type EncryptConfig struct {
 //
 // Contain the arguments in registered layers, plan one graph per layer, and execute them.
 //
-// Each argument's `<file>.sops` sibling is the destination — an existing sibling refuses before any planning,
-// and the plaintext source is never deleted. Recipients and document format come from the `.sops.yaml`
-// resolved within the containing layer (the confinement root); a file no creation rule governs fails the run
-// with the resolver's error verbatim. Each graph persists via [cli.WriteGraph] before its run and each run's
-// trace persists via [cli.WriteTrace] win or lose.
+// Each argument's `<file>.sops` sibling is the destination — an existing sibling refuses before any planning, and the
+// plaintext source is never deleted. Each file is encrypted as its bytes, whatever its name (#977), and its recipients
+// come from the `.sops.yaml` resolved within the containing layer (the confinement root); a file no creation rule
+// governs fails the run with the resolver's error verbatim. Each graph persists via [cli.WriteGraph] before its run and
+// each run's trace persists via [cli.WriteTrace] win or lose.
 //
 // Parameters:
 //   - `ctx`: the cancellation context for planning and execution.

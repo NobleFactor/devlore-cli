@@ -12,8 +12,8 @@ import (
 	"filippo.io/age"
 )
 
-// TestEncrypter_RoundTrip encrypts every file in testdata/roundtrip under its own name, decrypts the result under that
-// name plus .sops, as deploy decrypts it, and compares what comes back with the file, byte for byte (#977).
+// TestEncrypter_RoundTrip encrypts every file in testdata/roundtrip under its own name, decrypts the result, and
+// compares what comes back with the file, byte for byte, whatever the file is called (#977).
 func TestEncrypter_RoundTrip(t *testing.T) {
 
 	identity, err := age.GenerateX25519Identity()
@@ -55,8 +55,8 @@ func TestEncrypter_RoundTrip(t *testing.T) {
 				t.Fatalf("output is not SOPS-encrypted:\n%s", ciphertext)
 			}
 
-			// The config-free Client decrypts with the ambient age key, under the name deploy reads.
-			got, err := (&Client{}).Decrypt(ciphertext, sourcePath+".sops")
+			// The config-free Client decrypts with the ambient age key.
+			got, err := (&Client{}).Decrypt(ciphertext)
 			if err != nil {
 				t.Fatalf("Decrypt: %v", err)
 			}

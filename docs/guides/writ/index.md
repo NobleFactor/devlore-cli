@@ -110,14 +110,17 @@ target without the suffix. `.tmpl.sops` is decrypted, then rendered:
 
 ```
 noblefactor/
-└── .config/
-    ├── app/secrets.yaml.sops      # encrypted at rest, decrypted on deploy
-    └── app/config.yaml.tmpl.sops  # decrypted, then rendered
+├── .config/
+│   ├── app/secrets.yaml.sops      # encrypted at rest, decrypted on deploy
+│   └── app/config.yaml.tmpl.sops  # decrypted, then rendered
+└── .ssh/id_ed25519.sops           # any file: deploys as .ssh/id_ed25519
 ```
 
-Name the plaintext's format before `.sops`: `.yaml` or `.yml`, `.json`, `.env`
-or `.ini`. A secret without one deploys as a JSON wrapper today
-([#977](https://github.com/NobleFactor/devlore-cli/issues/977)).
+Any file can be a secret: name it with `.sops` after its own name. Writ
+encrypts and decrypts a secret's bytes, whatever the file is called, so it
+deploys exactly as it was written. `sops decrypt <file>` shows a secret and
+`sops edit <file>` changes one, with no options, given a key it was encrypted
+for.
 
 #### Where writ finds your keys
 

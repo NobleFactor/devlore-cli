@@ -12,10 +12,7 @@ import (
 	"github.com/getsops/sops/v3/aes"
 	"github.com/getsops/sops/v3/cmd/sops/common"
 	"github.com/getsops/sops/v3/config"
-	"github.com/getsops/sops/v3/stores/dotenv"
-	"github.com/getsops/sops/v3/stores/ini"
 	"github.com/getsops/sops/v3/stores/json"
-	"github.com/getsops/sops/v3/stores/yaml"
 	"github.com/getsops/sops/v3/version"
 )
 
@@ -48,11 +45,12 @@ func NewEncrypter() *Encrypter {
 //
 // Discovery walks up from sourcePath's directory to rootDir, then the XDG fallback, to locate the `.sops.yaml`
 // chain (via [locate], cached). getsops resolves the first config whose creation rule matches sourcePath
-// into recipients, and the document is emitted in the format inferred from sourcePath.
+// into recipients. The data is encrypted as one value in sops's binary mode, the one mode writ uses, whatever
+// sourcePath is called, so decryption gives back exactly these bytes (#977).
 //
 // Parameters:
 //   - `data`: the cleartext to encrypt.
-//   - `sourcePath`: the target file's path; selects the creation rule and the document format.
+//   - `sourcePath`: the target file's path; selects the creation rule.
 //   - `rootDir`: the upper boundary for the `.sops.yaml` walk (the RuntimeEnvironment Root directory).
 //
 // Returns:
@@ -65,7 +63,7 @@ func (e *Encrypter) Encrypt(data []byte, sourcePath, rootDir string) ([]byte, er
 		return nil, err
 	}
 
-	store := storeForFormat(detectFormat(sourcePath, data))
+	store := &json.BinaryStore{}
 
 	branches, err := store.LoadPlainFile(data)
 	if err != nil {
@@ -164,27 +162,5 @@ func metadataFromConfig(cfg *config.Config) gosops.Metadata {
 		MACOnlyEncrypted:        cfg.MACOnlyEncrypted,
 		Version:                 version.Version,
 		ShamirThreshold:         cfg.ShamirThreshold,
-	}
-}
-
-// storeForFormat returns the getsops store for a detected format name.
-//
-// Parameters:
-//   - `format`: the format name from [detectFormat] (yaml, json, dotenv, ini, binary).
-//
-// Returns:
-//   - `gosops.Store`: the matching store; binary/unknown falls back to the JSON binary store.
-func storeForFormat(format string) gosops.Store {
-	switch format {
-	case "yaml":
-		return &yaml.Store{}
-	case "json":
-		return &json.Store{}
-	case "dotenv":
-		return &dotenv.Store{}
-	case "ini":
-		return &ini.Store{}
-	default:
-		return &json.BinaryStore{}
 	}
 }

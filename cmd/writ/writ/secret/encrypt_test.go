@@ -85,7 +85,7 @@ func TestExecuteEncrypt_RoundTrip(t *testing.T) {
 	}
 
 	t.Setenv("SOPS_AGE_KEY", identity.String())
-	decrypted, err := (&sops.Client{}).Decrypt(ciphertext, source+".sops")
+	decrypted, err := (&sops.Client{}).Decrypt(ciphertext)
 	if err != nil {
 		t.Fatalf("round-trip decrypt: %v", err)
 	}
