@@ -282,3 +282,31 @@ func TestInProcessBroker_TrackCommandStatus(t *testing.T) {
 		t.Error("after untrack: want an error response")
 	}
 }
+
+// TestInProcessBroker_ChattyCommandLosesNothing pins the never-dropping console (#1131) end to end: a command that
+// writes many thousands of lines to stdout and stderr runs through op.Run, and the outcome holds every byte of both
+// and the control frame.
+func TestInProcessBroker_ChattyCommandLosesNothing(t *testing.T) {
+
+	const lines = 20000
+
+	broker := newStubBroker(t, false)
+	request := caller("sh", "-c", `i=0; while [ $i -lt 20000 ]; do echo out$i; echo err$i >&2; i=$((i+1)); done`)
+
+	outcome, err := Run(context.Background(), broker, request)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if outcome.ExitStatus != 0 {
+		t.Fatalf("exit status %d", outcome.ExitStatus)
+	}
+
+	stdout := strings.Split(strings.TrimSuffix(string(outcome.Output), "\n"), "\n")
+	stderr := strings.Split(strings.TrimSuffix(outcome.Stderr(), "\n"), "\n")
+	if len(stdout) != lines || stdout[0] != "out0" || stdout[lines-1] != "out19999" {
+		t.Errorf("stdout: %d lines, first %q, last %q", len(stdout), stdout[0], stdout[len(stdout)-1])
+	}
+	if len(stderr) != lines || stderr[0] != "err0" || stderr[lines-1] != "err19999" {
+		t.Errorf("stderr: %d lines, first %q, last %q", len(stderr), stderr[0], stderr[len(stderr)-1])
+	}
+}

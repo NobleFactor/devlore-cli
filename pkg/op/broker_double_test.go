@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 )
 
 // --- Exec, Post, Cancel ---
@@ -119,25 +120,31 @@ func TestRecordingBroker_EventsDeliver(t *testing.T) {
 	}
 }
 
-// TestRecordingBroker_SlowSubscriberMisses pins the fan-out contract the control plane has: a subscriber that has
-// stopped reading misses frames rather than blocking Deliver, and its seq gap shows.
-func TestRecordingBroker_SlowSubscriberMisses(t *testing.T) {
+// TestRecordingBroker_SlowSubscriberReceivesEverything pins delivery that never drops (#1131): far more frames than
+// any channel buffer are delivered to a subscriber that is not reading, each Deliver returns at once, and the
+// subscriber then reads every frame, seq contiguous from 1.
+func TestRecordingBroker_SlowSubscriberReceivesEverything(t *testing.T) {
+
+	const total = 10000
 
 	broker := NewRecordingBroker()
-
 	frames, cancel := broker.Console("r")
 	defer cancel()
 
-	for range cap(frames) + 1 {
-		broker.Deliver("r", OutputFrame("e-1", []byte("x"))) // must not block
-	}
-
-	for range cap(frames) {
-		<-frames
+	start := time.Now()
+	for range total {
+		broker.Deliver("r", OutputFrame("e-1", []byte("x")))
 	}
 	broker.Deliver("r", ControlFrame("e-1", 0, nil))
-	if frame := <-frames; frame.Seq != uint64(cap(frames)+2) {
-		t.Errorf("after the drop: seq %d, want %d", frame.Seq, cap(frames)+2)
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Errorf("Deliver blocked on the slow subscriber: %s for %d frames", elapsed, total+1)
+	}
+
+	for want := uint64(1); want <= total+1; want++ {
+		frame := <-frames
+		if frame.Seq != want {
+			t.Fatalf("frame %d: seq %d", want, frame.Seq)
+		}
 	}
 }
 

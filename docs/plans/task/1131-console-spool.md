@@ -61,7 +61,7 @@ The first plan, committed as c6a059b0, also rendered narration and emitted exec 
 
 ### Phase 2: delivery and its tests (Requirements 1 and 2)
 
-- [ ] `pkg/op/broker_stream.go` and the tests; `make lint-all` and `make test-race`
+- [x] `pkg/op/broker_stream.go` and the tests; `make lint-all` and `make test-race` -- 2026-10-24
 
 ### Phase 3: the documents and the pull request
 
