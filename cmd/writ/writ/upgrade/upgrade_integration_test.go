@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/cmd/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/deploy"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/segment"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/upgrade"
@@ -49,6 +50,7 @@ func deployFixture(t *testing.T) (targetRoot, templateSource string) {
 	}
 
 	cfg := &deploy.Config{
+		Registry:   lorepackage.New("test", nil, t.TempDir()),
 		SourceRoot: sourceRoot,
 		TargetRoot: targetRoot,
 		Projects:   []string{"myproj"},

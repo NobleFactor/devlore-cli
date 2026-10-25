@@ -275,6 +275,25 @@ func TestBuildGraphs_TwoDifferentPinsRefuseTheDeploy(t *testing.T) {
 	}
 }
 
+// TestBuildGraphs_ANilRegistryRefusesTheDeploy pins that there is always a registry (#1179): a configuration
+// without one is refused before anything is planned, manifests or not, rather than skipping the manifests.
+func TestBuildGraphs_ANilRegistryRefusesTheDeploy(t *testing.T) {
+
+	layers := []layerFixture{
+		{"base", map[string]string{"common": "packages:\n  - name: jq\n"}},
+	}
+	cfg := matrixConfig(t, layers)
+	cfg.Registry = nil
+
+	build, err := deploy.BuildGraphs(context.Background(), cfg, &deploy.PinInfo{})
+	if err == nil {
+		t.Fatalf("BuildGraphs planned %d graph(s) without a registry; want a refusal", len(build.Graphs))
+	}
+	if !strings.Contains(err.Error(), "no registry") {
+		t.Errorf("refusal %q does not say there is no registry", err)
+	}
+}
+
 // TestBuildGraphs_AManifestOnlyDirectoryPlansAScope is the third Matrix A tree, delta 9 of the #814 review: a layer
 // holding a manifest and no files still yields a scope graph, whose only unit is the packages subgraph; and a claim
 // that names a registry package is deferred with a note rather than planned.

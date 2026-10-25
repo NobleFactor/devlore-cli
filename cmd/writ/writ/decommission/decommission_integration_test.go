@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/cmd/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/decommission"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/deploy"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/readback"
@@ -49,6 +50,7 @@ func deployFixture(t *testing.T) (sourceRoot, targetRoot string) {
 	}
 
 	cfg := &deploy.Config{
+		Registry:   lorepackage.New("test", nil, t.TempDir()),
 		SourceRoot: sourceRoot,
 		TargetRoot: targetRoot,
 		Projects:   []string{"myproj"},

@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
+	"github.com/NobleFactor/devlore-cli/cmd/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/deploy"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/readback"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/segment"
@@ -50,6 +51,7 @@ func deployFixture(t *testing.T) (sourceRoot, targetRoot string) {
 	}
 
 	cfg := &deploy.Config{
+		Registry:   lorepackage.New("test", nil, t.TempDir()),
 		SourceRoot: sourceRoot,
 		TargetRoot: targetRoot,
 		Projects:   []string{"myproj"},
@@ -169,6 +171,7 @@ func TestFold_DeployReplacesTheRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 	cfg := &deploy.Config{
+		Registry:   lorepackage.New("test", nil, t.TempDir()),
 		SourceRoot: sourceRoot,
 		TargetRoot: targetRoot,
 		Projects:   []string{"myproj"},

@@ -11,6 +11,7 @@ import (
 
 	"filippo.io/age"
 
+	"github.com/NobleFactor/devlore-cli/cmd/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/deploy"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/segment"
 	writsops "github.com/NobleFactor/devlore-cli/pkg/sops"
@@ -61,6 +62,7 @@ func TestExecute_SopsChains(t *testing.T) {
 	t.Setenv("SOPS_AGE_KEY", ageKey+"\n"+templateKey+"\n"+tokenKey)
 
 	cfg := &deploy.Config{
+		Registry:   lorepackage.New("test", nil, t.TempDir()),
 		SourceRoot: sourceRoot,
 		TargetRoot: targetRoot,
 		Projects:   []string{"myproj"},

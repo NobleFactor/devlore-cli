@@ -5,6 +5,7 @@ package deploy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -67,8 +68,12 @@ type BuildResult struct {
 //
 // Returns:
 //   - `*BuildResult`: the per-scope graphs and the collision report.
-//   - `error`: non-nil when the tree build or any scope's planning fails.
+//   - `error`: non-nil when `cfg.Registry` is nil, or when the tree build or any scope's planning fails.
 func BuildGraphs(ctx context.Context, cfg *Config, pin *PinInfo) (*BuildResult, error) {
+
+	if cfg.Registry == nil {
+		return nil, errors.New("deploy: no registry: there is always a registry, and a nil one is a programming error")
+	}
 
 	result, err := tree.Build(tree.BuildConfig{
 		SourceRoot: cfg.SourceRoot,

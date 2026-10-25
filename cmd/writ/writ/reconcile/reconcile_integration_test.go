@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
+	"github.com/NobleFactor/devlore-cli/cmd/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/deploy"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/reconcile"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/segment"
@@ -52,6 +53,7 @@ func deployFixture(t *testing.T) (sourceRoot, targetRoot, templateSource string)
 	}
 
 	cfg := &deploy.Config{
+		Registry:   lorepackage.New("test", nil, t.TempDir()),
 		SourceRoot: sourceRoot,
 		TargetRoot: targetRoot,
 		Projects:   []string{"myproj"},
@@ -153,6 +155,7 @@ func TestBuildReport_Classifications(t *testing.T) {
 		t.Fatal(err)
 	}
 	redeploy := &deploy.Config{
+		Registry:   lorepackage.New("test", nil, t.TempDir()),
 		SourceRoot: sourceRoot,
 		TargetRoot: targetRoot,
 		Projects:   []string{"myproj"},
