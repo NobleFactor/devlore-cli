@@ -29,6 +29,8 @@ my-environment/              # Your environment repo (wherever you keep it)
 
 ## Format
 
+**Entries are sorted by purl** (ruled 2026-10-25, #1179), so a manifest reads as a list and a diff shows what moved. A comment above an entry travels with it.
+
 Each package is either a simple name or a single-key map with options:
 
 ```yaml

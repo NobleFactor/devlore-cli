@@ -1,7 +1,7 @@
 ---
 title: "The team layer's Darwin project installs GNU tar from MacPorts, and deploy always has a registry"
 issue: https://github.com/NobleFactor/devlore-cli/issues/1179
-status: approved
+status: active
 created: 2026-10-25
 updated: 2026-10-25
 ---
@@ -20,7 +20,7 @@ updated: 2026-10-25
 
 ## Goals
 
-1. A deploy on Darwin installs GNU tar from MacPorts when it is missing, and converges with nothing to do when it is present.
+1. A deploy on Darwin installs GNU tar and coreutils from MacPorts when they are missing, and converges with nothing to do when they are present.
 2. Deploy never plans without a registry, and never says it skipped one.
 3. The configuration spec states that a default is set one way only, and records today's two ways as a TODO.
 
@@ -39,14 +39,15 @@ updated: 2026-10-25
 
 ### Requirement 1: the manifest
 
-`Home/common.Darwin/packages-manifest.yaml` holds one claim, in the mapping form the loader accepts (#785 keeps bare strings unloadable):
+`Home/common.Darwin/packages-manifest.yaml` holds two claims, in the mapping form the loader accepts (#785 keeps bare strings unloadable):
 
 ```yaml
 packages:
+  - name: pkg:port/coreutils
   - name: pkg:port/gnutar
 ```
 
-The `port` scheme pins MacPorts and keeps the claim off the registry lookup. The file's comment names `make dist` and #1163 as the reason.
+The `port` scheme pins MacPorts and keeps the claims off the registry lookup. The file's comments name `make dist` and #1163 as the reason: GNU tar for `--sort` and `--mtime`, and coreutils for GNU touch's `--no-dereference` and `--date`. coreutils was found in Phase 2 and added on the owner's ruling of 2026-10-25. Entries are sorted by purl, ruled the same day, and `docs/guides/writ/packages-manifest.md` § Format states the rule.
 
 ### Requirement 2: always a registry
 
@@ -73,8 +74,8 @@ Found in Phase 2: Homebrew had moved Media-Server's golangci-lint to v2.15.0, so
 
 ### Phase 3: the pull request
 
-- [ ] `make check`, `make lint-all` and `make test-race` pass; the description says AI assisted and ends with `Signed-off-by:` and `Assisted-by: Claude Code`; the script is `~/Workspace/NobleFactor/devlore-cli.1179-gnutar-manifest.bash`
-- [ ] Status `active` in the last commit, with Phase 4 named as the reason
+- [x] `make check`, `make lint-all` and `make test-race` pass; the description says AI assisted and ends with `Signed-off-by:` and `Assisted-by: Claude Code`; the script is `~/Workspace/NobleFactor/devlore-cli.1179-gnutar-manifest.bash` -- 2026-10-25
+- [x] Status `active` in the last commit, with Phase 4 named as the reason: the live run needs the manifest on `develop` -- 2026-10-25
 
 ### Phase 4: after the merge (rule 5)
 
@@ -89,6 +90,7 @@ The layer clone deploy reads is on `develop`, so the manifest reaches a deploy o
 | --- | --- | --- |
 | `docs/plans/task/1179-gnutar-manifest.md` | Create | This plan |
 | `Home/common.Darwin/packages-manifest.yaml` | Create | Requirement 1 |
+| `docs/guides/writ/packages-manifest.md` | Modify | Requirement 1, the sort rule |
 | `cmd/writ/writ/deploy/manifest.go`, `plan.go`, `deploy.go`, `manifest_matrix_test.go` | Modify | Requirement 2 |
 | the integration tests named under Current State | Modify | Requirement 2 |
 | `docs/architecture/configuration.md`, `configuration.status.md` | Modify | Requirement 3 |

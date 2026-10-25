@@ -1,9 +1,13 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright Noble Factor. All rights reserved.
 
-# Darwin additions, over the suffix-less common project.
+# Darwin additions, over the suffix-less common project. Entries are sorted by purl.
 
 packages:
-  # GNU tar, which `make dist` requires since #1163: a reproducible archive takes --sort and --mtime, which are
-  # GNU tar's, and macOS ships bsdtar. Named as a purl so the claim pins MacPorts and never asks the registry.
+  # GNU coreutils, which `make dist` requires since #1163: it stamps every staged file with touch --no-dereference
+  # and --date=@epoch, which macOS's touch lacks. Named as a purl so the claim pins MacPorts and never asks the
+  # registry.
+  - name: pkg:port/coreutils
+  # GNU tar, for the same reason: a reproducible archive takes --sort and --mtime, which are GNU tar's, and macOS
+  # ships bsdtar.
   - name: pkg:port/gnutar
