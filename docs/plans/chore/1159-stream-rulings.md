@@ -45,6 +45,8 @@ Each is the owner's to rule. The documents record them as open, not as proposals
 6. **The local leg of the broker.** As this plan reads ruling 6, the HTTP/2-over-TLS remote leg and its token are withdrawn and the local leg, HTTP/2 over a Unix socket or named pipe, stays. To confirm.
 7. **File descriptor 3, now that our programs emit OpenTelemetry natively (ruling 12).** Ruled 2026-10-22, events from a devlore-aware child go to fd 3. If every devlore program exports OTLP to the endpoint in its environment, fd 3 has no traffic of its own. Either it is retired, or it becomes the local carrier of a child's OTLP to the broker, for a child that cannot reach the Collector. The recommendation is to retire it and let the endpoint be the channel. To rule.
 8. **Three issues left from the rulings:** #824 asks for the opposite of ruling 3 and is superseded by #1153; #1135 names an offer on a unit, a surface retired on 2026-10-22; #892 carries no epic label.
+9. **One SSH connection per processor, or one per subgraph? (added 2026-10-24, #1174)** Ruling 9's parallel subgraphs on one executor hold over SSH only if one connection carries many sessions, native in Go's SSH package and needing multiplexing, absent on Windows, with the OpenSSH client. Recommended: the deciding factor of question 5, in favour of Go's SSH package. 2.7 § Open 21.
+10. **On the far side, an executor process per SSH session, or a daemon the sessions reach? (added 2026-10-24, #1174)** A process per session reuses nothing remotely; a daemon reuses but leaves something running on every machine touched. Recommended: a process per session first. 2.7 § Open 22.
 
 ## Current State
 
