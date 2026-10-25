@@ -1,138 +1,90 @@
 ---
-title: "The console side of the fork in the in-process broker: no frame dropped, narration rendered as it happens, the exec's start and end on the events stream"
+title: "The console stream never drops a frame: a slow subscriber receives every one, late, and the child is never blocked on it"
 issue: https://github.com/NobleFactor/devlore-cli/issues/1131
 status: draft
 created: 2026-10-23
-updated: 2026-10-23
+updated: 2026-10-24
 ---
 
-# Plan: the console side of the fork
+# Plan: the console stream never drops a frame
 
 ## Summary
 
-**The problem.** Lane 2 (#1143) made the in-process broker's frames live, and three things the issue asks for are
-still not true. A subscriber that falls more than 256 frames behind **misses frames**: `brokerStream.publish` drops
-rather than block the child, so a chatty `apt-get install` can lose output, and if the dropped frame is the control
-frame, `op.Run` waits until its context ends. **Nobody renders narration**: the broker frames each stderr line, `op.Run`
-collects it, and nothing hands it to the Narrator, so a long install is silent on writ's tty until it ends. And **no
-event reaches anything**: the stub never emits on the events stream, so an exec's start and end are recorded nowhere.
+**The problem.** The in-process broker (#1143) and its test double deliver a run's frames through `brokerStream.publish`, which sends to each subscriber's 256-slot channel without blocking and drops the frame when the channel is full. A subscriber that falls more than 256 frames behind loses narration or output, which breaks the rulings of 2026-10-23 that everything a program writes to stderr and stdout reaches the caller. If the frame it loses is the control frame, `op.Run` waits until its context ends. A chatty command, such as `apt-get install` printing thousands of lines while the caller is busy, reaches that limit.
 
-**The deliverable.** Three changes in `pkg/op`, no new package. Delivery that **never drops and never blocks**: each
-subscriber gets an unbounded in-memory queue drained by its own goroutine, so the child's writes return at once and
-every frame arrives in `seq` order; the memory-then-file spool is the runner's, iteration 3, and the broker's
-append-only per-run file is iteration 2's (2.7 § The two streams). **Narration rendered as it happens**: `op.Run`
-takes an option that hands each narration frame to a function as it arrives, and the shell provider and
-`op.PlatformRunner` pass the environment's Narrator. **The exec's start and end on the events stream**: two new event
-kinds, `EventExecStarted` and `EventExecCompleted`, carrying the exec and unit ids and the exit status, which the stub
-emits on `Events(run)`; with no subscriber they are dropped, and that subscription is the sink seam iteration 4's bus
-plugs into. Lane 3 of schedule [#1127](https://github.com/NobleFactor/devlore-cli/issues/1127).
+**The deliverable.** Delivery that never drops and never blocks the child. Each subscriber gets a queue of its own in memory, drained into its channel by a goroutine of its own, so `publish` returns at once and every frame arrives in `seq` order, contiguous. The change is in one file, `pkg/op/broker_stream.go`, shared by the in-process broker and the double, and it covers both per-run streams, the console and the events. The spill to a file and the ring for reconnects are the broker's of iteration 2 (2.7 § The two streams); this lane is the in-process delivery.
 
 ## Issue 1131
 
-[The console side of the fork in the stub: narration, output and exit reach the caller; events reach a sink](https://github.com/NobleFactor/devlore-cli/issues/1131).
-A task under feature [#1128](https://github.com/NobleFactor/devlore-cli/issues/1128) of Epic
-[#1118](https://github.com/NobleFactor/devlore-cli/issues/1118), The DevLore Broker.
+[The console stream never drops a frame](https://github.com/NobleFactor/devlore-cli/issues/1131), rescoped on 2026-10-23. A task under feature [#1128](https://github.com/NobleFactor/devlore-cli/issues/1128) of Epic [#1118](https://github.com/NobleFactor/devlore-cli/issues/1118), The DevLore Broker. Lane 3 of schedule [#1127](https://github.com/NobleFactor/devlore-cli/issues/1127), first in the order the owner set on 2026-10-24.
+
+## What changed since the first plan
+
+The first plan, committed as c6a059b0, also rendered narration and emitted exec events. The rulings of 2026-10-23 and 2026-10-24 (#1173) moved both out of this lane. Narration frames carry stderr's bytes, written into the caller's narration sink unaltered, which is #1151. An exec's start and end are events, emitted through OpenTelemetry, which is #1154 for the command provider and #1169 for the broker. This plan replaces the first.
 
 ## Goals
 
-1. **No frame is lost and no child waits.** A subscriber that reads slowly receives every frame, late; the child's
-   write never blocks on it.
-2. **Narration reaches writ's tty as the command speaks**, through the caller's Narrator, as 2.7 § The two streams
-   puts it: "In the caller: narration unbuffered, straight to the `Narrator`."
-3. **An exec's start and end are events**, on the events stream, not the console.
+1. No frame is lost: a subscriber that reads slowly receives every frame of a run, in order, with `seq` contiguous.
+2. No child waits: the broker's `deliver` and the double's `Deliver` and `Emit` return at once, however slow a subscriber is.
+3. Cancel still ends a subscription: the channel closes, and frames still queued for it are discarded.
 
 ## Current State
 
-| Where | Says or does today |
+| Where | Does today |
 | --- | --- |
-| `pkg/op/broker_stream.go` `publish` | a non-blocking send per subscriber into a 256-slot channel; a full subscriber misses the frame, the gap visible in `seq` |
-| `pkg/op/broker_run.go` `Run` | collects narration into `Outcome.Narration`; renders nothing; waits for the control frame until its context ends |
-| `pkg/op/broker_stub.go` | delivers narration, output and control to the console; emits nothing on `Events`; the `events` streams exist and are empty |
-| `pkg/op/control_plane.go` | `ControlEventKind`: phase changed, error, result; `ControlEvent` has no exec id |
-| `pkg/op/provider/shell`, `op.PlatformRunner` | `op.Run` and fold the outcome; stderr reaches the caller only at the end, as `Result.Stderr` |
-| 2.7 § The two streams | the broker keeps an append-only file per run and stream and a memory ring over it; the caller renders narration unbuffered |
+| `pkg/op/broker_stream.go` | `publish` sends to each subscriber's 256-slot channel with a `select … default`, dropping the frame for a full subscriber; `subscribe` registers the channel; `cancel` closes it under the broker's lock |
+| `pkg/op/broker_stub.go`, `broker_double.go` | `deliver`, `Deliver` and `Emit` stamp `seq` and call `publish` under the broker's mutex |
+| `pkg/op/broker_double_test.go` | `TestRecordingBroker_SlowSubscriberMisses` pins the drop, the behavior this lane removes |
+| `pkg/op/broker_run.go` | `op.Run` subscribes before it execs and cancels when it returns |
+| 2.7 § The two streams | the broker of iteration 2 keeps an append-only file per run and stream and a memory ring for reconnects; the runner's spool, memory then a file, never drops |
 
 ## Requirements
 
-### Requirement 1: delivery never drops, `pkg/op/broker_stream.go`
+### Requirement 1: a queue per subscriber
 
-`subscribe` gives each subscriber a queue and a goroutine that drains it into the subscriber's channel; `publish`
-appends to every subscriber's queue under the broker's lock and returns. The queue is unbounded memory: the child is
-never blocked, and a subscriber that stops reading holds memory until it cancels, which `op.Run` always does on return.
-`cancel` stops the goroutine and closes the channel; frames queued after it are discarded. The double and the stub
-share it unchanged. The test that pinned the drop becomes the test that a slow subscriber receives every frame, in
-order, with `seq` contiguous.
+`subscribe` creates, for each subscriber, an unbounded queue in memory and a goroutine that moves frames from the queue into the subscriber's channel in order. `publish` appends the frame to every subscriber's queue and signals its goroutine; it never blocks. `cancel` stops the goroutine, closes the channel, and discards whatever the queue still holds; it is idempotent. The queue and its goroutine are guarded by a lock of their own, so a slow channel never holds the broker's mutex.
 
-### Requirement 2: narration rendered, `pkg/op/broker_run.go`
+### Requirement 2: the tests
 
-`Run(ctx, broker, request, options ...RunOption)`, with `WithNarration(func(Narration))` calling the function for each
-narration frame of the exec as it arrives, before the exec ends; `Outcome.Narration` still collects them.
-`op.PlatformRunner` and the shell provider pass `runtimeEnvironment.Status.Warn` of the line, the level today's
-`process.Runner.Run` renders a child's stderr at. The variadic option leaves every existing caller unchanged.
+`TestRecordingBroker_SlowSubscriberMisses` becomes `TestRecordingBroker_SlowSubscriberReceivesEverything`: far more frames than the old buffer are delivered to a subscriber that is not reading, each `Deliver` returns at once, and the subscriber then reads every frame with `seq` contiguous. A test of the in-process broker runs a command that writes many thousands of lines to stderr and stdout through `op.Run` and checks the outcome holds every byte and the control frame. A test proves cancel discards the queue and closes the channel, and that a cancelled subscriber's goroutine ends. All of it under `make test-race`.
 
-### Requirement 3: the exec's events, `pkg/op/control_plane.go` and the stub
+### Requirement 3: the documents
 
-`EventExecStarted` and `EventExecCompleted` join `ControlEventKind`; `ControlEvent` gains `Exec ExecID` and
-`ExitStatus int`. The stub emits `EventExecStarted` before it forks and `EventExecCompleted` after the control frame,
-on the run's events stream, with the unit id. The double's `Emit` is unchanged. A test subscribes to `Events` and sees
-the two, in order, around an exec; another proves an exec with no events subscriber runs as before.
-
-### Requirement 4: the documents
-
-2.7's status companion says the console side landed and what stays for iteration 2, the per-run file and the ring;
-this plan's status.
+2.7's status companion says the in-process delivery never drops, with the file and the ring still iteration 2's. This plan's status.
 
 ## Implementation Phases
 
 ### Phase 1: the plan lands
 
-- [ ] Reviewed with the owner, status `approved`, committed alone on `feature/1131-console-spool`
+- [ ] Reviewed with the owner, status `approved`, committed on `feature/1131-console-spool`, replacing the plan of c6a059b0
 - [ ] #1131's documents table carries this plan's link
 
-### Phase 2: delivery (Requirement 1)
+### Phase 2: delivery and its tests (Requirements 1 and 2)
 
-- [ ] `broker_stream.go` and its tests; `make lint-all`, `make test-race`
+- [ ] `pkg/op/broker_stream.go` and the tests; `make lint-all` and `make test-race`
 
-### Phase 3: narration and events (Requirements 2 and 3)
+### Phase 3: the documents and the pull request
 
-- [ ] `Run`'s option, the two callers, the event kinds, the stub's emits, the tests; `make lint-all`, `make test-race`
-
-### Phase 4: the documents and the pull request
-
-- [ ] Requirement 4
-- [ ] `make check`, `make lint-all` and `make test-race` pass; the description says AI assisted and ends with
-      `Signed-off-by:` and `Assisted-by: Claude Code`; the script is
-      `~/Workspace/NobleFactor/devlore-cli.1131-console-spool.bash`
-- [ ] Status `active` in the last commit, with Phase 5 named as the reason
-
-### Phase 5: after the merge (rule 5)
-
-- [ ] `make install`; on Media-Server, a `writ` run whose package manager runs a command shows that command's stderr
-      on the tty as it happens; status `complete`; #1131 closed
+- [ ] Requirement 3
+- [ ] `make check`, `make lint-all` and `make test-race` pass; the description says AI assisted and ends with `Signed-off-by:` and `Assisted-by: Claude Code`; the script is `~/Workspace/NobleFactor/devlore-cli.1131-console-spool.bash`
+- [ ] Status `complete` in the last commit: nothing deploys that a run can observe until #1151 lands
 
 ## Files to Create/Modify
 
 | File | Action | Purpose |
 | --- | --- | --- |
-| `docs/plans/task/1131-console-spool.md` | Create | This plan |
-| `pkg/op/broker_stream.go`, `pkg/op/broker_double_test.go` | Modify | Requirement 1 |
-| `pkg/op/broker_run.go`, `_test.go` | Modify | Requirement 2 |
-| `pkg/op/broker_platform.go`, `pkg/op/provider/shell/provider.go` | Modify | Requirement 2, the two callers |
-| `pkg/op/control_plane.go`, `pkg/op/broker_stub.go`, `_test.go` | Modify | Requirement 3 |
-| `docs/architecture/2.7-control-plane.status.md` | Modify | Requirement 4 |
+| `docs/plans/task/1131-console-spool.md` | Modify | This plan, replacing the first |
+| `pkg/op/broker_stream.go` | Modify | Requirement 1 |
+| `pkg/op/broker_double_test.go`, `pkg/op/broker_stub_test.go`, `pkg/op/broker_stream_test.go` | Modify, Create | Requirement 2 |
+| `docs/architecture/2.7-control-plane.status.md` | Modify | Requirement 3 |
 
 ## Related Documents
 
-- [1130-in-process-stub.md](1130-in-process-stub.md), the broker this completes
-- [2.7-control-plane.md](../../architecture/2.7-control-plane.md) § Dispatch and the fork, § The two streams;
-  [2.8-eventing-infrastructure.md](../../architecture/2.8-eventing-infrastructure.md), sinks and the bus
+- [1130-in-process-stub.md](1130-in-process-stub.md), the broker this delivery belongs to
+- [1159-stream-rulings.md](../chore/1159-stream-rulings.md), the rulings that rescoped this lane
+- [2.7-control-plane.md](../../architecture/2.7-control-plane.md) § The two streams
 
 ## Open Questions
 
-- **Narration's level.** The plan renders a child's stderr at `Warn`, as `process.Runner.Run` does today; a package
-  manager's progress lines then read as warnings. `Note` reads as what most of it is, and is what
-  `process.Runner.RunNarrating` chose for children that narrate on stderr. For ruling.
-- **fd 3** (ruled 2026-10-22: events go to fd 3) is not in this lane: it needs a devlore-aware flag on the request and
-  a record format for the child to write. The plan proposes it as its own task under #1128, after this one.
-- **A file sink now**, the run's `events.ndjson`, or the events stream alone until the bus. The plan takes the stream
-  alone: the stub has no run directory to write under until the executor gives runs ids.
+1. **Memory.** The queue is unbounded: a subscriber that stops reading and never cancels holds every frame in memory until the run ends. `op.Run` always cancels when it returns, and the file of iteration 2 bounds it later. The plan accepts the risk for the in-process broker; a cap with a spill to a file is the alternative.
+2. **The control plane's own events.** `ControlPlane.emit` drops events for a slow subscriber in the same way. It is not a console stream and is outside this lane; if it should never drop either, that is its own task.
