@@ -5,6 +5,7 @@ package op
 
 import (
 	"context"
+	"io"
 	"strings"
 
 	"github.com/NobleFactor/devlore-cli/pkg/platform"
@@ -45,7 +46,7 @@ func PlatformRunner(runtimeEnvironment *RuntimeEnvironment) platform.CommandRunn
 			exec.Stdin = &Stdin{AutoConfirm: true}
 		}
 
-		outcome, err := Run(ctx, runtimeEnvironment.Broker, exec)
+		outcome, err := Run(ctx, runtimeEnvironment.Broker, exec, WithNarrator(narratorOf(runtimeEnvironment)))
 		if err != nil {
 			return platform.Result{Code: -1, Stderr: err.Error()}
 		}
@@ -67,3 +68,19 @@ func PlatformRunner(runtimeEnvironment *RuntimeEnvironment) platform.CommandRunn
 
 // platformRun is the run id the platform's commands carry until the executor gives runs ids of their own.
 const platformRun RunID = "host"
+
+// narratorOf returns the environment's narrator as a writer, or nil when it has none, so [WithNarrator] writes
+// nowhere rather than through a nil pointer.
+//
+// Parameters:
+//   - `runtimeEnvironment`: the environment.
+//
+// Returns:
+//   - `io.Writer`: the narrator, or nil.
+func narratorOf(runtimeEnvironment *RuntimeEnvironment) io.Writer {
+
+	if runtimeEnvironment == nil || runtimeEnvironment.Status == nil {
+		return nil
+	}
+	return runtimeEnvironment.Status
+}

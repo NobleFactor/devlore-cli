@@ -80,7 +80,7 @@ func TestRecordingBroker_ConsoleDeliversInOrder(t *testing.T) {
 	other, cancelOther := broker.Console("r-2")
 	defer cancelOther()
 
-	broker.Deliver("r-1", NarrationFrame("e-1", "u", "note", "one"))
+	broker.Deliver("r-1", NarrationFrame("e-1", "u", []byte("one\n")))
 	broker.Deliver("r-1", OutputFrame("e-1", []byte("two")))
 	broker.Deliver("r-2", ControlFrame("e-9", 0, nil))
 	broker.Deliver("r-1", ControlFrame("e-1", 0, nil))
@@ -112,7 +112,7 @@ func TestRecordingBroker_EventsDeliver(t *testing.T) {
 	events, cancel := broker.Events("r")
 	defer cancel()
 
-	broker.Deliver("r", NarrationFrame("e-1", "u", "note", "console first"))
+	broker.Deliver("r", NarrationFrame("e-1", "u", []byte("console first\n")))
 	broker.Emit("r", ControlEvent{Kind: EventPhaseChanged, Status: RunStatus{Phase: PhaseRunning}})
 
 	if event := <-events; event.Seq != 1 || event.Kind != EventPhaseChanged {

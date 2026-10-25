@@ -167,8 +167,8 @@ func TestConsoleFrame_Wire(t *testing.T) {
 		frame ConsoleFrame
 		want  string
 	}{
-		{NarrationFrame("e-41", "u-12", "note", "Installing openssh-server"),
-			`{"exec":"e-41","unit":"u-12","level":"note","text":"Installing openssh-server"}`},
+		{NarrationFrame("e-41", "u-12", []byte("Installing openssh-server\n")),
+			`{"exec":"e-41","unit":"u-12","len":26,"bytes":"SW5zdGFsbGluZyBvcGVuc3NoLXNlcnZlcgo="}`},
 		{OutputFrame("e-42", []byte("abc")), `{"exec":"e-42","len":3,"bytes":"YWJj"}`},
 		{ControlFrame("e-41", 0, nil), `{"exec":"e-41","exit_status":0}`},
 		{ControlFrame("e-43", -1, errors.New("canceled")), `{"exec":"e-43","exit_status":-1,"error":"canceled"}`},
@@ -211,6 +211,29 @@ func TestOutput_RoundTrip(t *testing.T) {
 	}
 
 	if err := json.Unmarshal([]byte(`{"exec":"e-42","len":2,"bytes":"YWJj"}`), &output); err == nil {
+		t.Error("a wrong len: want an error")
+	}
+}
+
+// TestNarration_RoundTrip pins that a narration payload reads back from the wire byte for byte, carriage returns and
+// invalid UTF-8 included, and that a length that disagrees with the bytes is refused.
+func TestNarration_RoundTrip(t *testing.T) {
+
+	raw := []byte("10%\r50%\r100%\n\xff\xfe")
+	data, err := json.Marshal(Narration{Exec: "e-1", Unit: "u", Bytes: raw})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var back Narration
+	if err := json.Unmarshal(data, &back); err != nil {
+		t.Fatalf("unmarshal %s: %v", data, err)
+	}
+	if !bytes.Equal(back.Bytes, raw) || back.Exec != "e-1" || back.Unit != "u" {
+		t.Errorf("came back as %+v", back)
+	}
+
+	if err := json.Unmarshal([]byte(`{"exec":"e-1","len":2,"bytes":"YWJj"}`), &back); err == nil {
 		t.Error("a wrong len: want an error")
 	}
 }

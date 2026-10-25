@@ -148,35 +148,33 @@ func (r *Runner) RunNarrating(cmd *exec.Cmd) error {
 	return r.relay(cmd, r.status.Note)
 }
 
-// Stream executes cmd, writing its stdout to `stdout` as it arrives and handing each line of its stderr to `stderr`.
+// Stream executes cmd, writing its stdout to `stdout` and its stderr to `stderr` as each arrives.
 //
 // The seam the in-process broker frames a command from ([op.InProcessBroker]): bytes on stdout become output frames
-// as they are written, lines on stderr become narration frames, and nothing is rendered here. Like [Runner.Run], it
+// as they are written, bytes on stderr become narration frames, and nothing is read, split or rendered here. Like [Runner.Run], it
 // narrates the command first, skips it in dry-run, and kills it when the runner's context ends; unlike it, the
 // child's exit status is the caller's to read from cmd.ProcessState, so a non-zero exit is not an error here.
 //
 // Parameters:
 //   - cmd: the prepared exec.Cmd; its Stdout, Stderr, and Cancel fields are overwritten by the runner.
 //   - stdout: receives the child's stdout as it is written.
-//   - stderr: receives each line of the child's stderr, without its newline, flushed at exit.
+//   - stderr: receives the child's stderr as it is written, unsplit and unaltered.
 //
 // Returns:
 //   - bool: true when the child was launched; false in dry-run, where nothing ran.
 //   - error: non-nil only when the child could not be launched or was killed; a non-zero exit is not an error.
-func (r *Runner) Stream(cmd *exec.Cmd, stdout io.Writer, stderr func(string)) (bool, error) {
+func (r *Runner) Stream(cmd *exec.Cmd, stdout, stderr io.Writer) (bool, error) {
 
 	r.narrate(cmd)
 	if r.dryRun {
 		return false, nil
 	}
 
-	stderrLines := newLineWriter(stderr)
 	cmd.Stdout = stdout
-	cmd.Stderr = stderrLines
+	cmd.Stderr = stderr
 	r.bindCancel(cmd)
 
 	err := cmd.Run()
-	stderrLines.Flush()
 
 	var exitErr *exec.ExitError
 	if err != nil && !errors.As(err, &exitErr) {

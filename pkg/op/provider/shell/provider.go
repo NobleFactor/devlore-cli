@@ -12,6 +12,7 @@ package shell
 
 import (
 	"fmt"
+	"io"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
@@ -66,7 +67,12 @@ func (p *Provider) Exec(command string) (*Result, error) {
 		request.Cwd = p.RuntimeEnvironment().Root().Name()
 	}
 
-	outcome, err := op.Run(p.RuntimeEnvironment().Context, p.RuntimeEnvironment().Broker, request)
+	var narrator io.Writer
+	if p.RuntimeEnvironment().Status != nil {
+		narrator = p.RuntimeEnvironment().Status
+	}
+
+	outcome, err := op.Run(p.RuntimeEnvironment().Context, p.RuntimeEnvironment().Broker, request, op.WithNarrator(narrator))
 	if err != nil {
 		return nil, err
 	}

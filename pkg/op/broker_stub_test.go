@@ -73,8 +73,8 @@ func TestInProcessBroker_CallerArgv(t *testing.T) {
 	if outcome.Exec != "e-1" || outcome.ExitStatus != 3 || string(outcome.Output) != "hi" || outcome.Error != "" {
 		t.Errorf("outcome = %+v", outcome)
 	}
-	if len(outcome.Narration) != 1 || outcome.Narration[0].Text != "err" || outcome.Narration[0].Unit != "u" {
-		t.Errorf("narration = %+v", outcome.Narration)
+	if string(outcome.Narration) != "err\n" {
+		t.Errorf("narration = %q", outcome.Narration)
 	}
 }
 
@@ -308,5 +308,20 @@ func TestInProcessBroker_ChattyCommandLosesNothing(t *testing.T) {
 	}
 	if len(stderr) != lines || stderr[0] != "err0" || stderr[lines-1] != "err19999" {
 		t.Errorf("stderr: %d lines, first %q, last %q", len(stderr), stderr[0], stderr[len(stderr)-1])
+	}
+}
+
+// TestInProcessBroker_NarrationUnaltered pins the ruling of 2026-10-23 end to end: a child's stderr reaches the
+// outcome byte for byte, a carriage-return progress line and no trailing newline included, never split or relabeled.
+func TestInProcessBroker_NarrationUnaltered(t *testing.T) {
+
+	broker := newStubBroker(t, false)
+
+	outcome, err := Run(context.Background(), broker, caller("sh", "-c", `printf '10%%\r50%%\r100%%' >&2`))
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got, want := string(outcome.Narration), "10%\r50%\r100%"; got != want {
+		t.Errorf("narration = %q, want %q", got, want)
 	}
 }

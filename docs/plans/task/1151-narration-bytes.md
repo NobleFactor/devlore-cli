@@ -59,11 +59,11 @@ updated: 2026-10-24
 ### Phase 1: the plan lands
 
 - [x] Reviewed with the owner, status `approved`, committed alone on `feature/1151-narration-bytes` -- 2026-10-24
-- [ ] #1151's documents table carries this plan's link
+- [x] #1151's documents table carries this plan's link -- 2026-10-24
 
 ### Phase 2: the frame, the runner and the caller (Requirements 1 to 3)
 
-- [ ] The code and the tests; `make lint-all` and `make test-race`
+- [x] The code and the tests; `make lint-all` and `make test-race` -- 2026-10-24
 
 ### Phase 3: the documents and the pull request
 

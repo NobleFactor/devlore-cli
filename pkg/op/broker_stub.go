@@ -33,7 +33,7 @@ var _ Broker = (*InProcessBroker)(nil)
 // broker daemon. Any other account is refused with a named [Refusal], because without a broker daemon there is no
 // logon to make.
 //
-// Frames reach the run's console as the child speaks, one narration frame per stderr line, one output frame per
+// Frames reach the run's console as the child speaks, one narration frame per write to stderr, one output frame per
 // write to stdout, one control frame at exit; a subscriber that has fallen behind misses frames, since the spool
 // that never drops is the runner's (6.2 § 4.1). Events, the event sink and the never-blocked child are lane 3's
 // (#1131).
@@ -342,9 +342,7 @@ func (b *InProcessBroker) run(ctx context.Context, id ExecID, request ExecReques
 	child := commandFor(ctx, request, argv)
 
 	stdout := &outputWriter{broker: b, run: request.Run, exec: id}
-	narration := func(line string) {
-		b.deliver(request.Run, NarrationFrame(id, request.Unit, "warn", line))
-	}
+	narration := &narrationWriter{broker: b, run: request.Run, exec: id, unit: request.Unit}
 
 	launched, err := b.runtimeEnvironment.runner().Stream(child, stdout, narration)
 
@@ -369,6 +367,37 @@ type trackedRun struct {
 	plane  *ControlPlane
 	status func() RunStatus
 }
+
+// narrationWriter turns each write of a child's stderr into a narration frame on the run's console, the bytes as the
+// child wrote them (ruled 2026-10-23).
+type narrationWriter struct {
+	broker *InProcessBroker
+	run    RunID
+	exec   ExecID
+	unit   string
+}
+
+// region EXPORTED METHODS
+
+// region Behaviors
+
+// Write delivers the bytes as one narration frame.
+//
+// Parameters:
+//   - `p`: the bytes the child wrote.
+//
+// Returns:
+//   - `int`: len(p).
+//   - `error`: always nil.
+func (w *narrationWriter) Write(p []byte) (int, error) {
+
+	w.broker.deliver(w.run, NarrationFrame(w.exec, w.unit, bytes.Clone(p)))
+	return len(p), nil
+}
+
+// endregion
+
+// endregion
 
 // outputWriter turns each write of a child's stdout into an output frame on the run's console.
 type outputWriter struct {

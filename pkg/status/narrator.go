@@ -130,6 +130,22 @@ func (n *Narrator) Warn(msg string) {
 	n.emit(colorYellow, symbolWarn, msg)
 }
 
+// Write writes bytes onto the narration sink exactly as given: no prefix, no symbol, no newline.
+//
+// The path for another program's narration, its stderr, which reaches devlore's narration stream as it was written
+// (ruled 2026-10-23). Under `--silent` the sink is [sink.Discard], so the program's narration is silenced exactly as
+// devlore's own is. A Narrator is therefore an [io.Writer].
+//
+// Parameters:
+//   - `p`: the bytes.
+//
+// Returns:
+//   - `int`: how many were written.
+//   - `error`: what the sink returned.
+func (n *Narrator) Write(p []byte) (int, error) {
+	return n.sink.Write(p)
+}
+
 // endregion
 
 // region UNEXPORTED METHODS
