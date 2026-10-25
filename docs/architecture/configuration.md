@@ -967,11 +967,27 @@ From the comparison, the concrete refinements layered onto star's proven registr
   (ruled 2026-09-02, [above](#the-command-surface--one-set-on-four-programs)); it reads and writes the XDG files
   today and the resolved `Config` after the fold.
 
+### TODO — one way to set a default, and one global command to get and set a value
+
+> **Required 2026-10-25** (#1179). There is one and only one way to set a default value, coherent and unambiguous, and one global subcommand that gets and sets configuration values.
+
+**What must be true.** A setting's default is set in one place: its section's floor, constructed by the section's owner ([The factory and its floor](#the-factory-and-its-floor)). A section registers once, and an app never supplies a section's defaults. It only decides where a value is placed ([Resolution](#resolution-the-roll-up)). The `config` command on the shared root, the same on every program ([The command surface](#the-command-surface--one-set-on-four-programs)), gets and sets values against the one resolved `Config`, and nothing else gets or sets configuration.
+
+**What is true today.** Defaults are set two ways, and nothing links either to an issue or to this document.
+
+- **Embedded files, one per app.** `schema/schema.go` embeds `schema/defaults/{devlore-shared,lore,writ,star,devlore-test}.yaml`, and each program's root hands its own file to the shared root (`cmd/lore/lore/root.go`, `cmd/writ/writ/root.go`, `cmd/star/star/root.go`, `cmd/devlore-test/devloretest/root.go`). Only `self install` and `config edit` use these files, to seed configuration. Nothing reads them at runtime.
+- **Go defaults, applied at the point of use.** `RegistryConfig.WithDefaults()` and `ModelConfig.WithDefaults()` in `cmd/internal/config` fill what is unset where a caller asks: `cmd/internal/lorepackage/registry.go` for the registry, `cmd/internal/model/config.go` twice for the model.
+- **The two have drifted.** The registry's runtime default is `DefaultRegistryURL`, the devlore-registry on `develop`. writ reads the registry as much as lore does, yet only `schema/defaults/lore.yaml` mentions it, as a commented-out `registry:` line naming a local path.
+- **The command reads files, not the model.** `cmd/internal/cli/config.go` reads and writes the XDG files, and `star config get` and `star config show` read different sources ([The command surface](#the-command-surface--one-set-on-four-programs)).
+
+**The work.** The registry section and the app sections move onto announced sections with constructed floors, items 5 and 3 of [the intake ledger](#the-sections-to-create-the-intake-ledger). `WithDefaults()` and its point-of-use calls are deleted. The hand-written files under `schema/defaults/` are deleted, replaced by the file the `config` command generates from the floors ("Where a default lives, and a generated default config file" below). The `config` command reads and writes the resolved `Config` once the star fold lands.
+
 ## Open questions
 
 - **Scope-composition home** — one shared assembly package vs. each app composing its own scope structs.
 - **Builtin as runtime floor** — today the embedded `schema.*DefaultConfig` only *seeds files at install*; the target
   constructs the floor at runtime, demoting `config.yaml` to overrides.
+- **Where a default lives, and a generated default config file** (raised 2026-10-25, #1179) — a default spread across many places is a defect waiting to happen: agents and engineers miss one of the places, and the bug that follows is hard to find. A setting's default lives in one place in the code. An embedded default file, the DataStax practice, is more discoverable for operators, so the choice is a tradeoff between one source an engineer can trust and one file an operator can read. The registry shows the cost of having neither. Its default is the pair of constants in `cmd/internal/config/registry.go`, applied at the point of use by `RegistryConfig.WithDefaults()`, while `schema/defaults/lore.yaml` carries a commented-out `registry:` line naming a local path, not the devlore-registry URL. Two places, and they disagree. The topic to design: the floor stays in one place, each section's constructor ([The factory and its floor](#the-factory-and-its-floor)), and the operator's view is generated from it. A command on the shared `config` set renders every announced section's floor as a config file, commented with each setting's type and doc, for inspection or as a starting place. It would replace the hand-written files under `schema/defaults/`, which `self install` seeds today, and close the gap between what the binary does and what the file says. Open within the topic: the command's name and its place in the set beside `schema` and `show`; whether the generated file is the floor alone or the resolved view with its set-by record; and whether `self install` seeds the generated file or seeds nothing, once the floor is constructed at runtime ("Builtin as runtime floor" above).
 - **Schema versioning** — when (not whether) to add the Kubernetes-style migration hook.
 - **Star unification sequencing** — the shape is defined ("Star unification and the two announcement paths"); *when*
   to execute the fold remains open.
