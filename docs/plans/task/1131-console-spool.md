@@ -1,7 +1,7 @@
 ---
 title: "The console stream never drops a frame: a slow subscriber receives every one, late, and the child is never blocked on it"
 issue: https://github.com/NobleFactor/devlore-cli/issues/1131
-status: approved
+status: complete
 created: 2026-10-23
 updated: 2026-10-24
 ---
@@ -65,9 +65,9 @@ The first plan, committed as c6a059b0, also rendered narration and emitted exec 
 
 ### Phase 3: the documents and the pull request
 
-- [ ] Requirement 3
-- [ ] `make check`, `make lint-all` and `make test-race` pass; the description says AI assisted and ends with `Signed-off-by:` and `Assisted-by: Claude Code`; the script is `~/Workspace/NobleFactor/devlore-cli.1131-console-spool.bash`
-- [ ] Status `complete` in the last commit: nothing deploys that a run can observe until #1151 lands
+- [x] Requirement 3 -- 2026-10-24, after develop was merged in, since #1173 and #1175 had changed the same file
+- [x] `make check`, `make lint-all` and `make test-race` pass; the description says AI assisted and ends with `Signed-off-by:` and `Assisted-by: Claude Code`; the script is `~/Workspace/NobleFactor/devlore-cli.1131-console-spool.bash` -- 2026-10-24
+- [x] Status `complete` in the last commit: nothing deploys that a run can observe until #1151 lands -- 2026-10-24
 
 ## Files to Create/Modify
 
