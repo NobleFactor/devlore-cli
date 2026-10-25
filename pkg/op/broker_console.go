@@ -101,18 +101,18 @@ func ControlFrame(exec ExecID, exitStatus int, err error) ConsoleFrame {
 	return ConsoleFrame{Channel: ChannelControl, Control: control}
 }
 
-// NarrationFrame makes a narration frame. Seq is left for the broker to stamp.
+// NarrationFrame makes a narration frame: bytes a program wrote to stderr, exactly as it wrote them. Seq is left for
+// the broker to stamp.
 //
 // Parameters:
 //   - `exec`: the exec that spoke.
 //   - `unit`: the unit that asked for the exec.
-//   - `level`: the narration level, as the caller's Narrator names them.
-//   - `text`: the line, without its newline.
+//   - `bytes`: the chunk, undecoded; never split into lines, labeled or repaired (ruled 2026-10-23).
 //
 // Returns:
 //   - `ConsoleFrame`: the narration frame.
-func NarrationFrame(exec ExecID, unit, level, text string) ConsoleFrame {
-	return ConsoleFrame{Channel: ChannelNarration, Narration: &Narration{Exec: exec, Unit: unit, Level: level, Text: text}}
+func NarrationFrame(exec ExecID, unit string, bytes []byte) ConsoleFrame {
+	return ConsoleFrame{Channel: ChannelNarration, Narration: &Narration{Exec: exec, Unit: unit, Bytes: bytes}}
 }
 
 // OutputFrame makes an output frame. Seq is left for the broker to stamp.
@@ -138,7 +138,7 @@ type Channel string
 // Channel values, the `event:` names of the console stream.
 const (
 
-	// ChannelNarration is a line a command wrote to stderr: text, one frame per line.
+	// ChannelNarration is a chunk a command wrote to stderr: bytes, undecoded, for the caller's narration sink.
 	ChannelNarration Channel = "narration"
 
 	// ChannelOutput is a chunk a command wrote to stdout: bytes, undecoded.
@@ -148,7 +148,9 @@ const (
 	ChannelControl Channel = "control"
 )
 
-// Narration is the payload of a narration frame: `{"exec":"e-41","unit":"u-12","level":"note","text":"..."}`.
+// Narration is the payload of a narration frame: `{"exec":"e-41","unit":"u-12","len":26,"bytes":"<base64>"}`, a chunk
+// of a program's stderr, in the shape of an [Output] (architecture 2.7 § The wire, in detail). Everything a program
+// writes to stderr is narration, and it reaches the caller's narration sink as it was written (ruled 2026-10-23).
 type Narration struct {
 
 	// Exec is the exec that spoke.
@@ -157,12 +159,46 @@ type Narration struct {
 	// Unit is the unit that asked for the exec.
 	Unit string `json:"unit,omitempty"`
 
-	// Level is the narration level, as the caller's Narrator names them: note, warn, error, and the rest.
-	Level string `json:"level"`
-
-	// Text is the line, without its newline; invalid UTF-8 replaced by the runner.
-	Text string `json:"text"`
+	// Bytes is the chunk, undecoded; base64 on the wire, with its length beside it.
+	Bytes []byte `json:"-"`
 }
+
+// region EXPORTED METHODS
+
+// region Behaviors
+
+// MarshalJSON renders the narration as the wire shows it, the length beside the bytes.
+//
+// Returns:
+//   - `[]byte`: the JSON.
+//   - `error`: non-nil when the bytes cannot be encoded, which they always can.
+func (n Narration) MarshalJSON() ([]byte, error) {
+	return json.Marshal(narrationWire{Exec: n.Exec, Unit: n.Unit, Len: len(n.Bytes), Bytes: n.Bytes})
+}
+
+// UnmarshalJSON reads the wire form MarshalJSON writes.
+//
+// Parameters:
+//   - `data`: the JSON.
+//
+// Returns:
+//   - `error`: non-nil when the JSON is not a narration payload, or its length disagrees with its bytes.
+func (n *Narration) UnmarshalJSON(data []byte) error {
+
+	var wire narrationWire
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	if wire.Len != len(wire.Bytes) {
+		return errors.New("narration: len disagrees with bytes")
+	}
+	*n = Narration{Exec: wire.Exec, Unit: wire.Unit, Bytes: wire.Bytes}
+	return nil
+}
+
+// endregion
+
+// endregion
 
 // Output is the payload of an output frame: `{"exec":"e-41","len":4096,"bytes":"<base64>"}`.
 type Output struct {
@@ -226,6 +262,14 @@ type Control struct {
 
 	// Outcome is the posted unit's stamped stack, serialized as the trace serializes it (5.2); absent for a command.
 	Outcome json.RawMessage `json:"outcome,omitempty"`
+}
+
+// narrationWire is the wire form of a Narration.
+type narrationWire struct {
+	Exec  ExecID `json:"exec"`
+	Unit  string `json:"unit,omitempty"`
+	Len   int    `json:"len"`
+	Bytes []byte `json:"bytes"`
 }
 
 // outputWire is the wire form of an Output.

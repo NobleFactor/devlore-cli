@@ -47,7 +47,7 @@ func TestPlatformRunner_ThroughTheBroker(t *testing.T) {
 
 	runtimeEnvironment, broker := newRecordedEnvironment(t)
 	deliverWhenAsked(t, broker, platformRun,
-		NarrationFrame("e-1", "root", "warn", "Reading package lists..."),
+		NarrationFrame("e-1", "root", []byte("Reading package lists...\n")),
 		OutputFrame("e-1", []byte("done\n")),
 		ControlFrame("e-1", 0, nil),
 	)

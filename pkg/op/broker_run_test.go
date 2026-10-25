@@ -4,6 +4,7 @@
 package op
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"testing"
@@ -42,13 +43,13 @@ func TestRun_CollectsUntilControl(t *testing.T) {
 
 	broker := NewRecordingBroker()
 	deliverWhenAsked(t, broker, "r",
-		NarrationFrame("e-1", "u", "warn", "one"),
+		NarrationFrame("e-1", "u", []byte("one\n")),
 		OutputFrame("e-9", []byte("not mine")),
 		OutputFrame("e-1", []byte("out")),
 		OutputFrame("e-1", []byte("put")),
-		NarrationFrame("e-1", "u", "warn", "two"),
+		NarrationFrame("e-1", "u", []byte("two\n")),
 		ControlFrame("e-1", 4, nil),
-		NarrationFrame("e-1", "u", "warn", "after the end"),
+		NarrationFrame("e-1", "u", []byte("after the end\n")),
 	)
 
 	outcome, err := Run(context.Background(), broker, ExecRequest{Run: "r", Unit: "u", Account: "caller", Argv: []string{"x"}})
@@ -96,5 +97,26 @@ func TestRun_NoBroker(t *testing.T) {
 
 	if _, err := Run(context.Background(), nil, ExecRequest{}); !errors.Is(err, errNoBroker) {
 		t.Errorf("Run: got %v, want errNoBroker", err)
+	}
+}
+
+// TestRun_WithNarratorWritesAsItArrives pins that WithNarrator writes each narration frame's bytes as it arrives, in
+// order, before the exec ends, and writes nothing of another exec's.
+func TestRun_WithNarratorWritesAsItArrives(t *testing.T) {
+
+	broker := NewRecordingBroker()
+	deliverWhenAsked(t, broker, "r",
+		NarrationFrame("e-1", "u", []byte("one\r")),
+		NarrationFrame("e-9", "u", []byte("not mine")),
+		NarrationFrame("e-1", "u", []byte("two\n")),
+		ControlFrame("e-1", 0, nil),
+	)
+
+	var written bytes.Buffer
+	if _, err := Run(context.Background(), broker, ExecRequest{Run: "r", Unit: "u", Account: "caller", Argv: []string{"x"}}, WithNarrator(&written)); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if written.String() != "one\rtwo\n" {
+		t.Errorf("narrator received %q", written.String())
 	}
 }
