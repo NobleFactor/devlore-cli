@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
+	"github.com/NobleFactor/devlore-cli/cmd/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/adopt"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/deploy"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/readback"
@@ -58,7 +59,12 @@ func deployForTest(t *testing.T, root string) {
 		t.Fatal(err)
 	}
 
-	cfg := &deploy.Config{SourceRoot: sourceRoot, TargetRoot: root, Projects: []string{"seed"}}
+	cfg := &deploy.Config{
+		SourceRoot: sourceRoot,
+		TargetRoot: root,
+		Projects:   []string{"seed"},
+		Registry:   lorepackage.New("test", nil, t.TempDir()),
+	}
 	if _, err := deploy.Execute(context.Background(), cfg); err != nil {
 		t.Fatalf("deploy for adopt: %v", err)
 	}

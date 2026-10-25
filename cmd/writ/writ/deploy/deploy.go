@@ -56,8 +56,8 @@ type Config struct {
 	Conflict op.ConflictPolicy
 
 	// Registry answers one question at plan time: does a manifest claim name a registry package. Those are
-	// deferred to the devlore provider (#877); every other claim plans `pkg.install` (#814). Nil skips manifest
-	// planning with a note.
+	// deferred to the devlore provider (#877); every other claim plans `pkg.install` (#814). Required: there is
+	// always a registry, and `BuildGraphs` refuses a nil one (#1179).
 	Registry *lorepackage.Registry
 
 	// AllowDirty permits planning against layers with uncommitted changes.

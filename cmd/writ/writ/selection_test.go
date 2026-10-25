@@ -13,6 +13,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
 	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
+	"github.com/NobleFactor/devlore-cli/cmd/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/deploy"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/segment"
 
@@ -131,6 +132,7 @@ func TestResolveSelection_Recorded(t *testing.T) {
 
 	targetRoot := t.TempDir()
 	if _, err := deploy.Execute(context.Background(), &deploy.Config{
+		Registry:   lorepackage.New("test", nil, t.TempDir()),
 		SourceRoot: filepath.Join(personal, "Home"),
 		TargetRoot: targetRoot,
 		Projects:   []string{"common", "thenobles"},

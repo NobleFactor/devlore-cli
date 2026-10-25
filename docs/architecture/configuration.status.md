@@ -40,10 +40,15 @@ per-scope `dev`/`test`/`stage`/`prod` variants, scope-dominant); per-key overlay
   **Landed** for `lore`, `writ` and `devlore-test` on the shared root; `star` joins in #743 with `show` and
   `sync` attached beneath. **Not yet:** the fold that makes `get` and `show` read one model.
 
+## TODO
+
+- One way to set a default, and one global command to get and set a value — required 2026-10-25 (#1179). Today defaults are set two ways, per-app embedded files that only seed configuration and Go `WithDefaults()` applied at the point of use, and the two have drifted on the registry. See the doc's § TODO under Relationship to today's code.
+
 ## Outstanding / open questions
 
 - Scope-composition home (one shared assembly package vs. per-app).
 - Builtin as runtime floor (today the embedded defaults only seed files at install).
+- Where a default lives, and a generated default config file: one place in the code, an operator's file generated from it — raised 2026-10-25 (#1179).
 - Schema versioning + migration — the held-in-reserve Kubernetes idea.
 - `show` and `sync` on all four programs, or star's alone — asked 2026-09-02.
 - Star unification sequencing — shape defined in the doc ("Star unification and the two announcement paths": two

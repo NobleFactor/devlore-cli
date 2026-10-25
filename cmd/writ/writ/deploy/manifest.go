@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
 	"github.com/NobleFactor/devlore-cli/cmd/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/tree"
 	"github.com/NobleFactor/devlore-cli/internal/manifest"
@@ -61,7 +60,7 @@ type claim struct {
 // provider (#877) will construct, and until then writ notes it and deploys the rest of the scope.
 //
 // Parameters:
-//   - `cfg`: the deploy configuration; a nil `Registry` skips manifest planning with a note.
+//   - `cfg`: the deploy configuration; its `Registry` says which claims name registry packages.
 //   - `provider`: the scope's plan provider; the invocations register into it and are gathered from it.
 //   - `environment`: the planning runtime environment; supplies the platform the identifiers parse against.
 //   - `scope`: the scope's name, for the subgraph's identity; "" in single-source mode.
@@ -79,11 +78,6 @@ func planManifests(
 ) (op.ExecutableUnit, []Duplicate, []Deferred, error) {
 
 	if len(manifests) == 0 {
-		return nil, nil, nil, nil
-	}
-
-	if cfg.Registry == nil {
-		cli.Note("Skipping %d packages-manifest file(s): no registry configured", len(manifests))
 		return nil, nil, nil, nil
 	}
 
