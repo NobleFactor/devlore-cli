@@ -1,7 +1,7 @@
 ---
 title: "The console stream never drops a frame: a slow subscriber receives every one, late, and the child is never blocked on it"
 issue: https://github.com/NobleFactor/devlore-cli/issues/1131
-status: draft
+status: approved
 created: 2026-10-23
 updated: 2026-10-24
 ---
@@ -56,8 +56,8 @@ The first plan, committed as c6a059b0, also rendered narration and emitted exec 
 
 ### Phase 1: the plan lands
 
-- [ ] Reviewed with the owner, status `approved`, committed on `feature/1131-console-spool`, replacing the plan of c6a059b0
-- [ ] #1131's documents table carries this plan's link
+- [x] Reviewed with the owner, status `approved`, committed on `feature/1131-console-spool`, replacing the plan of c6a059b0 -- 2026-10-24
+- [x] #1131's documents table carries this plan's link -- 2026-10-23
 
 ### Phase 2: delivery and its tests (Requirements 1 and 2)
 
