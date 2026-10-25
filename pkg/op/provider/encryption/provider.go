@@ -83,7 +83,7 @@ func (p *Provider) DecryptSopsFile(activationRecord *op.ActivationRecord, source
 
 	// 2. Decrypt via SopsClient
 
-	cleartext, err := p.sops.Decrypt(data, source.Path().Abs())
+	cleartext, err := p.sops.Decrypt(data)
 	if err != nil {
 		return nil, nil, fmt.Errorf("sops decryption failed: %w", err)
 	}
@@ -125,9 +125,9 @@ func (p *Provider) CompensateDecryptSopsFile(activationRecord *op.ActivationReco
 
 // EncryptFile reads source's cleartext and writes the SOPS-encrypted content to destinationPath.
 //
-// Recipients and document format come from the `.sops.yaml` governing source's path — discovered by the
-// [sops.Encrypter] walking up from source to the [RuntimeEnvironment] Root, then the XDG fallback. Identity for the
-// destination is constructed by [file.DiscoverRegular].
+// The content is encrypted as its bytes, whatever source is called (#977). Recipients come from the `.sops.yaml`
+// governing source's path — discovered by the [sops.Encrypter] walking up from source to the [RuntimeEnvironment] Root,
+// then the XDG fallback. Identity for the destination is constructed by [file.DiscoverRegular].
 //
 // `mode` is NOT floored here: the product is ciphertext, which is safe at rest by construction and is typically
 // committed to a repository that will store it 0o644 regardless. The default stays 0o600 so behavior is unchanged

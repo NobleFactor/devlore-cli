@@ -2,6 +2,7 @@
 
 **Architecture document:** [6-execution-topology.md](6-execution-topology.md)
 
+**Revised 2026-10-24** (plan [`1159-stream-rulings.md`](../plans/chore/1159-stream-rulings.md)): the remote leg is SSH again, with a bundle in place of the upload of a runner binary.
 **State:** revised 2026-10-21. The document keeps the problem, the per-unit policy triplet and the topology; its
 mechanism sections are a paragraph each naming where the content now lives. Plan
 [`1119-broker-specification.md`](../plans/chore/1119-broker-specification.md).

@@ -3,6 +3,7 @@
 **Document:** [10-command-line-interface.md](10-command-line-interface.md)
 **Epic:** [#740](https://github.com/NobleFactor/devlore-cli/issues/740)
 **Plan:** [740-cli-output-conventions.md](../plans/feature/740-cli-output-conventions.md)
+**Revised 2026-10-23** (plan [`1159-stream-rulings.md`](../plans/chore/1159-stream-rulings.md)): § 5's output model takes events as a fourth thing, for observers, through OpenTelemetry; diagnostics are events, not narration.
 **State:** Specified 2026-08-28 against `aws`, `az`, `docker`, `gcloud`, and `kubectl`; the formatter layer
 and three of four programs landed by 2026-09-01. `devlore-test`, `lore` and `writ` register the common set;
 `star` does not yet ([#743](https://github.com/NobleFactor/devlore-cli/issues/743), phase 3).
