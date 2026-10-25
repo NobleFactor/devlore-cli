@@ -1,7 +1,7 @@
 ---
 title: "A narration frame is the child's stderr bytes, written into the caller's narration sink unaltered: no level, no line splitting"
 issue: https://github.com/NobleFactor/devlore-cli/issues/1151
-status: approved
+status: active
 created: 2026-10-24
 updated: 2026-10-24
 ---
@@ -67,9 +67,9 @@ updated: 2026-10-24
 
 ### Phase 3: the documents and the pull request
 
-- [ ] Requirement 4
-- [ ] `make check`, `make lint-all` and `make test-race` pass; the description says AI assisted and ends with `Signed-off-by:` and `Assisted-by: Claude Code`; the script is `~/Workspace/NobleFactor/devlore-cli.1151-narration-bytes.bash`
-- [ ] Status `active` in the last commit, with Phase 4 named as the reason
+- [x] Requirement 4 -- 2026-10-24
+- [x] `make check`, `make lint-all` and `make test-race` pass; the description says AI assisted and ends with `Signed-off-by:` and `Assisted-by: Claude Code`; the script is `~/Workspace/NobleFactor/devlore-cli.1151-narration-bytes.bash` -- 2026-10-24
+- [x] Status `active` in the last commit, with Phase 4 named as the reason -- 2026-10-24
 
 ### Phase 4: after the merge (rule 5)
 
