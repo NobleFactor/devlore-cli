@@ -58,7 +58,7 @@ updated: 2026-10-24
 
 ### Phase 1: the plan lands
 
-- [ ] Reviewed with the owner, status `approved`, committed alone on `feature/1151-narration-bytes`
+- [x] Reviewed with the owner, status `approved`, committed alone on `feature/1151-narration-bytes` -- 2026-10-24
 - [ ] #1151's documents table carries this plan's link
 
 ### Phase 2: the frame, the runner and the caller (Requirements 1 to 3)
