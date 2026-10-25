@@ -481,9 +481,10 @@ build-all: generate ## Compile every package under every supported GOOS (no bina
 # unpinned local binary and a pinned CI binary disagree about the same source. #669 was exactly that:
 # v2.13.1 found four real SA4023 defects that CI's v2.12.2 did not. This variable is the one place the
 # version is written: CI reads it through `make print-golangci-lint-version`, so a bump is one line.
-# v2.14.0 since 2026-10-09 (#1020, ruled "update to 2.14 everywhere"): v2.13.2 cannot read Go 1.27.2's
-# standard library, and the developer machines and CI run v2.14.0.
-GOLANGCI_LINT_VERSION ?= v2.14.0
+# The rule is the same version everywhere, not any particular version: CI and every developer machine run the
+# pin, and the pin moves to the latest release by #1020's monthly chore. v2.15.0 since 2026-10-25 (#1179, part of
+# #1020): Homebrew had moved the developer machines to it.
+GOLANGCI_LINT_VERSION ?= v2.15.0
 
 print-golangci-lint-version: ## Print the pinned golangci-lint version, for CI to install the same one
 	@echo $(GOLANGCI_LINT_VERSION)

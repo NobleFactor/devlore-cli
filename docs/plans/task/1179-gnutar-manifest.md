@@ -31,7 +31,7 @@ updated: 2026-10-25
 | `Home/common/packages-manifest.yaml` | `packages: []`; the team layer has no Darwin variant of `common` |
 | `cmd/writ/writ/commands.go:78` | builds the registry with `lorepackage.NewRegistry()`, which returns a client or an error, never nil |
 | `cmd/writ/writ/deploy/manifest.go:85` | a nil `Registry` skips every manifest with a note |
-| `cmd/writ/writ/deploy/deploy.go` `BuildGraphs` | accepts a nil `Registry` |
+| `cmd/writ/writ/deploy/plan.go` `BuildGraphs` | accepts a nil `Registry`; `deploy.go`'s `Config.Registry` comment says nil skips manifest planning |
 | integration tests of upgrade, reconcile, decommission, adopt, readback, deploy, sops, selection and workflow verify | build a `deploy.Config` with no `Registry`; `manifest_matrix_test.go` passes `lorepackage.New("test", nil, dir)` |
 | `docs/architecture/configuration.md` | rules a constructed floor, says nothing of today's two default mechanisms or of a generated config file |
 
@@ -56,6 +56,10 @@ The nil-registry branch and its note are deleted from `planManifests`, and its d
 
 `docs/architecture/configuration.md` gains, already written on this branch: the open question "Where a default lives, and a generated default config file", and the subsection "TODO — one way to set a default, and one global command to get and set a value" under § Relationship to today's code. `configuration.status.md` lists both.
 
+### Requirement 4: the golangci-lint pin
+
+Found in Phase 2: Homebrew had moved Media-Server's golangci-lint to v2.15.0, so `make lint-all` refused to run against the v2.14.0 pin. The rule is the same version everywhere, not any particular version (the owner, 2026-10-25), so the pin moves to v2.15.0, the latest release, as part of #1020's monthly chore, and its comment states the rule. v2.15.0 finds nothing on Linux, Darwin or Windows. CI reads the pin, so CI moves with it; the other developer machines #1020 lists move by hand.
+
 ## Implementation Phases
 
 ### Phase 1: the plan lands
@@ -63,9 +67,9 @@ The nil-registry branch and its note are deleted from `planManifests`, and its d
 - [x] Reviewed with the owner, status `approved`, committed with Requirement 3's spec edits on `feature/1179-gnutar-manifest` -- 2026-10-25
 - [x] #1179's documents table carries this plan's link -- 2026-10-25
 
-### Phase 2: the manifest and the registry (Requirements 1 and 2)
+### Phase 2: the manifest, the registry and the pin (Requirements 1, 2 and 4)
 
-- [ ] The manifest, the code and the tests; `make lint-all` and `make test-race`
+- [x] The manifest, the code and the tests, and the pin (Requirement 4); `make lint-all` and `make test-race` -- 2026-10-25
 
 ### Phase 3: the pull request
 
@@ -85,9 +89,10 @@ The layer clone deploy reads is on `develop`, so the manifest reaches a deploy o
 | --- | --- | --- |
 | `docs/plans/task/1179-gnutar-manifest.md` | Create | This plan |
 | `Home/common.Darwin/packages-manifest.yaml` | Create | Requirement 1 |
-| `cmd/writ/writ/deploy/manifest.go`, `deploy.go`, their tests | Modify | Requirement 2 |
+| `cmd/writ/writ/deploy/manifest.go`, `plan.go`, `deploy.go`, `manifest_matrix_test.go` | Modify | Requirement 2 |
 | the integration tests named under Current State | Modify | Requirement 2 |
 | `docs/architecture/configuration.md`, `configuration.status.md` | Modify | Requirement 3 |
+| `Makefile` | Modify | Requirement 4 |
 
 ## Related Documents
 
