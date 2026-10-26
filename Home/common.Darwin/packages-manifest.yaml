@@ -11,3 +11,5 @@ packages:
   # GNU tar, for the same reason: a reproducible archive takes --sort and --mtime, which are GNU tar's, and macOS
   # ships bsdtar.
   - name: pkg:port/gnutar
+  # shellcheck, which the shell-lint gate runs: build/star lint shell, in make quality-gate.
+  - name: pkg:port/shellcheck
