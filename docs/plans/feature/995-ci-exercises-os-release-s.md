@@ -1,7 +1,7 @@
 ---
 title: "CI exercises os-release's lineage only on Ubuntu"
 issue: https://github.com/NobleFactor/devlore-cli/issues/995
-status: approved
+status: active
 created: 2026-10-25
 updated: 2026-10-25
 ---
@@ -42,10 +42,11 @@ family. #995 sets out each chain shape and what the code does with it.
   independently (`fail-fast: false`).
 - A leg runs `.github/scripts/scenario-in-container.sh <image>`, which runs the image with `docker run` over the
   checked-out tree, not as a container job: GitHub's JavaScript actions, `checkout` and `setup-go` among them, cannot
-  run inside an Alpine image. In the container the script installs what `make test-scenario` needs and the image
-  lacks, with the image's own package manager (apt, dnf or apk): bash, GNU make 3.82+, git, GNU getopt, curl and tar;
-  installs Go 1.27.3 from go.dev, checked against the SHA-256 go.dev publishes for it; prints `/etc/os-release`; and
-  runs `make test-scenario` as a user it creates, not as root.
+  run inside an Alpine image. Inside, `.github/scripts/scenario-container-run.sh`, POSIX `sh` since Alpine has no bash
+  until it is installed, installs what `make test-scenario` needs and the image lacks, with the image's own package
+  manager (apt, dnf or apk): bash, GNU make 3.82+, git, GNU getopt, curl and tar; installs Go 1.27.3 from go.dev,
+  checked against the SHA-256 go.dev publishes for it; prints `/etc/os-release`; and runs `make test-scenario` as a user
+  it creates, not as root.
 - The job reports without blocking a merge: the "Cross-platform required checks" ruleset does not name it.
 
 ### Requirement 2: Fedora-family consumers in the fixture
@@ -73,6 +74,8 @@ family. #995 sets out each chain shape and what the code does with it.
   | `alpine:latest` | `Unix`, `Linux`, `Alpine` | none of the three; `platform.Detect` refuses the host, and what writ then does is measured |
 
 - A leg that does not do what the table says is a finding, put to the owner before anything changes to make it pass.
+  The PR script's gate requires every check run of the head to succeed, by GitHub's API, required or not, so a failing
+  leg stops the merge; each leg's log is read and reported once the checks finish.
 
 ## Implementation Phases
 
@@ -82,11 +85,14 @@ family. #995 sets out each chain shape and what the code does with it.
 
 ### Phase 2: The fixture (Requirement 2)
 
-- [ ] `common.Fedora` and `common.RHEL`; the four word lists; `make test-scenario` passing on this machine
+- [x] `common.Fedora` and `common.RHEL`; the four word lists; `make test-scenario` passing on this machine: exit 0,
+      step 2.3 asserting the Fedora-family consumers absent on Ubuntu and step 2.3b `common.Debian` deployed. Step
+      2.3b is renamed "an ancestor's consumers deploy to its descendant", since on Rocky the ancestor is not Debian
 
 ### Phase 3: The job (Requirement 1)
 
-- [ ] `scenario-in-container.sh` and the `distribution` job; shellcheck and the shell lint passing
+- [x] `scenario-in-container.sh`, `scenario-container-run.sh` and the `distribution` job; shellcheck and the shell
+      lint passing, 17 scripts. Not run here: this machine has no docker, so the legs first run on the pull request
 
 ### Phase 4: Merge
 
@@ -104,7 +110,8 @@ before the merge, from the pull request, and reported.
 | File | Action | Purpose |
 | --- | --- | --- |
 | `.github/workflows/ci.yaml` | Modify | Requirement 1: the `distribution` job |
-| `.github/scripts/scenario-in-container.sh` | Create | Requirement 1 |
+| `.github/scripts/scenario-in-container.sh` | Create | Requirement 1: the host side, `docker run` |
+| `.github/scripts/scenario-container-run.sh` | Create | Requirement 1: inside the image |
 | `cmd/writ/testdata/layer-journey/personal-a/Home/common.Fedora/**` | Create | Requirement 2 |
 | `cmd/writ/testdata/layer-journey/personal-a/Home/common.RHEL/**` | Create | Requirement 2 |
 | `cmd/writ/scenario_layer_journey_test.go` | Modify | Requirement 2: the four word lists |

@@ -560,7 +560,7 @@ func (j *journey) consumersAtA(t *testing.T) map[string]string {
 	home := j.sandbox.Home
 	consumers := map[string]string{}
 	for _, selector := range selectorsHere(t) {
-		if !contains([]string{"Darwin", "Linux", "Debian", "Unix"}, selector) {
+		if !contains([]string{"Darwin", "Linux", "Debian", "Fedora", "RHEL", "Unix"}, selector) {
 			continue // the fixture carries no consumer for this selector (Windows, Ubuntu, ...)
 		}
 		for _, verb := range []string{"Get", "Test"} {
@@ -616,7 +616,7 @@ func (j *journey) applyMove(t *testing.T) []string {
 	}
 
 	// The consumers: common.<selector>/local/{bin,share} -> noblefactor-ops.<selector>/.local/{bin,share}.
-	for _, selector := range []string{"Darwin", "Linux", "Debian", "Unix"} {
+	for _, selector := range []string{"Darwin", "Linux", "Debian", "Fedora", "RHEL", "Unix"} {
 		from := filepath.Join("Home", "common."+selector, "local")
 		to := filepath.Join("Home", "noblefactor-ops."+selector, ".local")
 		for _, file := range filesUnder(t, filepath.Join(repo, from)) {
@@ -956,7 +956,7 @@ func TestWritLayerJourneyScenario_Part2_Deploy(t *testing.T) {
 				t.Fatalf("%s should be deployed on %s: %v", name, runtime.GOOS, err)
 			}
 		}
-		for _, selector := range []string{"Darwin", "Linux", "Debian", "Unix"} {
+		for _, selector := range []string{"Darwin", "Linux", "Debian", "Fedora", "RHEL", "Unix"} {
 			if contains(selectorsHere(t), selector) {
 				continue
 			}
@@ -968,13 +968,13 @@ func TestWritLayerJourneyScenario_Part2_Deploy(t *testing.T) {
 		assertPresence(t, runtime.GOOS != "windows", filepath.Join(home, ".local", "bin", "nf-unix"))
 	})
 
-	t.Run("2.3b the lineage deploys: what deploys to Debian deploys to Ubuntu", func(t *testing.T) {
+	t.Run("2.3b the lineage deploys: an ancestor's consumers deploy to its descendant", func(t *testing.T) {
 		lineage := lineageSelectors()
 		if len(lineage) == 0 {
 			t.Skipf("%s declares no lineage in os-release; nothing to assert", runtime.GOOS)
 		}
 		for _, selector := range lineage {
-			if !contains([]string{"Darwin", "Linux", "Debian", "Unix"}, selector) {
+			if !contains([]string{"Darwin", "Linux", "Debian", "Fedora", "RHEL", "Unix"}, selector) {
 				continue // the fixture carries no consumer for this ancestor
 			}
 			path := filepath.Join(home, "local", "bin", "Get-"+selector+"Scenario")
