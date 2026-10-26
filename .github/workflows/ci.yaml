@@ -240,3 +240,30 @@ jobs:
 
       - name: Writ-deploy and layer-journey scenarios
         run: make test-scenario
+
+  # The scenarios on each shape of os-release lineage (#995): both runners above are Ubuntu, so they see one chain,
+  # Debian then Ubuntu. One leg per image, each a shape of docs/guides/selectors.md's table: Debian, the root of its
+  # lineage; Kali, an ID writ does not list under one it does; Fedora, the other family's root; Rocky, its longest
+  # lineage; Alpine, no ID_LIKE and an ID pkg/platform refuses. scenario-in-container.sh runs each image with docker run
+  # over the checkout, since GitHub's JavaScript actions cannot run inside Alpine. Not a required check: it reports
+  # without blocking a merge until the "Cross-platform required checks" ruleset names it.
+  distribution:
+    name: distribution (${{ matrix.image }})
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - debian:stable
+          - kalilinux/kali-rolling
+          - fedora:latest
+          - rockylinux/rockylinux:10
+          - alpine:latest
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Writ-deploy and layer-journey scenarios in ${{ matrix.image }}
+        run: .github/scripts/scenario-in-container.sh "${{ matrix.image }}"
