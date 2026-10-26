@@ -1,14 +1,15 @@
 ---
 title: "CI exercises os-release's lineage only on Ubuntu"
 issue: https://github.com/NobleFactor/devlore-cli/issues/995
-status: active
+status: complete
 created: 2026-10-25
 updated: 2026-10-25
 ---
 
 # Plan: CI deploys on Debian, Kali, Fedora, Rocky and Alpine, not Ubuntu alone
 
-Lane 49 of #949. One pull request.
+Was lane 49 of #949; taken off that schedule 2026-10-25 with every lane not directly about the install scripts, and
+finished on its own, as ordered the same day: "finis #995". One pull request.
 
 ## Summary
 
@@ -96,8 +97,9 @@ family. #995 sets out each chain shape and what the code does with it.
 
 ### Phase 4: Merge
 
-- [ ] `make check-all`, finished green as the PR script runs it, read before this box is ticked
-- [ ] PR script `~/Workspace/NobleFactor/devlore-cli.995-ci-exercises-os-release-s.bash` written, shown, and handed
+- [x] `make check-all`, finished green as the PR script runs it, read before this box is ticked: exit 0 at
+      `a12fea63` with golangci-lint 2.15.0, the version the Makefile pins, "check-all passed on linux/arm64"
+- [x] PR script `~/Workspace/NobleFactor/devlore-cli.995-ci-exercises-os-release-s.bash` written, shown, and handed
       over; the PR resolves #995. This box's commit, the pull request's last, sets this plan `complete`, unless a
       leg's result is a finding still before the owner
 
