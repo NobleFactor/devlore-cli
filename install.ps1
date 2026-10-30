@@ -21,8 +21,8 @@
 
     It speaks through PowerShell's streams, as a cmdlet does: its results on the output stream, a warning on the
     warning stream, a failure as an error record. What it is doing goes to the verbose stream: give -Verbose, or set
-    $VerbosePreference = 'Continue' before the irm | iex form, to see it. A failure leaves the session open; run as a
-    file, the script exits 1.
+    $VerbosePreference = 'Continue' before the irm | iex form, to see it. A failure leaves the session open, in every
+    form.
 
     Environment: $env:DEVLORE_VERSION picks a release tag (default: the newest release, pre-releases
     included); $env:DEVLORE_TOOLS picks all, writ, lore or star (default: all); $env:GH_TOKEN, optional,
@@ -40,9 +40,6 @@
 .PARAMETER Prefix
     The installation prefix. Default: ~/.local, on every platform.
 
-.PARAMETER Help
-    Show the usage and return.
-
 .EXAMPLE
     & ([scriptblock]::Create((irm https://delightful-grass-0ac0a4c1e-develop.westus2.6.azurestaticapps.net/install.ps1))) `
         -Base <loc> -Team <loc> -Personal <loc>
@@ -58,64 +55,28 @@ using namespace System.Linq
 #Requires -Version 5.1
 
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
-    Justification = 'Prefix is read by Main below -- it defaults there to ~/.local, becomes the bin
-    directory, and is passed to `self install`. PowerShell resolves a script-scope parameter inside a
-    function in the same script dynamically, and the analyzer cannot see across that boundary. Deleting
-    it would silently drop a documented flag.')]
+    Justification = 'Prefix is read by Main below -- it defaults there to ~/.local, becomes the bin directory, and is
+    passed to `self install`. PowerShell resolves a script-scope parameter inside a function in the same script
+    dynamically, and the analyzer cannot see across that boundary. Deleting it would silently drop a documented flag.')]
 [CmdletBinding()]
 param(
     [string]$Base,
     [string]$Team,
     [string]$Personal,
-    [string]$Prefix,
-    [switch]$Help
+    [string]$Prefix
 )
 
 # The installer's body runs in a scope of its own (#982, ruled 2026-10-21: "run in its own scope"). Under
 # Invoke-RestMethod | Invoke-Expression this script runs in the user's own scope, and what it set stayed in their
 # session when it ended: strict mode, its functions, and its variables, $AuthToken, which holds GH_TOKEN's value,
 # among them. Inside Invoke-Command -ScriptBlock all of it ends with this scope, in every form the script is run in.
-# Only the parameters' own variables are the caller's, holding what was passed. Whether the script runs as a file is
-# decided out here, where $MyInvocation is the script's, and passed in, so that it sets no variable in the caller's
-# scope: in the block, $MyInvocation is the block's, and $script:MyInvocation is whichever script called the
-# script-block form.
-Invoke-Command -ArgumentList ($MyInvocation.MyCommand.CommandType -eq 'ExternalScript') -ScriptBlock {
-
-    param([bool] $RunAsFile)
+# Only the parameters' own variables are the caller's, holding what was passed.
+Invoke-Command -ScriptBlock {
 
     Set-StrictMode -Version Latest
 
     # $ErrorActionPreference is set inside Install-DevLore, never here: it is a preference, which a script block reads
     # from its caller's scope, and Install-DevLore's own setting is what keeps the caller's untouched (#1044, D4).
-
-    # Where the DevLore site serves this script. The site releases from develop, so this is its develop environment.
-    $InstallersUrl = "https://delightful-grass-0ac0a4c1e-develop.westus2.6.azurestaticapps.net"
-
-    # `return`, not `exit`: under `irm | iex` and the script-block form the script is not a file, and `exit` would end
-    # the user's PowerShell session (#965). Run as a file, returning still exits 0.
-    if ($Help) {
-        Write-Output -InputObject @(
-            "Usage: install.ps1 [-Prefix <dir>] [-Base <loc>] [-Team <loc>] [-Personal <loc>]",
-            '',
-            "Installs lore, star and writ into <prefix> (default ~/.local), then registers each layer given",
-            "with writ repo set, base first. A layer not given is skipped and named at the end, unless writ",
-            "already has it registered. Never asks.",
-            "The archive is verified against the release's checksums file first, and refused if it cannot be.",
-            '',
-            "  -Prefix <dir>     installation prefix (default: ~/.local)",
-            "  -Base <loc>       the base layer: a working-tree root or a repository URL (or `$env:DEVLORE_BASE)",
-            "  -Team <loc>       the team layer (or `$env:DEVLORE_TEAM)",
-            "  -Personal <loc>   the personal layer (or `$env:DEVLORE_PERSONAL)",
-            "  -Verbose          show what the installer is doing as it does it",
-            '',
-            ("Environment: DEVLORE_VERSION (a release tag), DEVLORE_TOOLS (all, writ, lore or star), " +
-                "GH_TOKEN (optional)."),
-            '',
-            "Served by the DevLore site's develop environment, from which devlore is released today:",
-            "  & ([scriptblock]::Create((irm $InstallersUrl/install.ps1))) -Base <loc> -Team <loc> -Personal <loc>"
-        )
-        return
-    }
 
     # -------------------------------------------------------------------
     # Configuration
@@ -123,6 +84,7 @@ Invoke-Command -ArgumentList ($MyInvocation.MyCommand.CommandType -eq 'ExternalS
 
     $GitHubRepo = "NobleFactor/devlore-cli"
     $GitHubApi = "https://api.github.com/repos/$GitHubRepo"
+
     # A release's files, each by its public link, <tag>/<name>: its browser_download_url, which self upgrade downloads
     # too.
     $GitHubDownload = "https://github.com/$GitHubRepo/releases/download"
@@ -1472,14 +1434,4 @@ namespace DevLore
     }
 
     Install-DevLore
-
-    # After a failure the script returns, so the session it runs in goes on: under Invoke-Expression and the
-    # script-block form, `exit` would end the user's PowerShell session (#965; ruled 2026-10-19, "return, per #965").
-    # Run as a file there is no session to end, and the script exits 1, as section 7 says, so the process that ran it
-    # knows (D2). The check is in here, after the call: $? is false after Install-DevLore reported an error, whatever
-    # the caller's error action (under Stop the error never gets here), where after the block it is true whatever the
-    # block reported.
-    if (-not $? -and $RunAsFile) {
-        exit 1
-    }
 }

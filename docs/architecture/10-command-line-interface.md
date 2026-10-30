@@ -112,9 +112,11 @@ user's temporary directory and remove it however they end, installed or refused
   stream, and nothing on the information stream or the host. A failure is an error record of its own, with an id and
   a category, reported under its caller's error action, and the program it runs reads a closed standard input. Two
   departures from the guide's example, each measured: the catch is a function's, `Install-DevLore`, because under
-  `irm | iex` the script has no `$PSCmdlet`, so an error names that function; and only a run as a file exits 1 after a
-  failure, since in the script-block and `irm | iex` forms `exit` would end the user's session
-  ([#965](https://github.com/NobleFactor/devlore-cli/issues/965)). Under Windows PowerShell 5.1, the `Add-Type` that
+  `irm | iex` the script has no `$PSCmdlet`, so an error names that function; and it has no exit code: a failure
+  leaves the session open and returns, in every form, since under `irm | iex` `exit` would end the user's session
+  ([#965](https://github.com/NobleFactor/devlore-cli/issues/965)) and a run as a file is not treated differently
+  (ruled 2026-10-23, [#1161](https://github.com/NobleFactor/devlore-cli/issues/1161)). Under Windows PowerShell 5.1,
+  the `Add-Type` that
   compiles its file-identity check leaves one empty directory with a random name in `TEMP`, a session: the .NET
   Framework compiler's, not the installer's, and nothing records whose it is. PowerShell 7 leaves none. It is not
   cleaned up; ruled 2026-10-21, "it sounds like powershell is unhygenic, not a litterbug"

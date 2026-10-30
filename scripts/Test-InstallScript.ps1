@@ -29,7 +29,7 @@
     sentence, exactly, from the same tags, and every case for each request the installer made of GitHub, in order, and
     for those it sent GH_TOKEN with. The installer runs with -Verbose, every stream captured, so its narration is read
     from the verbose stream and its results from the output stream (#1044). A refusal runs in this session, which goes
-    on; run as a file, a failure exits 1, which 'as a file: a failure exits 1' checks.
+    on, in every form: install.ps1 has no exit code (#1161).
 
     Three checks run against GitHub itself, so that what the stand-ins model is what this edition's cmdlets do: a
     release GitHub does not have, the name GitHub's download host says it served, and a file a release lacks.
@@ -1421,22 +1421,6 @@ try {
             $summary[-1].Trim() -eq 'Documentation: https://github.com/NobleFactor/devlore-cli#readme') `
         -Detail $result.Output
 
-    # --- -Help gives the usage on the output stream and returns ---
-
-    $null = Use-Account -Name 'help'
-
-    try {
-        $help = @(& $block -Help 6>&1)
-        $helpInformation = @($help | Where-Object { $_ -is [System.Management.Automation.InformationRecord] })
-        $helpText = ($help | Where-Object { $_ -isnot [System.Management.Automation.InformationRecord] }) -join "`n"
-        Test-Expectation -Description '-Help: gives the usage on the output stream and returns' `
-            -Condition ($helpText -match 'Usage: install\.ps1' -and $helpInformation.Count -eq 0) `
-            -Detail "information records: $($helpInformation.Count)`n$helpText"
-    }
-    catch {
-        Write-Fail -Description '-Help: gives the usage on the output stream and returns' -Detail $_.Exception.Message
-    }
-
     # --- A failure is an error record, and the session goes on (#965, #1044): an exit would end this script here ---
     #
     # A caller who continues on error gets the record and goes on; one who stops on error catches it in their own try.
@@ -1716,27 +1700,6 @@ catch {
         Test-Refusal -Case "$own in the checksums file's name" -Expected 'refused, as 1' -Result $result `
             -Message $noChecksums -Requests $checksumsThenRelease -Id DownloadRefused
     }
-
-    # --- Run as a file: a failure exits 1, -Help exits 0 ---
-
-    $prefix = Use-Account -Name 'file'
-    $env:DEVLORE_VERSION = $fixtureMissingTag
-
-    try {
-        $failed = Invoke-Child -Name 'file-failure' -ArgumentList @(
-            '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', "`"$installer`"", '-Prefix',
-            "`"$prefix`"")
-    }
-    finally {
-        $env:DEVLORE_VERSION = $savedVersion
-    }
-
-    Test-Expectation -Description 'as a file: a failure exits 1' -Condition ($failed.ExitCode -eq 1) `
-        -Detail "exit $($failed.ExitCode)`n$($failed.Output)"
-    $helped = Invoke-Child -Name 'file-help' -ArgumentList @(
-        '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', "`"$installer`"", '-Help')
-    Test-Expectation -Description 'as a file: -Help exits 0' -Condition ($helped.ExitCode -eq 0) `
-        -Detail "exit $($helped.ExitCode)`n$($helped.Output)"
 
     # --- Every run removes its download directory (#1051) ---
     #
