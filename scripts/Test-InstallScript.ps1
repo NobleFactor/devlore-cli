@@ -188,7 +188,7 @@ function Write-Pass {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
-        [string]
+        [String]
         $Description
     )
 
@@ -207,10 +207,10 @@ function Write-Fail {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
-        [string]
+        [String]
         $Description,
 
-        [string]
+        [String]
         $Detail
     )
 
@@ -241,11 +241,11 @@ function ConvertTo-SuiteError {
     [OutputType([System.Management.Automation.ErrorRecord])]
     param(
         [Parameter(Mandatory)]
-        [string]
+        [String]
         $Message,
 
         [Parameter(Mandatory)]
-        [string]
+        [String]
         $Id,
 
         [Parameter(Mandatory)]
@@ -255,7 +255,7 @@ function ConvertTo-SuiteError {
 
     $exception = New-Object -TypeName System.InvalidOperationException -ArgumentList $Message
 
-    return New-Object -TypeName System.Management.Automation.ErrorRecord -ArgumentList $exception, $Id, $Category, $null
+    New-Object -TypeName System.Management.Automation.ErrorRecord -ArgumentList $exception, $Id, $Category, $null
 }
 
 # Test-Expectation writes a check's result: PASS when its condition holds, and FAIL with its detail when not.
@@ -271,14 +271,14 @@ function Test-Expectation {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
-        [string]
+        [String]
         $Description,
 
         [Parameter(Mandatory)]
-        [bool]
+        [Boolean]
         $Condition,
 
-        [string]
+        [String]
         $Detail
     )
 
@@ -301,10 +301,10 @@ function Test-Expectation {
 #   - String: The account's prefix, where an install into it goes.
 function Use-Account {
     [CmdletBinding()]
-    [OutputType([string])]
+    [OutputType([String])]
     param(
         [Parameter(Mandatory)]
-        [string]
+        [String]
         $Name
     )
 
@@ -318,7 +318,7 @@ function Use-Account {
     $env:TMP = $tmp
     $env:TEMP = $tmp
     $env:TMPDIR = $tmp
-    return (Join-Path $account 'prefix')
+    (Join-Path $account 'prefix')
 }
 
 # Get-LayerRoot gets the root a writ reports for a layer, or '' when it reports none.
@@ -331,14 +331,14 @@ function Use-Account {
 #   - String: The layer's root, or ''.
 function Get-LayerRoot {
     [CmdletBinding()]
-    [OutputType([string])]
+    [OutputType([String])]
     param(
         [Parameter(Mandatory)]
-        [string]
+        [String]
         $Writ,
 
         [Parameter(Mandatory)]
-        [string]
+        [String]
         $Layer
     )
 
@@ -354,11 +354,11 @@ function Get-LayerRoot {
         $root = $registration.PSObject.Properties['root']
 
         if ($registration.layer -eq $Layer -and $root) {
-            return [string]$root.Value
+            return [String]$root.Value
         }
     }
 
-    return ''
+    ''
 }
 
 # Get-Registration gets every registration a writ reports, as one string to compare runs by.
@@ -370,10 +370,10 @@ function Get-LayerRoot {
 #   - String: `writ repo list`'s output, or '' when the writ is not there.
 function Get-Registration {
     [CmdletBinding()]
-    [OutputType([string])]
+    [OutputType([String])]
     param(
         [Parameter(Mandatory)]
-        [string]
+        [String]
         $Writ
     )
 
@@ -381,7 +381,7 @@ function Get-Registration {
         return ''
     }
 
-    return ((& $Writ repo list) -join "`n")
+    ((& $Writ repo list) -join "`n")
 }
 
 # Get-Leftover gets the download directories the installer left in an account's temporary directory.
@@ -423,17 +423,17 @@ function Get-Leftover {
 #   - PSCustomObject: `ExitCode`, and `Output`, everything the child printed.
 function Invoke-Child {
     [CmdletBinding()]
-    [OutputType([pscustomobject])]
+    [OutputType([PSCustomObject])]
     param(
         [Parameter(Mandatory)]
-        [string]
+        [String]
         $Name,
 
         [Parameter(Mandatory)]
-        [string[]]
+        [String[]]
         $ArgumentList,
 
-        [string]
+        [String]
         $InputFile
     )
 
@@ -446,7 +446,7 @@ function Invoke-Child {
     }
 
     $process = Start-Process -FilePath $shell -ArgumentList $ArgumentList -Wait -PassThru -NoNewWindow @redirect
-    return [pscustomobject]@{
+    [PSCustomObject]@{
         ExitCode = $process.ExitCode
         Output   = "$(Get-Content -Raw -LiteralPath $out)$(Get-Content -Raw -LiteralPath $err)"
     }
@@ -461,14 +461,14 @@ function Invoke-Child {
 #   - String: The command, encoded.
 function ConvertTo-EncodedCommand {
     [CmdletBinding()]
-    [OutputType([string])]
+    [OutputType([String])]
     param(
         [Parameter(Mandatory)]
-        [string]
+        [String]
         $Command
     )
 
-    return [System.Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($Command))
+    [System.Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($Command))
 }
 
 # Initialize-FixtureArchive gets the faux channel's archive for this platform (#1031), building it when it must.
@@ -482,7 +482,7 @@ function ConvertTo-EncodedCommand {
 #   - String: The archive's path.
 function Initialize-FixtureArchive {
     [CmdletBinding()]
-    [OutputType([string])]
+    [OutputType([String])]
     param()
 
     $dist = $env:DEVLORE_TEST_DIST
@@ -519,7 +519,7 @@ function Initialize-FixtureArchive {
                 'this platform'))
     }
 
-    return $archive
+    $archive
 }
 
 # Get-GitHubRefusal makes the error record this edition's web cmdlets throw when GitHub refuses a request.
@@ -550,17 +550,17 @@ function Get-GitHubRefusal {
         $Status,
 
         [Parameter(Mandatory)]
-        [string]
+        [String]
         $Message,
 
-        [string]
+        [String]
         $Documentation,
 
         [System.Collections.IDictionary]
         $Header = @{},
 
         [Parameter(Mandatory)]
-        [string]
+        [String]
         $Command
     )
 
@@ -569,7 +569,7 @@ function Get-GitHubRefusal {
 
     if ($Documentation) {
         $mediaType = 'application/json'
-        $body = [ordered]@{ message = $Message; documentation_url = $Documentation; status = "$([int]$Status)" } |
+        $body = [Ordered]@{ message = $Message; documentation_url = $Documentation; status = "$([Int32]$Status)" } |
             ConvertTo-Json
     }
 
@@ -581,18 +581,18 @@ function Get-GitHubRefusal {
             $body, [System.Text.Encoding]::UTF8, $mediaType)
 
         foreach ($name in $Header.Keys) {
-            $null = $response.Headers.TryAddWithoutValidation($name, [string]$Header[$name])
+            $null = $response.Headers.TryAddWithoutValidation($name, [String]$Header[$name])
         }
 
         $exception = New-Object -TypeName Microsoft.PowerShell.Commands.HttpResponseException -ArgumentList @(
-            "Response status code does not indicate success: $([int]$Status) ($($response.ReasonPhrase)).", $response)
+            "Response status code does not indicate success: $([Int32]$Status) ($($response.ReasonPhrase)).", $response)
 
         if ($Documentation) {
             $details = "`n$body"
         }
     }
     else {
-        if (-not ('DevLoreFixtureResponse' -as [type])) {
+        if (-not ('DevLoreFixtureResponse' -as [Type])) {
             Add-Type -TypeDefinition $fixtureResponseSource
         }
 
@@ -600,13 +600,13 @@ function Get-GitHubRefusal {
         $headers = New-Object -TypeName System.Net.WebHeaderCollection
 
         foreach ($name in $Header.Keys) {
-            $headers[$name] = [string]$Header[$name]
+            $headers[$name] = [String]$Header[$name]
         }
 
         $response = New-Object -TypeName DevLoreFixtureResponse -ArgumentList @(
             $Status, "$mediaType; charset=utf-8", $headers)
         $exception = New-Object -TypeName System.Net.WebException -ArgumentList @(
-            "The remote server returned an error: ($([int]$Status)) $reason.", $null,
+            "The remote server returned an error: ($([Int32]$Status)) $reason.", $null,
             [System.Net.WebExceptionStatus]::ProtocolError, $response)
     }
 
@@ -614,7 +614,7 @@ function Get-GitHubRefusal {
         $exception, "WebCmdletWebResponseException,Microsoft.PowerShell.Commands.$Command",
         [System.Management.Automation.ErrorCategory]::InvalidOperation, $null)
     $record.ErrorDetails = New-Object -TypeName System.Management.Automation.ErrorDetails -ArgumentList $details
-    return $record
+    $record
 }
 
 # Get-ClockTime gets a time as this machine's clock shows it, HH:mm, whatever the culture.
@@ -626,15 +626,15 @@ function Get-GitHubRefusal {
 #   - String: The time, HH:mm.
 function Get-ClockTime {
     [CmdletBinding()]
-    [OutputType([string])]
+    [OutputType([String])]
     param(
         [Parameter(Mandatory)]
-        [long]
+        [Int64]
         $Seconds
     )
 
     $local = [System.DateTimeOffset]::FromUnixTimeSeconds($Seconds).ToLocalTime()
-    return $local.ToString('HH:mm', [System.Globalization.CultureInfo]::InvariantCulture)
+    $local.ToString('HH:mm', [System.Globalization.CultureInfo]::InvariantCulture)
 }
 
 # Get-LookAlikeName gets a name a pattern would take for the one given: an X in place of its last dot (#1002).
@@ -646,15 +646,15 @@ function Get-ClockTime {
 #   - String: The look-alike.
 function Get-LookAlikeName {
     [CmdletBinding()]
-    [OutputType([string])]
+    [OutputType([String])]
     param(
         [Parameter(Mandatory)]
-        [string]
+        [String]
         $Name
     )
 
     $dot = $Name.LastIndexOf('.')
-    return $Name.Substring(0, $dot) + 'X' + $Name.Substring($dot + 1)
+    $Name.Substring(0, $dot) + 'X' + $Name.Substring($dot + 1)
 }
 
 # Invoke-FixtureInstall runs the installer in this session against the fixture release.
@@ -694,22 +694,22 @@ function Invoke-FixtureInstall {
         Justification = 'Shadowing Invoke-RestMethod and Invoke-WebRequest is the point: the functions stand in for
         GitHub while the installer runs, and live only in this function''s scope (#1002).')]
     [CmdletBinding()]
-    [OutputType([pscustomobject])]
+    [OutputType([PSCustomObject])]
     param(
         [Parameter(Mandatory)]
-        [string]
+        [String]
         $Name,
 
-        [string[]]
+        [String[]]
         $Line,
 
-        [string]
+        [String]
         $Newline = "`n",
 
-        [string]
+        [String]
         $ArchiveAs = $fixtureArchiveName,
 
-        [string]
+        [String]
         $ChecksumsAs = $fixtureChecksumsName,
 
         [System.Text.Encoding]
@@ -718,28 +718,28 @@ function Invoke-FixtureInstall {
         [System.Collections.Specialized.OrderedDictionary]
         $Before,
 
-        [switch]
+        [Switch]
         $NoArchive,
 
-        [string[]]
+        [String[]]
         $Refuse,
 
         [ValidateSet('Tag', 'NoSuchTag', 'Latest', 'NoRelease', 'RateLimited')]
-        [string]
+        [String]
         $Lookup = 'Tag',
 
-        [string]
+        [String]
         $Token,
 
-        [hashtable]
+        [Hashtable]
         $Arguments = @{},
 
-        [switch]
+        [Switch]
         $Quiet
     )
 
     $prefix = Use-Account -Name $Name
-    $files = [ordered]@{}
+    $files = [Ordered]@{}
 
     if ($Before) {
         foreach ($assetName in $Before.Keys) {
@@ -769,13 +769,13 @@ function Invoke-FixtureInstall {
     # does not have from a file it lacks; the files its links serve, by name, a refused one listed but not served; and
     # every address the installer asks for, in order, and those it sends GH_TOKEN with.
     $fixtureAssets = @()
-    $fixtureServed = [ordered]@{}
-    $fixtureRequests = New-Object -TypeName 'System.Collections.Generic.List[string]'
-    $fixtureTokens = New-Object -TypeName 'System.Collections.Generic.List[string]'
-    $fixtureResets = New-Object -TypeName 'System.Collections.Generic.List[long]'
+    $fixtureServed = [Ordered]@{}
+    $fixtureRequests = New-Object -TypeName 'System.Collections.Generic.List[String]'
+    $fixtureTokens = New-Object -TypeName 'System.Collections.Generic.List[String]'
+    $fixtureResets = New-Object -TypeName 'System.Collections.Generic.List[Int64]'
 
     foreach ($assetName in $files.Keys) {
-        $fixtureAssets += [pscustomobject]@{
+        $fixtureAssets += [PSCustomObject]@{
             id                   = $fixtureAssets.Count + 1
             name                 = $assetName
             browser_download_url = "$fixtureDownload/$fixtureTag/$assetName"
@@ -786,7 +786,7 @@ function Invoke-FixtureInstall {
         }
     }
 
-    $fixtureRelease = [pscustomobject]@{ tag_name = $fixtureTag; assets = $fixtureAssets }
+    $fixtureRelease = [PSCustomObject]@{ tag_name = $fixtureTag; assets = $fixtureAssets }
     $fixtureLookup = $Lookup
 
     # Invoke-RestMethod answers the installer's requests of GitHub's API, as GitHub would.
@@ -802,15 +802,15 @@ function Invoke-FixtureInstall {
     #   - PSCustomObject: The release, or an array of releases for the list, as Invoke-RestMethod returns GitHub's JSON.
     function Invoke-RestMethod {
         [CmdletBinding()]
-        [OutputType([pscustomobject], [object[]])]
+        [OutputType([PSCustomObject], [Array])]
         param(
-            [string]
+            [String]
             $Uri,
 
             [System.Collections.IDictionary]
             $Headers,
 
-            [switch]
+            [Switch]
             $UseBasicParsing
         )
 
@@ -840,7 +840,7 @@ function Invoke-FixtureInstall {
         if ($fixtureLookup -ceq 'RateLimited') {
             $reset = [System.DateTimeOffset]::UtcNow.ToUnixTimeSeconds() + 23 * 60
             $fixtureResets.Add($reset)
-            $limit = [ordered]@{
+            $limit = [Ordered]@{
                 'x-ratelimit-limit'     = 60
                 'x-ratelimit-remaining' = 0
                 'x-ratelimit-reset'     = $reset
@@ -865,7 +865,7 @@ function Invoke-FixtureInstall {
             return $releases
         }
 
-        return , $releases
+        , $releases
     }
 
     # Invoke-WebRequest answers the release's public links, as GitHub's download host answers them.
@@ -884,21 +884,21 @@ function Invoke-FixtureInstall {
     #   - PSCustomObject: The response, with -PassThru.
     function Invoke-WebRequest {
         [CmdletBinding()]
-        [OutputType([pscustomobject])]
+        [OutputType([PSCustomObject])]
         param(
-            [string]
+            [String]
             $Uri,
 
             [System.Collections.IDictionary]
             $Headers,
 
-            [string]
+            [String]
             $OutFile,
 
-            [switch]
+            [Switch]
             $PassThru,
 
-            [switch]
+            [Switch]
             $UseBasicParsing
         )
 
@@ -920,7 +920,7 @@ function Invoke-FixtureInstall {
             $asked = $Uri.Substring($link.Length)
 
             foreach ($served in $fixtureServed.Keys) {
-                if (-not [string]::Equals($served, $asked, [System.StringComparison]::OrdinalIgnoreCase)) {
+                if (-not [String]::Equals($served, $asked, [System.StringComparison]::OrdinalIgnoreCase)) {
                     continue
                 }
 
@@ -929,16 +929,16 @@ function Invoke-FixtureInstall {
 
                 # PowerShell 7's response gives a header's values as an array; Windows PowerShell 5.1's as one string.
                 if ($PSVersionTable.PSEdition -eq 'Core') {
-                    $answer = New-Object -TypeName ('System.Collections.Generic.Dictionary[string,' +
-                        'System.Collections.Generic.IEnumerable[string]]')
-                    $answer['Content-Disposition'] = [string[]]@($disposition)
+                    $answer = New-Object -TypeName ('System.Collections.Generic.Dictionary[String,' +
+                        'System.Collections.Generic.IEnumerable[String]]')
+                    $answer['Content-Disposition'] = [String[]]@($disposition)
                 }
                 else {
-                    $answer = New-Object -TypeName 'System.Collections.Generic.Dictionary[string,string]'
+                    $answer = New-Object -TypeName 'System.Collections.Generic.Dictionary[String,String]'
                     $answer['Content-Disposition'] = $disposition
                 }
 
-                return [pscustomobject]@{ StatusCode = 200; Headers = $answer }
+                return [PSCustomObject]@{ StatusCode = 200; Headers = $answer }
             }
         }
 
@@ -952,9 +952,9 @@ function Invoke-FixtureInstall {
     # its caller's error action (#1044): this caller continues on error, so the record arrives here among the rest, and
     # the run is judged by it. Its narration arrives as verbose records, and nothing may arrive on the information
     # stream.
-    $output = New-Object -TypeName 'System.Collections.Generic.List[string]'
-    $errorRecords = New-Object -TypeName 'System.Collections.Generic.List[string]'
-    $verbose = New-Object -TypeName 'System.Collections.Generic.List[string]'
+    $output = New-Object -TypeName 'System.Collections.Generic.List[String]'
+    $errorRecords = New-Object -TypeName 'System.Collections.Generic.List[String]'
+    $verbose = New-Object -TypeName 'System.Collections.Generic.List[String]'
 
     # What the run reported, in one table the ForEach-Object block below writes into: the installer's error record's
     # message and id, and how many information records it wrote.
@@ -1010,9 +1010,9 @@ function Invoke-FixtureInstall {
         $reset = $fixtureResets[$fixtureResets.Count - 1]
     }
 
-    $script:fixtureRuns.Add([pscustomobject]@{ Account = $Name; Leftovers = @(Get-Leftover -Account $Name) })
+    $script:fixtureRuns.Add([PSCustomObject]@{ Account = $Name; Leftovers = @(Get-Leftover -Account $Name) })
 
-    return [pscustomobject]@{
+    [PSCustomObject]@{
         Message     = $reported.Message
         ErrorId     = $reported.ErrorId
         Requests    = $fixtureRequests.ToArray()
@@ -1046,27 +1046,27 @@ function Test-Refusal {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
-        [string]
+        [String]
         $Case,
 
         [Parameter(Mandatory)]
-        [string]
+        [String]
         $Expected,
 
         [Parameter(Mandatory)]
-        [pscustomobject]
+        [PSCustomObject]
         $Result,
 
         [Parameter(Mandatory)]
-        [string]
+        [String]
         $Message,
 
         [Parameter(Mandatory)]
-        [string]
+        [String]
         $Id,
 
         [Parameter(Mandatory)]
-        [string[]]
+        [String[]]
         $Requests
     )
 
@@ -1098,18 +1098,18 @@ function Test-Verified {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
-        [string]
+        [String]
         $Case,
 
         [Parameter(Mandatory)]
-        [string]
+        [String]
         $Expected,
 
         [Parameter(Mandatory)]
-        [pscustomobject]
+        [PSCustomObject]
         $Result,
 
-        [string[]]
+        [String[]]
         $Requests = @($fixtureChecksumsLink, $fixtureArchiveLink)
     )
 
@@ -1136,10 +1136,10 @@ function Test-Verified {
 #   - String: Its name.
 function Get-RequestName {
     [CmdletBinding()]
-    [OutputType([string])]
+    [OutputType([String])]
     param(
         [Parameter(Mandatory)]
-        [string]
+        [String]
         $Url
     )
 
@@ -1172,7 +1172,7 @@ function Get-RequestName {
         $what += " of $tag"
     }
 
-    return $what
+    $what
 }
 
 # Test-Request checks that a fixture run asked GitHub for exactly the addresses given, in that order.
@@ -1193,15 +1193,15 @@ function Test-Request {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory)]
-        [string]
+        [String]
         $Case,
 
         [Parameter(Mandatory)]
-        [pscustomobject]
+        [PSCustomObject]
         $Result,
 
         [Parameter(Mandatory)]
-        [string[]]
+        [String[]]
         $Requests
     )
 
@@ -1235,11 +1235,11 @@ function Test-GitHubItself {
     [CmdletBinding()]
     param()
 
-    $parsed = [System.Management.Automation.Language.Parser]::ParseFile($installer, [ref]$null, [ref]$null)
+    $parsed = [System.Management.Automation.Language.Parser]::ParseFile($installer, [Ref]$null, [Ref]$null)
     $isFunction = { $args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] }
 
     foreach ($definition in $parsed.FindAll($isFunction, $true)) {
-        . ([scriptblock]::Create($definition.Extent.Text))
+        . ([ScriptBlock]::Create($definition.Extent.Text))
     }
 
     $headers = @{ Accept = 'application/vnd.github+json' }
@@ -1250,7 +1250,7 @@ function Test-GitHubItself {
 
     try {
         $releases = Invoke-RestMethod -Uri $fixtureNewest -Headers $headers -UseBasicParsing
-        $tag = [string]$releases[0].tag_name
+        $tag = [String]$releases[0].tag_name
     }
     catch {
         Write-Fail -Description 'GitHub itself: the newest release, to check the installer against' `
@@ -1301,7 +1301,7 @@ function Test-GitHubItself {
 
 Write-Output -InputObject "PowerShell $($PSVersionTable.PSVersion) ($($PSVersionTable.PSEdition))"
 
-$block = [scriptblock]::Create((Get-Content -Raw -LiteralPath $installer))
+$block = [ScriptBlock]::Create((Get-Content -Raw -LiteralPath $installer))
 $savedVersion = $env:DEVLORE_VERSION
 $savedToken = $env:GH_TOKEN
 
@@ -1379,7 +1379,7 @@ try {
     Test-Expectation -Description 'script-block form, no flags: names the layers writ already has' `
         -Condition (-not $result.Message -and $result.Output.Contains('Already registered: team personal')) `
         -Detail "message: $($result.Message)`n$($result.Output)"
-    $skippedLines = @([regex]::Matches($result.Output, '(?m)^skipped: .*$') | ForEach-Object { $_.Value.TrimEnd() })
+    $skippedLines = @([Regex]::Matches($result.Output, '(?m)^skipped: .*$') | ForEach-Object { $_.Value.TrimEnd() })
     Test-Expectation -Description 'script-block form, no flags: skips base alone' `
         -Condition ($skippedLines.Count -eq 1 -and $skippedLines[0] -eq 'skipped: base; to register it later:') `
         -Detail $result.Output
@@ -1537,12 +1537,12 @@ try {
 
     # Each look-alike is another file, listed first: the checksums file's lacks the archive's line, and the archive's
     # holds other bytes, so taking either is a refusal, and asking for either is a FAIL of the request check.
-    $before = [ordered]@{ (Get-LookAlikeName -Name $fixtureChecksumsName) = $unlisted }
+    $before = [Ordered]@{ (Get-LookAlikeName -Name $fixtureChecksumsName) = $unlisted }
     $result = Invoke-FixtureInstall -Name 'case-11-checksums' -Line $neighbor, $listed -Before $before
     Test-Verified -Case 'case 11: a look-alike of the checksums file, a dot replaced, listed first' `
         -Expected 'the real one taken, installs' -Result $result
 
-    $before = [ordered]@{ (Get-LookAlikeName -Name $fixtureArchiveName) = $fixtureOther }
+    $before = [Ordered]@{ (Get-LookAlikeName -Name $fixtureArchiveName) = $fixtureOther }
     $result = Invoke-FixtureInstall -Name 'case-11-archive' -Line $neighbor, $listed -Before $before
     Test-Verified -Case 'case 11: a look-alike of the archive, a dot replaced, listed first' `
         -Expected 'the real one taken, installs' -Result $result
@@ -1630,10 +1630,10 @@ try {
     $stdinFile = Join-Path $scratch 'stdin.txt'
     Set-Content -LiteralPath $stdinFile -Value 'the installer''s own standard input'
     $probeCommand = @"
-`$parsed = [System.Management.Automation.Language.Parser]::ParseFile('$installer', [ref]`$null, [ref]`$null)
+`$parsed = [System.Management.Automation.Language.Parser]::ParseFile('$installer', [Ref]`$null, [Ref]`$null)
 `$isFunction = { `$args[0] -is [System.Management.Automation.Language.FunctionDefinitionAst] }
 foreach (`$definition in `$parsed.FindAll(`$isFunction, `$true)) {
-    . ([scriptblock]::Create(`$definition.Extent.Text))
+    . ([ScriptBlock]::Create(`$definition.Extent.Text))
 }
 try {
     [Console]::InputEncoding = New-Object -TypeName System.Text.UTF8Encoding -ArgumentList `$true
@@ -1659,23 +1659,23 @@ catch {
     # install.ps1's own case: characters a comparison by culture ignores, -ceq's included, so only an ordinal comparison
     # tells these names from the archive's and the checksums file's. The soft hyphen and the zero-width space go inside
     # the name, after "devlore-cli"; the NUL goes at its end.
-    $softHyphen = [string][char]0x00AD
-    $zeroWidthSpace = [string][char]0x200B
-    $nul = [string][char]0
+    $softHyphen = [String][Char]0x00AD
+    $zeroWidthSpace = [String][Char]0x200B
+    $nul = [String][Char]0
     $invisibles = @(
-        [pscustomobject]@{
+        [PSCustomObject]@{
             Character = 'a soft hyphen'
             Account   = 'soft-hyphen'
             Archive   = $fixtureArchiveName.Insert(11, $softHyphen)
             Checksums = $fixtureChecksumsName.Insert(11, $softHyphen)
         }
-        [pscustomobject]@{
+        [PSCustomObject]@{
             Character = 'a zero-width space'
             Account   = 'zero-width-space'
             Archive   = $fixtureArchiveName.Insert(11, $zeroWidthSpace)
             Checksums = $fixtureChecksumsName.Insert(11, $zeroWidthSpace)
         }
-        [pscustomobject]@{
+        [PSCustomObject]@{
             Character = 'a trailing NUL'
             Account   = 'trailing-nul'
             Archive   = $fixtureArchiveName + $nul

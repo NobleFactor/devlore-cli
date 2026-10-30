@@ -41,7 +41,7 @@
     The installation prefix. Default: ~/.local, on every platform.
 
 .EXAMPLE
-    & ([scriptblock]::Create((irm https://delightful-grass-0ac0a4c1e-develop.westus2.6.azurestaticapps.net/install.ps1))) `
+    & ([ScriptBlock]::Create((irm https://delightful-grass-0ac0a4c1e-develop.westus2.6.azurestaticapps.net/install.ps1))) `
         -Base <loc> -Team <loc> -Personal <loc>
 
     The preferred form: its parameters bind by name, and it leaves nothing behind in the session.
@@ -60,10 +60,10 @@ using namespace System.Linq
     dynamically, and the analyzer cannot see across that boundary. Deleting it would silently drop a documented flag.')]
 [CmdletBinding()]
 param(
-    [string]$Base,
-    [string]$Team,
-    [string]$Personal,
-    [string]$Prefix
+    [String]$Base,
+    [String]$Team,
+    [String]$Personal,
+    [String]$Prefix
 )
 
 # The installer's body runs in a scope of its own (#982, ruled 2026-10-21: "run in its own scope"). Under
@@ -101,19 +101,19 @@ Invoke-Command -ScriptBlock {
         $Tools = $env:DEVLORE_TOOLS
     }
 
-    # Each layer's variable is its default; a parameter wins over it (#950). Read as [string], so a variable that is
+    # Each layer's variable is its default; a parameter wins over it (#950). Read as [String], so a variable that is
     # unset is '', as the parameter is: the assignment makes a variable of this scope, which takes no type from the
     # parameter's.
     if (-not $Base) {
-        $Base = [string] $env:DEVLORE_BASE
+        $Base = [String] $env:DEVLORE_BASE
     }
 
     if (-not $Team) {
-        $Team = [string] $env:DEVLORE_TEAM
+        $Team = [String] $env:DEVLORE_TEAM
     }
 
     if (-not $Personal) {
-        $Personal = [string] $env:DEVLORE_PERSONAL
+        $Personal = [String] $env:DEVLORE_PERSONAL
     }
 
     # GitHub authentication (optional). The repository is public; a token only lifts the API's anonymous rate limit, and
@@ -158,11 +158,11 @@ Invoke-Command -ScriptBlock {
         [OutputType([System.Management.Automation.ErrorRecord])]
         param(
             [Parameter(Mandatory)]
-            [string]
+            [String]
             $Message,
 
             [Parameter(Mandatory)]
-            [string]
+            [String]
             $Id,
 
             [Parameter(Mandatory)]
@@ -187,7 +187,7 @@ Invoke-Command -ScriptBlock {
     #   - String: `windows`.
     function Get-OSName {
         [CmdletBinding()]
-        [OutputType([string])]
+        [OutputType([String])]
         param()
 
         if ($PSVersionTable.PSEdition -ne 'Core' -or $IsWindows) {
@@ -204,7 +204,7 @@ Invoke-Command -ScriptBlock {
     #   - String: `amd64` or `arm64`, the two architectures the releases publish.
     function Get-ArchName {
         [CmdletBinding()]
-        [OutputType([string])]
+        [OutputType([String])]
         param()
 
         $arch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
@@ -228,9 +228,9 @@ Invoke-Command -ScriptBlock {
     #   - Hashtable: The headers, each by its name.
     function Get-ApiHeader {
         [CmdletBinding()]
-        [OutputType([hashtable])]
+        [OutputType([Hashtable])]
         param(
-            [string]
+            [String]
             $Accept = "application/vnd.github+json"
         )
 
@@ -240,7 +240,7 @@ Invoke-Command -ScriptBlock {
             $headers["Authorization"] = "Bearer $AuthToken"
         }
 
-        return $headers
+        $headers
     }
 
     # Get-HttpStatus gets the HTTP status GitHub answered a failed request with, or 0 when it never answered.
@@ -256,7 +256,7 @@ Invoke-Command -ScriptBlock {
     #   - Int32: The status, or 0.
     function Get-HttpStatus {
         [CmdletBinding()]
-        [OutputType([int])]
+        [OutputType([Int32])]
         param(
             [Parameter(Mandatory)]
             [System.Management.Automation.ErrorRecord]
@@ -275,7 +275,7 @@ Invoke-Command -ScriptBlock {
             return 0
         }
 
-        return [int]$statusCode.Value
+        [Int32]$statusCode.Value
     }
 
     # Get-GitHubAnswer gets what GitHub answered a failed request, for the error that reports it.
@@ -296,7 +296,7 @@ Invoke-Command -ScriptBlock {
     #   - String: The answer, or, for a request that never reached GitHub, the error as PowerShell words it.
     function Get-GitHubAnswer {
         [CmdletBinding()]
-        [OutputType([string])]
+        [OutputType([String])]
         param(
             [Parameter(Mandatory)]
             [System.Management.Automation.ErrorRecord]
@@ -315,10 +315,10 @@ Invoke-Command -ScriptBlock {
         $contentProperty = $received.PSObject.Properties['Content']
 
         if ($typeProperty) {
-            $contentType = [string]$typeProperty.Value
+            $contentType = [String]$typeProperty.Value
         }
         elseif ($contentProperty -and $contentProperty.Value) {
-            $contentType = [string]$contentProperty.Value.Headers.ContentType
+            $contentType = [String]$contentProperty.Value.Headers.ContentType
         }
 
         $body = ''
@@ -344,7 +344,7 @@ Invoke-Command -ScriptBlock {
                 $field = $json.PSObject.Properties['message']
 
                 if ($field -and $field.Value) {
-                    $message = [string]$field.Value
+                    $message = [String]$field.Value
                 }
             }
         }
@@ -355,7 +355,7 @@ Invoke-Command -ScriptBlock {
             $answer += ": $message"
         }
 
-        return $answer
+        $answer
     }
 
     # Get-ResponseHeader gets a header of the response GitHub refused a request with, or '' when it sent none.
@@ -372,14 +372,14 @@ Invoke-Command -ScriptBlock {
     #   - String: The header's first value, or ''.
     function Get-ResponseHeader {
         [CmdletBinding()]
-        [OutputType([string])]
+        [OutputType([String])]
         param(
             [Parameter(Mandatory)]
             [System.Management.Automation.ErrorRecord]
             $ErrorRecord,
 
             [Parameter(Mandatory)]
-            [string]
+            [String]
             $Name
         )
 
@@ -401,7 +401,7 @@ Invoke-Command -ScriptBlock {
             $value = $collection[$Name]
 
             if ($value) {
-                return [string]$value
+                return [String]$value
             }
 
             return ''
@@ -409,11 +409,11 @@ Invoke-Command -ScriptBlock {
 
         $values = $null
 
-        if ($collection.TryGetValues($Name, [ref]$values)) {
-            return [string](@($values)[0])
+        if ($collection.TryGetValues($Name, [Ref]$values)) {
+            return [String](@($values)[0])
         }
 
-        return ''
+        ''
     }
 
     # Get-RateLimitMessage gets what to tell the user when GitHub's API refused a request for its rate limit.
@@ -431,7 +431,7 @@ Invoke-Command -ScriptBlock {
     #   - String: The message, or ''.
     function Get-RateLimitMessage {
         [CmdletBinding()]
-        [OutputType([string])]
+        [OutputType([String])]
         param(
             [Parameter(Mandatory)]
             [System.Management.Automation.ErrorRecord]
@@ -454,10 +454,10 @@ Invoke-Command -ScriptBlock {
         # From the epoch by hand: DateTimeOffset.FromUnixTimeSeconds is .NET Framework 4.6, and Windows PowerShell 5.1
         # runs on 4.5.2 too. HH:mm in the invariant culture, whose time separator is ':', whatever the user's culture.
         $epoch = New-Object -TypeName System.DateTime -ArgumentList 1970, 1, 1, 0, 0, 0, ([System.DateTimeKind]::Utc)
-        $clock = $epoch.AddSeconds([double]$reset).ToLocalTime().ToString('HH:mm',
+        $clock = $epoch.AddSeconds([Double]$reset).ToLocalTime().ToString('HH:mm',
             [System.Globalization.CultureInfo]::InvariantCulture)
-        $now = [long][System.Math]::Floor(([System.DateTime]::UtcNow - $epoch).TotalSeconds)
-        $minutes = [long][System.Math]::Floor(([long]$reset - $now + 59) / 60)
+        $now = [Int64][System.Math]::Floor(([System.DateTime]::UtcNow - $epoch).TotalSeconds)
+        $minutes = [Int64][System.Math]::Floor(([Int64]$reset - $now + 59) / 60)
 
         if ($minutes -lt 1) {
             $minutes = 1
@@ -483,7 +483,7 @@ Invoke-Command -ScriptBlock {
             $message += ' Setting GH_TOKEN raises the limit.'
         }
 
-        return $message
+        $message
     }
 
     # Invoke-ApiGet makes a request of GitHub's API, authenticated when GH_TOKEN is set, and returns GitHub's answer.
@@ -506,11 +506,11 @@ Invoke-Command -ScriptBlock {
         [CmdletBinding()]
         param(
             [Parameter(Mandatory)]
-            [string]
+            [String]
             $Url,
 
             [Parameter(Mandatory)]
-            [string]
+            [String]
             $What
         )
 
@@ -549,7 +549,7 @@ Invoke-Command -ScriptBlock {
             return $null
         }
 
-        return $releases[0].tag_name
+        $releases[0].tag_name
     }
 
     # Assert-Release refuses a release tag GitHub has no release for, with GitHub's message.
@@ -564,7 +564,7 @@ Invoke-Command -ScriptBlock {
         [CmdletBinding()]
         param(
             [Parameter(Mandatory)]
-            [string]
+            [String]
             $Tag
         )
 
@@ -583,10 +583,10 @@ Invoke-Command -ScriptBlock {
     #   - String: The file's name, or ''.
     function Get-ServedName {
         [CmdletBinding()]
-        [OutputType([string])]
+        [OutputType([String])]
         param(
             [Parameter(Mandatory)]
-            [object]
+            [Object]
             $Response
         )
 
@@ -604,7 +604,7 @@ Invoke-Command -ScriptBlock {
             }
         }
 
-        return $name
+        $name
     }
 
     # Save-ReleaseFile downloads a file of a release, by its public link, to a destination named as the file is.
@@ -626,18 +626,18 @@ Invoke-Command -ScriptBlock {
         [CmdletBinding()]
         param(
             [Parameter(Mandatory)]
-            [string]
+            [String]
             $Name,
 
             [Parameter(Mandatory)]
-            [string]
+            [String]
             $Tag,
 
             [Parameter(Mandatory)]
-            [string]
+            [String]
             $Destination,
 
-            [switch]
+            [Switch]
             $ReleaseFound
         )
 
@@ -658,7 +658,7 @@ Invoke-Command -ScriptBlock {
 
         $served = Get-ServedName -Response $response
 
-        if ($served -and -not [string]::Equals($served, $Name, [System.StringComparison]::Ordinal)) {
+        if ($served -and -not [String]::Equals($served, $Name, [System.StringComparison]::Ordinal)) {
             throw (ConvertTo-InstallerError -Id ServedOtherFile -Category SecurityError `
                 -Message "Could not download $Name from release ${Tag}: GitHub served $served, a file by another name")
         }
@@ -686,14 +686,14 @@ Invoke-Command -ScriptBlock {
     #   - String: Each line the program wrote to standard output.
     function Invoke-NativeCommand {
         [CmdletBinding()]
-        [OutputType([string])]
+        [OutputType([String])]
         param(
             [Parameter(Mandatory)]
-            [string]
+            [String]
             $FilePath,
 
             [Parameter(Mandatory)]
-            [string[]]
+            [String[]]
             $ArgumentList
         )
 
@@ -792,11 +792,11 @@ Invoke-Command -ScriptBlock {
     #   - String: The argument as a command line carries it.
     function ConvertTo-CommandLineArgument {
         [CmdletBinding()]
-        [OutputType([string])]
+        [OutputType([String])]
         param(
             [Parameter(Mandatory)]
             [AllowEmptyString()]
-            [string]
+            [String]
             $Argument
         )
 
@@ -807,7 +807,7 @@ Invoke-Command -ScriptBlock {
         $escaped = $Argument -replace '(\\*)"', '$1$1\"'
         $escaped = $escaped -replace '(\\+)$', '$1$1'
 
-        return "`"$escaped`""
+        "`"$escaped`""
     }
 
     # Test-Checksum refuses a file whose SHA-256 is not the one expected.
@@ -819,11 +819,11 @@ Invoke-Command -ScriptBlock {
         [CmdletBinding()]
         param(
             [Parameter(Mandatory)]
-            [string]
+            [String]
             $File,
 
             [Parameter(Mandatory)]
-            [string]
+            [String]
             $Expected
         )
 
@@ -855,14 +855,14 @@ Invoke-Command -ScriptBlock {
     #   - String: The SHA-256 in lower-case hexadecimal, or $null.
     function Get-ListedChecksum {
         [CmdletBinding()]
-        [OutputType([string])]
+        [OutputType([String])]
         param(
             [Parameter(Mandatory)]
-            [string]
+            [String]
             $Path,
 
             [Parameter(Mandatory)]
-            [string]
+            [String]
             $Name
         )
 
@@ -878,12 +878,12 @@ Invoke-Command -ScriptBlock {
             $rest = $fields[1]
 
             if ($rest.Length -gt 1 -and ($rest[0] -ceq ' ' -or $rest[0] -ceq '*') -and
-                [string]::Equals($rest.Substring(1), $Name, [System.StringComparison]::Ordinal)) {
+                [String]::Equals($rest.Substring(1), $Name, [System.StringComparison]::Ordinal)) {
                 return $fields[0].ToLowerInvariant()
             }
         }
 
-        return $null
+        $null
     }
 
     # Get-CommandOnPersistentPath gets a program as Get-Command does, from the PATH a new terminal searches.
@@ -1231,7 +1231,7 @@ namespace DevLore
                 # own, and so are its errors: a failure ends the run, and running the same command again is the
                 # recovery. --unattended is writ's contract for a run nobody is there to answer.
                 $writPath = Join-Path $installDir "writ.exe"
-                $layers = [ordered]@{ base = $Base; team = $Team; personal = $Personal }
+                $layers = [Ordered]@{ base = $Base; team = $Team; personal = $Personal }
                 $registered = @()
                 $held = @()
                 $unreadable = @()
