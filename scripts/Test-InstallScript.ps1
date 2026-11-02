@@ -67,7 +67,7 @@ $ErrorActionPreference = 'Stop'
 # a working-tree root.
 $repo = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).ProviderPath
 $installer = Join-Path $repo 'install.ps1'
-$teamUrl = 'https://github.com/NobleFactor/noblefactor-ops.git'
+$teamUrl = 'https://github.com/NobleFactor/noblefactor-engprod.git'
 
 # Windows PowerShell 5.1 has no $IsWindows, and under Set-StrictMode a variable that does not exist is an error, so
 # the edition is read first: Desktop is 5.1, which runs on Windows alone.
@@ -1367,7 +1367,7 @@ try {
         -Detail "personal: $personalRoot"
     $teamRoot = Get-LayerRoot -Writ $writ -Layer 'team'
     $expectedTeam = Join-Path (Join-Path (Join-Path (Join-Path $env:XDG_DATA_HOME 'devlore') 'writ') 'repos') `
-        'noblefactor-ops'
+        'noblefactor-engprod'
     Test-Expectation -Description 'script-block form: team is cloned into the account' `
         -Condition ($teamRoot -eq $expectedTeam) -Detail "team: $teamRoot; expected: $expectedTeam"
     Test-Expectation -Description 'script-block form: the second run leaves the registrations as the first did' `
