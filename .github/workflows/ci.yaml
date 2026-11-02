@@ -66,7 +66,7 @@ jobs:
           golangci-lint version
 
       # PowerShell (#964). install.ps1 ships to users and was checked by nothing, while
-      # noblefactor-ops has had this gate since its #218 and personal since its #216.
+      # noblefactor-engprod has had this gate since its #218 and personal since its #216.
       #
       # These are steps of quality-gate rather than a job of their own, deliberately. The develop
       # ruleset requires exactly one check, `quality-gate`, so a separate job could not block a merge
@@ -86,12 +86,12 @@ jobs:
       - name: Checkout the base layer, pinned
         uses: actions/checkout@v4
         with:
-          repository: NobleFactor/noblefactor-ops
+          repository: NobleFactor/noblefactor-engprod
           ref: develop
           path: .base
 
       # Out of this checkout before the quality gate runs: `star lint shell .` lints every script under the tree it is
-      # given, and found noblefactor-ops' own there on #1111. actions/checkout puts a repository under the workspace
+      # given, and found noblefactor-engprod's own there on #1111. actions/checkout puts a repository under the workspace
       # alone, so it is moved, and the Makefile reads where from BASE_LAYER, as it reads writ's base layer locally.
       - name: Move the base layer out of the checkout
         run: |

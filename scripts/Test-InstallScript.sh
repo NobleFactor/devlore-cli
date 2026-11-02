@@ -8,7 +8,7 @@
 
 set -o errexit -o errtrace -o nounset -o pipefail
 
-# Declare-BashScript's functions and constants this suite uses, as NobleFactor/noblefactor-ops c942f54 has them,
+# Declare-BashScript's functions and constants this suite uses, as NobleFactor/noblefactor-engprod c942f54 has them,
 # copied by hand: nothing here sources the helper (#1037). Copy them again when this suite needs a newer one.
 
 readonly EX_USAGE=64       # command line usage error
@@ -186,7 +186,7 @@ done
 # a working-tree root. pwd -P, because writ records a root with its symbolic links resolved.
 repo=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)
 installer="${repo}/install.sh"
-team_url="https://github.com/NobleFactor/noblefactor-ops.git"
+team_url="https://github.com/NobleFactor/noblefactor-engprod.git"
 
 # mktemp, rm, mkdir, tail, ln, wc and awk keep their short options: macOS's BSD tools have no long forms.
 scratch=$(cd "$(mktemp -d)" && pwd -P)
@@ -966,7 +966,7 @@ against "${github}/verified" layers "$run2" -- --personal="$repo" --team="$team_
 expect "layers: the second run exits 0" "$run2" is "$status" 0
 expect "layers: personal is the checkout" "$run2" is "$(root_of layers personal)" "$repo"
 expect "layers: team is cloned into the account" "$run2" \
-    is "$(root_of layers team)" "${scratch}/layers/home/.local/share/devlore/writ/repos/noblefactor-ops"
+    is "$(root_of layers team)" "${scratch}/layers/home/.local/share/devlore/writ/repos/noblefactor-engprod"
 expect "layers: the second run is unchanged for both" "$run2" at_least "$(count ": unchanged," "$run2")" 2
 expect "layers: the skipped base is last" "$run1" \
     is "$(line_from_end 2 "$run1")" "skipped: base; to register it later:"
@@ -1034,7 +1034,7 @@ expect "no flags: personal's command is the last line" "$output" \
 
 output="${scratch}/space.out"
 prefix="${scratch}/space/home/opt"
-team_clone="${scratch}/space/home/.local/share/devlore/writ/repos/noblefactor-ops"
+team_clone="${scratch}/space/home/.local/share/devlore/writ/repos/noblefactor-engprod"
 against "${github}/verified" space "$output" -- --prefix "$prefix" --personal "$repo" --team "$team_url"
 expect "the space form: exits 0" "$output" is "$status" 0
 expect "the space form: --prefix <dir> installs there" "$output" test -x "${prefix}/bin/writ"
