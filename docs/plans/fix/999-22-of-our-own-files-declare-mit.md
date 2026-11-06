@@ -23,6 +23,9 @@ the first part of #999; the rest of #999 follows on this branch.
 - 2026-11-06, on the owner's order: the shipped `extension.yaml` files are fixed now, ahead of the rest of #999.
 - 2026-11-06: `.goreleaser.yaml` and the `Makefile`, which do not ship, carry Apache-2.0, the same as everything
   else.
+- 2026-11-06: the lint provider's test fixture, a verbatim copy of devlore-registry's `packages/docker`, keeps its
+  MIT headers, as devlore-registry's files; the registry's own CI checks its live packages
+  (NobleFactor/devlore-registry#96).
 
 ## Implementation Phases
 
@@ -42,6 +45,7 @@ the first part of #999; the rest of #999 follows on this branch.
 
 - [x] `.goreleaser.yaml` and the `Makefile` declare MIT and do not ship. Which license do they carry? Ruled
       2026-11-06: Apache-2.0, the same as everything else.
-- [ ] The 42 files of `cmd/star/provider/lint/testdata/docker-package/` declare MIT on line 1. They are a copy of
+- [x] The 42 files of `cmd/star/provider/lint/testdata/docker-package/` declare MIT on line 1. They are a copy of
       devlore-registry's Docker package, and devlore-registry is licensed MIT. Do they keep MIT, as the registry's
-      files, or carry Apache-2.0, as devlore-cli's test data?
+      files, or carry Apache-2.0, as devlore-cli's test data? Ruled 2026-11-06: they keep MIT, and the fixture's
+      README says why, so that no reader or license scanner is confused.
