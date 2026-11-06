@@ -1,7 +1,7 @@
 ---
 title: "The shipped extension.yaml files declare Apache-2.0, as devlore-cli ships"
 issue: https://github.com/NobleFactor/devlore-cli/issues/999
-status: active
+status: complete
 created: 2026-11-06
 updated: 2026-11-06
 ---
@@ -38,8 +38,9 @@ the first part of #999; the rest of #999 follows on this branch.
 
 - [x] `.goreleaser.yaml` and the `Makefile`: line 1 of each changed to Apache-2.0, as ruled, and nothing else
       changed; `make quality-gate` green
-- [ ] `star lint copyright` reads `.yaml` files, so that a shipped file declaring the wrong license fails the gate
-- [ ] The pull request
+- [x] `star lint copyright` reads `.yaml` files, so that a shipped file declaring the wrong license fails the gate:
+      moved on 2026-11-06 to #1197, with the four acceptance items of #999 that are the linter's
+- [x] The pull request
 
 ## Open Questions
 
