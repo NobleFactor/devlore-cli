@@ -12,61 +12,56 @@ updated: 2026-11-07
 
 Feature #1019 updates devlore-cli's dependencies every month, as two tasks that each close when their month's pull
 request merges: one for CI's actions and the golangci-lint pin (Engineering), one for the Go modules and toolchain
-(Product). Nothing files them; someone has to remember. This plan adds a workflow that files the month's two tasks from
-templates kept in the repository, on the first of each month and on demand from the Actions page, and files nothing
-when they already exist.
+(Product). Nothing files them; someone has to remember. This plan adds the two tasks' templates and a workflow that
+files them with `star github issue file`, on the first of each month and on demand from the Actions page, filing
+nothing when they already exist. The filing itself is star's, specified in Task NobleFactor/noblefactor-engprod#338;
+this repository keeps no filing script of its own (ruled 2026-11-07: no more bash or PowerShell to maintain).
 
 ## Goals
 
 1. **On time:** each month's two update tasks are filed on the first of the month, with nobody remembering.
 2. **Filed right:** each is a Task under Feature #1019, with its Area, Priority Medium, Severity N/A, and a row on
-   Backlog: devlore whose Status is Open, and the run reads every value back.
+   Backlog: devlore whose Status is Open, every value read back, as `star github issue file` does.
 3. **Never twice:** a rerun, or a run by hand after the scheduled one, files nothing.
 4. **On demand:** a run from the Actions page files any month's tasks, or shows what it would file.
+5. **No filer here:** the repository holds templates and a workflow, and nothing that talks to GitHub's API itself.
 
 ## Current State
 
 | Component | Status | Notes |
 | --- | --- | --- |
 | Feature #1019's monthly tasks | Reshaped 2026-11-07 | Task #1020 and Task #1021 are 2026-11's, filed by hand |
-| A workflow that files issues | Missing | No workflow here runs on a schedule; `lkg-tag.yaml` is the one run by hand |
+| `star github issue file` | Specified, not built | Task NobleFactor/noblefactor-engprod#338, rewritten as its spec 2026-11-07; this task waits on it |
+| `star github` | Broken today | By the issue data model's changes; Task #338 waits on its repair |
 | The noblefactor-automation app | Present | Its secrets are set here, and `docs-publish`, `knowledge-extract` and `release` use it |
-| The app's permissions | Issues write, organization projects write, **issue fields read** | It can file the tasks and add their rows, but cannot set Area, Priority or Severity (Open Questions) |
+| The app's permissions | Issues write, organization projects write, **issue fields read** | It cannot set Area, Priority or Severity until the owner raises that permission (Open Questions) |
+| star and its GitHub extension in CI | Available | CI builds star in-tree as `./build/star`, and checks out the base layer, where the extension lives |
 | The default branch | `develop` | GitHub runs a schedule, and shows a workflow's Run button, only from the default branch |
 
 ## Requirements
 
 ### Requirement 1: the templates
 
-One template per monthly task, in `.github/monthly-updates/`: `ci.md` and `go-modules.md`. Each opens with a header
-naming the title, with `{month}` where the month goes, and the Area; the rest is the task's body, which the bodies of
-Task #1020 and Task #1021 seed.
+One template per monthly task, in `.github/monthly-updates/`: `ci.md` and `go-modules.md`, in the template format Task
+#338 specifies: a header naming the type, parent, title with `{month}`, Area, Priority, project, Status and
+`unique: true`, then the body, in the task shape. The bodies of Task #1020 and Task #1021 seed them.
 
 ```markdown
 ---
+type: Task
+parent: NobleFactor/devlore-cli#1019
 title: "Update CI, {month}: the workflows' actions and the golangci-lint pin"
 area: Engineering
+priority: Medium
+project: "Backlog: devlore"
+status: Open
+unique: true
 ---
 ```
 
-### Requirement 2: the script
+### Requirement 2: the workflow
 
-`.github/scripts/monthly-update-tasks.sh [--month <yyyy-mm>] [--dry-run]`, beside the release scripts and in their
-manner:
-
-- The month defaults to the current month in UTC; anything that is not `yyyy-mm` is refused with status 64.
-- It reads Feature #1019's sub-issues, open and closed. A template whose title for the month is already among them is
-  skipped, and the run says so.
-- Otherwise it files the task: type Task, parent Feature #1019, a row on Backlog: devlore, Area from the template,
-  Priority Medium and Severity N/A. Every type, project, field and option is looked up by name at run time; no node ID
-  is written into the script.
-- It waits for the project row, which GitHub lists a moment after the issue is made, then sets its Status to Open.
-- It reads every filed task back and fails when a value differs.
-- `--dry-run` prints what it would file and writes nothing.
-
-### Requirement 3: the workflow
-
-`.github/workflows/monthly-updates.yaml`:
+`.github/workflows/monthly-updates.yaml`, run three ways:
 
 ```yaml
 on:
@@ -83,16 +78,17 @@ on:
         required: false
         type: boolean
         default: false
+  pull_request:
+    paths:
+      - ".github/monthly-updates/**"
+      - ".github/workflows/monthly-updates.yaml"
 ```
 
-One job: a token from the noblefactor-automation app for the NobleFactor organization, so it reaches the organization's
-project; a checkout; and the script, given the inputs.
-
-### Requirement 4: the test
-
-`scripts/Test-MonthlyUpdateTasks.sh` runs the script with a stand-in `gh` first on `PATH`, which answers GitHub's
-queries from fixtures and records every call; nothing reaches GitHub. `make test-monthly-updates` runs it, and the
-quality gate runs that target, as it runs `test-release`.
+One job: a token from the noblefactor-automation app for the NobleFactor organization, so it reaches the
+organization's project; checkouts of this repository and of the base layer; star built, with the base layer's GitHub
+extension where star finds it; and, for each template, `star github issue file --template <template> --set
+month=<month>`. A pull request that changes a template or the workflow runs the same with `--dry-run`, so a broken
+template fails its pull request rather than the first of a month.
 
 ## Implementation Phases
 
@@ -101,38 +97,34 @@ quality gate runs that target, as it runs `test-release`.
 - [ ] This plan committed and pushed on `chore/1212-monthly-update-trigger`, reviewed with the owner, and its status
       `approved`
 
-### Phase 2: the test, then the templates and the script
+### Phase 2: waits on Task NobleFactor/noblefactor-engprod#338
 
-- [ ] `scripts/Test-MonthlyUpdateTasks.sh`, written first and failing for the script's absence
+- [ ] `star github issue file` built, tested and on noblefactor-engprod's `develop`, with `star github` repaired
+
+### Phase 3: the templates and the workflow
+
 - [ ] `.github/monthly-updates/ci.md` and `go-modules.md`
-- [ ] `.github/scripts/monthly-update-tasks.sh`, and the test passing
-
-### Phase 3: the workflow and the gate
-
-- [ ] `.github/workflows/monthly-updates.yaml`
-- [ ] `make test-monthly-updates`, run by the quality gate
+- [ ] `.github/workflows/monthly-updates.yaml`, its pull-request dry run passing on this branch's pull request
 
 ### Phase 4: after the merge
 
 - [ ] A run from the Actions page for 2026-11, which finds Task #1020 and Task #1021 and files nothing
 - [ ] A run for 2026-12, by hand or on its schedule, which files that month's two tasks, read back; the comment on
-      #1212 that its Evidence of completion asks for links both runs and the test
+      #1212 that its Evidence of completion asks for links both runs
 
 ## Test Plan
 
 | # | What it proves | Level | Fails when |
 | --- | --- | --- | --- |
-| 1 | A month with neither task gets both, each with its template's title, Area and body, type Task, parent Feature #1019, Priority Medium, Severity N/A and its Backlog: devlore row set Open | unit, stand-in `gh` | a title, field, parent or row is wrong, or a task is skipped |
-| 2 | A month whose two tasks exist, open or closed, gets neither | unit | the duplicate check is removed, or matches a title other than the month's |
-| 3 | A month with one of the two gets only the other | unit | the check treats the pair as one |
-| 4 | `--dry-run` writes nothing | unit | any mutation is called under `--dry-run` |
-| 5 | A month that is not `yyyy-mm` is refused with status 64 | unit | the check is removed |
-| 6 | A filed value that reads back different fails the run | unit | the read-back is removed |
+| 1 | Each template is one `star github issue file` accepts: every name resolves, no blank is left | the workflow's pull-request dry run | a template names a type, parent, project or option that does not exist, or leaves a blank unfilled |
+| 2 | A month whose tasks exist gets none | Phase 4's run for 2026-11 | `unique` is dropped from a template |
+| 3 | A month with neither task gets both, read back | Phase 4's run for 2026-12 | the workflow skips a template, or files under the wrong month |
 
-Each row is made to fail once, by the change in its last column, before it is trusted.
+Row 1 is made to fail once, by a template naming a parent that does not exist, before it is trusted.
 
-**Not covered by the test:** GitHub's scheduler firing on the first of the month, which Phase 4's scheduled run shows;
-and the app's permissions, an organization setting the test cannot see.
+**Covered by Task #338, not here:** the filing itself, its refusals, its duplicate check and its read-back, which the
+command's own tests prove against a stand-in `gh`. **Not covered by a test:** GitHub's scheduler firing on the first of
+the month, which Phase 4's scheduled run shows; and the app's permissions, an organization setting.
 
 ## Files to Create/Modify
 
@@ -141,22 +133,21 @@ and the app's permissions, an organization setting the test cannot see.
 | `docs/plans/chore/1212-monthly-update-trigger.md` | Create | This plan |
 | `.github/monthly-updates/ci.md` | Create | The CI task's template |
 | `.github/monthly-updates/go-modules.md` | Create | The Go modules task's template |
-| `.github/scripts/monthly-update-tasks.sh` | Create | Files the month's tasks from the templates |
-| `.github/workflows/monthly-updates.yaml` | Create | Runs the script monthly and on demand |
-| `scripts/Test-MonthlyUpdateTasks.sh` | Create | The script's test, with a stand-in `gh` |
-| `Makefile` | Modify | `test-monthly-updates`, and the quality gate running it |
+| `.github/workflows/monthly-updates.yaml` | Create | Files the month's tasks monthly and on demand, and dry-runs a changed template |
 
 ## Related Documents
 
 - Feature #1019, dependencies are updated every month, under Epic #1210, Maintenance
 - Task #1020 and Task #1021, 2026-11's tasks, whose bodies seed the templates
-- Feature NobleFactor/noblefactor-engprod#461, the GitHub enablers: the triggers this may later join
+- Task NobleFactor/noblefactor-engprod#338, `star github issue file`, which this waits on
 
 ## Open Questions
 
-- [ ] **Issue fields.** The noblefactor-automation app can read issue fields but not write them, so as things stand the
-      trigger cannot set a task's Area, Priority or Severity. Proposed: the owner raises the app's Issue fields
-      permission to write, in the organization's settings for the app. Until then, should the script file the tasks
-      without the fields and fail the run loudly, so the month's work is not lost, or file nothing?
-- [ ] **Where the trigger lives.** Proposed: devlore-cli's own workflow and templates now, moved under Feature
-      NobleFactor/noblefactor-engprod#461 once the GitHub enablers are designed.
+- [ ] **Issue fields.** The noblefactor-automation app can read issue fields but not write them, so until the owner
+      raises that permission to write, a filing cannot set a task's Area, Priority or Severity. What the command does
+      then is Task #338's question.
+- [ ] **The extension in CI.** How the workflow puts the base layer's GitHub extension where star finds it: copied from
+      the base-layer checkout CI already makes, or deployed by writ from it.
+- [x] **Where the trigger lives.** Ruled 2026-11-07: in this repository, which keeps the templates and the workflow.
+      The work applies to a repository, not a team, because each repository's maintenance tasks differ. The filing is
+      star's, so nothing is copied but templates; there is no filer here to copy (ruled 2026-11-07).
