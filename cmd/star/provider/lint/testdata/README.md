@@ -27,6 +27,15 @@ regression corpus and the linter never reads the platform directory, only the ac
 selects over this tree. That is #944's ruling, Q17 in
 [its plan](../../../../../docs/plans/feature/944-one-selector-api-writ-and-lore.md#decisions).
 
+### License
+
+The files of `docker-package/` declare MIT, as devlore-registry's do: they are its files, copied verbatim, and
+they keep its license, [MIT](https://github.com/NobleFactor/devlore-registry/blob/develop/LICENSE). The rest of
+devlore-cli is Apache-2.0. The copy is test data and ships in no release. Ruled 2026-11-06, under
+[#999](https://github.com/NobleFactor/devlore-cli/issues/999): the copy stays frozen, with its MIT headers, and
+devlore-registry's own CI checks its live packages
+([NobleFactor/devlore-registry#96](https://github.com/NobleFactor/devlore-registry/issues/96)).
+
 ## `docker-package.want.tsv`
 
 The live defect sites, by `rule`, `path`, `line` and `call`. **57 rows**, generated from the fixture

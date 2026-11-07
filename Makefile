@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: Apache-2.0
 # Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
 # Every recipe here is bash. On Windows, GNU make started from PowerShell or cmd may find no `bash` on
