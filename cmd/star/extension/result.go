@@ -11,10 +11,10 @@ import (
 )
 
 // goValue converts a script's return value into the JSON-shaped Go value the output pipeline renders:
-// dicts with string keys become maps, lists and tuples become slices, scalars become their Go
-// counterparts, and None becomes nil. Anything else -- a function, a struct with a custom type, a
-// dict keyed by something other than strings -- has no JSON shape and is refused by name, so a script
-// learns at once what it may return.
+// dicts with string keys become maps, lists and tuples become slices, an empty one an empty slice and
+// never nil, scalars become their Go counterparts, and None becomes nil. Anything else -- a function, a
+// struct with a custom type, a dict keyed by something other than strings -- has no JSON shape and is
+// refused by name, so a script learns at once what it may return.
 //
 // Parameters:
 //   - `value`: the value the script returned.
@@ -59,15 +59,19 @@ func goValue(value starlark.Value) (any, error) {
 
 // goSlice converts every element of the iterable.
 //
+// The slice is made empty rather than declared nil: JSON writes a nil slice as null, and a list is always a list,
+// [] when it is empty (#1215, ruled 2026-11-08). Anything that loops over the list -- jq's .[], a filter, a reader in
+// any language -- then finds no elements instead of failing on null.
+//
 // Parameters:
 //   - `iterable`: the list or tuple.
 //
 // Returns:
-//   - `any`: the elements as a slice.
+//   - `any`: the elements as a slice, empty and not nil when there are none.
 //   - `error`: the first element that has no JSON shape.
 func goSlice(iterable starlark.Iterable) (any, error) {
 
-	var out []any
+	out := make([]any, 0, max(starlark.Len(iterable), 0))
 	iter := iterable.Iterate()
 	defer iter.Done()
 
