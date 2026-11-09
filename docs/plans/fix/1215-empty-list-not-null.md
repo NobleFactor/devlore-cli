@@ -1,7 +1,7 @@
 ---
 title: "star writes an empty list in a command's result as null"
 issue: https://github.com/NobleFactor/devlore-cli/issues/1215
-status: active
+status: complete
 created: 2026-11-08
 updated: 2026-11-08
 ---
@@ -58,18 +58,18 @@ JSON, and compares the text; it fails when `goSlice` returns nil again.
 
 ### Phase 2: the test, first
 
-- [ ] `cmd/star/extension/result_test.go`, failing on the empty list, the empty tuple and the nested cases before the
+- [x] `cmd/star/extension/result_test.go`, failing on the empty list, the empty tuple and the nested cases before the
       fix
 
 ### Phase 3: the fix
 
-- [ ] `goSlice` starts from `make([]any, 0, n)`; `goValue`'s doc comment says an empty list is an empty slice
+- [x] `goSlice` starts from `make([]any, 0, n)`; `goValue`'s doc comment says an empty list is an empty slice
 
 ### Phase 4: proved and merged
 
-- [ ] `make check` passes; a star built from the branch runs NobleFactor/noblefactor-engprod's `tests/Test-StarGitHub`
+- [x] `make check` passes; a star built from the branch runs NobleFactor/noblefactor-engprod's `tests/Test-StarGitHub`
       in #436's worktree, and its cases 3e to 8 pass
-- [ ] The pull request script written, shown and handed over; it closes #1215
+- [x] The pull request script written, shown and handed over; it closes #1215
 
 ## Test Plan
 
