@@ -13,7 +13,56 @@ jobs:
           app-id: ${{ secrets.NOBLEFACTOR_AUTOMATION_APP_ID }}
           private-key: ${{ secrets.NOBLEFACTOR_AUTOMATION_APP_PRIVATE_KEY }}
           owner: ${{ github.repository_owner }}
+      # Ruled 2026-11-04 (noblefactor-engprod#448): an issue found while walking a scenario names it in its body, as
+      # "Found while walking #N" or "Found while walking owner/repository#N", and gets its row in the scenario's
+      # project, under the scenario's option, instead of a Triage row. A scenario is an open issue of this account
+      # whose own row on a project titled "Scenario: ..." has a Scenario option. Anything else goes to Triage, and the
+      # log says why.
+      - name: Put an issue found while walking a scenario in the scenario
+        id: scenario
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          BODY: ${{ github.event.issue.body }}
+          ISSUE: ${{ github.event.issue.node_id }}
+        run: |
+          found=$(printf '%s\n' "$BODY" | tr -d '\r' | grep -o -E 'Found while walking ([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)?#[0-9]+' | head -n 1 | sed 's/^Found while walking //' || true)
+          [ -n "$found" ] || exit 0
+          case "$found" in
+            "#"*) repository=$GITHUB_REPOSITORY ;;
+            *) repository=${found%%#*} ;;
+          esac
+          lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
+          if [ "$(lower "${repository%%/*}")" != "$(lower "$GITHUB_REPOSITORY_OWNER")" ]; then
+            echo "Found while walking $found: a scenario of another account. The issue goes to Triage."
+            exit 0
+          fi
+          scenario=$(gh api graphql -f query='query($owner: String!, $name: String!, $number: Int!) { repository(owner: $owner, name: $name) { issue(number: $number) { state projectItems(first: 20) { nodes { project { id title } scenario: fieldValueByName(name: "Scenario") { ... on ProjectV2ItemFieldSingleSelectValue { optionId name field { ... on ProjectV2SingleSelectField { id } } } } } } } } }' \
+            -f owner="${repository%%/*}" -f name="${repository#*/}" -F number="${found##*#}") || {
+            echo "Found while walking $found: no issue this workflow can read. The issue goes to Triage."
+            exit 0
+          }
+          row=$(jq -c '.data.repository.issue | select(.state == "OPEN") | [.projectItems.nodes[] | select((.project.title | startswith("Scenario: ")) and .scenario.optionId != null)] | first // empty' <<<"$scenario")
+          if [ -z "$row" ]; then
+            echo "Found while walking $found: not an open scenario with its own row on a Scenario project. The issue goes to Triage."
+            exit 0
+          fi
+          project=$(jq -r .project.id <<<"$row")
+          item=$(gh api graphql -f query='mutation($p: ID!, $c: ID!) { addProjectV2ItemById(input: {projectId: $p, contentId: $c}) { item { id } } }' \
+            -f p="$project" -f c="$ISSUE" --jq .data.addProjectV2ItemById.item.id) || {
+            echo "Found while walking $found: the issue could not be added to $(jq -r .project.title <<<"$row"). It goes to Triage."
+            exit 0
+          }
+          if ! gh api graphql -f query='mutation($p: ID!, $i: ID!, $f: ID!, $o: String!) { updateProjectV2ItemFieldValue(input: {projectId: $p, itemId: $i, fieldId: $f, value: {singleSelectOptionId: $o}}) { projectV2Item { id } } }' \
+            -f p="$project" -f i="$item" -f f="$(jq -r .scenario.field.id <<<"$row")" -f o="$(jq -r .scenario.optionId <<<"$row")" >/dev/null; then
+            gh api graphql -f query='mutation($p: ID!, $i: ID!) { deleteProjectV2Item(input: {projectId: $p, itemId: $i}) { deletedItemId } }' \
+              -f p="$project" -f i="$item" >/dev/null || true
+            echo "Found while walking $found: the scenario's option could not be set. The issue goes to Triage."
+            exit 0
+          fi
+          echo "placed=true" >>"$GITHUB_OUTPUT"
+          echo "Found while walking $found: a row of $(jq -r .project.title <<<"$row") under $(jq -r .scenario.name <<<"$row")."
       - uses: actions/add-to-project@v2.0.0
+        if: steps.scenario.outputs.placed != 'true'
         with:
           project-url: ${{ vars.TRIAGE_PROJECT_URL }}
           github-token: ${{ steps.token.outputs.token }}
@@ -32,3 +81,23 @@ jobs:
           gh api graphql -f query='mutation($i: ID!, $f: ID!, $o: ID!) { setIssueFieldValue(input: {issueId: $i, issueFields: [{fieldId: $f, singleSelectOptionId: $o}]}) { clientMutationId } }' \
             -f i="$ISSUE" -f f="$fid" -f o="$oid" >/dev/null
           echo "Area: $area"
+      # Ruled 2026-11-04, in noblefactor-engprod#303's closing: severity applies to bugs only. A bug starts at Medium, the
+      # owner's default, until triage changes it, and every other issue has Severity N/A. An issue that has a Severity
+      # keeps it. The type is read when this step runs; a bug typed later starts at N/A, and the sweep's severity rule
+      # returns it to Triage (noblefactor-engprod#448).
+      - name: Set the Severity a new issue starts with
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          ISSUE: ${{ github.event.issue.node_id }}
+        run: |
+          record=$(gh api graphql -f query='query($i: ID!) { node(id: $i) { ... on Issue { issueType { name } issueFieldValues(first: 20) { nodes { ... on IssueFieldSingleSelectValue { name field { ... on IssueFieldCommon { name } } } } } } } }' -f i="$ISSUE")
+          current=$(jq -r '.data.node.issueFieldValues.nodes[] | select(.field.name == "Severity") | .name' <<<"$record")
+          [ -z "$current" ] || { echo "The issue has a Severity already: $current"; exit 0; }
+          if [ "$(jq -r '.data.node.issueType.name // ""' <<<"$record")" = Bug ]; then severity=Medium; else severity=N/A; fi
+          fields=$(gh api graphql -f query='query($login: String!) { organization(login: $login) { issueFields(first: 30) { nodes { ... on IssueFieldSingleSelect { id name options { id name } } } } } }' -f login="$GITHUB_REPOSITORY_OWNER")
+          fid=$(jq -r '.data.organization.issueFields.nodes[] | select(.name == "Severity") | .id' <<<"$fields")
+          oid=$(jq -r --arg s "$severity" '.data.organization.issueFields.nodes[] | select(.name == "Severity") | .options[] | select(.name == $s) | .id' <<<"$fields")
+          [ -n "$oid" ] || { echo "Severity '$severity' is not one of the field's options."; exit 0; }
+          gh api graphql -f query='mutation($i: ID!, $f: ID!, $o: ID!) { setIssueFieldValue(input: {issueId: $i, issueFields: [{fieldId: $f, singleSelectOptionId: $o}]}) { clientMutationId } }' \
+            -f i="$ISSUE" -f f="$fid" -f o="$oid" >/dev/null
+          echo "Severity: $severity"
