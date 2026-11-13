@@ -82,9 +82,9 @@ jobs:
             -f i="$ISSUE" -f f="$fid" -f o="$oid" >/dev/null
           echo "Area: $area"
       # Ruled 2026-11-04, in noblefactor-engprod#303's closing: severity applies to bugs only. A bug starts at Medium, the
-      # owner's default, until triage changes it, and every other issue has Severity N/A. An issue that has a Severity
-      # keeps it. The type is read when this step runs; a bug typed later starts at N/A, and the sweep's severity rule
-      # returns it to Triage (noblefactor-engprod#448).
+      # owner's default, until triage changes it; an issue of another type has Severity N/A; and an issue with no type
+      # yet gets none and waits for triage, which sets it with the type. An issue that has a Severity keeps it. The type
+      # is read when this step runs (noblefactor-engprod#448).
       - name: Set the Severity a new issue starts with
         env:
           GH_TOKEN: ${{ steps.token.outputs.token }}
@@ -93,7 +93,11 @@ jobs:
           record=$(gh api graphql -f query='query($i: ID!) { node(id: $i) { ... on Issue { issueType { name } issueFieldValues(first: 20) { nodes { ... on IssueFieldSingleSelectValue { name field { ... on IssueFieldCommon { name } } } } } } } }' -f i="$ISSUE")
           current=$(jq -r '.data.node.issueFieldValues.nodes[] | select(.field.name == "Severity") | .name' <<<"$record")
           [ -z "$current" ] || { echo "The issue has a Severity already: $current"; exit 0; }
-          if [ "$(jq -r '.data.node.issueType.name // ""' <<<"$record")" = Bug ]; then severity=Medium; else severity=N/A; fi
+          case "$(jq -r '.data.node.issueType.name // ""' <<<"$record")" in
+            "") echo "No type yet: the Severity waits for triage, which sets it with the type."; exit 0 ;;
+            Bug) severity=Medium ;;
+            *) severity=N/A ;;
+          esac
           fields=$(gh api graphql -f query='query($login: String!) { organization(login: $login) { issueFields(first: 30) { nodes { ... on IssueFieldSingleSelect { id name options { id name } } } } } }' -f login="$GITHUB_REPOSITORY_OWNER")
           fid=$(jq -r '.data.organization.issueFields.nodes[] | select(.name == "Severity") | .id' <<<"$fields")
           oid=$(jq -r --arg s "$severity" '.data.organization.issueFields.nodes[] | select(.name == "Severity") | .options[] | select(.name == $s) | .id' <<<"$fields")
