@@ -3,7 +3,11 @@ title: "copyFile discards the destination's close error, so a failed write of st
 issue: https://github.com/NobleFactor/devlore-cli/issues/1049
 status: active
 created: 2026-10-21
-updated: 2026-10-21
+updated: 2026-11-15
+documents:
+  - kind: "Design"
+    url: "https://github.com/NobleFactor/devlore-cli/blob/develop/docs/architecture/10-command-line-interface.md#the-lifecycle-is-named-once"
+    text: "`docs/architecture/10-command-line-interface.md`, § 3, The lifecycle is named once"
 ---
 
 # Plan: copyFile returns the destination's close error

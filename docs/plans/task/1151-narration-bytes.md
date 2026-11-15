@@ -3,7 +3,12 @@ title: "A narration frame is the child's stderr bytes, written into the caller's
 issue: https://github.com/NobleFactor/devlore-cli/issues/1151
 status: active
 created: 2026-10-24
-updated: 2026-10-24
+updated: 2026-11-15
+documents:
+  - kind: "Design"
+    path: "docs/architecture/2.7-control-plane.md"
+  - kind: "Design"
+    path: "docs/architecture/2.8-eventing-infrastructure.md"
 ---
 
 # Plan: narration as stderr's bytes

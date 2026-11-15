@@ -3,7 +3,12 @@ title: "The four lifecycle operations are defined by what each does to the recor
 issue: https://github.com/NobleFactor/devlore-cli/issues/913
 status: complete
 created: 2026-09-22
-updated: 2026-09-22
+updated: 2026-11-15
+documents:
+  - kind: "Design"
+    path: "docs/architecture/5.1-reconciliation.md"
+  - kind: "Design"
+    path: "docs/architecture/10-command-line-interface.md"
 ---
 
 # Plan: the lifecycle operations and the record

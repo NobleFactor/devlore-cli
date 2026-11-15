@@ -3,7 +3,14 @@ title: "The shell gate follows Declare-BashScript, and discovers through the git
 issue: https://github.com/NobleFactor/devlore-cli/issues/863
 status: in-progress
 created: 2026-09-08
-updated: 2026-09-08
+updated: 2026-11-15
+documents:
+  - kind: "Design"
+    url: "https://github.com/NobleFactor/noblefactor-engprod/blob/develop/docs/guides/pr-script-template.md"
+    text: "noblefactor-ops docs/guides/pr-script-template.md"
+  - kind: "Design"
+    url: "https://github.com/NobleFactor/noblefactor-engprod/blob/develop/docs/guides/development-process.md"
+    text: "noblefactor-ops docs/guides/development-process.md § Where a script lives"
 ---
 
 # Plan: The shell gate follows Declare-BashScript, and discovers through the git tree

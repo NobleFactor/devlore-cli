@@ -3,7 +3,11 @@ title: "install.ps1's programs read a byte-order mark from their closed standard
 issue: https://github.com/NobleFactor/devlore-cli/issues/1104
 status: active
 created: 2026-10-20
-updated: 2026-10-20
+updated: 2026-11-15
+documents:
+  - kind: "Guide"
+    url: "https://github.com/NobleFactor/noblefactor-engprod/blob/develop/docs/guides/powershell-style-guidelines.md#native-programs"
+    text: "PowerShell style guide, § 7, Native programs"
 ---
 
 # Plan: no byte-order mark reaches a program install.ps1 runs

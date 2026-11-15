@@ -3,7 +3,10 @@ title: "Lanes 1 to 4: a version result, a complete walk, silence before argv, an
 issue: https://github.com/NobleFactor/devlore-cli/issues/795
 status: chartered
 created: 2026-09-13
-updated: 2026-09-13
+updated: 2026-11-15
+documents:
+  - kind: "Design"
+    path: "docs/architecture/10-command-line-interface.md"
 ---
 
 # Plan: Lanes 1 to 4 of the command line schedule

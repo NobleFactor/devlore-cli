@@ -3,7 +3,10 @@ title: "Lane 17: the ledger snapshot compares etags and recomputes only what cha
 issue: https://github.com/NobleFactor/devlore-cli/issues/904
 status: complete
 created: 2026-09-21
-updated: 2026-09-30
+updated: 2026-11-15
+documents:
+  - kind: "Design"
+    path: "docs/architecture/4-resource-management.md"
 ---
 
 # Plan: Lane 17 of the command line schedule

@@ -3,7 +3,11 @@ title: "The getting-started guide, the repositories guide and the README say wha
 issue: https://github.com/NobleFactor/devlore-cli/issues/1055
 status: active
 created: 2026-10-21
-updated: 2026-10-21
+updated: 2026-11-15
+documents:
+  - kind: "Design"
+    url: "https://github.com/NobleFactor/devlore-cli/blob/develop/docs/architecture/10-command-line-interface.md#the-installers"
+    text: "`docs/architecture/10-command-line-interface.md`, § 2, The installers"
 ---
 
 # Plan: the getting-started guide, the repositories guide and the README say what is so

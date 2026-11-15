@@ -3,7 +3,10 @@ title: "Lane 2: reconcile's words name system-versus-record drift, the record as
 issue: https://github.com/NobleFactor/devlore-cli/issues/923
 status: complete
 created: 2026-09-23
-updated: 2026-09-23
+updated: 2026-11-15
+documents:
+  - kind: "Design"
+    path: "docs/architecture/5.1-reconciliation.md"
 ---
 
 # Plan: Lane 2 of the writ lifecycle schedule

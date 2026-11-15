@@ -3,7 +3,10 @@ title: "A secret with no format before .sops deploys as a JSON wrapper"
 issue: https://github.com/NobleFactor/devlore-cli/issues/977
 status: complete
 created: 2026-10-21
-updated: 2026-10-23
+updated: 2026-11-15
+documents:
+  - kind: "Design"
+    path: "docs/architecture/3.5.13-encryption-provider.md"
 ---
 
 # Plan: writ encrypts and decrypts every secret one way, as bytes, so token.sops deploys as its plaintext
