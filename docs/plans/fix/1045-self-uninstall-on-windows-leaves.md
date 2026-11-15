@@ -3,7 +3,11 @@ title: "self uninstall on Windows leaves its manifest behind, and the scenario t
 issue: https://github.com/NobleFactor/devlore-cli/issues/1045
 status: active
 created: 2026-10-20
-updated: 2026-10-20
+updated: 2026-11-15
+documents:
+  - kind: "Design"
+    url: "https://github.com/NobleFactor/devlore-cli/blob/develop/docs/architecture/10-command-line-interface.md#the-lifecycle-is-named-once"
+    text: "`docs/architecture/10-command-line-interface.md`, § 3, The lifecycle is named once"
 ---
 
 # Plan: every scenario runs, and an uninstall on Windows leaves no manifest

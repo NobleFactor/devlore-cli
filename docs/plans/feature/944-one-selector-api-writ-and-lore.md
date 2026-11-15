@@ -3,7 +3,10 @@ title: "One selector API: writ and lore detect the host and match platform selec
 issue: https://github.com/NobleFactor/devlore-cli/issues/944
 status: complete
 created: 2026-09-30
-updated: 2026-09-30
+updated: 2026-11-15
+documents:
+  - kind: "Design"
+    path: "docs/guides/selectors.md"
 ---
 
 # Plan: one selector API for writ and lore

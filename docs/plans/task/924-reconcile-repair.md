@@ -3,7 +3,13 @@ title: "Lane 5: reconcile repairs by running the named operation on the drifted 
 issue: https://github.com/NobleFactor/devlore-cli/issues/924
 status: in-progress
 created: 2026-09-26
-updated: 2026-09-27
+updated: 2026-11-15
+documents:
+  - kind: "Design"
+    path: "docs/architecture/5.1-reconciliation.md"
+  - kind: "Design"
+    path: "docs/architecture/10-command-line-interface.md"
+    text: "10-command-line-interface.md §3.1"
 ---
 
 # Plan: Lane 5 of the writ lifecycle schedule

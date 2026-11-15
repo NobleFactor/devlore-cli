@@ -3,7 +3,11 @@ title: "Three star design documents describe code that ships here and is documen
 issue: https://github.com/NobleFactor/devlore-cli/issues/937
 status: active
 created: 2026-09-23
-updated: 2026-09-23
+updated: 2026-11-15
+documents:
+  - kind: "Design"
+    url: "https://github.com/NobleFactor/noblefactor-engprod/issues/228"
+    text: "noblefactor-ops#228"
 ---
 
 # Plan: the star design record arrives where the code is

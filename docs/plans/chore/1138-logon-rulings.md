@@ -3,7 +3,14 @@ title: "The execution model's specifications take the rulings of 2026-10-22: the
 issue: https://github.com/NobleFactor/devlore-cli/issues/1138
 status: complete
 created: 2026-10-22
-updated: 2026-10-22
+updated: 2026-11-15
+documents:
+  - kind: "Design"
+    path: "docs/architecture/6.2-process-pool.md"
+  - kind: "Design"
+    path: "docs/architecture/6.1-authorization.md"
+  - kind: "Design"
+    path: "docs/architecture/2.7-control-plane.md"
 ---
 
 # Plan: the logon rulings land in 6.1, 6.2 and 2.7

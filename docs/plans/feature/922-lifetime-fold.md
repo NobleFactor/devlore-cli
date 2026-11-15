@@ -3,7 +3,13 @@ title: "Lane 1: deploy replaces the record -- the fold is bounded to the current
 issue: https://github.com/NobleFactor/devlore-cli/issues/922
 status: active
 created: 2026-09-23
-updated: 2026-09-23
+updated: 2026-11-15
+documents:
+  - kind: "Design"
+    path: "docs/architecture/5.1-reconciliation.md"
+  - kind: "Design"
+    path: "docs/architecture/10-command-line-interface.md"
+    text: "10-command-line-interface.md §3.1"
 ---
 
 # Plan: Lane 1 of the writ lifecycle schedule

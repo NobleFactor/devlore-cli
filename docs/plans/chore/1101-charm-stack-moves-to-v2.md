@@ -3,7 +3,11 @@ title: "The Charm stack moves to v2 under charm.land: glamour, Lip Gloss, Bubble
 issue: https://github.com/NobleFactor/devlore-cli/issues/1101
 status: complete
 created: 2026-10-20
-updated: 2026-10-20
+updated: 2026-11-15
+documents:
+  - kind: "Design"
+    url: "https://github.com/charmbracelet/glamour/blob/main/UPGRADE_GUIDE_V2.md"
+    text: "UPGRADE_GUIDE_V2.md"
 ---
 
 # Plan: the Charm stack moves to v2

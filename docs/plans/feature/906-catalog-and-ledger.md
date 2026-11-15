@@ -3,7 +3,10 @@ title: "Lane 18: the catalog and the ledger described -- what each holds, when t
 issue: https://github.com/NobleFactor/devlore-cli/issues/906
 status: complete
 created: 2026-09-22
-updated: 2026-09-22
+updated: 2026-11-15
+documents:
+  - kind: "Design"
+    path: "docs/architecture/4-resource-management.md"
 ---
 
 # Plan: Lane 18 of the command line schedule

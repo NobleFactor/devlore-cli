@@ -3,7 +3,11 @@ title: "wiki/Releasing.md describes workflows, secrets, scripts and site environ
 issue: https://github.com/NobleFactor/devlore-cli/issues/1056
 status: active
 created: 2026-10-21
-updated: 2026-10-21
+updated: 2026-11-15
+documents:
+  - kind: "Design"
+    url: "https://github.com/NobleFactor/devlore-cli/blob/develop/docs/architecture/10-command-line-interface.md#the-installers"
+    text: "`docs/architecture/10-command-line-interface.md`, § 2, The installers"
 ---
 
 # Plan: wiki/Releasing.md describes the release as it is

@@ -3,7 +3,11 @@ title: "The installer suites check the download directory is removed, and the lo
 issue: https://github.com/NobleFactor/devlore-cli/issues/1051
 status: active
 created: 2026-10-21
-updated: 2026-10-21
+updated: 2026-11-15
+documents:
+  - kind: "Design"
+    url: "https://github.com/NobleFactor/devlore-cli/blob/develop/docs/architecture/10-command-line-interface.md#the-installers"
+    text: "`docs/architecture/10-command-line-interface.md`, § 2, The installers"
 ---
 
 # Plan: the installer suites check that nothing is left behind, and one list of checks serves CI and the local gate

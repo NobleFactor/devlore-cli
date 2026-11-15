@@ -3,7 +3,20 @@ title: "The execution model's specifications take the rulings of 2026-10-23 and 
 issue: https://github.com/NobleFactor/devlore-cli/issues/1159
 status: complete
 created: 2026-10-23
-updated: 2026-10-24
+updated: 2026-11-15
+documents:
+  - kind: "Design"
+    path: "docs/architecture/2.7-control-plane.md"
+  - kind: "Design"
+    path: "docs/architecture/2.8-eventing-infrastructure.md"
+  - kind: "Design"
+    path: "docs/architecture/6.2-process-pool.md"
+  - kind: "Design"
+    path: "docs/architecture/6.3-command-execution.md"
+  - kind: "Design"
+    path: "docs/architecture/2.3-orchestration-primitives.md"
+  - kind: "Design"
+    path: "docs/architecture/5.3-recovery-site.md"
 ---
 
 # Plan: the rulings of 2026-10-23 and 2026-10-24 land in the specifications

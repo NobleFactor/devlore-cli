@@ -3,7 +3,12 @@ title: "The sealed-resource shape is enforced at announcement"
 issue: https://github.com/NobleFactor/devlore-cli/issues/646
 status: complete
 created: 2026-09-08
-updated: 2026-09-08
+updated: 2026-11-15
+documents:
+  - kind: "Design"
+    path: "docs/architecture/4.3-resource-registration.md"
+  - kind: "Design"
+    path: "docs/plans/feature/625-sealed-provider-resources.md"
 ---
 
 # Plan: The sealed-resource shape is enforced at announcement

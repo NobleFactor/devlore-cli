@@ -3,7 +3,11 @@ title: "self install's shell setup instructions name ~/.local whatever the prefi
 issue: https://github.com/NobleFactor/devlore-cli/issues/1048
 status: active
 created: 2026-10-21
-updated: 2026-10-21
+updated: 2026-11-15
+documents:
+  - kind: "Design"
+    url: "https://github.com/NobleFactor/devlore-cli/blob/develop/docs/architecture/10-command-line-interface.md#the-lifecycle-is-named-once"
+    text: "`docs/architecture/10-command-line-interface.md`, § 3, The lifecycle is named once"
 ---
 
 # Plan: self install's shell setup instructions name the files this install wrote

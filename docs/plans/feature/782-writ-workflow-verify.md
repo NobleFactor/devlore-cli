@@ -3,7 +3,20 @@ title: "Command naming and package layout: the workflow group on the shared root
 issue: https://github.com/NobleFactor/devlore-cli/issues/782
 status: complete
 created: 2026-09-10
-updated: 2026-09-11
+updated: 2026-11-15
+documents:
+  - kind: "Design"
+    path: "docs/architecture/10-command-line-interface.md"
+    text: "Command Line Interface — One Convention, Every App"
+  - kind: "Design"
+    url: "https://github.com/NobleFactor/devlore-cli/blob/develop/docs/architecture/5-graph-trace-integrity.md#verification"
+    text: "Graph and Trace Integrity § Verification"
+  - kind: "Design"
+    url: "https://github.com/NobleFactor/devlore-cli/blob/develop/docs/architecture/5-graph-trace-integrity.md#tier-2-signature-authenticity"
+    text: "Graph and Trace Integrity § Tier 2: Signature"
+  - kind: "Design"
+    path: "docs/architecture/5.1-reconciliation.md"
+    text: "Audit, Reconciliation, and Recovery"
 ---
 
 # Plan: Command naming and package layout

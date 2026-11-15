@@ -3,7 +3,11 @@ title: "install.ps1 is published beside install.sh, and runs on Windows PowerShe
 issue: https://github.com/NobleFactor/devlore-cli/issues/948
 status: complete
 created: 2026-09-24
-updated: 2026-10-19
+updated: 2026-11-15
+documents:
+  - kind: "Design"
+    url: "https://github.com/NobleFactor/devlore-cli/issues/798"
+    text: "#798"
 ---
 
 # Plan: install.ps1 is published, and runs on 5.1

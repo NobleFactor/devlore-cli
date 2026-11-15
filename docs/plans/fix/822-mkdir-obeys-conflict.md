@@ -3,7 +3,12 @@ title: "Lanes 12 to 14: file.mkdir obeys --conflict, the conflict policy has thr
 issue: https://github.com/NobleFactor/devlore-cli/issues/822
 status: complete
 created: 2026-09-20
-updated: 2026-09-21
+updated: 2026-11-15
+documents:
+  - kind: "Design"
+    path: "docs/architecture/3.5.4-file-provider.md"
+  - kind: "Design"
+    path: "docs/architecture/3.4-platform-package-managers.md"
 ---
 
 # Plan: Lanes 12 to 14 of the command line schedule

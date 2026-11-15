@@ -3,7 +3,10 @@ title: "CI exercises os-release's lineage only on Ubuntu"
 issue: https://github.com/NobleFactor/devlore-cli/issues/995
 status: complete
 created: 2026-10-25
-updated: 2026-10-25
+updated: 2026-11-15
+documents:
+  - kind: "Design"
+    path: "docs/guides/selectors.md"
 ---
 
 # Plan: CI deploys on Debian, Kali, Fedora, Rocky and Alpine, not Ubuntu alone

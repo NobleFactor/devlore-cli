@@ -3,7 +3,14 @@ title: "star keeps its data under devlore/, like writ"
 issue: https://github.com/NobleFactor/devlore-cli/issues/918
 status: active
 created: 2026-09-22
-updated: 2026-09-30
+updated: 2026-11-15
+documents:
+  - kind: "Design"
+    url: "https://github.com/NobleFactor/devlore-cli/issues/917"
+    text: "#917"
+  - kind: "Design"
+    url: "https://github.com/NobleFactor/devlore-cli/issues/903"
+    text: "#903"
 ---
 
 # Plan: star's data moves under devlore/

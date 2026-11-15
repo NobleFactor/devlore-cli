@@ -3,7 +3,16 @@ title: "Lane 14: writ adopt carries the platform and leaves a deployment record"
 issue: https://github.com/NobleFactor/devlore-cli/issues/931
 status: active
 created: 2026-09-23
-updated: 2026-09-30
+updated: 2026-11-15
+documents:
+  - kind: "Design"
+    path: "docs/architecture/10-command-line-interface.md"
+    text: "10-command-line-interface.md"
+  - kind: "Design"
+    path: "docs/architecture/5.1-reconciliation.md"
+    text: "5.1-reconciliation.md"
+  - kind: "Design"
+    path: "docs/plans/extract-starlark-from-op/phase-8/writ-adopt-command.md"
 ---
 
 # Plan: Lane 14 of the writ lifecycle schedule

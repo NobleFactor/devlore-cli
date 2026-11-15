@@ -3,7 +3,10 @@ title: "2.7 gains the channels, the wire protocol and the transport, hop by hop,
 issue: https://github.com/NobleFactor/devlore-cli/issues/1174
 status: approved
 created: 2026-10-24
-updated: 2026-10-24
+updated: 2026-11-15
+documents:
+  - kind: "Design"
+    path: "docs/architecture/2.7-control-plane.md"
 ---
 
 # Plan: the channels, the wire protocol and the transport, by hop

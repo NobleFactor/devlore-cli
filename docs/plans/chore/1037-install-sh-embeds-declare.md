@@ -3,7 +3,11 @@ title: "install.sh and two tools carry Declare-BashScript's functions, and insta
 issue: https://github.com/NobleFactor/devlore-cli/issues/1037
 status: active
 created: 2026-10-09
-updated: 2026-10-10
+updated: 2026-11-15
+documents:
+  - kind: "Design"
+    url: "https://github.com/NobleFactor/devlore-cli/blob/develop/docs/architecture/10-command-line-interface.md#the-installers"
+    text: "`docs/architecture/10-command-line-interface.md`, § 2, The installers"
 ---
 
 # Plan: install.sh and two repository tools on Declare-BashScript

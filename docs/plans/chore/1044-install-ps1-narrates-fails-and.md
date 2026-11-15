@@ -3,7 +3,14 @@ title: "install.ps1 narrates, fails and runs programs as the PowerShell style gu
 issue: https://github.com/NobleFactor/devlore-cli/issues/1044
 status: active
 created: 2026-10-20
-updated: 2026-10-20
+updated: 2026-11-15
+documents:
+  - kind: "Design"
+    url: "https://github.com/NobleFactor/devlore-cli/blob/develop/docs/architecture/10-command-line-interface.md#the-installers"
+    text: "`docs/architecture/10-command-line-interface.md`, § 2, The installers"
+  - kind: "Guide"
+    url: "https://github.com/NobleFactor/noblefactor-engprod/blob/develop/docs/guides/powershell-style-guidelines.md#7-messages-and-failure"
+    text: "PowerShell style guide, § 7, Messages and Failure"
 ---
 
 # Plan: install.ps1 speaks through PowerShell's streams, and fails with error records

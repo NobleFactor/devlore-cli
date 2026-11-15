@@ -3,7 +3,16 @@ title: "Slots must carry their type"
 issue: https://github.com/NobleFactor/devlore-cli/issues/712
 status: complete
 created: 2026-08-28
-updated: 2026-09-07
+updated: 2026-11-15
+documents:
+  - kind: "Design"
+    path: "docs/architecture/5-graph-trace-integrity.md"
+  - kind: "Design"
+    path: "docs/architecture/2.1-typed-slots.md"
+  - kind: "Design"
+    path: "docs/architecture/5.2-recovery-serialization.md"
+  - kind: "Design"
+    path: "docs/architecture/4-resource-management.md"
 ---
 
 # Plan: Slots must carry their type

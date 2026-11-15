@@ -3,7 +3,13 @@ title: "make dist packs every product, and star ships with its extensions"
 issue: https://github.com/NobleFactor/devlore-cli/issues/903
 status: complete
 created: 2026-09-22
-updated: 2026-09-22
+updated: 2026-11-15
+documents:
+  - kind: "Design"
+    url: "https://github.com/NobleFactor/devlore-cli/issues/339"
+    text: "#339 Star release process and self-install"
+  - kind: "Design"
+    path: "docs/plans/version-stamping.md"
 ---
 
 # Plan: make dist packs every product

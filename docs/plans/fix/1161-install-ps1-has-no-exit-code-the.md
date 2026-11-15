@@ -3,7 +3,10 @@ title: "install.ps1 has no exit code and no -Help switch"
 issue: https://github.com/NobleFactor/devlore-cli/issues/1161
 status: complete
 created: 2026-10-29
-updated: 2026-10-29
+updated: 2026-11-15
+documents:
+  - kind: "Design"
+    path: "docs/architecture/10-command-line-interface.md"
 ---
 
 # Plan: install.ps1 has no exit code and no -Help switch

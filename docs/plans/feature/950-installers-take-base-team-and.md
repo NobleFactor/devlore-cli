@@ -3,7 +3,11 @@ title: "The installers take --base, --team and --personal and never ask; install
 issue: https://github.com/NobleFactor/devlore-cli/issues/950
 status: complete
 created: 2026-09-25
-updated: 2026-09-30
+updated: 2026-11-15
+documents:
+  - kind: "Design"
+    url: "https://github.com/NobleFactor/devlore-cli/issues/798"
+    text: "#798"
 ---
 
 # Plan: PR B, the installers' layer flags, their exits, and their documentation
