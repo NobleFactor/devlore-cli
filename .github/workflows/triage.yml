@@ -61,8 +61,24 @@ jobs:
           fi
           echo "placed=true" >>"$GITHUB_OUTPUT"
           echo "Found while walking $found: a row of $(jq -r .project.title <<<"$row") under $(jq -r .scenario.name <<<"$row")."
+      # Ruled 2026-11-16 (NobleFactor/noblefactor-engprod#573): a Schedule or Scenario issue is its collection's own
+      # record, whose row is on its Schedule or Scenario project, and an issue is a row of at most one of its account's
+      # projects, so it goes to no Triage project. Its type is read when this step runs.
+      - name: Leave a Schedule or Scenario issue out of Triage
+        id: collection
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          ISSUE: ${{ github.event.issue.node_id }}
+        run: |
+          kind=$(gh api graphql -f query='query($i: ID!) { node(id: $i) { ... on Issue { issueType { name } } } }' -f i="$ISSUE" --jq '.data.node.issueType.name // ""')
+          case "$kind" in
+            Schedule | Scenario)
+              echo "collection=true" >>"$GITHUB_OUTPUT"
+              echo "A $kind issue: its row is on its $kind project, so it goes to no Triage project."
+              ;;
+          esac
       - uses: actions/add-to-project@v2.0.0
-        if: steps.scenario.outputs.placed != 'true'
+        if: steps.scenario.outputs.placed != 'true' && steps.collection.outputs.collection != 'true'
         with:
           project-url: ${{ vars.TRIAGE_PROJECT_URL }}
           github-token: ${{ steps.token.outputs.token }}
