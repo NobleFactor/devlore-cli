@@ -97,9 +97,22 @@ see [docs/](docs/) for architecture and guides.
 
 ## Contributing
 
-Contributions arrive under Apache-2.0 §5 with a
+Contributions arrive under Apache-2.0 §5, on NobleFactor's
+[contributing terms](https://github.com/NobleFactor/.github/blob/main/CONTRIBUTING.md):
+every pull request ends its description with a
 [Developer Certificate of Origin](https://developercertificate.org/) sign-off
-(`git commit -s`). See [CONTRIBUTING.md](CONTRIBUTING.md).
+and, where AI assisted, says so; the commits on a branch carry neither.
+
+1. Open or find an issue describing the change.
+2. Branch from `develop`; open a pull request back to `develop`.
+3. Make sure `make build` and `make test` pass, and run `star lint all` before
+   pushing: the Go style rules are enforced by `star lint go-style` and
+   documented in [docs/guides/go-style-guidelines.md](docs/guides/go-style-guidelines.md).
+4. Squash merges only, the pull request's title in `type(scope): summary` form.
+
+Packages (deployment manifests and phase scripts) live in
+[devlore-registry](https://github.com/NobleFactor/devlore-registry), which has
+its own contributor license agreement.
 
 ## License
 
