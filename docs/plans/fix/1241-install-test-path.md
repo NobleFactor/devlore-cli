@@ -88,7 +88,7 @@ The scratch directory is named `dlt-` and `git -C <checkout> rev-parse --short=7
 
 ### 9.2 Phase 2: the fix
 
-- [ ] `scripts/Test-InstallScript.ps1` as § 5 sets out; the PowerShell lint clean.
+- [x] `scripts/Test-InstallScript.ps1` as § 5 sets out; the PowerShell lint clean, 4 scripts checked, none with findings.
 
 <a id="files-and-related-assets"></a>
 
