@@ -6,6 +6,10 @@ jobs:
   add-to-triage:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    # The workflow's own token reports a failure, and checks out the credentials check's script to do it.
+    permissions:
+      contents: read
+      issues: write
     steps:
       - id: token
         uses: actions/create-github-app-token@v3.3.0
@@ -78,6 +82,7 @@ jobs:
               ;;
           esac
       - uses: actions/add-to-project@v2.0.0
+        id: triage
         if: steps.scenario.outputs.placed != 'true' && steps.collection.outputs.collection != 'true'
         with:
           project-url: ${{ vars.TRIAGE_PROJECT_URL }}
@@ -121,3 +126,39 @@ jobs:
           gh api graphql -f query='mutation($i: ID!, $f: ID!, $o: ID!) { setIssueFieldValue(input: {issueId: $i, issueFields: [{fieldId: $f, singleSelectOptionId: $o}]}) { clientMutationId } }' \
             -f i="$ISSUE" -f f="$fid" -f o="$oid" >/dev/null
           echo "Severity: $severity"
+      # An issue meant for Triage that didn't reach it raises an alert at once, with the run's own token, so that it
+      # doesn't depend on the token that may have failed: the token's own alert when the token is bad, otherwise "New
+      # issues aren't reaching Triage". CLASSIFIED says whether the run could tell where the issue belongs, a step
+      # before it having failed. An issue that reached Triage closes that alert, whatever later steps did, and a
+      # failure closing it fails the run (noblefactor-engprod#613).
+      - uses: actions/checkout@v4
+        if: always() && steps.scenario.outputs.placed != 'true' && steps.collection.outputs.collection != 'true'
+        with:
+          sparse-checkout: .github/credentials-check
+      - name: Report an issue that didn't reach Triage
+        if: >-
+          failure() && steps.triage.outcome != 'success'
+          && steps.scenario.outputs.placed != 'true' && steps.collection.outputs.collection != 'true'
+        env:
+          MODE: report
+          KIND: organization
+          ACCOUNT: ${{ github.repository_owner }}
+          REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          APP_ID: ${{ secrets.NOBLEFACTOR_AUTOMATION_APP_ID }}
+          APP_PRIVATE_KEY: ${{ secrets.NOBLEFACTOR_AUTOMATION_APP_PRIVATE_KEY }}
+          ISSUE: ${{ github.event.issue.number }}
+          CLASSIFIED: ${{ steps.scenario.outcome == 'success' && steps.collection.outcome == 'success' }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash .github/credentials-check/credentials-check.sh || true
+      - name: Close the Triage alert, the issue having reached Triage
+        if: ${{ always() && steps.triage.outcome == 'success' }}
+        env:
+          MODE: placed
+          KIND: organization
+          ACCOUNT: ${{ github.repository_owner }}
+          REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ github.event.issue.number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash .github/credentials-check/credentials-check.sh
