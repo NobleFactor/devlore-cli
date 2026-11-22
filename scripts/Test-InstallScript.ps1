@@ -81,7 +81,29 @@ if ($onWindows) {
 # This process's own executable, so a child session is the same edition as this one.
 $shell = [System.Diagnostics.Process]::GetCurrentProcess().MainModule.FileName
 
-$scratch = Join-Path ([System.IO.Path]::GetTempPath()) "devlore-install-test-$([System.Guid]::NewGuid().ToString('N'))"
+# The scratch directory is named dlt- and this checkout's commit, or 7 random characters outside a git checkout. writ
+# clones the team layer under it, and the deepest path there must stay inside Windows' 260 characters, which
+# devlore-install-test- and a 32-character ID took it past (#1241). A directory of that name an earlier run left is
+# removed first.
+$commit = ''
+
+try {
+    $commit = "$(& git -C $repo rev-parse --short=7 HEAD 2>$null)".Trim()
+}
+catch {
+    $commit = ''
+}
+
+if ($commit -notmatch '^[0-9a-f]{7,40}$') {
+    $commit = [System.Guid]::NewGuid().ToString('N').Substring(0, 7)
+}
+
+$scratch = Join-Path ([System.IO.Path]::GetTempPath()) "dlt-$commit"
+
+if (Test-Path -LiteralPath $scratch) {
+    Remove-Item -LiteralPath $scratch -Recurse -Force
+}
+
 New-Item -ItemType Directory -Path $scratch -Force | Out-Null
 
 # The fixture release the checksum cases run against (#1002): its tag, and the names the installer looks for on this
