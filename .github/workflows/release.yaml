@@ -119,6 +119,11 @@ jobs:
   sync-install-script:
     needs: build-and-release
     runs-on: ubuntu-latest
+    # The workflow's contents: write, and issues: write for the failure steps' alert
+    # (NobleFactor/noblefactor-engprod#613).
+    permissions:
+      contents: write
+      issues: write
     steps:
       - name: Generate app token
         id: app-token
@@ -221,3 +226,37 @@ jobs:
           fi
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
+
+      # The steps a job that signs in with NobleFactor's GitHub App ends with (noblefactor-engprod#613). When the job
+      # fails, they check the App's token at once, and that it reaches every repository TOKEN_CHECK_TARGETS names: a bad
+      # one raises its alert, naming the workflow and its run; one that checks fine raises nothing, the failure being
+      # the job's own. The check is fetched into a folder of its own, leaving the job's working tree as it is. The job's
+      # own token needs issues: write and contents: read. They run only where the run can read the repository's secrets:
+      # never for Dependabot, on any event, and never on a pull request from a fork, whose runs get none, so that such a
+      # failure raises no false alert. They are noblefactor-engprod's
+      # workflow-templates/credentials-check.app-failure-steps.yml, as landed by NobleFactor/noblefactor-engprod#613's
+      # plan § 5.15.
+      - uses: actions/checkout@v4
+        if: >-
+          failure() && github.actor != 'dependabot[bot]'
+          && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        with:
+          sparse-checkout: .github/credentials-check
+          path: .credentials-check
+      - name: Report a failure the App's token may have caused
+        if: >-
+          failure() && github.actor != 'dependabot[bot]'
+          && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+        env:
+          CHECKS: app
+          MODE: report
+          KIND: organization
+          ACCOUNT: ${{ github.repository_owner }}
+          REPOSITORY: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+          APP_ID: ${{ secrets.NOBLEFACTOR_AUTOMATION_APP_ID }}
+          APP_PRIVATE_KEY: ${{ secrets.NOBLEFACTOR_AUTOMATION_APP_PRIVATE_KEY }}
+          TARGETS: ${{ vars.TOKEN_CHECK_TARGETS }}
+          WORKFLOW: ${{ github.workflow }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: bash .credentials-check/.github/credentials-check/credentials-check.sh || true

@@ -27,6 +27,23 @@
 # earlier, to check: closing an alert never adds them. An alert says only what was seen: what happened in the run, and
 # what the token check found right after it, never which caused which.
 #
+# An organization's app must reach this repository and every other one its workflows write to with the app, which the
+# repository variable TOKEN_CHECK_TARGETS names: GitHub mints a token for each repository alone, and refuses one the
+# app's installation doesn't cover. A refusal raises unreachable, naming each repository; only every one reached
+# clears it. Every run in a repository, the daily check, Triage's report and a workflow's own, reads the same list.
+#
+# Where the repository variable AZURE_STATIC_SITE names a static site, the Azure credentials its deployment signs in
+# with are checked too: AZURE_CREDENTIALS, the service principal azure/login reads, must sign in, and its secret's
+# expiry, which the repository variable AZURE_CREDENTIALS_EXPIRES records, must be beyond the margin;
+# AZURE_STATIC_WEB_APPS_API_TOKEN must be the site's current deployment token, which the service principal reads from
+# Azure. Azure not reached, or answering with something that proves nothing, leaves the sign-in's and the deployment
+# token's alerts as they are; the expiry's follow the recorded date, which needs nothing of Azure. A run that finds
+# something wrong ends 1, even when part of it couldn't be checked.
+#
+# Any workflow that signs in can report its own failure: report mode without ISSUE checks what CHECKS names at once,
+# and a bad credential raises its alert, naming the workflow and its run; a credential that checks fine raises nothing,
+# the failure being the workflow's own.
+#
 # Environment:
 #   KIND                organization or user.
 #   ACCOUNT, REPOSITORY the account and this repository, owner/name.
@@ -35,8 +52,21 @@
 #   PAT                 a user account's classic token, from its secret.
 #   ROTATION_DUE        an organization's next key rotation, YYYY-MM-DD, from TOKEN_ROTATION_DUE; optional.
 #   WATCH               repositories whose latest check this run also watches, comma-separated; optional.
-#   MODE                check, the default; report, when a new issue wasn't added to Triage; or placed, when one was.
-#   ISSUE               the new issue's number, in report and placed mode.
+#   TARGETS             the other repositories, in the account, this repository's workflows write to with the app,
+#                       comma-separated, from TOKEN_CHECK_TARGETS; optional. This repository is always reached too.
+#   MODE                check, the default; report, when a new issue wasn't added to Triage or a workflow failed; or
+#                       placed, when a new issue was added to Triage.
+#   ISSUE               the new issue's number: in report mode, a Triage miss; in placed mode, the issue placed.
+#   WORKFLOW            in report mode without ISSUE, the workflow that failed.
+#   CHECKS              in report mode without ISSUE, what the workflow signs in with, comma-separated: app, the
+#                       organization's GitHub App; token, the user account's classic token; azure, the Azure
+#                       credentials.
+#   AZURE_STATIC_SITE   the static site whose deployment signs in to Azure; unset, no Azure check.
+#   AZURE_CREDENTIALS   the service principal's JSON, as azure/login reads it.
+#   AZURE_CREDENTIALS_EXPIRES  the date its secret expires, YYYY-MM-DD.
+#   AZURE_STATIC_WEB_APPS_API_TOKEN  the site's deployment token.
+#   AZURE_LOGIN_URL, AZURE_API_URL  Azure's sign-in and management APIs; defaults: https://login.microsoftonline.com and
+#                       https://management.azure.com.
 #   CLASSIFIED          in report mode, false when the run failed before it could tell whether the issue belongs in
 #                       Triage, a schedule or a scenario; default: true.
 #   RUN_URL             this run's page, named in every incident.
@@ -55,6 +85,8 @@ set -uo pipefail
 : "${KIND:?}" "${ACCOUNT:?}" "${REPOSITORY:?}" "${GH_TOKEN:?}"
 config="${CONFIG:-$(dirname -- "$0")/credentials-check.json}"
 api="${GITHUB_API_URL:-https://api.github.com}"
+azure_login="${AZURE_LOGIN_URL:-https://login.microsoftonline.com}"
+azure_api="${AZURE_API_URL:-https://management.azure.com}"
 mode="${MODE:-check}"
 run="${RUN_URL:-the run}"
 margin="$(jq -r .margin_days "${config}")"
@@ -65,13 +97,18 @@ work="$(mktemp -d)"
 trap 'rm -rf -- "${work}"' EXIT
 
 declare -A found=() cleared=()
+# The organization app's installation token, once minted: setting an issue field takes push access, which the run's own
+# token lacks.
+app_token=""
 declare -a watched=()
 incomplete=0
 broken=0
 
 # raise records a condition that holds, with what was seen.
 raise() {
-    found["$1"]="$2"
+    local condition="$1"
+    shift
+    found["${condition}"]="$*"
 }
 
 # passed records conditions whose own test passed, so that their incidents may close.
@@ -96,14 +133,17 @@ days_until() {
     printf '%d\n' $(((due - now) / 86400))
 }
 
-# call makes one request of GitHub, the body to ${work}/body and the headers to ${work}/headers, and prints the HTTP
-# status. A request that doesn't reach GitHub returns 2, and its caller exits 2 at once: no credential is at fault
-# (#621). It returns rather than exits, since it runs in a command substitution, whose exit would end only that.
+# call makes one request of GitHub or Azure, the body to ${work}/body and the headers to ${work}/headers, and prints the
+# HTTP status. A request that doesn't reach its service returns 2, and no credential is at fault (#621): a GitHub
+# request's caller exits 2 at once, and an Azure request's leaves the Azure sign-in's and deployment token's alerts as
+# they are. It returns rather than exits, since it runs in a command substitution, whose exit would end only that.
 call() {
     local code
     if ! code="$(curl -sS --max-time 30 -o "${work}/body" -D "${work}/headers" -w '%{http_code}' "$@" \
         2>"${work}/curl")"; then
-        printf 'GitHub not reached: %s; no credential is at fault, and the next run checks again\n' \
+        local url="${!#}"
+        url="${url#*://}"
+        printf '%s not reached: %s; no credential is at fault, and the next run checks again\n' "${url%%/*}" \
             "$(<"${work}/curl")" >&2
         return 2
     fi
@@ -146,6 +186,20 @@ b64url() {
     openssl base64 -A | tr '+/' '-_' | tr -d '='
 }
 
+# app_jwt prints a JSON Web Token for the organization's app, signed with its private key, or returns 1 when the key
+# can't sign one.
+app_jwt() {
+    local key="${work}/key.pem" now head body signature
+    (umask 077 && printf '%s\n' "${APP_PRIVATE_KEY}" >"${key}")
+    now="$(date -u +%s)"
+    head="$(printf '{"alg":"RS256","typ":"JWT"}' | b64url)"
+    body="$(printf '{"iat":%d,"exp":%d,"iss":"%s"}' $((now - 60)) $((now + 540)) "${APP_ID}" | b64url)"
+    signature="$(printf '%s.%s' "${head}" "${body}" | openssl dgst -sha256 -sign "${key}" 2>/dev/null | b64url)" ||
+        return 1
+    [[ -n "${signature}" ]] || return 1
+    printf '%s.%s.%s\n' "${head}" "${body}" "${signature}"
+}
+
 # check_app proves an organization's app: its key signs, it is installed on the account, and the installation token
 # GitHub mints holds every permission credentials-check.json names. Only all of that clears the app's conditions.
 check_app() {
@@ -154,17 +208,11 @@ check_app() {
         raise missing "the organization secrets ${names} aren't both set"
         return
     fi
-    local key="${work}/key.pem" now head body signature jwt code installation needed short
-    (umask 077 && printf '%s\n' "${APP_PRIVATE_KEY}" >"${key}")
-    now="$(date -u +%s)"
-    head="$(printf '{"alg":"RS256","typ":"JWT"}' | b64url)"
-    body="$(printf '{"iat":%d,"exp":%d,"iss":"%s"}' $((now - 60)) $((now + 540)) "${APP_ID}" | b64url)"
-    if ! signature="$(printf '%s.%s' "${head}" "${body}" | openssl dgst -sha256 -sign "${key}" 2>/dev/null | b64url)" ||
-        [[ -z "${signature}" ]]; then
+    local jwt code installation needed short
+    if ! jwt="$(app_jwt)"; then
         raise refused "the private key in NOBLEFACTOR_AUTOMATION_APP_PRIVATE_KEY can't sign a token"
         return
     fi
-    jwt="${head}.${body}.${signature}"
     code="$(call -H "Authorization: Bearer ${jwt}" -H "Accept: application/vnd.github+json" \
         "${api}/app/installations")" || exit 2
     if [[ "${code}" != 200 ]]; then
@@ -189,6 +237,7 @@ check_app() {
         raise refused "GitHub minted no installation token for app ${APP_ID}: HTTP ${code} ($(message))"
         return
     fi
+    app_token="$(jq -r '.token // ""' "${work}/body")"
     needed="$(jq -c .organization.permissions "${config}")"
     short="$(jq -r --argjson need "${needed}" '
         def rank: {"read": 1, "write": 2, "admin": 3}[.] // 0;
@@ -199,6 +248,50 @@ check_app() {
         return
     fi
     passed missing refused not-installed short
+    check_reach "${jwt}" "${installation}"
+}
+
+# check_reach proves the app reaches this repository and every one TARGETS names: GitHub mints a token for each
+# repository alone, and refuses one its installation doesn't cover, with HTTP 422. Every repository reached clears
+# unreachable; an answer that proves nothing ends the run 2.
+check_reach() {
+    local jwt="$1" installation="$2" name code list
+    local -a names=("${REPOSITORY#*/}") targets=() missed=()
+    IFS=',' read -r -a targets <<<"${TARGETS:-}"
+    for name in "${targets[@]}"; do
+        name="${name// /}"
+        [[ -n "${name}" ]] || continue
+        if [[ "${name}" == */* ]]; then
+            if [[ "${name%%/*}" != "${ACCOUNT}" ]]; then
+                printf 'TOKEN_CHECK_TARGETS names %s, outside %s, which its app can never reach\n' "${name}" \
+                    "${ACCOUNT}" >&2
+                exit 64
+            fi
+            name="${name#*/}"
+        fi
+        names+=("${name}")
+    done
+    mapfile -t names < <(printf '%s\n' "${names[@]}" | sort -u)
+    for name in "${names[@]}"; do
+        jq -n --arg r "${name}" '{repositories: [$r]}' >"${work}/request"
+        code="$(call -X POST -H "Authorization: Bearer ${jwt}" -H "Accept: application/vnd.github+json" \
+            -H "Content-Type: application/json" --data "@${work}/request" \
+            "${api}/app/installations/${installation}/access_tokens")" || exit 2
+        case "${code}" in
+            201) ;;
+            422) missed+=("${ACCOUNT}/${name}") ;;
+            *)
+                refusal "${code}" || inconclusive "a token for ${ACCOUNT}/${name} alone" "${code}"
+                missed+=("${ACCOUNT}/${name}")
+                ;;
+        esac
+    done
+    if ((${#missed[@]} == 0)); then
+        passed unreachable
+        return
+    fi
+    printf -v list '%s, ' "${missed[@]}"
+    raise unreachable "app ${APP_ID} can't reach ${list%, }: GitHub refused it a token for each"
 }
 
 # check_rotation warns before an app key's rotation date, and after it; a date beyond the margin clears both.
@@ -258,6 +351,123 @@ check_token() {
         raise expiring "ADD_TO_PROJECT_PAT expires on ${expiry}, in ${left} days"
     else
         passed expiring expired
+    fi
+}
+
+# azure_skipped says why the Azure check stopped short, leaving the sign-in's and the deployment token's alerts as they
+# are, and marks the run incomplete: the service answering with something that proves nothing about the credentials.
+azure_skipped() {
+    printf 'Azure answered %s with HTTP %s, which proves nothing about the credentials;' "$1" "$2" >&2
+    printf " the sign-in's and the deployment token's alerts stay as they are\n" >&2
+    incomplete=1
+}
+
+# check_azure_expiry warns before the Azure service principal's secret expires, and after, from the date the repository
+# variable AZURE_CREDENTIALS_EXPIRES records; a date beyond the margin clears both.
+check_azure_expiry() {
+    local left
+    if [[ -z "${AZURE_CREDENTIALS_EXPIRES:-}" ]]; then
+        raise azure-expiry-unset "the repository variable AZURE_CREDENTIALS_EXPIRES, the date" \
+            "AZURE_CREDENTIALS's secret expires, isn't set"
+        return
+    fi
+    left="$(days_until "${AZURE_CREDENTIALS_EXPIRES}")" || {
+        raise azure-expiry-unset "AZURE_CREDENTIALS_EXPIRES, ${AZURE_CREDENTIALS_EXPIRES}, isn't a date"
+        return
+    }
+    if ((left < 0)); then
+        raise azure-expired "AZURE_CREDENTIALS's secret expired on ${AZURE_CREDENTIALS_EXPIRES:0:10}"
+    elif ((left <= margin)); then
+        raise azure-expiring "AZURE_CREDENTIALS's secret expires on ${AZURE_CREDENTIALS_EXPIRES:0:10}, in ${left} days"
+    else
+        passed azure-expiring azure-expired azure-expiry-unset
+    fi
+}
+
+# check_azure proves the Azure credentials the static site AZURE_STATIC_SITE deploys with: the service principal signs
+# in, and the deployment token stored is the site's current one. Signing in clears the sign-in conditions; the token
+# matching clears the deployment token's.
+check_azure() {
+    local client secret tenant subscription code access site said
+    check_azure_expiry
+    if [[ -z "${AZURE_CREDENTIALS:-}" ]]; then
+        raise azure-missing "the repository secret AZURE_CREDENTIALS isn't set"
+        return
+    fi
+    client="$(jq -r '.clientId // empty' <<<"${AZURE_CREDENTIALS}" 2>/dev/null)"
+    secret="$(jq -r '.clientSecret // empty' <<<"${AZURE_CREDENTIALS}" 2>/dev/null)"
+    tenant="$(jq -r '.tenantId // empty' <<<"${AZURE_CREDENTIALS}" 2>/dev/null)"
+    subscription="$(jq -r '.subscriptionId // empty' <<<"${AZURE_CREDENTIALS}" 2>/dev/null)"
+    if [[ -z "${client}" || -z "${secret}" || -z "${tenant}" || -z "${subscription}" ]]; then
+        raise azure-refused "AZURE_CREDENTIALS isn't the JSON azure/login reads: it needs clientId, clientSecret," \
+            "tenantId and subscriptionId"
+        return
+    fi
+    (umask 077 && jq -rn --arg c "${client}" --arg s "${secret}" --arg scope "${azure_api}/.default" \
+        '"client_id=\($c|@uri)&client_secret=\($s|@uri)&grant_type=client_credentials&scope=\($scope|@uri)"' \
+        >"${work}/azure-form")
+    code="$(call -X POST -H "Content-Type: application/x-www-form-urlencoded" --data "@${work}/azure-form" \
+        "${azure_login}/${tenant}/oauth2/v2.0/token")" || {
+        incomplete=1
+        return
+    }
+    if [[ "${code}" == 400 || "${code}" == 401 ]]; then
+        said="$(jq -r '.error_description // .error // empty' "${work}/body" 2>/dev/null | head -n 1 | cut -c1-200)"
+        raise azure-refused "Azure refused AZURE_CREDENTIALS: HTTP ${code}${said:+ (${said})}"
+        return
+    fi
+    access="$(jq -r '.access_token // empty' "${work}/body" 2>/dev/null)"
+    if [[ "${code}" != 200 || -z "${access}" ]]; then
+        azure_skipped "the service principal's sign-in" "${code}"
+        return
+    fi
+    passed azure-missing azure-refused
+    if [[ -z "${AZURE_STATIC_WEB_APPS_API_TOKEN:-}" ]]; then
+        raise deploy-token-missing "the repository secret AZURE_STATIC_WEB_APPS_API_TOKEN isn't set"
+        return
+    fi
+    code="$(call -H "Authorization: Bearer ${access}" \
+        "${azure_api}/subscriptions/${subscription}/providers/Microsoft.Web/staticSites?api-version=2022-09-01")" || {
+        incomplete=1
+        return
+    }
+    case "${code}" in
+        200) ;;
+        401 | 403)
+            raise azure-short "AZURE_CREDENTIALS can't read the subscription's static sites: HTTP ${code}"
+            return
+            ;;
+        *)
+            azure_skipped "the list of static sites" "${code}"
+            return
+            ;;
+    esac
+    site="$(jq -r --arg n "${AZURE_STATIC_SITE}" '.value[]? | select(.name == $n) | .id' "${work}/body" | head -n 1)"
+    if [[ -z "${site}" ]]; then
+        raise azure-short "AZURE_CREDENTIALS sees no static site named ${AZURE_STATIC_SITE}"
+        return
+    fi
+    code="$(call -X POST -H "Authorization: Bearer ${access}" -H "Content-Length: 0" \
+        "${azure_api}${site}/listSecrets?api-version=2022-09-01")" || {
+        incomplete=1
+        return
+    }
+    case "${code}" in
+        200) ;;
+        401 | 403)
+            raise azure-short "AZURE_CREDENTIALS can't read ${AZURE_STATIC_SITE}'s deployment token: HTTP ${code}"
+            return
+            ;;
+        *)
+            azure_skipped "${AZURE_STATIC_SITE}'s deployment token" "${code}"
+            return
+            ;;
+    esac
+    if [[ "$(jq -r '.properties.apiKey // empty' "${work}/body")" == "${AZURE_STATIC_WEB_APPS_API_TOKEN}" ]]; then
+        passed azure-short deploy-token-missing deploy-token-stale
+    else
+        raise deploy-token-stale "AZURE_STATIC_WEB_APPS_API_TOKEN isn't ${AZURE_STATIC_SITE}'s current deployment" \
+            "token: it was reset in Azure after it was stored"
     fi
 }
 
@@ -327,8 +537,8 @@ listed() {
     fi
 }
 
-# The words that mark a line naming an issue a run didn't place, as this script writes them.
-marker="\\*\\*#[0-9]+\\*\\* (wasn't added|may not have been placed)"
+# The words that mark a line a report writes, an issue's or a workflow's, which a duplicate carries.
+reported="\\*\\*[^*]+\\*\\* (wasn't added|may not have been placed|failed in)"
 
 # history prints an alert's body and comments, one after another; it returns 1 when the alert can't be read.
 history() {
@@ -357,23 +567,77 @@ failed() {
     broken=1
 }
 
+# mint_token mints the organization app's installation token into app_token, for writing an issue field, and returns 1
+# when it can't: the secrets unset, the key refused, the app not installed, or GitHub not answering. It raises nothing:
+# proving the app is the credentials check's work.
+mint_token() {
+    [[ -z "${app_token}" ]] || return 0
+    [[ -n "${APP_ID:-}" && -n "${APP_PRIVATE_KEY:-}" ]] || return 1
+    local jwt code installation
+    jwt="$(app_jwt)" || return 1
+    code="$(call -H "Authorization: Bearer ${jwt}" -H "Accept: application/vnd.github+json" \
+        "${api}/app/installations")" || return 1
+    [[ "${code}" == 200 ]] || return 1
+    installation="$(jq -r --arg a "${ACCOUNT}" \
+        '.[] | select((.account.login | ascii_downcase) == ($a | ascii_downcase)) | .id' "${work}/body" | head -n 1)"
+    [[ -n "${installation}" ]] || return 1
+    code="$(call -X POST -H "Authorization: Bearer ${jwt}" -H "Accept: application/vnd.github+json" \
+        "${api}/app/installations/${installation}/access_tokens")" || return 1
+    [[ "${code}" == 201 ]] || return 1
+    app_token="$(jq -r '.token // ""' "${work}/body")"
+    [[ -n "${app_token}" ]]
+}
+
+# resolve sets a duplicate alert's Resolution to Duplicate, as the issue standard has every duplicate closed: in a user
+# account, the resolution:duplicate label, with the run's own token; in an organization, its Resolution issue field,
+# with the app's installation token. It returns 1 when it can't.
+resolve() {
+    local number="$1" field code
+    if [[ "${KIND}" == user ]]; then
+        gh issue edit "${number}" --repo "${REPOSITORY}" --add-label resolution:duplicate >/dev/null
+        return
+    fi
+    mint_token || return 1
+    code="$(call -H "Authorization: Bearer ${app_token}" -H "Accept: application/vnd.github+json" \
+        "${api}/orgs/${ACCOUNT}/issue-fields")" || return 1
+    [[ "${code}" == 200 ]] || return 1
+    field="$(jq -r '.[] | select(.name == "Resolution") | .id' "${work}/body" | head -n 1)"
+    [[ -n "${field}" ]] || return 1
+    jq -cn --argjson f "${field}" '{issue_field_values: [{field_id: $f, value: "Duplicate"}]}' >"${work}/request"
+    code="$(call -X POST -H "Authorization: Bearer ${app_token}" -H "Accept: application/vnd.github+json" \
+        -H "Content-Type: application/json" --data "@${work}/request" \
+        "${api}/repos/${REPOSITORY}/issues/${number}/issue-field-values")" || return 1
+    [[ "${code}" == 2* ]]
+}
+
 # incident_for prints the number of a condition's open incident, or nothing when there is none, and returns 1 when the
 # lookup fails, never taking a failure for none. Two runs at once can each find none and each open one; the oldest is
-# kept and every other closed as its duplicate, so that one is left open. Each issue a duplicate names as missed is
-# carried to the one kept first, with its run, so that none is lost; a duplicate carried but not closed is carried
-# again by the next run, which names each issue once all the same.
+# kept and every other closed as its duplicate, so that one is left open. Each line a duplicate's reports wrote, an
+# issue missed or a workflow failed, is carried to the one kept first, unless it has the line already: a retry carries
+# what was added since, and repeats nothing a carry whose answer was lost delivered. A duplicate's Resolution is set to
+# Duplicate before it is closed; one whose Resolution can't be set stays open, marked in ${work}/unresolved, and the
+# next run tries again.
 incident_for() {
-    local numbers first number carried
+    local numbers first number carried kept fresh line
     numbers="$(gh issue list --repo "${REPOSITORY}" --label "${label}" --state open --json number,title --limit 100 \
         --jq "[.[] | select(.title == \"$(title_of "$1")\") | .number] | sort | .[]")" || return 1
     first="$(head -n 1 <<<"${numbers}")"
     for number in $(tail -n +2 <<<"${numbers}"); do
         carried="$(history "${number}")" || return 1
-        carried="$(grep -E "^${marker}" <<<"${carried}" || true)"
-        if [[ -n "${carried}" ]]; then
-            carried="$(printf 'Carried from #%s, which a run opened at the same time:\n\n%s\n' "${number}" \
-                "${carried}")"
+        kept="$(history "${first}")" || return 1
+        fresh=""
+        while IFS= read -r line; do
+            [[ -z "${line}" ]] || grep -qxF -- "${line}" <<<"${kept}" || fresh+="${line}"$'\n'
+        done < <(grep -E "^${reported}" <<<"${carried}" || true)
+        if [[ -n "${fresh}" ]]; then
+            carried="$(printf 'Carried from #%s, which a run opened at the same time:\n\n%s' "${number}" "${fresh}")"
             gh issue comment "${first}" --repo "${REPOSITORY}" --body "${carried}" >/dev/null || return 1
+        fi
+        if ! resolve "${number}"; then
+            printf "#%s, a duplicate of #%s, stays open: its Resolution couldn't be set to Duplicate\n" "${number}" \
+                "${first}" >&2
+            touch "${work}/unresolved"
+            continue
         fi
         gh issue close "${number}" --repo "${REPOSITORY}" --reason completed \
             --comment "Duplicate of #${first}, opened by a run at the same time; #${first} carries this alert." \
@@ -386,6 +650,12 @@ incident_for() {
 # it found, the condition $1 or nothing wrong; the first such line on an alert, when $2 is first, says what to do.
 miss() {
     local line
+    if [[ -z "${ISSUE:-}" ]]; then
+        line="**${WORKFLOW}** failed in ${run}. A check right after found $1."
+        [[ "$2" != first ]] || line+=" Rerun it from its page once the cause is fixed."
+        printf '%s' "${line}"
+        return
+    fi
     if [[ "${CLASSIFIED:-true}" == true ]]; then
         line="**#${ISSUE}** wasn't added to the Triage project in ${run}"
     else
@@ -476,24 +746,50 @@ keep() {
 # The conditions that keep a token from signing in, any of which explains a new issue missing Triage; a warning ahead of
 # an expiry or a rotation explains nothing.
 case "${KIND}" in
-    organization) causes=(missing refused not-installed short) ;;
+    organization) causes=(missing refused not-installed short unreachable) ;;
     user) causes=(missing refused wrong-account short expired) ;;
     *)
         printf 'KIND is organization or user, not %s\n' "${KIND}" >&2
         exit 64
         ;;
 esac
+azure_causes=(azure-missing azure-refused azure-short azure-expired deploy-token-missing deploy-token-stale)
+azure_conditions=("${azure_causes[@]}" azure-expiring azure-expiry-unset)
 
 case "${mode}" in
     report)
-        : "${ISSUE:?}"
-        if [[ "${KIND}" == organization ]]; then check_app; else check_token; fi
-        explained=0
-        for condition in "${causes[@]}"; do
-            [[ -z "${found[${condition}]+held}" ]] || explained=1
-        done
-        ((explained)) || raise not-triaged "#${ISSUE} wasn't added to Triage"
-        conditions=("${causes[@]}" not-triaged)
+        if [[ -z "${ISSUE:-}" ]]; then
+            : "${WORKFLOW:?}" "${CHECKS:?}"
+            conditions=()
+            for check in ${CHECKS//,/ }; do
+                case "${check}" in
+                    app)
+                        check_app
+                        conditions+=(missing refused not-installed short unreachable)
+                        ;;
+                    token)
+                        check_token
+                        conditions+=(missing refused wrong-account short expired)
+                        ;;
+                    azure)
+                        check_azure
+                        conditions+=("${azure_causes[@]}")
+                        ;;
+                    *)
+                        printf 'CHECKS names app, token or azure, not %s\n' "${check}" >&2
+                        exit 64
+                        ;;
+                esac
+            done
+        else
+            if [[ "${KIND}" == organization ]]; then check_app; else check_token; fi
+            explained=0
+            for condition in "${causes[@]}"; do
+                [[ -z "${found[${condition}]+held}" ]] || explained=1
+            done
+            ((explained)) || raise not-triaged "#${ISSUE} wasn't added to Triage"
+            conditions=("${causes[@]}" not-triaged)
+        fi
         ;;
     placed)
         : "${ISSUE:?}"
@@ -508,6 +804,10 @@ case "${mode}" in
         else
             check_token
             conditions=("${causes[@]}" expiring not-triaged)
+        fi
+        if [[ -n "${AZURE_STATIC_SITE:-}" ]]; then
+            check_azure
+            conditions+=("${azure_conditions[@]}")
         fi
         check_watched
         for repository in "${watched[@]}"; do
@@ -529,6 +829,7 @@ done
 for condition in "${!found[@]}"; do
     printf '%s: %s\n' "${condition}" "${found[${condition}]}"
 done
+[[ ! -e "${work}/unresolved" ]] || failed "a duplicate alert" "setting its Resolution"
 ((broken == 0)) || exit 3
 ((${#found[@]} == 0)) || exit 1
 ((incomplete == 0)) || exit 2
